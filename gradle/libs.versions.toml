@@ -1,0 +1,28 @@
+[versions]
+agp = "8.8.2"
+kotlin = "2.1.10"
+coreKtx = "1.16.0"
+appcompat = "1.7.0"
+material = "1.12.0"
+activity = "1.10.1"
+lifecycle = "2.9.0"
+firebase-bom = "33.10.0"
+health-connect = "1.1.0-alpha12"
+acme4j = "3.5.0"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+androidx-activity = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity" }
+androidx-lifecycle-runtime = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-service = { group = "androidx.lifecycle", name = "lifecycle-service", version.ref = "lifecycle" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
+health-connect = { group = "androidx.health.connect", name = "connect-client", version.ref = "health-connect" }
+acme4j-client = { group = "org.shredzone.acme4j", name = "acme4j-client", version.ref = "acme4j" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
