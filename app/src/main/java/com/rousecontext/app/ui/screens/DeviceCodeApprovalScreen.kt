@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -15,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -32,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.app.ui.theme.TealPrimary
 
 @Immutable
 data class DeviceCodeApprovalState(
@@ -71,7 +74,7 @@ fun DeviceCodeApprovalScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = "Enter the code shown by the client:",
@@ -79,7 +82,7 @@ fun DeviceCodeApprovalScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
             // Code input boxes
             CodeInputRow(
@@ -93,20 +96,24 @@ fun DeviceCodeApprovalScreen(
                 }
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(40.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            Button(
+                onClick = onApprove,
+                enabled = code.length == state.codeLength && !state.isApproving,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = TealPrimary)
             ) {
-                Button(
-                    onClick = onApprove,
-                    enabled = code.length == state.codeLength && !state.isApproving
-                ) {
-                    Text("Approve")
-                }
-                OutlinedButton(onClick = onDeny) {
-                    Text("Deny")
-                }
+                Text("Approve", modifier = Modifier.padding(vertical = 4.dp))
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = onDeny,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Deny", modifier = Modifier.padding(vertical = 4.dp))
             }
         }
     }
@@ -129,7 +136,7 @@ private fun CodeInputRow(code: String, length: Int, onCodeChanged: (String) -> U
                         CodeBox(char = code.getOrNull(i))
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
                 // Second row (4 boxes)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (i in length / 2 until length) {
@@ -145,21 +152,21 @@ private fun CodeInputRow(code: String, length: Int, onCodeChanged: (String) -> U
 private fun CodeBox(char: Char?) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(56.dp)
             .border(
                 width = 2.dp,
                 color = if (char != null) {
-                    MaterialTheme.colorScheme.primary
+                    TealPrimary
                 } else {
                     MaterialTheme.colorScheme.outline
                 },
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(12.dp)
             ),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = char?.toString() ?: "",
-            style = MaterialTheme.typography.headlineSmall
+            style = MaterialTheme.typography.headlineMedium
         )
     }
 }

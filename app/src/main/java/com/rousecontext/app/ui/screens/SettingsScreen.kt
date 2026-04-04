@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -28,11 +29,11 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -42,9 +43,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.app.ui.theme.TealPrimary
 
 @Immutable
 data class SettingsState(
@@ -177,7 +181,10 @@ fun SettingsScreen(
                         }
                         TextButton(
                             onClick = onGenerateNewAddress,
-                            enabled = state.canRotateAddress
+                            enabled = state.canRotateAddress,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = TealPrimary
+                            )
                         ) {
                             Text("Rotate")
                         }
@@ -191,7 +198,7 @@ fun SettingsScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
+                        containerColor = Color(0xFF3A2800)
                     )
                 ) {
                     Row(
@@ -201,21 +208,27 @@ fun SettingsScreen(
                         Icon(
                             Icons.Default.Warning,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
+                            tint = AmberAccent
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Battery optimization",
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = AmberAccent
                             )
                             Text(
                                 "Disable to ensure reliable wake-ups.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                color = Color(0xFFFFE0A0)
                             )
                         }
-                        OutlinedButton(onClick = onFixBatteryOptimization) {
+                        OutlinedButton(
+                            onClick = onFixBatteryOptimization,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = AmberAccent
+                            )
+                        ) {
                             Text("Fix this")
                         }
                     }
@@ -275,10 +288,11 @@ private fun SettingsDropdown(
             expanded = expanded,
             onExpandedChange = { expanded = it }
         ) {
-            TextField(
+            OutlinedTextField(
                 value = selected,
                 onValueChange = {},
                 readOnly = true,
+                singleLine = true,
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
                 modifier = Modifier
                     .width(150.dp)

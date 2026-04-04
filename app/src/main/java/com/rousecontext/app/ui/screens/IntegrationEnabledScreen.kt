@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.app.ui.theme.TealPrimary
 
 @Immutable
 data class IntegrationEnabledState(
@@ -125,7 +126,11 @@ fun IntegrationEnabledScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color = TealPrimary,
+                        strokeWidth = 2.dp
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Waiting for connection...",

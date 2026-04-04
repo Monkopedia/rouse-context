@@ -186,25 +186,16 @@ fun MainDashboardScreen(
                 }
             }
 
-            // Recent activity
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "Recent Activity",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
-            if (state.recentActivity.isEmpty()) {
+            // Recent activity (only shown when there are entries)
+            if (state.recentActivity.isNotEmpty()) {
                 item {
+                    Spacer(modifier = Modifier.height(24.dp))
                     Text(
-                        text = "(empty)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "Recent Activity",
+                        style = MaterialTheme.typography.titleMedium
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
-            } else {
                 items(state.recentActivity) { entry ->
                     ActivityRow(entry)
                 }

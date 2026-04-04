@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.app.ui.theme.TealPrimary
 
 sealed interface SettingUpVariant {
     data object FirstTime : SettingUpVariant
@@ -60,7 +61,13 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
             ) {
                 when (state.variant) {
                     is SettingUpVariant.FirstTime, is SettingUpVariant.Refreshing -> {
-                        CircularProgressIndicator(modifier = Modifier.size(48.dp))
+                        CircularProgressIndicator(
+                            progress = { 0.7f },
+                            color = TealPrimary,
+                            trackColor = TealPrimary.copy(alpha = 0.2f),
+                            modifier = Modifier.size(64.dp),
+                            strokeWidth = 5.dp,
+                        )
                     }
                     is SettingUpVariant.RateLimited -> {
                         Icon(

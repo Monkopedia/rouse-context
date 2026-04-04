@@ -26,9 +26,9 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -161,14 +161,14 @@ fun AuditHistoryScreen(
                             Text(
                                 text = group.dateLabel,
                                 style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier.padding(vertical = 8.dp)
+                                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
                             )
                         }
                         item {
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Column {
                                     group.entries.forEachIndexed { index, entry ->
-                                        Column(modifier = Modifier.padding(12.dp)) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -237,12 +237,13 @@ private fun FilterDropdown(
         onExpandedChange = { expanded = it },
         modifier = modifier
     ) {
-        TextField(
+        OutlinedTextField(
             value = selected,
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            singleLine = true,
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable)
         )
         ExposedDropdownMenu(

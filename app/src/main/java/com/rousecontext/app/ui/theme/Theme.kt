@@ -8,14 +8,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 // Brand colors
-val TealPrimary = Color(0xFF1D9E75)
+val TealPrimary = Color(0xFF1D9E75)       // interactive/action color
 val TealLight = Color(0xFF5DCAA5)
 val TealDeep = Color(0xFF0F6E56)
-val AmberAccent = Color(0xFFEF9F27)
+val AmberAccent = Color(0xFFEF9F27)       // brand accent, highlights, indicators
 val AmberDark = Color(0xFFBA7517)
+val BackgroundNavy = Color(0xFF0A1628)    // primary dark surface
 val BackgroundBlack = Color(0xFF111111)
-val BackgroundNavy = Color(0xFF0A1628)
-val BackgroundTealDark = Color(0xFF0D1A16)
+val WarmWhite = Color(0xFFFAF8F4)         // light mode background
 
 private val DarkColorScheme = darkColorScheme(
     primary = TealPrimary,
@@ -28,9 +28,9 @@ private val DarkColorScheme = darkColorScheme(
     onSecondaryContainer = Color(0xFFFFE0A0),
     tertiary = TealLight,
     onTertiary = Color.Black,
-    background = BackgroundBlack,
+    background = BackgroundNavy,
     onBackground = Color(0xFFE2E2E2),
-    surface = BackgroundNavy,
+    surface = Color(0xFF0F1D2E),
     onSurface = Color(0xFFE2E2E2),
     surfaceVariant = Color(0xFF1A2A3A),
     onSurfaceVariant = Color(0xFFBBCCDD),
@@ -51,7 +51,7 @@ private val LightColorScheme = lightColorScheme(
     onSecondaryContainer = Color(0xFF3A2800),
     tertiary = TealDeep,
     onTertiary = Color.White,
-    background = Color(0xFFF8FAF9),
+    background = WarmWhite,
     onBackground = Color(0xFF1A1C1B),
     surface = Color.White,
     onSurface = Color(0xFF1A1C1B),
@@ -64,10 +64,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun RouseContextTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
+fun RouseContextTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     MaterialTheme(
