@@ -18,9 +18,11 @@ complexity:
   active: true
   LongMethod:
     threshold: 60
+    ignoreAnnotated: ['Composable']
   LongParameterList:
     functionThreshold: 8
     constructorThreshold: 10
+    ignoreAnnotated: ['Composable']
   TooManyFunctions:
     active: false
 
@@ -42,8 +44,10 @@ style:
 naming:
   active: true
   FunctionNaming:
-    # Allow backtick-quoted test names
-    ignoreAnnotated: ['Test']
+    # Allow backtick-quoted test names and Composable functions
+    ignoreAnnotated: ['Test', 'Composable']
+  MatchingDeclarationName:
+    active: false
 
 potential-bugs:
   active: true
