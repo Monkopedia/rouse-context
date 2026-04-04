@@ -142,7 +142,7 @@ audit_log
   arguments_json: String
   result_json: String
   duration_ms: Long
-  session_id: String     // which MuxStream this came from
+  session_id: String     // UUID from MuxStream.sessionId
   provider_id: String    // which McpServerProvider handled it
 ```
 

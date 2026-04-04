@@ -65,7 +65,7 @@ In-memory:
 - `HashMap<stream_id, ClientConnection>` — active client TCP sockets per device
 - Device record cache with TTL (from Firestore)
 
-Stream IDs are assigned per-mux-connection, incrementing u32 starting at 1. Reset when mux connection drops. Max concurrent streams per device: 8 (configurable).
+Stream IDs are u32, assigned per-mux-connection, incrementing from 1. Reset when mux connection drops. Max concurrent streams per device: 8 (configurable). Stream IDs are mux-level routing numbers only — the device generates a UUID per stream for audit trail purposes.
 
 ## API Endpoints
 
@@ -155,12 +155,15 @@ Response:
 ```
 
 ### `POST /wake/:subdomain`
-Pre-flight wakeup.
+Pre-flight wakeup. No auth required but rate-limited.
+
+Rate limit: 6 requests per subdomain per minute (in-memory token bucket). Returns 429 if exceeded.
 
 Relay:
-1. Check if device has active mux connection → if yes, return 200 immediately
-2. If not, fire FCM, wait for device to connect (up to 20s)
-3. Return 200 when connected, 504 on timeout
+1. Check rate limit → if exceeded, return 429
+2. Check if device has active mux connection → if yes, return 200 immediately
+3. If not, fire FCM, wait for device to connect (up to 20s)
+4. Return 200 when connected, 504 on timeout
 
 ## ACME Orchestration
 

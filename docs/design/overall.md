@@ -203,9 +203,53 @@ MuxStream (raw bytes from relay)
 
 Ktor interceptor checks Bearer token on all routes except OAuth endpoints (`/.well-known/*`, `/device/authorize`, `/token`). Returns 401 with `WWW-Authenticate` header pointing to OAuth metadata if token missing or invalid.
 
+### mcp-core Interfaces
+
+```kotlin
+/** Live registry of enabled integrations. App implements, mcp-core queries per-request. */
+interface ProviderRegistry {
+    fun providerForPath(path: String): McpServerProvider?
+    fun enabledPaths(): Set<String>
+}
+
+/** Token verification/management. App implements backed by Room. */
+interface TokenStore {
+    fun validateToken(token: String): Boolean
+    fun createToken(clientId: String): String
+    fun revokeToken(token: String)
+    fun listTokens(): List<TokenInfo>
+}
+
+class McpSession(
+    private val providers: ProviderRegistry,
+    private val tokenStore: TokenStore,
+    private val auditListener: AuditListener? = null,
+) {
+    /** Runs Ktor HTTP server over the stream. Suspends until stream closes. */
+    suspend fun run(input: InputStream, output: OutputStream)
+}
+```
+
+`McpSession` is long-lived and shared across streams. The app calls `session.run(stream.input, stream.output)` for each incoming `MuxStream`. Provider changes (enable/disable) are reflected immediately via `ProviderRegistry` — no session reconstruction needed.
+
 ### Per-stream HTTP server
 
-Each `MuxStream` gets its own Ktor server instance (lightweight — Ktor can serve over arbitrary I/O). When the stream closes, the server instance is disposed. No shared state between stream servers except the token store and provider registry.
+Each `run()` call creates a lightweight Ktor server instance over the provided I/O. When the stream closes, the server instance is disposed. Shared state across streams: `ProviderRegistry`, `TokenStore`, `AuditListener`.
+
+### OAuth metadata response (RFC 8414)
+
+```json
+{
+  "issuer": "https://brave-falcon.rousecontext.com",
+  "device_authorization_endpoint": "https://brave-falcon.rousecontext.com/device/authorize",
+  "token_endpoint": "https://brave-falcon.rousecontext.com/token",
+  "grant_types_supported": ["urn:ietf:params:oauth:grant-type:device_code"],
+  "response_types_supported": [],
+  "code_challenge_methods_supported": []
+}
+```
+
+Issuer is the device's subdomain URL. Static per device.
 
 ## Integration Model
 
@@ -312,67 +356,70 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 ### Wake pre-flight
 11. `/wake` for offline device → FCM sent → device connects → 200
 12. `/wake` for already-connected device → immediate 200
+13. `/wake` spammed > 6 times in 1 minute → 429 rate limited
 
 ### Edge cases
-13. FCM timeout (device doesn't connect within 20s) → relay closes client connection
-14. Device sends ERROR(STREAM_REFUSED) → relay closes client
-15. Device sends DATA for unknown stream_id → relay sends ERROR(UNKNOWN_STREAM)
-16. Mux WebSocket drops during active sessions → relay closes all client connections for that device
-17. No mid-stream reconnect — clean teardown, client retries from scratch
-18. Relay restart → all mux connections drop → devices reconnect on next FCM
+14. FCM timeout (device doesn't connect within 20s) → relay closes client connection
+15. Device sends ERROR(STREAM_REFUSED) → relay closes client
+16. Device sends DATA for unknown stream_id → relay sends ERROR(UNKNOWN_STREAM)
+17. Mux WebSocket drops during active sessions → relay closes all client connections for that device
+18. No mid-stream reconnect — clean teardown, client retries from scratch
+19. Relay restart → all mux connections drop → devices reconnect on next FCM
 
 ### Cert renewal
-19. Proactive renewal at 14 days → new cert issued, silent
-20. Second chance at 7 days → relay FCM push, warning notification
-21. Expired cert → device renews via Firebase + signature path → new cert → reconnects
-22. Expired renewal with wrong Firebase UID → rejected
-23. Expired renewal with invalid signature → rejected
-24. ACME failure during renewal → error, device retries with backoff
+20. Proactive renewal at 14 days → new cert issued, silent
+21. Second chance at 7 days → relay FCM push (`type: "renew"`, normal priority), warning notification
+22. Relay only nudges once per expiry cycle (tracks `renewal_nudge_sent`, cleared on successful renewal)
+23. Expired cert → device renews via Firebase + signature path → new cert → reconnects
+24. Expired renewal with wrong Firebase UID → rejected
+25. Expired renewal with invalid signature → rejected
+26. ACME failure during renewal → error, device retries with backoff
+27. Device validates renewed cert CN/SAN matches stored subdomain before storing
 
 ### ACME rate limits
-25. Registration hits Let's Encrypt rate limit → device gets `rate_limited` error + retry_after
-26. Device shows "delayed" notification, schedules retry
-27. Admin receives automated alert
-28. Quota resets → relay processes pending queue, sends FCM to blocked devices
-29. Subdomain rotation hits rate limit → same handling as registration
+28. Registration hits Let's Encrypt rate limit → device gets `rate_limited` error + retry_after
+29. Device shows "delayed" notification, schedules retry
+30. Admin receives automated alert
+31. Quota resets → relay processes pending queue, sends FCM to blocked devices
+32. Subdomain rotation hits rate limit → same handling as registration
 
 ### FCM token refresh
-30. Token rotates → device updates Firestore → next FCM uses new token
-31. Token rotates during active mux → Firestore updated, no session disruption
+33. Token rotates → device updates Firestore → next FCM uses new token
+34. Token rotates during active mux → Firestore updated, no session disruption
 
 ### Security
-32. Mux `/ws` with no client cert → 401 rejected
-33. Mux `/ws` with invalid/untrusted client cert → rejected
-34. Mux `/ws` with valid client cert → mux established
-35. `/register` with no client cert → accepted (Firebase token auth)
-36. `/renew` with valid client cert → mTLS auth path used
-37. `/renew` with no client cert → Firebase + signature auth path used
-38. `/renew` with expired client cert → falls back to Firebase + signature path
-39. Mux with cert for different subdomain → maps to that subdomain, can't spoof another
-40. `/register` with stolen Firebase token but different keypair → new subdomain, can't steal existing
-41. Replayed old CSR to `/renew` → signature mismatch, rejected
+35. Mux `/ws` with no client cert → 401 rejected
+36. Mux `/ws` with invalid/untrusted client cert → rejected
+37. Mux `/ws` with valid client cert → mux established
+38. `/register` with no client cert → accepted (Firebase token auth)
+39. `/renew` with valid client cert → mTLS auth path used
+40. `/renew` with no client cert → Firebase + signature auth path used
+41. `/renew` with expired client cert → falls back to Firebase + signature path
+42. Mux with cert for different subdomain → maps to that subdomain, can't spoof another
+43. `/register` with stolen Firebase token but different keypair → new subdomain, can't steal existing
+44. Replayed old CSR to `/renew` → signature mismatch, rejected
 
 ### OAuth / device code auth
-42. First connection — no token → 401 → discovery → device code → token → MCP works
-43. Subsequent connection — valid token → immediate MCP session
-44. Revoked token → 401 → re-auth
-45. Expired device_code (10 min) → client gets `expired_token`, retries
-46. Multiple authorized clients — each has own token, revoking one doesn't affect others
-47. Concurrent device code requests from two clients → independent codes, independent approvals
-48. Token revoked during active session → next request gets 401, current request completes
+45. First connection — no token → 401 → discovery → device code → token → MCP works
+46. Subsequent connection — valid token → immediate MCP session
+47. Revoked token → 401 → re-auth
+48. Expired device_code (10 min) → client gets `expired_token`, retries
+49. Multiple authorized clients — each has own token, revoking one doesn't affect others
+50. Concurrent device code requests from two clients → independent codes, independent approvals
+51. Token revoked during active session → next request gets 401, current request completes
 
 ### Integration routing
-49. Client connects to `/health` → routes to Health Connect provider
-50. Two clients to different integration paths simultaneously → independent sessions
-51. Disabled integration → 404, app notification triggered
-52. Auth token works across all integration paths on same device
-53. Unknown path → 404
+52. Client connects to `/health` → routes to Health Connect provider
+53. Two clients to different integration paths simultaneously → independent sessions
+54. Disabled integration → 404, app notification triggered
+55. Auth token works across all integration paths on same device
+56. Unknown path → 404
 
 ### Subdomain rotation
-54. Rotation succeeds → new subdomain, old invalidated, tokens revoked
-55. Second rotation within 30 days → rejected by relay
-56. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
-57. Rotation spam protection → relay enforces 30-day cooldown server-side
+57. Rotation succeeds → new subdomain, old invalidated, tokens revoked
+58. Second rotation within 30 days → rejected by relay
+59. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
+60. Rotation spam protection → relay enforces 30-day cooldown server-side
 
 ## Still Needs Design
 
