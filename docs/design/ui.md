@@ -9,11 +9,12 @@
 5. Integration Setup: Integration-Specific (delegates to McpIntegration.OnboardingFlow)
 6. Integration Setup: Setting Up (cert issuance spinner)
 7. Integration Setup: Integration Enabled (URL + waiting for client)
-8. Device Code Approval (full screen)
-9. Connection Confirmed
-10. Audit History
-11. Authorized Clients
-12. Settings
+8. Integration Detail (Active integration — URL, recent activity, disable)
+9. Device Code Approval (full screen)
+10. Connection Confirmed
+11. Audit History
+12. Authorized Clients
+13. Settings
 
 ## Integration States
 
@@ -335,6 +336,39 @@ Auto-advances when cert becomes valid. If user leaves (Cancel or background), in
 
 If device code auth arrives while on this screen, auto-navigates to Device Code Approval. Cancel goes to dashboard (integration stays Pending, tappable to return here).
 
+### Integration Detail (Active)
+
+Shown when tapping an Active integration on the dashboard:
+
+```
+┌─────────────────────────────────────┐
+│     HEALTH CONNECT                   │
+│                                      │
+│   ● Active                           │
+│                                      │
+│   ┌─────────────────────────────┐    │
+│   │ https://brave-falcon.       │    │
+│   │ rousecontext.com/health     │    │
+│   │                      [Copy] │    │
+│   └─────────────────────────────┘    │
+│                                      │
+│   Recent Activity                    │
+│   10:32 AM  get_steps       142ms    │
+│   10:31 AM  get_sleep        89ms    │
+│   [View all →]                       │
+│                                      │
+│                                      │
+│   [ Disable Integration ]            │
+│                                      │
+└──────────────────────────────────────┘
+```
+
+Disable removes the integration from the dashboard and puts it back in the Add picker. May also show integration-specific settings via `McpIntegration.SettingsContent()` above the disable button.
+
+Tapping a **Pending** integration on the dashboard navigates to whichever setup screen is appropriate:
+- Cert still issuing → Setting Up spinner
+- Cert ready, no client yet → Integration Enabled (URL + waiting)
+
 ### Device Code Approval (full screen)
 
 ```
@@ -362,7 +396,10 @@ If device code auth arrives while on this screen, auto-navigates to Device Code 
 └──────────────────────────────────────┘
 ```
 
-Reachable from: Integration Enabled screen (auto-navigate), notification tap, or any screen if auth request arrives. After approval, shows Connection Confirmed.
+**How the user gets here:**
+- If on the Integration Enabled (URL) screen when auth arrives → auto-navigates to this screen
+- All other cases → notification posted ("A client wants to connect"), user taps notification to open this screen
+- Multiple simultaneous auth requests → each posts its own notification, user approves them one at a time, first-come first-served
 
 ### Connection Confirmed
 
@@ -491,15 +528,15 @@ Welcome ──→ Main Dashboard
                 │                                                   │
                 │                                                   └──→ Setting Up (if cert needed)
                 │                                                            │
-                │                                                            └──→ Integration Enabled
+                │                                                            └──→ Integration Enabled (URL + waiting)
                 │                                                                      │
-                │                                                                      └──→ Device Code (if auth arrives)
+                │                                                                      └──→ Device Code (auto-navigate, ONLY from this screen)
                 │                                                                               │
                 │                                                                               └──→ Connected ──→ Dashboard
                 │
                 ├── [Pending integration] ──→ Setting Up or Integration Enabled (depending on cert state)
                 │
-                ├── [Active integration] ──→ Integration settings (via McpIntegration.SettingsContent)
+                ├── [Active integration] ──→ Integration Detail (URL, activity, settings, disable)
                 │
                 ├── bottom nav: Audit ──→ Audit History
                 │
@@ -512,6 +549,8 @@ Welcome ──→ Main Dashboard
                 └── notification tap (audit) ──→ Audit History (filtered by sessionId)
 ```
 
+Device code auth requests that arrive when the user is NOT on the Integration Enabled screen are surfaced via notification only. No forced navigation from other screens.
+
 ## ViewModels
 
 All constructor-injectable via Koin. Accept interfaces for mockability. Unit tested. Provide preset states for screenshot tests.
@@ -520,7 +559,8 @@ All constructor-injectable via Koin. Accept interfaces for mockability. Unit tes
 |---|---|---|
 | MainDashboardViewModel | TunnelClient.state, cert status, enabled integrations, recent audit | connection indicator, integration list, activity preview, cert banner |
 | AddIntegrationViewModel | available + disabled integrations | integration picker list |
-| IntegrationSetupViewModel | cert status, setup flow step | current step, progress, can advance |
+| IntegrationSetupViewModel | cert status, setup flow step, pending device code | current step, progress, auto-navigate to device code when on URL screen |
+| IntegrationDetailViewModel | integration state, recent audit for this provider | URL, activity, disable action |
 | DeviceCodeApprovalViewModel | pending device code request | user code input, validation, approve/deny |
 | AuditHistoryViewModel | audit DB queries | entries list, filters, empty state |
 | AuthorizedClientsViewModel | token store | client list, revoke actions |
