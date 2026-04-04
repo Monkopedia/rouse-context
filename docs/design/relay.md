@@ -32,17 +32,31 @@ Error codes: UNKNOWN_STREAM (0x01), STREAM_REFUSED (0x02), TIMEOUT (0x03), INTER
 
 WebSocket built-in ping/pong for keepalive (~30s). No application-level ping/pong.
 
-## SNI Parsing
+## Port 443 — SNI-Based Routing
 
-When a raw TCP connection arrives on port 443:
-1. Read enough bytes to parse the TLS ClientHello (buffer them)
-2. Extract SNI hostname from the ClientHello
-3. Strip subdomain from `{subdomain}.rousecontext.com`
-4. Look up device in local cache (falls back to Firestore)
-5. If device has active mux → assign stream ID, OPEN, forward buffered bytes
-6. If device offline → fire FCM, hold connection, wait up to 20s (configurable)
+All traffic arrives on port 443. The relay peeks at the TLS ClientHello to extract the SNI hostname and routes accordingly:
 
-The relay MUST NOT consume the ClientHello — it buffers and replays it to the device as the first DATA frame so the client↔device TLS handshake works.
+- **SNI = `relay.rousecontext.com`** → terminate TLS (relay's own cert), serve HTTP. Routes: `/ws` (mux WebSocket), `/register`, `/renew`, `/wake/:subdomain`, `/status`.
+- **SNI = `{subdomain}.rousecontext.com`** → passthrough mode. Buffer ClientHello, look up device, splice to mux stream.
+- **SNI unknown** → close connection.
+
+No separate API port. One port, two behaviors.
+
+### TLS Configuration
+
+- Relay's own cert for `relay.rousecontext.com`: manually provisioned via certbot, deployed from GitHub Secrets alongside the binary. Referenced in `relay.toml` (`tls.cert_path`, `tls.key_path`). Renewed via GitHub Actions scheduled workflow (weekly certbot run).
+- Client cert: **optional** at TLS level (`rustls` `WebPkiClientVerifier` with `allow_unauthenticated()`). Individual endpoints enforce client cert requirements.
+- Client cert trust anchors: Let's Encrypt root certs (ISRG Root X1, X2), embedded in binary. Future: add additional CA roots as fallback CAs are added.
+
+### Client Passthrough (SNI = device subdomain)
+
+1. Read enough bytes to parse TLS ClientHello (buffer them)
+2. Extract subdomain from SNI
+3. Look up device in local cache (falls back to Firestore)
+4. If device has active mux → assign stream ID, OPEN, forward buffered ClientHello as DATA
+5. If device offline → fire FCM (`type: "wake"`, `priority: "high"`), hold connection, wait up to 20s
+
+The relay MUST NOT consume the ClientHello — it buffers and replays it so the client↔device TLS handshake works.
 
 ## Relay Internal State
 
@@ -55,7 +69,10 @@ Stream IDs are assigned per-mux-connection, incrementing u32 starting at 1. Rese
 
 ## API Endpoints
 
-All served over HTTPS on the relay's own domain (e.g. `api.rousecontext.com` or same host, different port).
+All served over HTTPS on `relay.rousecontext.com:443`. Optional mTLS — client cert accepted but not required at TLS level. Per-endpoint enforcement below.
+
+### `GET /ws` → Mux WebSocket
+**Requires valid client cert** (device cert, issued by trusted CA). Reject 401 if no cert or invalid cert. On valid cert: extract subdomain from CN/SAN, upgrade to WebSocket, begin mux framing.
 
 ### `POST /register`
 Onboarding or subdomain rotation.
@@ -200,6 +217,23 @@ Authorization: Bearer {oauth2_token}
 
 OAuth2 token obtained from Firebase service account using JWT grant. Cache token until near expiry.
 
+### FCM Message Types
+
+| Type | Priority | When |
+|---|---|---|
+| `wake` | high | Client connected, device needs to open mux immediately |
+| `renew` | normal | Cert expiring within 7 days, device should renew soon |
+
+## Daily Maintenance Job
+
+Single `tokio::spawn` loop, runs once per day. Three tasks:
+
+1. **Cert expiry nudge**: Query Firestore for devices where `cert_expires < now + 7 days AND cert_expires > now AND renewal_nudge_sent IS NULL`. Send FCM `type: "renew"` to each. Set `renewal_nudge_sent` timestamp.
+2. **Pending cert queue**: Check if ACME rate limit has reset. Process any `pending_certs/` entries — issue certs, send FCM `type: "wake"` to notify devices.
+3. **Subdomain reclamation**: Delete `devices/` entries where `cert_expires < now - 180 days` and no renewal attempts.
+
+The `renewal_nudge_sent` field is cleared when a device successfully renews (in the `/renew` handler).
+
 ## Rust Crate Dependencies (expected)
 
 - `tokio` — async runtime
@@ -224,14 +258,17 @@ TOML config file (`relay.toml`) with env var overrides for secrets:
 ```toml
 [server]
 listen_port = 443
-api_port = 8443
 domain = "rousecontext.com"
+relay_hostname = "relay.rousecontext.com"
+
+[tls]
+cert_path = "/etc/rouse-relay/tls/cert.pem"
+key_path = "/etc/rouse-relay/tls/key.pem"
 
 [timeouts]
 fcm_wakeup_secs = 20
 websocket_ping_secs = 30
 subdomain_reclaim_days = 180
-
 max_streams_per_device = 8
 subdomain_rotation_cooldown_days = 30
 
@@ -239,7 +276,17 @@ subdomain_rotation_cooldown_days = 30
 ca_url = "https://acme.letsencrypt.org/directory"
 ```
 
-Secrets via env vars: `CLOUDFLARE_API_TOKEN`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `ADMIN_ALERT_WEBHOOK` (for rate limit notifications).
+Secrets via env vars: `CLOUDFLARE_API_TOKEN`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `ADMIN_ALERT_WEBHOOK`.
+
+### Deployment
+
+VPS is stateless — all state is in Firestore. Deploy pipeline (GitHub Actions):
+1. Build relay binary (cross-compile for target arch)
+2. Write relay cert from GitHub Secrets
+3. Deploy binary + cert + relay.toml to VPS via SSH/SCP
+4. Restart relay service (systemd)
+
+Relay cert for `relay.rousecontext.com` renewed by a separate GitHub Actions scheduled workflow (weekly certbot with Cloudflare DNS plugin), stored in GitHub Secrets.
 
 ## Graceful Shutdown
 
@@ -253,7 +300,7 @@ On SIGTERM/SIGINT:
 
 ## Monitoring
 
-### `/status` endpoint (API port, no auth)
+### `GET /status` (no auth)
 ```json
 {
   "uptime_secs": 86400,

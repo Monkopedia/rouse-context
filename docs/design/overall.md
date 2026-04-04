@@ -48,6 +48,7 @@ devices/{subdomain}
   cert_expires: timestamp
   registered_at: timestamp
   last_rotation: timestamp    // for enforcing 30-day subdomain rotation cooldown
+  renewal_nudge_sent: timestamp | null  // set when 7-day FCM sent, cleared on successful renewal
 
 pending_certs/{subdomain}     // devices blocked on ACME rate limits
   fcm_token: string
@@ -174,7 +175,37 @@ Polling responses: `authorization_pending` (keep polling), `slow_down` (increase
 
 ### Where This Lives
 
-`:mcp-core` — HTTP routing (OAuth endpoints vs MCP protocol), token management, auth verification. The tunnel provides the byte stream, mcp-core handles everything on top of it.
+`:mcp-core` — HTTP routing (OAuth endpoints vs MCP protocol), token management, auth verification. The tunnel provides the byte stream (plaintext after TLS termination), mcp-core handles everything on top of it.
+
+## mcp-core HTTP Server
+
+The tunnel hands `MuxStream` (plaintext `InputStream`/`OutputStream` after inner TLS termination) to the app. The app passes it to mcp-core, which runs a Ktor HTTP server over the stream.
+
+### Protocol
+
+**Streamable HTTP** per MCP spec (2025-03-26). Client sends HTTP POST requests, server responds with JSON. SSE for server-initiated messages if needed. This is the standard remote MCP transport — stock MCP clients support it natively.
+
+### Stack on device
+
+```
+MuxStream (raw bytes from relay)
+  → TLS server accept (tunnel, using device cert)
+  → plaintext InputStream/OutputStream
+  → Ktor embedded HTTP server (mcp-core)
+  → route by path:
+      /.well-known/oauth-authorization-server → OAuth metadata
+      /device/authorize → device code flow
+      /token → token exchange
+      /{integration}/* → MCP Streamable HTTP (dispatched to McpServerProvider)
+```
+
+### Auth middleware
+
+Ktor interceptor checks Bearer token on all routes except OAuth endpoints (`/.well-known/*`, `/device/authorize`, `/token`). Returns 401 with `WWW-Authenticate` header pointing to OAuth metadata if token missing or invalid.
+
+### Per-stream HTTP server
+
+Each `MuxStream` gets its own Ktor server instance (lightweight — Ktor can serve over arbitrary I/O). When the stream closes, the server instance is disposed. No shared state between stream servers except the token store and provider registry.
 
 ## Integration Model
 
@@ -310,33 +341,38 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 31. Token rotates during active mux → Firestore updated, no session disruption
 
 ### Security
-32. Mux connection without valid cert → TLS handshake fails
-33. Mux with cert for different subdomain → maps to that subdomain, can't spoof another
-34. `/register` with stolen Firebase token but different keypair → new subdomain, can't steal existing
-35. Replayed old CSR to `/renew` → signature mismatch, rejected
-36. Expired cert → mux connection rejected, must renew first
+32. Mux `/ws` with no client cert → 401 rejected
+33. Mux `/ws` with invalid/untrusted client cert → rejected
+34. Mux `/ws` with valid client cert → mux established
+35. `/register` with no client cert → accepted (Firebase token auth)
+36. `/renew` with valid client cert → mTLS auth path used
+37. `/renew` with no client cert → Firebase + signature auth path used
+38. `/renew` with expired client cert → falls back to Firebase + signature path
+39. Mux with cert for different subdomain → maps to that subdomain, can't spoof another
+40. `/register` with stolen Firebase token but different keypair → new subdomain, can't steal existing
+41. Replayed old CSR to `/renew` → signature mismatch, rejected
 
 ### OAuth / device code auth
-37. First connection — no token → 401 → discovery → device code → token → MCP works
-38. Subsequent connection — valid token → immediate MCP session
-39. Revoked token → 401 → re-auth
-40. Expired device_code (10 min) → client gets `expired_token`, retries
-41. Multiple authorized clients — each has own token, revoking one doesn't affect others
-42. Concurrent device code requests from two clients → independent codes, independent approvals
-43. Token revoked during active session → next request gets 401, current request completes
+42. First connection — no token → 401 → discovery → device code → token → MCP works
+43. Subsequent connection — valid token → immediate MCP session
+44. Revoked token → 401 → re-auth
+45. Expired device_code (10 min) → client gets `expired_token`, retries
+46. Multiple authorized clients — each has own token, revoking one doesn't affect others
+47. Concurrent device code requests from two clients → independent codes, independent approvals
+48. Token revoked during active session → next request gets 401, current request completes
 
 ### Integration routing
-44. Client connects to `/health` → routes to Health Connect provider
-45. Two clients to different integration paths simultaneously → independent sessions
-46. Disabled integration → 404, app notification triggered
-47. Auth token works across all integration paths on same device
-48. Unknown path → 404
+49. Client connects to `/health` → routes to Health Connect provider
+50. Two clients to different integration paths simultaneously → independent sessions
+51. Disabled integration → 404, app notification triggered
+52. Auth token works across all integration paths on same device
+53. Unknown path → 404
 
 ### Subdomain rotation
-49. Rotation succeeds → new subdomain, old invalidated, tokens revoked
-50. Second rotation within 30 days → rejected by relay
-51. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
-52. Rotation spam protection → relay enforces 30-day cooldown server-side
+54. Rotation succeeds → new subdomain, old invalidated, tokens revoked
+55. Second rotation within 30 days → rejected by relay
+56. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
+57. Rotation spam protection → relay enforces 30-day cooldown server-side
 
 ## Still Needs Design
 

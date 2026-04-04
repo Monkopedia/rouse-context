@@ -23,7 +23,7 @@ The mux client manages the WebSocket connection to the relay and demultiplexes i
 ### Responsibilities
 - Open and maintain WebSocket connection to relay (with mTLS using device cert)
 - Parse incoming binary frames (5-byte header: type u8, stream_id u32 BE, payload)
-- On OPEN frame: create a new local stream pair (InputStream/OutputStream), notify the app layer
+- On OPEN frame: create raw stream pair, wrap in TLS server accept (using device cert + private key from `CertificateStore`), emit plaintext stream to app layer
 - On DATA frame: route payload bytes to the correct stream's InputStream
 - On CLOSE frame: close the corresponding stream pair
 - On ERROR frame: tear down the affected stream, propagate error
@@ -48,11 +48,13 @@ No reconnect during active streams. If WebSocket drops, all streams die. Clean r
 ## FCM Wakeup
 
 ### Receiver
-`FirebaseMessagingService` subclass in `androidMain`. On receiving a high-priority data message:
+`FirebaseMessagingService` subclass in `androidMain`. On receiving a data message:
 
-1. Extract `type` and `relay_host` from data payload
-2. If `type == "wake"`: start TunnelService (foreground service)
-3. TunnelService opens mux WebSocket to `relay_host`
+1. Extract `type`, `relay_host`, `relay_port` from data payload
+2. Dispatch by type:
+   - `"wake"` (high priority): start TunnelService (foreground service), open mux WebSocket to `relay_host:relay_port`
+   - `"renew"` (normal priority): trigger immediate cert renewal via WorkManager (no mux connection needed)
+   - Unknown type: log warning, ignore
 
 ### FCM Token Refresh
 `onNewToken()` callback → write new token directly to Firestore using Firebase SDK.
@@ -115,6 +117,34 @@ Device just makes an HTTPS call to `POST /renew` using its current cert for mTLS
 9. Onboarding complete → UI shows device subdomain
 
 If any step fails, show error in UI with retry option. No partial state — either fully onboarded or not.
+
+## CertificateStore Interface
+
+The tunnel needs certs for TLS but doesn't own storage. The app provides an implementation.
+
+```kotlin
+interface CertificateStore {
+    /** Device cert chain for TLS server accept and mTLS to relay */
+    fun getCertChain(): List<X509Certificate>?
+
+    /** Private key reference from Android Keystore */
+    fun getPrivateKey(): PrivateKey?
+
+    /** Store a new cert chain (after onboarding or renewal) */
+    fun storeCertChain(certs: List<X509Certificate>)
+
+    /** Device subdomain (for mTLS SNI to relay) */
+    fun getSubdomain(): String?
+
+    /** Cert expiry for renewal checks */
+    fun getCertExpiry(): Instant?
+}
+```
+
+- Interface defined in tunnel's `commonMain`
+- `:app` provides Android implementation (PEM files in `filesDir`, private key from Keystore)
+- `jvmTest` uses in-memory implementation
+- If `getCertChain()` returns null → `TunnelError.CertExpired` (or `CertUnavailable`)
 
 ## Interface to App Layer
 
