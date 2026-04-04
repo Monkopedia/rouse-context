@@ -269,17 +269,18 @@ App-owned routes:
 - `/setup/notifications` — notification preferences (first integration only)
 - `/setup/certprogress` — cert issuance spinner
 - `/setup/ready/{id}` — integration URL + waiting for client
+- `/integration/{id}/manage` — integration detail: URL, recent activity, authorized clients, disable, settings link
 - `/approve` — device code approval (full screen)
 - `/approved` — connection confirmed
 - `/audit` — audit history list, filterable
 - `/audit/{sessionId}` — audit detail for a session (deep-link target from notifications)
-- `/clients` — authorized clients list with revoke
 - `/settings` — app settings
 
 Integration-owned routes (registered via `McpIntegration.registerNavigation()`):
-- `/integration/{id}/*` — each integration registers its own routes under this prefix
-- e.g. `/integration/health/setup` — Health Connect onboarding
-- e.g. `/integration/health/settings` — Health Connect detail/settings
+- `/integration/{id}/setup` — onboarding flow (e.g. Health Connect permissions)
+- `/integration/{id}/settings` — domain-specific settings (e.g. permissions, data types)
+
+Bottom nav: Home, Audit, Settings (3 tabs). No global Clients tab — authorized clients shown per-integration in the manage screen.
 
 ### Dependency Injection
 - Koin (not Hilt) for simplicity and KMP compatibility

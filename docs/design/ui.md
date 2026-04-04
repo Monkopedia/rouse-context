@@ -9,11 +9,11 @@
 5. Integration Setup: Integration-Specific (delegates to McpIntegration.onboardingRoute)
 6. Integration Setup: Setting Up (cert issuance spinner)
 7. Integration Setup: Integration Enabled (URL + waiting for client)
-8. Integration Detail (Active integration — URL, recent activity, disable)
-9. Device Code Approval (full screen)
-10. Connection Confirmed
-11. Audit History
-12. Authorized Clients
+8. Integration Manage (app-owned: URL, recent activity, authorized clients, disable, settings link)
+9. Integration Settings (integration-owned: permissions, domain-specific config)
+10. Device Code Approval (full screen)
+11. Connection Confirmed
+12. Audit History
 13. Settings
 
 ## Integration States
@@ -99,10 +99,10 @@ Default state (no integrations yet):
 │  Recent Activity                     │
 │  (empty)                             │
 │                                      │
-│  ┌──┐  ┌──┐  ┌──┐  ┌──┐            │
-│  │Ho│  │Au│  │Cl│  │Se│            │
-│  └──┘  └──┘  └──┘  └──┘            │
-│  Home  Audit Clients Settings        │
+│  ┌────┐  ┌────┐  ┌────┐              │
+│  │Home│  │Audit│ │ Set│              │
+│  └────┘  └────┘  └────┘              │
+│  Home    Audit   Settings            │
 └──────────────────────────────────────┘
 ```
 
@@ -349,11 +349,11 @@ Auto-advances when cert becomes valid. If user leaves (Cancel or background), in
 
 If device code auth arrives while on this screen, auto-navigates to Device Code Approval. Cancel goes to dashboard (integration stays Pending, tappable to return here).
 
-### Integration Detail / Settings (Active)
+### Integration Manage (app-owned)
 
-Shown when tapping an Active integration on the dashboard. This screen is **owned by the integration** via its `settingsRoute`. The app navigates to `integration/{id}/settings`.
+Shown when tapping an Active or Pending integration on the dashboard. App-owned screen at `integration/{id}/manage`. Shows operational info and management actions.
 
-Example for Health Connect:
+For Active:
 
 ```
 ┌─────────────────────────────────────┐
@@ -365,6 +365,63 @@ Example for Health Connect:
 │   │                      [Copy] │    │
 │   └─────────────────────────────┘    │
 │                                      │
+│   Recent Activity                    │
+│   10:32 AM  get_steps       142ms    │
+│   10:31 AM  get_sleep        89ms    │
+│   [View all →]                       │
+│                                      │
+│   Authorized Clients                 │
+│   ┌─────────────────────────────┐    │
+│   │ Claude Desktop              │    │
+│   │ Apr 2 · 2 hours ago [Revoke]│    │
+│   ├─────────────────────────────┤    │
+│   │ Cursor                      │    │
+│   │ Apr 3 · just now    [Revoke]│    │
+│   └─────────────────────────────┘    │
+│                                      │
+│   [ Settings ]                       │
+│   [ Disable Integration ]            │
+│                                      │
+└──────────────────────────────────────┘
+```
+
+For Pending (no clients yet):
+
+```
+┌─────────────────────────────────────┐
+│     HEALTH CONNECT         Pending   │
+│                                      │
+│   ┌─────────────────────────────┐    │
+│   │ https://brave-falcon.       │    │
+│   │ rousecontext.com/health     │    │
+│   │                      [Copy] │    │
+│   └─────────────────────────────┘    │
+│                                      │
+│   Waiting for first client...        │
+│   Add the URL above to your AI       │
+│   client to get started.             │
+│                                      │
+│   Authorized Clients                 │
+│   (none yet)                         │
+│                                      │
+│   [ Settings ]                       │
+│   [ Disable Integration ]            │
+│                                      │
+└──────────────────────────────────────┘
+```
+
+**Settings** navigates to `integration/{id}/settings` (integration-owned screen).
+**Disable** removes from dashboard, puts back in Add picker.
+**Revoke** removes token, may transition Active → Pending if last token.
+
+### Integration Settings (integration-owned)
+
+Reached via Settings button on the Manage screen. Integration owns this screen via `settingsRoute`. Example for Health Connect:
+
+```
+┌─────────────────────────────────────┐
+│     HEALTH CONNECT SETTINGS          │
+│                                      │
 │   Permissions                        │
 │   ┌─────────────────────────────┐    │
 │   │ ✓ Steps                     │    │
@@ -374,21 +431,15 @@ Example for Health Connect:
 │   │ ○ HRV              [Grant]  │    │
 │   └─────────────────────────────┘    │
 │                                      │
-│   Recent Activity                    │
-│   10:32 AM  get_steps       142ms    │
-│   10:31 AM  get_sleep        89ms    │
-│   [View all →]                       │
-│                                      │
-│   [ Disable Integration ]            │
+│   (integration-specific settings     │
+│    go here — data type config, etc.) │
 │                                      │
 └──────────────────────────────────────┘
 ```
 
-Each integration controls its own layout. The app provides utility composables (URL bar, disable button) that integrations can use for consistency but aren't required to. Disable removes the integration from the dashboard and puts it back in the Add picker.
-
-Tapping a **Pending** integration on the dashboard navigates to whichever setup screen is appropriate:
-- Cert still issuing → Setting Up spinner
-- Cert ready, no client yet → Integration Enabled (URL + waiting)
+Tapping a **Pending** integration on the dashboard:
+- If cert still issuing → Setting Up spinner
+- If cert ready → Integration Manage (Pending variant above)
 
 ### Device Code Approval (full screen)
 
@@ -473,43 +524,6 @@ Tapping a **Pending** integration on the dashboard navigates to whichever setup 
 
 Deep-link: `/audit/{sessionId}` pre-filters to that session's entries (from notification tap).
 
-### Authorized Clients
-
-Grouped by integration since tokens are per-integration:
-
-```
-┌─────────────────────────────────────┐
-│     AUTHORIZED CLIENTS               │
-│                                      │
-│  Health Connect                      │
-│  ┌─────────────────────────────────┐ │
-│  │ Claude Desktop                  │ │
-│  │ Authorized: Apr 2, 2026        │ │
-│  │ Last used: 2 hours ago         │ │
-│  │                      [Revoke]  │ │
-│  ├─────────────────────────────────┤ │
-│  │ Cursor                         │ │
-│  │ Authorized: Apr 3, 2026        │ │
-│  │ Last used: just now            │ │
-│  │                      [Revoke]  │ │
-│  └─────────────────────────────────┘ │
-│                                      │
-│  Notifications                       │
-│  ┌─────────────────────────────────┐ │
-│  │ Claude Desktop                  │ │
-│  │ Authorized: Apr 3, 2026        │ │
-│  │ Last used: 1 hour ago          │ │
-│  │                      [Revoke]  │ │
-│  └─────────────────────────────────┘ │
-│                                      │
-│  Revoking a client removes access    │
-│  to that integration only.           │
-│                                      │
-└──────────────────────────────────────┘
-```
-
-The ViewModel aggregates tokens across all integrations via `TokenStore.listTokens(integrationId)` for each enabled integration.
-
 ### Settings
 
 ```
@@ -568,13 +582,13 @@ Welcome ──→ Main Dashboard
                 │                                                                               │
                 │                                                                               └──→ Connected ──→ Dashboard
                 │
-                ├── [Pending integration] ──→ Setting Up or Integration Enabled (depending on cert state)
+                ├── [Pending integration] ──→ Integration Manage (Pending) or Setting Up (if cert issuing)
                 │
-                ├── [Active integration] ──→ Integration Detail (URL, activity, settings, disable)
+                ├── [Active integration] ──→ Integration Manage (Active: URL, activity, clients, disable)
+                │                                │
+                │                                └── [Settings] ──→ Integration Settings (integration-owned)
                 │
                 ├── bottom nav: Audit ──→ Audit History
-                │
-                ├── bottom nav: Clients ──→ Authorized Clients
                 │
                 ├── bottom nav: Settings ──→ Settings
                 │
@@ -594,10 +608,9 @@ All constructor-injectable via Koin. Accept interfaces for mockability. Unit tes
 | MainDashboardViewModel | TunnelClient.state, cert status, enabled integrations, recent audit | connection indicator, integration list, activity preview, cert banner |
 | AddIntegrationViewModel | available + disabled integrations | integration picker list |
 | IntegrationSetupViewModel | cert status, setup flow step, pending device code | current step, progress, auto-navigate to device code when on URL screen |
-| IntegrationDetailViewModel | integration state, recent audit for this provider | URL, activity, disable action |
+| IntegrationManageViewModel | integration state, recent audit for this integration, tokens for this integration | URL, activity, authorized clients, disable/settings actions, revoke |
 | DeviceCodeApprovalViewModel | pending device code request | user code input, validation, approve/deny |
 | AuditHistoryViewModel | audit DB queries | entries list, filters, empty state |
-| AuthorizedClientsViewModel | token store | client list, revoke actions |
 | SettingsViewModel | DataStore preferences, battery optimization, rotation cooldown | setting values, toggles, rotation availability |
 
 ## Testing
