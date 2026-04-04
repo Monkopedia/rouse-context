@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -22,5 +23,10 @@ android {
 }
 
 dependencies {
+    api(libs.mcp.sdk)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.kotlinx.io.core)
     implementation(libs.androidx.core.ktx)
+
+    testImplementation(libs.junit)
 }

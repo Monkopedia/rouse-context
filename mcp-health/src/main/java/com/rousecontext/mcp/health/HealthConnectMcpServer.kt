@@ -1,11 +1,18 @@
 package com.rousecontext.mcp.health
 
 import com.rousecontext.mcp.core.McpServerProvider
+import io.modelcontextprotocol.kotlin.sdk.server.Server
 
 /**
  * Health Connect MCP server implementation.
- * Exposes Health Connect data via the MCP protocol.
+ * Exposes Health Connect data (steps, heart rate, sleep, etc.) as MCP tools/resources.
  */
 class HealthConnectMcpServer : McpServerProvider {
-    // TODO: implement Health Connect data exposure via MCP tools/resources
+
+    override val id = "health-connect"
+    override val displayName = "Health Connect"
+
+    override fun register(server: Server) {
+        // TODO: register Health Connect tools and resources
+    }
 }
