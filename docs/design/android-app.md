@@ -37,6 +37,9 @@ interface McpIntegration {
     /** Display name, e.g. "Health Connect" */
     val displayName: String
 
+    /** Short description for the Add Integration picker */
+    val description: String
+
     /** URL path, e.g. "/health" */
     val path: String
 
@@ -45,12 +48,6 @@ interface McpIntegration {
 
     /** Is the underlying platform available? (e.g. Health Connect installed) */
     suspend fun isAvailable(): Boolean
-
-    /** Is this integration fully set up and enabled? */
-    suspend fun isEnabled(): Boolean
-
-    /** Permissions this integration needs */
-    fun requiredPermissions(): List<String>
 
     /**
      * Register this integration's screens into the nav graph.
@@ -67,11 +64,31 @@ interface McpIntegration {
 }
 ```
 
+Note: `isEnabled()` removed. Enabled/disabled state is a user toggle managed by `IntegrationStateStore`, not a platform check. Permission issues are surfaced by the integration on its own settings screen (banners, grant buttons) and through MCP error responses.
+
 Each integration owns its own screens entirely — layout, navigation within its routes, permission handling. The app navigates to `integration/{id}/{onboardingRoute}` or `integration/{id}/{settingsRoute}` and the integration handles the rest.
 
 The app provides utility composables for common UI elements (URL bar, disable button) that integrations can optionally use for consistency, but the integration controls its own layout.
 
 Uses Compose Navigation 3 (Nav3).
+
+### Supporting interfaces in :api
+
+```kotlin
+/** User-toggled enable/disable per integration. Backed by Preferences DataStore. */
+interface IntegrationStateStore {
+    fun isUserEnabled(integrationId: String): Boolean
+    fun setUserEnabled(integrationId: String, enabled: Boolean)
+    fun observeUserEnabled(integrationId: String): Flow<Boolean>
+}
+
+/** Notification preference access for NotificationModel. */
+interface NotificationSettingsProvider {
+    val settings: NotificationSettings
+}
+```
+
+The subdomain is injected as `StateFlow<String?>` via Koin — integrations use it to build their full URL for display. No wrapper interface needed.
 
 ## :health — Health Connect Integration
 
@@ -160,7 +177,7 @@ data class NotificationSettings(
     val notificationPermissionGranted: Boolean,
 )
 
-class NotificationModel(private val settings: NotificationSettings) {
+class NotificationModel(private val settingsProvider: NotificationSettingsProvider) {
     fun onEvent(event: SessionEvent): List<NotificationAction>
 }
 ```
@@ -220,12 +237,19 @@ val appModule = module {
     // Core singletons
     single { TunnelClientImpl(get<CertificateStore>()) } bind TunnelClient::class
     single { McpSession(get(), get(), get()) }
-    single { NotificationModel(get()) }
+    single { NotificationModel(get<NotificationSettingsProvider>()) }
 
     // Interfaces → implementations
     single<CertificateStore> { FileCertificateStore(get()) }
     single<TokenStore> { RoomTokenStore(get()) }
-    single<ProviderRegistry> { IntegrationProviderRegistry(getAll<McpIntegration>()) }
+    single<IntegrationStateStore> { DataStoreIntegrationStateStore(get()) }
+    single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(get()) }
+    single<ProviderRegistry> {
+        IntegrationProviderRegistry(getAll<McpIntegration>(), get<IntegrationStateStore>())
+    }
+
+    // Subdomain as StateFlow for URL display
+    single<StateFlow<String?>> { get<CertificateStore>().subdomainFlow() }
 
     // Provider registrations
     single<McpIntegration> { HealthConnectIntegration(get()) }
@@ -283,20 +307,35 @@ First-run flow before any integrations:
 ## Integration Management
 
 ### Integration States
-- **Available** — not set up, permissions not granted
-- **Enabled** — permissions granted, URL active
-- **Disabled** — user toggled off, path returns 404
-- **Unavailable** — platform not present (e.g. Health Connect not installed)
+
+Derived from `IntegrationStateStore` + `TokenStore`:
+
+- **Available** — `!userEnabled`, never set up. Shows in Add picker.
+- **Disabled** — `!userEnabled`, was previously set up. Shows in Add picker (re-enable skips setup if permissions still granted).
+- **Pending** — `userEnabled`, `!tokenStore.hasTokens(id)`. No client authorized yet. Shows on dashboard.
+- **Active** — `userEnabled`, `tokenStore.hasTokens(id)`. At least one client authorized. Shows on dashboard.
+- **Unavailable** — `!isAvailable()`. Platform not present. Greyed out in Add picker.
+
+State transitions:
+```
+Available ──[setup flow]──→ Pending ──[client authorizes]──→ Active
+Disabled  ──[re-enable]───→ Pending ──[client authorizes]──→ Active
+Active    ──[user disables]──→ Disabled
+Pending   ──[user disables]──→ Disabled
+Active    ──[all tokens revoked]──→ Pending
+```
+
+`clientAuthorized` is updated explicitly: set to true when device code approval completes for this integration, derived from `tokenStore.hasTokens(integrationId)`.
 
 ### Setup Flow
-1. User taps integration from the list
-2. App navigates to `/integration/{id}/setup`
-3. Integration's `OnboardingFlow` Composable runs (requests permissions, shows explanation)
-4. On complete: integration marked enabled, URL shown with copy/share
-5. On cancel: back to integration list
+1. User taps integration from the Add picker
+2. Notification preferences shown (first integration only, skipped if already set)
+3. App navigates to `integration/{id}/setup` (integration owns the screen)
+4. Integration handles permissions, explanation, etc.
+5. On complete: `IntegrationStateStore.setUserEnabled(id, true)`, navigate to cert spinner (if needed) then URL screen
+6. On cancel: back to Add picker, state unchanged
 
 ### Main Screen
-- Subdomain displayed prominently with copy button
 - Connection status indicator
 - Integration list with state badges
 - "Add Integration" for available-but-not-enabled integrations

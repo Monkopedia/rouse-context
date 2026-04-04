@@ -18,32 +18,45 @@
 
 ## Integration States
 
-| State | Where it shows | Description |
+Derived from `IntegrationStateStore` (user toggle) + `TokenStore` (client authorized):
+
+| State | Where it shows | Derived from |
 |---|---|---|
-| Available | Add picker only | Never set up, permissions not granted |
-| Disabled | Add picker only | Was set up, user turned off. Re-enable skips permissions if still granted |
-| Pending | Dashboard | Permissions granted, cert may still be issuing, no client connected yet |
-| Active | Dashboard | At least one client has authorized |
+| Available | Add picker | `!userEnabled`, never set up |
+| Disabled | Add picker | `!userEnabled`, was previously set up. Re-enable may skip setup. |
+| Pending | Dashboard | `userEnabled`, `!tokenStore.hasTokens(id)` |
+| Active | Dashboard | `userEnabled`, `tokenStore.hasTokens(id)` |
+| Unavailable | Add picker (greyed) | `!isAvailable()`, platform not present |
 
 State transitions:
 ```
-Available ──[setup flow]──→ Pending ──[client authorized]──→ Active
-Disabled  ──[re-enable]───→ Pending ──[client authorized]──→ Active
+Available ──[setup flow]──→ Pending ──[client authorizes for this integration]──→ Active
+Disabled  ──[re-enable]───→ Pending ──[client authorizes]──→ Active
 Active    ──[user disables]──→ Disabled (back in Add picker)
 Pending   ──[user disables]──→ Disabled (back in Add picker)
+Active    ──[all tokens for this integration revoked]──→ Pending
 ```
 
 ## Cert Status (device-level)
 
 Observed by MainDashboardViewModel and IntegrationSetupViewModel only.
 
-| Status | Meaning |
-|---|---|
-| None | First run, no cert yet |
-| Valid | Normal operation |
-| Renewing | Renewal in progress |
-| Expired | Cert expired, renewal not started or failing |
-| RateLimited | ACME quota hit, waiting for retry window |
+```kotlin
+sealed interface CertStatus {
+    data object None : CertStatus
+    data class Onboarding(val step: OnboardingStep) : CertStatus
+    data object Valid : CertStatus
+    data object Renewing : CertStatus
+    data class Expired(val renewalInProgress: Boolean) : CertStatus
+    data class RateLimited(val retryAfter: Instant) : CertStatus
+}
+
+enum class OnboardingStep {
+    GENERATING_KEYS,
+    REGISTERING,
+    ISSUING_CERT,
+}
+```
 
 ## Screen Wireframes
 
@@ -385,8 +398,8 @@ Tapping a **Pending** integration on the dashboard navigates to whichever setup 
 │                                      │
 │     APPROVE CONNECTION               │
 │                                      │
-│   An AI client wants to connect      │
-│   to your device.                    │
+│   An AI client wants to access       │
+│   Health Connect.                    │
 │                                      │
 │   Enter the code shown by            │
 │   the client:                        │

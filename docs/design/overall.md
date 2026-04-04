@@ -145,20 +145,22 @@ Data-only message (no `notification` block) so `FirebaseMessagingService` always
 
 ## MCP Client Authentication (Device Code Flow)
 
-OAuth 2.1 device authorization grant (RFC 8628). The device hosts the OAuth server inside the TLS tunnel — relay is not involved. Standard MCP clients discover auth via `/.well-known/oauth-authorization-server` per the MCP spec (2025-03-26).
+OAuth 2.1 device authorization grant (RFC 8628). **Per-integration auth** — each integration is an independent MCP server with its own OAuth endpoints, device codes, and tokens. The device hosts OAuth inside the TLS tunnel — relay is not involved.
 
 ### Flow
 
-1. MCP client connects to `brave-falcon.rousecontext.com` (triggers FCM wakeup if needed)
-2. Client requests `GET /.well-known/oauth-authorization-server`
-3. Device returns metadata: `device_authorization_endpoint`, `token_endpoint`, `grant_types_supported: ["urn:ietf:params:oauth:grant-type:device_code"]`
-4. Client calls `POST /device/authorize`
+1. MCP client connects to `brave-falcon.rousecontext.com/health` (triggers FCM wakeup if needed)
+2. Client requests `GET /health/.well-known/oauth-authorization-server`
+3. Device returns metadata for the `/health` integration
+4. Client calls `POST /health/device/authorize`
 5. Device generates device_code (opaque, 32 bytes base64url) + user_code (8 chars alphanumeric uppercase, no 0/O/1/I/L, displayed as `XXXX-XXXX`), returns both + polling interval (5s)
-6. Device shows notification: "A client wants to connect"
+6. Device shows notification: "Claude wants to access **Health Connect**"
 7. User opens app, enters user_code, taps Approve
-8. Client polls `POST /token` with device_code every 5s until approved
+8. Client polls `POST /health/token` with device_code every 5s until approved
 9. Device returns access_token (opaque, 32 bytes base64url, no expiry — valid until revoked)
-10. Client uses Bearer token for all subsequent MCP requests
+10. Client uses Bearer token for all subsequent MCP requests to `/health`
+
+A client authorized for `/health` does NOT have access to `/notifications`. Each integration requires its own auth flow.
 
 ### Device code TTL: 10 minutes
 
@@ -167,15 +169,15 @@ Polling responses: `authorization_pending` (keep polling), `slow_down` (increase
 ### Token Management (on device)
 
 - Tokens stored locally (Room database)
-- Each token: client_id, access_token_hash, created_at, last_used_at, label
-- User can view and revoke tokens in app UI
-- Token verification: device checks Bearer header on every MCP request before processing
-- Per-device auth — one approval covers all integration paths
+- Each token: integration_id, client_id, access_token_hash, created_at, last_used_at, label
+- Tokens scoped to integration — a token for `/health` can't access `/notifications`
+- User can view and revoke tokens per-integration in app UI
+- Token verification: device checks Bearer header on every request, scoped to the integration path
 - All tokens revoked on subdomain rotation
 
 ### Where This Lives
 
-`:mcp-core` — HTTP routing (OAuth endpoints vs MCP protocol), token management, auth verification. The tunnel provides the byte stream (plaintext after TLS termination), mcp-core handles everything on top of it.
+`:mcp-core` — HTTP routing, per-integration OAuth endpoints, token management, auth verification. The tunnel provides the byte stream (plaintext after TLS termination), mcp-core handles everything on top of it.
 
 ## mcp-core HTTP Server
 
@@ -192,16 +194,18 @@ MuxStream (raw bytes from relay)
   → TLS server accept (tunnel, using device cert)
   → plaintext InputStream/OutputStream
   → Ktor embedded HTTP server (mcp-core)
-  → route by path:
-      /.well-known/oauth-authorization-server → OAuth metadata
-      /device/authorize → device code flow
-      /token → token exchange
-      /{integration}/* → MCP Streamable HTTP (dispatched to McpServerProvider)
+  → route by first path segment to integration:
+      /health/.well-known/oauth-authorization-server → health's OAuth metadata
+      /health/device/authorize → health's device code flow
+      /health/token → health's token exchange
+      /health/* → health's MCP Streamable HTTP
+      /notifications/* → notifications' OAuth + MCP (same pattern)
+      unknown path → 404
 ```
 
-### Auth middleware
+### Auth per integration
 
-Ktor interceptor checks Bearer token on all routes except OAuth endpoints (`/.well-known/*`, `/device/authorize`, `/token`). Returns 401 with `WWW-Authenticate` header pointing to OAuth metadata if token missing or invalid.
+Each integration path prefix is a self-contained MCP server with its own OAuth. Ktor routes by first path segment, then each integration handler checks its own Bearer token. Returns 401 with `WWW-Authenticate` pointing to that integration's OAuth metadata if token missing or invalid.
 
 ### mcp-core Interfaces
 
@@ -212,12 +216,13 @@ interface ProviderRegistry {
     fun enabledPaths(): Set<String>
 }
 
-/** Token verification/management. App implements backed by Room. */
+/** Token verification/management, scoped per integration. App implements backed by Room. */
 interface TokenStore {
-    fun validateToken(token: String): Boolean
-    fun createToken(clientId: String): String
-    fun revokeToken(token: String)
-    fun listTokens(): List<TokenInfo>
+    fun validateToken(integrationId: String, token: String): Boolean
+    fun createToken(integrationId: String, clientId: String): String
+    fun revokeToken(integrationId: String, token: String)
+    fun listTokens(integrationId: String): List<TokenInfo>
+    fun hasTokens(integrationId: String): Boolean  // for Pending vs Active state
 }
 
 class McpSession(
@@ -236,20 +241,21 @@ class McpSession(
 
 Each `run()` call creates a lightweight Ktor server instance over the provided I/O. When the stream closes, the server instance is disposed. Shared state across streams: `ProviderRegistry`, `TokenStore`, `AuditListener`.
 
-### OAuth metadata response (RFC 8414)
+### OAuth metadata response (RFC 8414) — per integration
 
+Example for `/health`:
 ```json
 {
-  "issuer": "https://brave-falcon.rousecontext.com",
-  "device_authorization_endpoint": "https://brave-falcon.rousecontext.com/device/authorize",
-  "token_endpoint": "https://brave-falcon.rousecontext.com/token",
+  "issuer": "https://brave-falcon.rousecontext.com/health",
+  "device_authorization_endpoint": "https://brave-falcon.rousecontext.com/health/device/authorize",
+  "token_endpoint": "https://brave-falcon.rousecontext.com/health/token",
   "grant_types_supported": ["urn:ietf:params:oauth:grant-type:device_code"],
   "response_types_supported": [],
   "code_challenge_methods_supported": []
 }
 ```
 
-Issuer is the device's subdomain URL. Static per device.
+Each integration has its own issuer and endpoints. Generated from subdomain + integration path.
 
 ## Integration Model
 
@@ -271,16 +277,19 @@ https://brave-falcon.rousecontext.com/contacts         → Contacts (future)
 
 ### Auth
 
-Per-device, not per-integration. One device code approval authorizes the client for all paths. User controls exposure by:
+**Per-integration.** Each integration is an independent MCP server with its own OAuth flow, device codes, and tokens. A client authorized for `/health` has no access to `/notifications`.
+
+User controls exposure by:
 1. Which integration URLs they share with their MCP client
-2. Enabling/disabling integrations in-app (hard kill switch — disabled integration returns 404)
+2. Enabling/disabling integrations in-app (disabled integration returns 404)
+3. Revoking tokens per-integration in the authorized clients UI
 
 ### Path Routing in mcp-core
 
-- `/.well-known/oauth-authorization-server` → OAuth metadata (shared)
-- `/device/authorize` → device code flow (shared)
-- `/token` → token exchange (shared)
-- `/{integration}/*` → routes to corresponding `McpServerProvider`
+- `/{integration}/.well-known/oauth-authorization-server` → that integration's OAuth metadata
+- `/{integration}/device/authorize` → that integration's device code flow
+- `/{integration}/token` → that integration's token exchange
+- `/{integration}/*` → that integration's MCP Streamable HTTP (auth required)
 - Unknown or disabled path → 404
 - 404 on disabled integration also triggers app notification (audit trail)
 
@@ -399,41 +408,43 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 43. `/register` with stolen Firebase token but different keypair → new subdomain, can't steal existing
 44. Replayed old CSR to `/renew` → signature mismatch, rejected
 
-### OAuth / device code auth
-45. First connection — no token → 401 → discovery → device code → token → MCP works
-46. Subsequent connection — valid token → immediate MCP session
-47. Revoked token → 401 → re-auth
+### OAuth / device code auth (per-integration)
+45. First connection to `/health` — no token → 401 → discovery at `/health/.well-known/...` → device code → token → MCP works
+46. Subsequent connection to `/health` — valid token → immediate MCP session
+47. Revoked token for `/health` → 401 → re-auth for `/health`
 48. Expired device_code (10 min) → client gets `expired_token`, retries
-49. Multiple authorized clients — each has own token, revoking one doesn't affect others
-50. Concurrent device code requests from two clients → independent codes, independent approvals
+49. Multiple authorized clients for same integration — each has own token, revoking one doesn't affect others
+50. Concurrent device code requests from two clients to same integration → independent codes, independent approvals
 51. Token revoked during active session → next request gets 401, current request completes
+52. Client authorized for `/health` tries `/notifications` → 401 (tokens don't cross integrations)
+53. Device code approval notification shows integration name ("Claude wants to access Health Connect")
 
 ### Integration routing
-52. Client connects to `/health` → routes to Health Connect provider
-53. Two clients to different integration paths simultaneously → independent sessions
-54. Disabled integration → 404, app notification triggered
-55. Auth token works across all integration paths on same device
-56. Unknown path → 404
+54. Client connects to `/health` → routes to Health Connect provider
+55. Two clients to different integration paths simultaneously → independent sessions
+56. Disabled integration → 404, app notification triggered
+57. Auth token for `/health` works for all requests under `/health/*`
+58. Unknown path → 404
 
 ### Subdomain rotation
-57. Rotation succeeds → new subdomain, old invalidated, tokens revoked
-58. Second rotation within 30 days → rejected by relay
-59. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
-60. Rotation spam protection → relay enforces 30-day cooldown server-side
+59. Rotation succeeds → new subdomain, old invalidated, ALL tokens (all integrations) revoked
+60. Second rotation within 30 days → rejected by relay
+61. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
+62. Rotation spam protection → relay enforces 30-day cooldown server-side
 
 ### Cross-module integration (tunnel + mcp-core)
-61. OPEN frame → tunnel TLS accept → plaintext stream → mcp-core Ktor serves HTTP → client gets MCP tool response (full stack)
-62. Client HTTP request spans multiple mux DATA frames → mcp-core reassembles correctly
-63. mcp-core sends large response → tunnel frames as multiple DATA frames → client reassembles
+63. OPEN frame → tunnel TLS accept → plaintext stream → mcp-core Ktor serves HTTP → client gets MCP tool response (full stack)
+64. Client HTTP request spans multiple mux DATA frames → mcp-core reassembles correctly
+65. mcp-core sends large response → tunnel frames as multiple DATA frames → client reassembles
 
 ### Cross-module integration (tunnel + relay)
-64. Tunnel connects to real relay → mTLS handshake → OPEN received → DATA bidirectional → CLOSE
-65. Relay sends OPEN while tunnel is processing previous OPEN → both streams created correctly
-66. Relay sends DATA after tunnel already sent CLOSE for that stream → tunnel ignores, no crash
+66. Tunnel connects to real relay → mTLS handshake → OPEN received → DATA bidirectional → CLOSE
+67. Relay sends OPEN while tunnel is processing previous OPEN → both streams created correctly
+68. Relay sends DATA after tunnel already sent CLOSE for that stream → tunnel ignores, no crash
 
 ### Cross-module integration (cert flow: app → CertificateStore → tunnel → relay)
-67. Fresh cert from onboarding → stored via CertificateStore → tunnel uses for mux mTLS → relay accepts
-68. Renewed cert → stored → tunnel uses new cert on next mux → relay accepts
+69. Fresh cert from onboarding → stored via CertificateStore → tunnel uses for mux mTLS → relay accepts
+70. Renewed cert → stored → tunnel uses new cert on next mux → relay accepts
 
 ### mcp-core: HTTP server + OAuth + MCP protocol
 69. `GET /.well-known/oauth-authorization-server` → valid RFC 8414 metadata
