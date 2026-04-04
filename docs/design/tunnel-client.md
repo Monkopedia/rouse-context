@@ -147,6 +147,46 @@ interface CertificateStore {
 - Interface defined in tunnel's `commonMain`
 - `:app` provides Android implementation (PEM files in `filesDir`, private key from Keystore)
 - `jvmTest` uses in-memory implementation
+
+## Security Monitoring
+
+### Self-Cert Verification
+
+The app periodically connects to its own relay subdomain and verifies the TLS leaf cert fingerprint matches the cert it provisioned. Implementation:
+
+1. Custom `X509TrustManager` that extracts the SHA-256 fingerprint of the leaf cert's public key
+2. Compares against the fingerprint stored in the Android Keystore alongside the private key
+3. During the 90-day renewal window, stores both current and pending renewal fingerprints — accepts either as valid to avoid false positives during legitimate rotation
+4. Mismatch triggers an immediate user-facing alert
+
+The `CertificateStore` interface gains two methods:
+
+```kotlin
+/** SHA-256 fingerprints of cert public keys we issued (current + pending renewal) */
+fun getKnownFingerprints(): Set<String>
+
+/** Store a fingerprint for a newly issued cert */
+fun storeFingerprint(fingerprint: String)
+```
+
+### Certificate Transparency Monitoring
+
+The app periodically queries CT logs for any cert issued against its subdomain:
+
+1. Query `https://crt.sh/?q={subdomain}.rousecontext.com&output=json`
+2. Parse the JSON response — each entry has an `id`, `issuer_name`, `not_before`, and `serial_number`
+3. Cross-reference against the cert the app provisioned (match by serial number or public key fingerprint)
+4. If CT shows any cert for this subdomain that the app didn't issue, surface an immediate alert
+
+This defeats targeted interception attacks where an adversary filters the self-check traffic but MITMs actual AI client sessions — they can't hide a fraudulent cert from the CT logs.
+
+### Scheduling
+
+Both checks are WorkManager periodic tasks (not blocking user sessions):
+- Run on first launch after onboarding
+- Then every 4 hours (`PeriodicWorkRequest` with flex window)
+- Failed checks degrade to a visible warning state — never silently swallowed
+- Results stored in the local audit log alongside tool call history
 - If `getCertChain()` returns null → `TunnelError.CertExpired` (or `CertUnavailable`)
 
 ## Interface to App Layer

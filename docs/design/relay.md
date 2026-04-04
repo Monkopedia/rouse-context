@@ -192,6 +192,18 @@ Primary: **Let's Encrypt** (50 certs per registered domain per week, no EAB need
 - On ACME challenge failure: return error, device retries with exponential backoff
 - On Cloudflare API failure: retry 3 times, then fail the request
 
+### CAA Records
+
+The production `rousecontext.com` DNS zone MUST have a CAA record restricting certificate issuance to the primary CA:
+
+```
+rousecontext.com. CAA 0 issue "letsencrypt.org"
+```
+
+This prevents other CAs from issuing certs for `*.rousecontext.com` even if credentials are compromised or an attacker controls a different CA's validation. If a fallback CA is added (e.g. Google Trust Services), add a second `issue` record for it.
+
+Set via Cloudflare DNS alongside the zone configuration. Verify with `dig CAA rousecontext.com` after deployment.
+
 ### Credentials
 - Cloudflare API token (scoped to DNS edit for `rousecontext.com` zone)
 - Firebase service account JSON (for Firestore reads + FCM sends)

@@ -373,6 +373,34 @@ When relay returns `rate_limited`:
 - `battery_optimization_dismissed: Boolean`
 - `notification_permission_denied: Boolean`
 
+## Security Monitoring
+
+### Trust Status UI
+
+The Settings screen includes a trust status section showing:
+
+| Field | Description |
+|---|---|
+| Self-check | Last timestamp + result (verified / warning / alert) |
+| CT log check | Last timestamp + result (verified / warning / alert) |
+| Cert fingerprint | Truncated SHA-256, tappable to show full |
+| Overall status | Verified (green) / Warning (amber) / Alert (red) |
+
+This makes security monitoring tangible rather than invisible. Users who care can verify it's actively working. Users who don't can ignore it — the alert states will surface on their own if something goes wrong.
+
+### Alert Behavior
+
+- **Warning** (amber): self-check or CT query failed to complete (network issue, crt.sh down). Shows "Unable to verify certificate — will retry." Non-blocking.
+- **Alert** (red): fingerprint mismatch or unknown cert in CT logs. Shows "Certificate verification failed — your connection may not be secure." Blocks new MCP sessions until acknowledged. Offers "View details" and "Rotate address" actions.
+
+### Preferences
+
+- `last_self_check_time: Long` (epoch millis)
+- `last_self_check_result: String` ("verified" | "warning" | "alert")
+- `last_ct_check_time: Long` (epoch millis)
+- `last_ct_check_result: String` ("verified" | "warning" | "alert")
+- `cert_fingerprint: String` (SHA-256 hex of current cert public key)
+
 ## Still Needs Design
 
 1. **Third-party provider discovery** — bound service intent filter, verification, trust UI (future, not v1)
