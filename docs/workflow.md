@@ -332,7 +332,7 @@ Implement the pure-function NotificationModel state machine and Room-based audit
 
 ---
 
-### Phase 3: Service Layer (parallel — 2 agents)
+### Phase 3: Service Layer + Security (parallel — 3-4 agents)
 
 #### Task T-8: work — Foreground Service, FCM Receiver, WorkManager, Wakelock
 
@@ -431,9 +431,50 @@ Wire the SNI router to actual client TCP passthrough and mux WebSocket lifecycle
 
 ---
 
+#### Task T-11: Security Monitoring — Self-Cert Verification + CT Log Check
+
+**Owner:** android agent (or tunnel agent)
+**Branch:** `feat/security-monitoring`
+**Depends on:** T-5 (needs CertificateStore with fingerprints), T-7 (needs audit persistence)
+
+Implement the two security monitoring mechanisms from the design doc: self-cert verification via custom X509TrustManager, and Certificate Transparency log monitoring via crt.sh API. Both run as periodic WorkManager tasks.
+
+**Tests first:**
+- `SelfCertVerifierTest` — fingerprint matches provisioned cert → verified; fingerprint mismatch → alert; during renewal window, both old and new fingerprints accepted; network error → warning (not alert); cert chain with intermediate → checks leaf only
+- `CtLogMonitorTest` — crt.sh returns only app-issued cert → verified; crt.sh returns unknown cert → alert; crt.sh unreachable → warning; empty response (new subdomain, no certs yet) → verified; malformed JSON handled gracefully
+- `SecurityCheckWorkerTest` — runs both checks; stores results in preferences and audit log; schedules next run; alert result triggers notification
+
+**Files to create:**
+- `core/tunnel/src/commonMain/kotlin/com/rousecontext/tunnel/SelfCertVerifier.kt` — custom X509TrustManager, SHA-256 fingerprint comparison
+- `core/tunnel/src/commonMain/kotlin/com/rousecontext/tunnel/CtLogMonitor.kt` — crt.sh query, JSON parsing, fingerprint cross-reference
+- `core/tunnel/src/commonMain/kotlin/com/rousecontext/tunnel/SecurityCheckResult.kt` — sealed: Verified, Warning(reason), Alert(reason)
+- `work/src/main/kotlin/com/rousecontext/work/SecurityCheckWorker.kt` — periodic WorkManager task (every 4 hours)
+- `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/SelfCertVerifierTest.kt`
+- `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/CtLogMonitorTest.kt`
+- `work/src/test/kotlin/com/rousecontext/work/SecurityCheckWorkerTest.kt`
+
+**CertificateStore additions:**
+```kotlin
+/** SHA-256 fingerprints of cert public keys we issued (current + pending renewal) */
+fun getKnownFingerprints(): Set<String>
+
+/** Store a fingerprint for a newly issued cert */
+fun storeFingerprint(fingerprint: String)
+```
+
+**Acceptance criteria:**
+- Self-cert check detects fingerprint mismatch and raises alert
+- CT log check detects unknown certs and raises alert
+- Both checks degrade to warning on network failure (never silent)
+- Results persisted to audit log and preferences
+- WorkManager schedules every 4 hours with flex window
+- All tests pass
+
+---
+
 ### Phase 4: Health Integration (1 agent)
 
-#### Task T-11: health — Health Connect MCP Server
+#### Task T-12: health — Health Connect MCP Server
 
 **Owner:** android agent
 **Branch:** `feat/health-integration`
@@ -464,7 +505,7 @@ Implement the Health Connect integration: MCP tools for steps, heart rate, sleep
 
 ### Phase 5: App Shell (1 agent, but can split UI tasks)
 
-#### Task T-12: app — Koin Wiring + CertificateStore Implementation
+#### Task T-13: app — Koin Wiring + CertificateStore Implementation
 
 **Owner:** android agent
 **Branch:** `feat/app-koin-wiring`
@@ -489,11 +530,11 @@ Wire all modules together via Koin. Implement concrete CertificateStore (PEM fil
 
 ---
 
-#### Task T-13: app — Compose Navigation + All Screens
+#### Task T-14: app — Compose Navigation + All Screens
 
 **Owner:** android agent (can be split into sub-tasks per screen)
 **Branch:** `feat/app-ui`
-**Depends on:** T-12
+**Depends on:** T-13
 
 Build the Compose UI shell: all app-owned screens, navigation, ViewModels, bottom nav.
 
@@ -501,19 +542,19 @@ Build the Compose UI shell: all app-owned screens, navigation, ViewModels, botto
 
 | Sub-task | Screen | ViewModel |
 |----------|--------|-----------|
-| T-13a | Welcome + onboarding flow | - |
-| T-13b | Main Dashboard | MainDashboardViewModel |
-| T-13c | Add Integration Picker | AddIntegrationViewModel |
-| T-13d | Integration Setup flow (notification prefs, cert spinner, URL screen) | IntegrationSetupViewModel |
-| T-13e | Integration Manage | IntegrationManageViewModel |
-| T-13f | Device Code Approval + Connected | DeviceCodeApprovalViewModel |
-| T-13g | Audit History | AuditHistoryViewModel |
-| T-13h | Settings | SettingsViewModel |
-| T-13i | Navigation host + bottom nav + deep links | - |
+| T-14a | Welcome + onboarding flow | - |
+| T-14b | Main Dashboard | MainDashboardViewModel |
+| T-14c | Add Integration Picker | AddIntegrationViewModel |
+| T-14d | Integration Setup flow (notification prefs, cert spinner, URL screen) | IntegrationSetupViewModel |
+| T-14e | Integration Manage | IntegrationManageViewModel |
+| T-14f | Device Code Approval + Connected | DeviceCodeApprovalViewModel |
+| T-14g | Audit History | AuditHistoryViewModel |
+| T-14h | Settings | SettingsViewModel |
+| T-14i | Navigation host + bottom nav + deep links | - |
 
 **Tests first (per sub-task):**
 - ViewModel unit tests: mock dependencies, verify state emissions for all input combinations
-- Navigation flow tests: test IDs 215-232 from overall.md
+- Navigation flow tests: test IDs 224-241 from overall.md
 
 **Acceptance criteria:**
 - All screens match UI wireframes in ui.md
@@ -526,21 +567,21 @@ Build the Compose UI shell: all app-owned screens, navigation, ViewModels, botto
 
 ### Phase 6: Cross-Module Integration Tests (1-2 agents)
 
-#### Task T-14: Tunnel + MCP Integration Test
+#### Task T-15: Tunnel + MCP Integration Test
 
 **Owner:** tunnel agent or mcp agent
 **Branch:** `feat/integration-tunnel-mcp`
 **Depends on:** T-5, T-2
 
-End-to-end test: OPEN frame -> tunnel TLS accept -> plaintext stream -> mcp-core Ktor serves HTTP -> client gets MCP tool response. Test IDs 88-90 from overall.md.
+End-to-end test: OPEN frame -> tunnel TLS accept -> plaintext stream -> mcp-core Ktor serves HTTP -> client gets MCP tool response. Test IDs 97-99 from overall.md.
 
-#### Task T-15: Tunnel + Relay Integration Test
+#### Task T-16: Tunnel + Relay Integration Test
 
 **Owner:** relay agent + tunnel agent
 **Branch:** `feat/integration-tunnel-relay`
 **Depends on:** T-5, T-10
 
-Cross-language integration test: Kotlin tunnel connects to Rust relay via real WebSocket + mTLS. Test IDs 91-95 from overall.md.
+Cross-language integration test: Kotlin tunnel connects to Rust relay via real WebSocket + mTLS. Test IDs 100-104 from overall.md.
 
 ---
 
@@ -560,11 +601,12 @@ feat/notifications-model        # T-7
 feat/work-service               # T-8
 feat/tunnel-onboarding          # T-9
 feat/relay-passthrough          # T-10
-feat/health-integration         # T-11
-feat/app-koin-wiring            # T-12
-feat/app-ui                     # T-13
-feat/integration-tunnel-mcp     # T-14
-feat/integration-tunnel-relay   # T-15
+feat/security-monitoring         # T-11
+feat/health-integration         # T-12
+feat/app-koin-wiring            # T-13
+feat/app-ui                     # T-14
+feat/integration-tunnel-mcp     # T-15
+feat/integration-tunnel-relay   # T-16
 ```
 
 ### Creating Worktrees
