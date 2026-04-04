@@ -15,18 +15,24 @@ The `:app` module is the shell that wires tunnel, mcp-core, and mcp-health toget
 
 ## Session Wiring
 
-When the tunnel emits an incoming session:
+`McpSession` is a shared singleton, created once at app startup:
+
+```kotlin
+// Created once, shared across all streams
+val mcpSession = McpSession(
+    providers = providerRegistry,   // live, dynamic — reflects enable/disable immediately
+    tokenStore = tokenStore,        // Room-backed token verification
+    auditListener = auditLogger,
+)
+```
+
+When the tunnel emits an incoming session, the app calls `run()` per stream:
 
 ```kotlin
 tunnelClient.incomingSessions.collect { stream ->
-    val session = McpSession(
-        providers = listOf(healthConnectServer, /* future providers */),
-        auditListener = auditLogger,
-    )
-    // Each session runs in its own coroutine, scoped to the foreground service
     serviceScope.launch(Dispatchers.IO) {
         try {
-            session.run(stream.input, stream.output)
+            mcpSession.run(stream.input, stream.output)
         } finally {
             stream.close()
         }
@@ -34,7 +40,7 @@ tunnelClient.incomingSessions.collect { stream ->
 }
 ```
 
-Multiple concurrent sessions are supported (one per MuxStream).
+Each `run()` creates a lightweight Ktor HTTP server over that stream's I/O. Multiple concurrent streams are supported — each gets its own HTTP server instance but shares the `ProviderRegistry`, `TokenStore`, and `AuditListener`.
 
 ## Foreground Service
 
