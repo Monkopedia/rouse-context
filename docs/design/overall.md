@@ -446,45 +446,47 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 69. Fresh cert from onboarding → stored via CertificateStore → tunnel uses for mux mTLS → relay accepts
 70. Renewed cert → stored → tunnel uses new cert on next mux → relay accepts
 
-### mcp-core: HTTP server + OAuth + MCP protocol
-69. `GET /.well-known/oauth-authorization-server` → valid RFC 8414 metadata
-70. MCP `initialize` via Streamable HTTP POST → server responds with capabilities
-71. `tools/list` to `/health` → returns only Health Connect tools
-72. `tools/call` with valid args → tool executes, result returned
-73. `tools/call` with unknown tool name → MCP error response
-74. `resources/list` → returns resources from targeted provider only
-75. `resources/read` with valid URI → resource content returned
-76. Malformed JSON-RPC → HTTP 400 or MCP parse error
-77. Provider throws exception during tool call → MCP error response, audit logged, stream stays open
+### mcp-core: HTTP server + MCP protocol
+71. `GET /health/.well-known/oauth-authorization-server` → valid RFC 8414 metadata for health integration
+72. MCP `initialize` via Streamable HTTP POST to `/health` → server responds with capabilities
+73. `tools/list` to `/health` → returns only Health Connect tools
+74. `tools/call` with valid args → tool executes, result returned
+75. `tools/call` with unknown tool name → MCP error response
+76. `resources/list` → returns resources from targeted provider only
+77. `resources/read` with valid URI → resource content returned
+78. Malformed JSON-RPC → HTTP 400 or MCP parse error
+79. Provider throws exception during tool call → MCP error response, audit logged, stream stays open
 
-### mcp-core: OAuth device code flow
-78. `POST /device/authorize` → returns device_code, user_code, interval
-79. `POST /token` before approval → `authorization_pending`
-80. `POST /token` after approval → access_token returned
-81. `POST /token` after denial → `access_denied`
-82. `POST /token` after 10 min → `expired_token`
-83. `POST /token` with invalid device_code → error
-84. Multiple pending device codes simultaneously → each tracked independently
-85. Expired device codes pruned, no memory leak
+### mcp-core: OAuth device code flow (per-integration)
+80. `POST /health/device/authorize` → returns device_code, user_code, interval
+81. `POST /health/token` before approval → `authorization_pending`
+82. `POST /health/token` after approval → access_token scoped to `/health`
+83. `POST /health/token` after denial → `access_denied`
+84. `POST /health/token` after 10 min → `expired_token`
+85. `POST /health/token` with invalid device_code → error
+86. Multiple pending device codes for same integration → each tracked independently
+87. Multiple pending device codes across different integrations → independent
+88. Expired device codes pruned, no memory leak
 
-### mcp-core: auth middleware
-86. Request to `/{integration}` without Bearer → 401 with WWW-Authenticate header
-87. Request with valid Bearer → passes through to MCP handler
-88. Request with invalid/revoked Bearer → 401
-89. OAuth endpoints accessible without Bearer
-90. Token `last_used_at` updated on successful authenticated request
+### mcp-core: auth middleware (per-integration)
+89. Request to `/health/*` without Bearer → 401 with WWW-Authenticate pointing to `/health/.well-known/...`
+90. Request to `/health/*` with valid `/health` Bearer → passes through to MCP handler
+91. Request to `/health/*` with `/notifications` Bearer → 401 (wrong integration)
+92. Request to `/health/*` with invalid/revoked Bearer → 401
+93. OAuth endpoints (`/{integration}/.well-known/*`, `/{integration}/device/authorize`, `/{integration}/token`) accessible without Bearer
+94. Token `last_used_at` updated on successful authenticated request
 
-### mcp-core: ProviderRegistry
-91. Provider enabled → path returns MCP tools
-92. Provider disabled mid-session → next request returns 404
-93. Provider re-enabled → path works again
-94. `enabledPaths()` reflects current state
-95. Unknown path → 404 regardless of registry state
+### mcp-core: ProviderRegistry + IntegrationStateStore
+95. Integration user-enabled → path returns MCP tools
+96. Integration user-disabled mid-session → next request returns 404
+97. Integration re-enabled → path works again
+98. `enabledPaths()` reflects current IntegrationStateStore state
+99. Unknown path → 404 regardless of registry state
 
 ### mcp-core: per-stream HTTP server lifecycle
-96. Stream closes cleanly → Ktor server disposed, no resource leak
-97. Stream closes mid-request → server handles gracefully
-98. Multiple concurrent streams → independent HTTP servers, no cross-contamination
+100. Stream closes cleanly → Ktor server disposed, no resource leak
+101. Stream closes mid-request → server handles gracefully
+102. Multiple concurrent streams → independent HTTP servers, no cross-contamination
 
 ### Tunnel: mux frame parser
 99. Valid DATA frame → payload routed to correct stream
@@ -576,12 +578,12 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 167. FCM token refresh → Firestore updated
 
 ### :api + :health — integration contract
-168. HealthConnectIntegration.isAvailable() → true when Health Connect installed
-169. HealthConnectIntegration.isEnabled() → true when permissions granted
-170. Permissions denied → isEnabled() returns false
-171. Permissions revoked externally → isEnabled() reflects change
-172. OnboardingFlow completes → integration becomes enabled
-173. OnboardingFlow cancelled → integration stays available (not enabled)
+168. HealthConnectIntegration.isAvailable() → true when Health Connect installed, false when not
+169. IntegrationStateStore.setUserEnabled("health", true) → ProviderRegistry exposes /health
+170. IntegrationStateStore.setUserEnabled("health", false) → ProviderRegistry returns null for /health
+171. Integration onboarding route completes → app sets userEnabled=true, state transitions to Pending
+172. Integration onboarding cancelled → state unchanged (Available)
+173. Permissions revoked externally → integration surfaces banner on its settings screen, MCP tools return errors for affected data types
 
 ### :app — wiring, navigation, integration management
 174. App launch after onboarding → main screen shown

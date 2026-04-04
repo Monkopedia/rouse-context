@@ -6,7 +6,7 @@
 2. Main Dashboard
 3. Add Integration Picker
 4. Integration Setup: Notification Preferences (first integration only)
-5. Integration Setup: Integration-Specific (delegates to McpIntegration.OnboardingFlow)
+5. Integration Setup: Integration-Specific (delegates to McpIntegration.onboardingRoute)
 6. Integration Setup: Setting Up (cert issuance spinner)
 7. Integration Setup: Integration Enabled (URL + waiting for client)
 8. Integration Detail (Active integration — URL, recent activity, disable)
@@ -229,7 +229,7 @@ If not "suppress": system notification permission dialog follows.
 
 ### Integration Setup: Integration-Specific
 
-Delegates to `McpIntegration.OnboardingFlow`. For Health Connect:
+Delegates to `McpIntegration.onboardingRoute`. For Health Connect:
 
 ```
 ┌─────────────────────────────────────┐
@@ -475,10 +475,13 @@ Deep-link: `/audit/{sessionId}` pre-filters to that session's entries (from noti
 
 ### Authorized Clients
 
+Grouped by integration since tokens are per-integration:
+
 ```
 ┌─────────────────────────────────────┐
 │     AUTHORIZED CLIENTS               │
 │                                      │
+│  Health Connect                      │
 │  ┌─────────────────────────────────┐ │
 │  │ Claude Desktop                  │ │
 │  │ Authorized: Apr 2, 2026        │ │
@@ -491,11 +494,21 @@ Deep-link: `/audit/{sessionId}` pre-filters to that session's entries (from noti
 │  │                      [Revoke]  │ │
 │  └─────────────────────────────────┘ │
 │                                      │
-│  Revoking a client will require      │
-│  it to re-authorize next time.       │
+│  Notifications                       │
+│  ┌─────────────────────────────────┐ │
+│  │ Claude Desktop                  │ │
+│  │ Authorized: Apr 3, 2026        │ │
+│  │ Last used: 1 hour ago          │ │
+│  │                      [Revoke]  │ │
+│  └─────────────────────────────────┘ │
+│                                      │
+│  Revoking a client removes access    │
+│  to that integration only.           │
 │                                      │
 └──────────────────────────────────────┘
 ```
+
+The ViewModel aggregates tokens across all integrations via `TokenStore.listTokens(integrationId)` for each enabled integration.
 
 ### Settings
 
