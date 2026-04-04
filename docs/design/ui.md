@@ -336,15 +336,15 @@ Auto-advances when cert becomes valid. If user leaves (Cancel or background), in
 
 If device code auth arrives while on this screen, auto-navigates to Device Code Approval. Cancel goes to dashboard (integration stays Pending, tappable to return here).
 
-### Integration Detail (Active)
+### Integration Detail / Settings (Active)
 
-Shown when tapping an Active integration on the dashboard:
+Shown when tapping an Active integration on the dashboard. This screen is **owned by the integration** via its `settingsRoute`. The app navigates to `integration/{id}/settings`.
+
+Example for Health Connect:
 
 ```
 ┌─────────────────────────────────────┐
-│     HEALTH CONNECT                   │
-│                                      │
-│   ● Active                           │
+│     HEALTH CONNECT          Active   │
 │                                      │
 │   ┌─────────────────────────────┐    │
 │   │ https://brave-falcon.       │    │
@@ -352,18 +352,26 @@ Shown when tapping an Active integration on the dashboard:
 │   │                      [Copy] │    │
 │   └─────────────────────────────┘    │
 │                                      │
+│   Permissions                        │
+│   ┌─────────────────────────────┐    │
+│   │ ✓ Steps                     │    │
+│   │ ✓ Heart rate                │    │
+│   │ ✓ Sleep                     │    │
+│   │ ○ Workout history  [Grant]  │    │
+│   │ ○ HRV              [Grant]  │    │
+│   └─────────────────────────────┘    │
+│                                      │
 │   Recent Activity                    │
 │   10:32 AM  get_steps       142ms    │
 │   10:31 AM  get_sleep        89ms    │
 │   [View all →]                       │
-│                                      │
 │                                      │
 │   [ Disable Integration ]            │
 │                                      │
 └──────────────────────────────────────┘
 ```
 
-Disable removes the integration from the dashboard and puts it back in the Add picker. May also show integration-specific settings via `McpIntegration.SettingsContent()` above the disable button.
+Each integration controls its own layout. The app provides utility composables (URL bar, disable button) that integrations can use for consistency but aren't required to. Disable removes the integration from the dashboard and puts it back in the Add picker.
 
 Tapping a **Pending** integration on the dashboard navigates to whichever setup screen is appropriate:
 - Cert still issuing → Setting Up spinner

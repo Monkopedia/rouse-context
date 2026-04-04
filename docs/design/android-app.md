@@ -43,14 +43,6 @@ interface McpIntegration {
     /** The MCP server provider for tool/resource registration */
     val provider: McpServerProvider
 
-    /** Compose UI for first-time setup (permission requests, explanation) */
-    @Composable
-    fun OnboardingFlow(onComplete: () -> Unit, onCancel: () -> Unit)
-
-    /** Compose UI for provider-specific settings */
-    @Composable
-    fun SettingsContent()
-
     /** Is the underlying platform available? (e.g. Health Connect installed) */
     suspend fun isAvailable(): Boolean
 
@@ -59,19 +51,38 @@ interface McpIntegration {
 
     /** Permissions this integration needs */
     fun requiredPermissions(): List<String>
+
+    /**
+     * Register this integration's screens into the nav graph.
+     * Routes should be relative — the app provides a prefix (e.g. "integration/health/")
+     * to ensure uniqueness.
+     */
+    fun NavGraphBuilder.registerNavigation(prefix: String, navController: NavController)
+
+    /** Relative route for onboarding flow (appended to prefix) */
+    val onboardingRoute: String    // e.g. "setup"
+
+    /** Relative route for settings/detail screen (appended to prefix) */
+    val settingsRoute: String      // e.g. "settings"
 }
 ```
 
-`:app` collects all `McpIntegration` implementations via Koin and presents them in the integration management UI. Each integration owns its own screens but the app owns the navigation shell.
+Each integration owns its own screens entirely — layout, navigation within its routes, permission handling. The app navigates to `integration/{id}/{onboardingRoute}` or `integration/{id}/{settingsRoute}` and the integration handles the rest.
+
+The app provides utility composables for common UI elements (URL bar, disable button) that integrations can optionally use for consistency, but the integration controls its own layout.
+
+Uses Compose Navigation 3 (Nav3).
 
 ## :health — Health Connect Integration
 
 Implements `McpIntegration`:
 - `isAvailable()` → checks Health Connect SDK is installed
 - `requiredPermissions()` → READ_STEPS, READ_HEART_RATE, READ_SLEEP, etc.
-- `OnboardingFlow` → explains what data will be exposed, requests Health Connect permissions
-- `SettingsContent` → toggle per data type (future), permission status
+- `onboardingRoute` = "setup" → full screen explaining data exposure, requests Health Connect permissions
+- `settingsRoute` = "settings" → shows granted/available permissions with grant buttons, recent activity for this provider, disable button
 - `provider` → `HealthConnectMcpServer` which calls `server.addTool()` / `server.addResource()`
+
+Owns its own screens via `registerNavigation()`. Routes: `integration/health/setup`, `integration/health/settings`.
 
 Depends on: `:api`, `:core:mcp`, Health Connect SDK.
 
@@ -224,15 +235,26 @@ val appModule = module {
 
 ### Navigation
 
-Single Activity, Compose NavHost:
-- `/onboarding` — first-run flow (notification permission, device registration)
-- `/main` — dashboard (subdomain, connection status, integration list)
-- `/integration/{id}/setup` — per-integration onboarding (delegates to `McpIntegration.OnboardingFlow`)
-- `/integration/{id}/settings` — per-integration settings (delegates to `McpIntegration.SettingsContent`)
+Single Activity, Compose Navigation 3 (Nav3):
+
+App-owned routes:
+- `/welcome` — first-run welcome screen
+- `/main` — dashboard (connection status, enabled integrations, recent activity)
+- `/add` — add integration picker
+- `/setup/notifications` — notification preferences (first integration only)
+- `/setup/certprogress` — cert issuance spinner
+- `/setup/ready/{id}` — integration URL + waiting for client
+- `/approve` — device code approval (full screen)
+- `/approved` — connection confirmed
 - `/audit` — audit history list, filterable
 - `/audit/{sessionId}` — audit detail for a session (deep-link target from notifications)
 - `/clients` — authorized clients list with revoke
-- `/settings` — app settings (idle timeout, notification mode, battery optimization, subdomain rotation)
+- `/settings` — app settings
+
+Integration-owned routes (registered via `McpIntegration.registerNavigation()`):
+- `/integration/{id}/*` — each integration registers its own routes under this prefix
+- e.g. `/integration/health/setup` — Health Connect onboarding
+- e.g. `/integration/health/settings` — Health Connect detail/settings
 
 ### Dependency Injection
 - Koin (not Hilt) for simplicity and KMP compatibility
