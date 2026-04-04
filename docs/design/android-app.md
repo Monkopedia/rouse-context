@@ -263,6 +263,24 @@ Android requires a rationale activity for Health Connect. The app declares this 
 - `androidx.compose.*` — UI framework
 - `androidx.navigation:navigation-compose` — screen navigation
 
+## Subdomain Rotation
+
+Available in Settings:
+- "Generate new address" button
+- Confirmation dialog: "All connected clients will lose access. You'll need to re-add the new URL to your MCP clients. You can only do this once every 30 days."
+- On confirm: calls `POST /register` with `force_new: true` + Firebase token + signature
+- Old subdomain invalidated immediately, all client tokens revoked
+- App updates stored subdomain + cert, shows new URLs
+- Cooldown enforced client-side and server-side (30 days)
+
+## ACME Rate Limit UX
+
+When relay returns `rate_limited`:
+- Notification: "Certificate issuance temporarily delayed. Will retry automatically on [date]."
+- Onboarding flow shows waiting state with retry date
+- WorkManager schedules retry for `retry_after` time
+- App remains functional for any already-certified integrations (only affects new registrations/rotations)
+
 ## Still Needs Design
 
 1. **Third-party provider discovery** — bound service intent filter, verification, trust UI (future, not v1)

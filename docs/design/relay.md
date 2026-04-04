@@ -51,38 +51,54 @@ In-memory:
 - `HashMap<stream_id, ClientConnection>` — active client TCP sockets per device
 - Device record cache with TTL (from Firestore)
 
-Stream IDs are assigned per-device, incrementing u32. Reset when mux connection drops.
+Stream IDs are assigned per-mux-connection, incrementing u32 starting at 1. Reset when mux connection drops. Max concurrent streams per device: 8 (configurable).
 
 ## API Endpoints
 
 All served over HTTPS on the relay's own domain (e.g. `api.rousecontext.com` or same host, different port).
 
 ### `POST /register`
-Onboarding. Creates new device.
+Onboarding or subdomain rotation.
 
 Request:
 ```json
 {
   "firebase_token": "eyJ...",
   "csr": "base64-encoded-CSR",
-  "fcm_token": "firebase-cloud-messaging-token"
+  "fcm_token": "firebase-cloud-messaging-token",
+  "signature": "base64-DER (required for re-registration or rotation)",
+  "force_new": false
 }
 ```
 
+`signature` required when Firebase UID already has a subdomain. `force_new: true` for subdomain rotation (relay enforces 30-day cooldown).
+
 Relay:
 1. Verify Firebase ID token → extract UID
-2. Check if UID already registered → if so, require key signature (re-registration path)
-3. Generate random subdomain
-4. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com`
-5. Store device record in Firestore
-6. Return cert + subdomain
+2. If UID already registered:
+   a. Verify signature against stored public key
+   b. If `force_new`: check 30-day cooldown, assign new subdomain, invalidate old
+   c. If not `force_new`: reuse existing subdomain, issue new cert
+3. If new UID: generate random two-word subdomain
+4. Check ACME rate limit — if exceeded, store in `pending_certs/`, return `rate_limited` error, alert admin
+5. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com`
+6. Store/update device record in Firestore
+7. Return cert + subdomain
 
-Response:
+Response (success):
 ```json
 {
-  "subdomain": "abc123",
+  "subdomain": "brave-falcon",
   "cert": "base64-encoded-cert-chain",
   "relay_host": "relay.rousecontext.com"
+}
+```
+
+Response (rate limited):
+```json
+{
+  "error": "rate_limited",
+  "retry_after_secs": 604800
 }
 ```
 
@@ -132,7 +148,7 @@ Relay:
 ## ACME Orchestration
 
 ### CA Selection
-Start with **ZeroSSL** (ACME endpoint: `https://acme.zerossl.com/v2/DV90`). No rate limit pain like Let's Encrypt during development. Can switch later.
+Primary: **Let's Encrypt** (50 certs per registered domain per week, no EAB needed). Future: add Google Trust Services or ZeroSSL as fallback CA.
 
 ### DNS-01 Challenge Flow
 1. Relay generates ACME order for `{subdomain}.rousecontext.com`
@@ -141,21 +157,26 @@ Start with **ZeroSSL** (ACME endpoint: `https://acme.zerossl.com/v2/DV90`). No r
 4. Relay waits for DNS propagation (poll ~5s interval, up to 60s)
 5. Relay tells CA to validate
 6. CA verifies TXT record, issues cert
-7. Relay deletes TXT record via Cloudflare API
+7. Relay deletes TXT record via Cloudflare API (always, even on failure — no dangling records)
 8. Relay returns cert to device
 
-### Rate Limits & Error Handling
-- ZeroSSL: 3 certs per domain per week (generous for subdomains)
+### Rate Limit Handling
+- Let's Encrypt: 50 certs per registered domain (`rousecontext.com`) per week
+- Relay tracks issued cert count per week
+- When limit hit:
+  1. Store blocked device in Firestore `pending_certs/{subdomain}`
+  2. Return `rate_limited` error with `retry_after_secs`
+  3. Send admin alert (email/webhook, configured in relay.toml)
+- When quota resets: process pending queue, send FCM to each blocked device
 - Cloudflare API: 1200 requests per 5 minutes (plenty)
-- On ACME failure: return error to device, device retries with exponential backoff
+- On ACME challenge failure: return error, device retries with exponential backoff
 - On Cloudflare API failure: retry 3 times, then fail the request
 
 ### Credentials
 - Cloudflare API token (scoped to DNS edit for `rousecontext.com` zone)
-- ZeroSSL EAB credentials (one-time registration)
 - Firebase service account JSON (for Firestore reads + FCM sends)
 
-All stored as environment variables or a config file on the VPS. NOT in the repo.
+All via env vars. NOT in the repo.
 
 ## FCM Integration
 
@@ -170,7 +191,8 @@ Authorization: Bearer {oauth2_token}
     "android": { "priority": "high" },
     "data": {
       "type": "wake",
-      "relay_host": "relay.rousecontext.com"
+      "relay_host": "relay.rousecontext.com",
+      "relay_port": "443"
     }
   }
 }
@@ -210,11 +232,14 @@ fcm_wakeup_secs = 20
 websocket_ping_secs = 30
 subdomain_reclaim_days = 180
 
+max_streams_per_device = 8
+subdomain_rotation_cooldown_days = 30
+
 [acme]
-ca_url = "https://acme.zerossl.com/v2/DV90"
+ca_url = "https://acme.letsencrypt.org/directory"
 ```
 
-Secrets via env vars: `CLOUDFLARE_API_TOKEN`, `ZEROSSL_EAB_KID`, `ZEROSSL_EAB_HMAC`, `FIREBASE_SERVICE_ACCOUNT_JSON`.
+Secrets via env vars: `CLOUDFLARE_API_TOKEN`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `ADMIN_ALERT_WEBHOOK` (for rate limit notifications).
 
 ## Graceful Shutdown
 

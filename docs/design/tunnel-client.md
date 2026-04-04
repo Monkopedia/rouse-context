@@ -121,9 +121,28 @@ If any step fails, show error in UI with retry option. No partial state — eith
 The tunnel module exposes to `:app`:
 
 ```kotlin
+enum class TunnelState {
+    DISCONNECTED,    // no mux connection
+    CONNECTING,      // WebSocket handshake in progress
+    CONNECTED,       // mux open, no active streams
+    ACTIVE,          // mux open, 1+ active streams
+    DISCONNECTING,   // teardown in progress
+}
+
+sealed interface TunnelError {
+    data object ConnectionFailed : TunnelError
+    data object AuthRejected : TunnelError       // mTLS handshake failed
+    data object CertExpired : TunnelError         // cert needs renewal before connecting
+    data class StreamError(val streamId: Int, val code: ErrorCode) : TunnelError
+    data class Unexpected(val message: String) : TunnelError
+}
+
 interface TunnelClient {
-    /** Current connection state */
+    /** Current connection + stream state */
     val state: StateFlow<TunnelState>
+
+    /** Errors emitted for app to handle (notifications, audit, UI) */
+    val errors: SharedFlow<TunnelError>
 
     /** Connect to relay (called by foreground service on FCM wakeup) */
     suspend fun connect()
@@ -146,6 +165,8 @@ interface MuxStream {
 
 `:app` collects `incomingSessions`, creates `McpSession(providers)` for each, and calls `session.run(stream.input, stream.output)`.
 
+See `docs/design/relay.md § Mux Framing Protocol` for the wire format (message types, error codes, byte layout).
+
 ## Dependencies
 
 ### commonMain (KMP)
@@ -166,4 +187,4 @@ interface MuxStream {
 
 ## Still Needs Design
 
-(none — all items resolved. CSR: Bouncy Castle. Cert storage: PEM file. Error propagation: sealed class via SharedFlow. Foreground service + Doze: app concerns, see android-app.md)
+(none — all items resolved. CSR: Bouncy Castle. Cert storage: PEM file in app-private dir. Error propagation: TunnelError sealed class via SharedFlow. TunnelState enum with ACTIVE for 1+ streams. Foreground service + Doze + wakelocks: app concerns, see android-app.md. Mux wire format: see relay.md.)
