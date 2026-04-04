@@ -165,7 +165,7 @@ private fun NotificationOption(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun NotificationPreferencesPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         NotificationPreferencesScreen()
     }
 }

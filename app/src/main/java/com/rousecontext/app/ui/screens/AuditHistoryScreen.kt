@@ -267,7 +267,7 @@ private fun FilterDropdown(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun AuditHistoryPopulatedPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         AuditHistoryScreen(
             state = AuditHistoryState(
                 groups = listOf(
@@ -299,7 +299,7 @@ fun AuditHistoryPopulatedPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun AuditHistoryEmptyPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         AuditHistoryScreen()
     }
 }
@@ -307,7 +307,7 @@ fun AuditHistoryEmptyPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun AuditHistoryFilteredPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         AuditHistoryScreen(
             state = AuditHistoryState(
                 providerFilter = "health",

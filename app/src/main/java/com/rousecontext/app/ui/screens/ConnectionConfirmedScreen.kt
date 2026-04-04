@@ -65,7 +65,7 @@ fun ConnectionConfirmedScreen(onBackToHome: () -> Unit = {}) {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun ConnectionConfirmedPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         ConnectionConfirmedScreen()
     }
 }

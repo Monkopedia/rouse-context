@@ -73,7 +73,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun WelcomeScreenPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         WelcomeScreen()
     }
 }

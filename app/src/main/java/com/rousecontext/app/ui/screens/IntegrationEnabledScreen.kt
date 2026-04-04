@@ -147,7 +147,7 @@ fun IntegrationEnabledScreen(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun IntegrationEnabledPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         IntegrationEnabledScreen()
     }
 }

@@ -417,7 +417,7 @@ private fun ActivityRow(entry: AuditEntry) {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DashboardEmptyPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         MainDashboardScreen(state = DashboardState())
     }
 }
@@ -425,7 +425,7 @@ fun DashboardEmptyPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DashboardWithIntegrationsPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         MainDashboardScreen(
             state = DashboardState(
                 connectionStatus = ConnectionStatus.CONNECTED,
@@ -456,7 +456,7 @@ fun DashboardWithIntegrationsPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DashboardCertExpiredPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         MainDashboardScreen(
             state = DashboardState(
                 certBanner = CertBanner.Expired(renewalInProgress = false),
@@ -476,7 +476,7 @@ fun DashboardCertExpiredPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DashboardCertRenewingPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         MainDashboardScreen(
             state = DashboardState(
                 certBanner = CertBanner.Renewing,
@@ -496,7 +496,7 @@ fun DashboardCertRenewingPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DashboardCertRateLimitedPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         MainDashboardScreen(
             state = DashboardState(
                 certBanner = CertBanner.RateLimited(retryDate = "Apr 11")
@@ -508,7 +508,7 @@ fun DashboardCertRateLimitedPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DashboardCertOnboardingPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         MainDashboardScreen(
             state = DashboardState(
                 certBanner = CertBanner.Onboarding(

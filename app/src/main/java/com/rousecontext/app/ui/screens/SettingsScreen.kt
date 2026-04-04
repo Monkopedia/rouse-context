@@ -305,7 +305,7 @@ private fun SettingsDropdown(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun SettingsPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         SettingsScreen()
     }
 }
@@ -313,7 +313,7 @@ fun SettingsPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun SettingsNoBatteryWarningPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         SettingsScreen(
             state = SettingsState(
                 showBatteryWarning = false,

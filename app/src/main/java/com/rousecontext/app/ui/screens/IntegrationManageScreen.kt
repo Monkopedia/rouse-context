@@ -249,7 +249,7 @@ fun IntegrationManageScreen(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun IntegrationManageActivePreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         IntegrationManageScreen(
             state = IntegrationManageState(
                 status = IntegrationStatus.ACTIVE,
@@ -269,7 +269,7 @@ fun IntegrationManageActivePreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun IntegrationManagePendingPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         IntegrationManageScreen(
             state = IntegrationManageState(
                 status = IntegrationStatus.PENDING

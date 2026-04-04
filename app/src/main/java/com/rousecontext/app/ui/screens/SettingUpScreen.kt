@@ -132,7 +132,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun SettingUpFirstTimePreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime))
     }
 }
@@ -140,7 +140,7 @@ fun SettingUpFirstTimePreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun SettingUpRefreshingPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         SettingUpScreen(state = SettingUpState(SettingUpVariant.Refreshing))
     }
 }
@@ -148,7 +148,7 @@ fun SettingUpRefreshingPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun SettingUpRateLimitedPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         SettingUpScreen(state = SettingUpState(SettingUpVariant.RateLimited("Apr 11")))
     }
 }

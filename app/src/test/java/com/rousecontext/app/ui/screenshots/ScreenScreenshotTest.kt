@@ -55,7 +55,7 @@ class ScreenScreenshotTest {
 
     private fun capture(name: String, content: @Composable () -> Unit) {
         composeRule.setContent {
-            RouseContextTheme(dynamicColor = false) {
+            RouseContextTheme(darkTheme = true) {
                 content()
             }
         }

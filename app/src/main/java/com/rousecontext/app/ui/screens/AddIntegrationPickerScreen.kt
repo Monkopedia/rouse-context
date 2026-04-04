@@ -147,7 +147,7 @@ fun AddIntegrationPickerScreen(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun AddIntegrationPickerPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         AddIntegrationPickerScreen(
             integrations = listOf(
                 PickerIntegration(
@@ -170,7 +170,7 @@ fun AddIntegrationPickerPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun AddIntegrationPickerWithDisabledPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         AddIntegrationPickerScreen(
             integrations = listOf(
                 PickerIntegration(

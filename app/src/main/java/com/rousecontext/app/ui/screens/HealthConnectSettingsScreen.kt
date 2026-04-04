@@ -115,7 +115,7 @@ fun HealthConnectSettingsScreen(
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun HealthConnectSettingsPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         HealthConnectSettingsScreen(
             state = HealthConnectSettingsState(
                 permissions = listOf(

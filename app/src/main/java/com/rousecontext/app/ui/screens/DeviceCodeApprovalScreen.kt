@@ -167,7 +167,7 @@ private fun CodeBox(char: Char?) {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DeviceCodeApprovalEmptyPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         DeviceCodeApprovalScreen()
     }
 }
@@ -175,7 +175,7 @@ fun DeviceCodeApprovalEmptyPreview() {
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun DeviceCodeApprovalFilledPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         DeviceCodeApprovalScreen(
             state = DeviceCodeApprovalState(enteredCode = "ABCD1234")
         )

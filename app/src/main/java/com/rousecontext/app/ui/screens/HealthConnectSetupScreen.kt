@@ -116,7 +116,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun HealthConnectSetupPreview() {
-    RouseContextTheme(dynamicColor = false) {
+    RouseContextTheme(darkTheme = true) {
         HealthConnectSetupScreen()
     }
 }
