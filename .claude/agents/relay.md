@@ -36,12 +36,21 @@ It also provides:
 - Connection lifecycle: client connects → FCM sent → device connects back → splice established → idle timeout → teardown
 - High availability — multiple relay instances with shared state for device routing
 
+## Language & Toolchain
+
+Rust. The relay runs on a small VPS (512MB-1GB RAM), so the low memory footprint of a Rust binary matters. The relay is architecturally isolated from the Android codebase — no shared code.
+
+- Build: `cargo build --release` from `relay/`
+- Test: `cargo test` from `relay/`
+- Lint: `cargo clippy -- -D warnings`
+- Format: `cargo fmt`
+
 ## What You Should NOT Touch
 
 - Android modules (`app/`, `mcp-core/`, `mcp-health/`, `tunnel/`)
 - MCP protocol details (that's the device's concern)
-- Anything in the Android build system (Gradle, Android manifests)
+- Anything in the Android/Gradle build system
 
 ## Code Location
 
-All relay code lives under `relay/` in the repo root.
+All relay code lives under `relay/` in the repo root as a Cargo workspace.

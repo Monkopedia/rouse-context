@@ -47,7 +47,7 @@ Skip to step 4 for trivial changes (typos, single-line fixes, obvious bugs).
 - `:mcp-health` — MUST depend only on `:mcp-core` and Health Connect. No tunnel, no app.
 - `:tunnel` — MUST NOT know about MCP. It provides raw I/O streams. Zero knowledge of what travels over them.
 - `:app` — Wires everything together. The ONLY module that depends on all others.
-- `relay/` — Completely independent. No Android dependencies. Separate language/toolchain.
+- `relay/` — Completely independent. Rust. No Android dependencies. Built with Cargo, deployed as a static binary to a small VPS.
 
 ## Code Style
 
