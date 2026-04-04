@@ -530,11 +530,62 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 136. Rate limited during onboarding → rate_limited surfaced with retry_after
 137. Partial failure (keypair generated, /register fails) → no partial state, clean retry
 
-### App (pending architecture discussion)
-Tests for notification model, audit persistence, integration management UI,
-wakelock management, onboarding UI, and subdomain rotation UI will be defined
-after the app architecture design pass.
+### :notifications — NotificationModel + audit
+138. MuxConnected → ShowForeground
+139. MuxDisconnected with tool calls + setting=Summary → PostSummary
+140. MuxDisconnected with tool calls + setting=Each usage → individual PostToolUsage per call
+141. MuxDisconnected with tool calls + setting=Suppress → no post-session notification
+142. MuxDisconnected with zero tool calls → PostWarning("Roused with no usage")
+143. StreamOpened → foreground notification updates stream count
+144. StreamClosed (last stream) → DismissForeground
+145. ErrorOccurred (stream-level) → silent, audit only
+146. ErrorOccurred (connection-level) → PostError
+147. Notification permission denied → post_session forced to Suppress, foreground still works
+148. Audit entry persisted on tool call with all fields (timestamp, tool, args, result, duration, sessionId, providerId)
+149. Audit query by sessionId → correct entries (notification deep-link target)
+150. Audit query by date range + provider → filter works
+151. Audit retention: >30 day entries pruned on launch
+152. Audit empty state → no crash
+
+### :work — service lifecycle, wakelock, WorkManager
+153. FCM `wake` → foreground service starts → TunnelClient.connect() called
+154. FCM `renew` → WorkManager renewal enqueued, no service start
+155. Foreground service posts notification via createForegroundNotification()
+156. TunnelState ACTIVE → wakelock acquired
+157. TunnelState CONNECTED (from ACTIVE) → wakelock released
+158. TunnelState CONNECTING → wakelock acquired
+159. TunnelState DISCONNECTED → wakelock released, no leak
+160. Rapid state transitions → wakelock balanced (no leak)
+161. Idle timeout: CONNECTED for N minutes → disconnect() called
+162. Idle timeout cancelled: stream opens before expiry
+163. Idle timeout disabled when battery optimization exempt
+164. Idle timeout cannot be disabled without exemption
+165. WorkManager cert renewal: <14 days → POST /renew triggered
+166. WorkManager cert renewal: cert not expiring → no-op
+167. FCM token refresh → Firestore updated
+
+### :api + :health — integration contract
+168. HealthConnectIntegration.isAvailable() → true when Health Connect installed
+169. HealthConnectIntegration.isEnabled() → true when permissions granted
+170. Permissions denied → isEnabled() returns false
+171. Permissions revoked externally → isEnabled() reflects change
+172. OnboardingFlow completes → integration becomes enabled
+173. OnboardingFlow cancelled → integration stays available (not enabled)
+
+### :app — wiring, navigation, integration management
+174. App launch after onboarding → main screen shown
+175. App launch before onboarding → onboarding flow shown
+176. Integration enabled → ProviderRegistry updated → path serves MCP
+177. Integration disabled → ProviderRegistry updated → path returns 404
+178. Device code approval: correct code → token issued
+179. Device code approval: wrong code → error, retry
+180. Device code denial → access_denied to client
+181. Client revoked → token invalid immediately
+182. Subdomain rotation → confirmation → new subdomain, tokens revoked, UI updated
+183. Rotation within 30 days → rejected
+184. Battery optimization card shown when not exempt, dismissable
+185. Notification permission denied at onboarding → forced suppress setting
 
 ## Still Needs Design
 
-(none — all major design decisions locked in; app architecture discussion pending for detailed UI/notification test scenarios)
+1. **Third-party provider discovery** — bound service intent filter, verification, trust UI (future, not v1)
