@@ -421,6 +421,120 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 59. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
 60. Rotation spam protection → relay enforces 30-day cooldown server-side
 
+### Cross-module integration (tunnel + mcp-core)
+61. OPEN frame → tunnel TLS accept → plaintext stream → mcp-core Ktor serves HTTP → client gets MCP tool response (full stack)
+62. Client HTTP request spans multiple mux DATA frames → mcp-core reassembles correctly
+63. mcp-core sends large response → tunnel frames as multiple DATA frames → client reassembles
+
+### Cross-module integration (tunnel + relay)
+64. Tunnel connects to real relay → mTLS handshake → OPEN received → DATA bidirectional → CLOSE
+65. Relay sends OPEN while tunnel is processing previous OPEN → both streams created correctly
+66. Relay sends DATA after tunnel already sent CLOSE for that stream → tunnel ignores, no crash
+
+### Cross-module integration (cert flow: app → CertificateStore → tunnel → relay)
+67. Fresh cert from onboarding → stored via CertificateStore → tunnel uses for mux mTLS → relay accepts
+68. Renewed cert → stored → tunnel uses new cert on next mux → relay accepts
+
+### mcp-core: HTTP server + OAuth + MCP protocol
+69. `GET /.well-known/oauth-authorization-server` → valid RFC 8414 metadata
+70. MCP `initialize` via Streamable HTTP POST → server responds with capabilities
+71. `tools/list` to `/health` → returns only Health Connect tools
+72. `tools/call` with valid args → tool executes, result returned
+73. `tools/call` with unknown tool name → MCP error response
+74. `resources/list` → returns resources from targeted provider only
+75. `resources/read` with valid URI → resource content returned
+76. Malformed JSON-RPC → HTTP 400 or MCP parse error
+77. Provider throws exception during tool call → MCP error response, audit logged, stream stays open
+
+### mcp-core: OAuth device code flow
+78. `POST /device/authorize` → returns device_code, user_code, interval
+79. `POST /token` before approval → `authorization_pending`
+80. `POST /token` after approval → access_token returned
+81. `POST /token` after denial → `access_denied`
+82. `POST /token` after 10 min → `expired_token`
+83. `POST /token` with invalid device_code → error
+84. Multiple pending device codes simultaneously → each tracked independently
+85. Expired device codes pruned, no memory leak
+
+### mcp-core: auth middleware
+86. Request to `/{integration}` without Bearer → 401 with WWW-Authenticate header
+87. Request with valid Bearer → passes through to MCP handler
+88. Request with invalid/revoked Bearer → 401
+89. OAuth endpoints accessible without Bearer
+90. Token `last_used_at` updated on successful authenticated request
+
+### mcp-core: ProviderRegistry
+91. Provider enabled → path returns MCP tools
+92. Provider disabled mid-session → next request returns 404
+93. Provider re-enabled → path works again
+94. `enabledPaths()` reflects current state
+95. Unknown path → 404 regardless of registry state
+
+### mcp-core: per-stream HTTP server lifecycle
+96. Stream closes cleanly → Ktor server disposed, no resource leak
+97. Stream closes mid-request → server handles gracefully
+98. Multiple concurrent streams → independent HTTP servers, no cross-contamination
+
+### Tunnel: mux frame parser
+99. Valid DATA frame → payload routed to correct stream
+100. Valid OPEN frame → new MuxStream emitted with correct sniHostname and generated sessionId UUID
+101. Valid CLOSE frame → stream closed, app notified
+102. Valid ERROR frame → TunnelError emitted with correct code and message
+103. Frame with unknown type byte → logged, ignored
+104. Incomplete frame (WebSocket message too short) → error, other streams unaffected
+105. OPEN for stream ID that already exists → error logged, ignored
+
+### Tunnel: mux outbound
+106. App writes to MuxStream.output → framed as DATA with correct stream ID
+107. MuxStream.close() → CLOSE frame sent
+108. Multiple streams writing concurrently → frames interleaved correctly, no corruption
+
+### Tunnel: TLS server accept
+109. Valid TLS ClientHello → handshake completes, MuxStream emits plaintext
+110. Invalid TLS from client → handshake fails, stream closed with ERROR(STREAM_REFUSED)
+111. CertificateStore returns null cert → TunnelError.CertExpired, stream refused
+112. Cert doesn't match private key → TLS fails, error emitted
+
+### Tunnel: CertificateStore integration
+113. Valid cert → mTLS to relay succeeds
+114. Null cert → tunnel emits CertExpired, doesn't attempt mux
+115. getCertExpiry() used by WorkManager for renewal timing
+116. storeCertChain() after renewal → subsequent connections use new cert
+
+### Tunnel: state machine
+117. DISCONNECTED → connect() → CONNECTING → WebSocket opens → CONNECTED
+118. CONNECTED → OPEN arrives → ACTIVE
+119. ACTIVE → last stream closes → CONNECTED
+120. CONNECTED → disconnect() → DISCONNECTING → CLOSE all → DISCONNECTED
+121. ACTIVE → WebSocket drops → all streams torn down → DISCONNECTED
+122. CONNECTING → handshake fails → DISCONNECTED + ConnectionFailed
+123. CONNECTING → mTLS rejected → DISCONNECTED + AuthRejected
+
+### Tunnel: FCM dispatch
+124. FCM `type: "wake"` → TunnelService started, mux connection opened
+125. FCM `type: "renew"` → cert renewal triggered, no mux connection
+126. FCM unknown type → logged, ignored
+
+### Tunnel: cert renewal execution
+127. Renewal with valid mTLS → POST /renew, new cert received and stored
+128. Renewal with expired cert → POST /renew with Firebase token + signature, new cert stored
+129. Renewed cert CN/SAN mismatch → cert rejected, error logged
+130. Relay returns rate_limited → retry scheduled for retry_after
+131. Relay returns 5xx → exponential backoff retry
+132. Network unavailable → WorkManager retry with network constraint
+133. Renewal succeeds during active mux → new cert stored, current mux unaffected
+
+### Tunnel: onboarding execution
+134. Full onboarding: keypair → CSR → /register → cert + subdomain stored
+135. Relay unreachable during onboarding → error surfaced to app
+136. Rate limited during onboarding → rate_limited surfaced with retry_after
+137. Partial failure (keypair generated, /register fails) → no partial state, clean retry
+
+### App (pending architecture discussion)
+Tests for notification model, audit persistence, integration management UI,
+wakelock management, onboarding UI, and subdomain rotation UI will be defined
+after the app architecture design pass.
+
 ## Still Needs Design
 
-(none — all major design decisions are locked in)
+(none — all major design decisions locked in; app architecture discussion pending for detailed UI/notification test scenarios)
