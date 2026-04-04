@@ -244,6 +244,7 @@ val appModule = module {
     single<TokenStore> { RoomTokenStore(get()) }
     single<IntegrationStateStore> { DataStoreIntegrationStateStore(get()) }
     single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(get()) }
+    single<AuditListener> { RoomAuditListener(get()) }
     single<ProviderRegistry> {
         IntegrationProviderRegistry(getAll<McpIntegration>(), get<IntegrationStateStore>())
     }

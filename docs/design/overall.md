@@ -489,115 +489,115 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 102. Multiple concurrent streams → independent HTTP servers, no cross-contamination
 
 ### Tunnel: mux frame parser
-99. Valid DATA frame → payload routed to correct stream
-100. Valid OPEN frame → new MuxStream emitted with correct sniHostname and generated sessionId UUID
-101. Valid CLOSE frame → stream closed, app notified
-102. Valid ERROR frame → TunnelError emitted with correct code and message
-103. Frame with unknown type byte → logged, ignored
-104. Incomplete frame (WebSocket message too short) → error, other streams unaffected
-105. OPEN for stream ID that already exists → error logged, ignored
+103. Valid DATA frame → payload routed to correct stream
+104. Valid OPEN frame → new MuxStream emitted with correct sniHostname and generated sessionId UUID
+105. Valid CLOSE frame → stream closed, app notified
+106. Valid ERROR frame → TunnelError emitted with correct code and message
+107. Frame with unknown type byte → logged, ignored
+108. Incomplete frame (WebSocket message too short) → error, other streams unaffected
+109. OPEN for stream ID that already exists → error logged, ignored
 
 ### Tunnel: mux outbound
-106. App writes to MuxStream.output → framed as DATA with correct stream ID
-107. MuxStream.close() → CLOSE frame sent
-108. Multiple streams writing concurrently → frames interleaved correctly, no corruption
+110. App writes to MuxStream.output → framed as DATA with correct stream ID
+111. MuxStream.close() → CLOSE frame sent
+112. Multiple streams writing concurrently → frames interleaved correctly, no corruption
 
 ### Tunnel: TLS server accept
-109. Valid TLS ClientHello → handshake completes, MuxStream emits plaintext
-110. Invalid TLS from client → handshake fails, stream closed with ERROR(STREAM_REFUSED)
-111. CertificateStore returns null cert → TunnelError.CertExpired, stream refused
-112. Cert doesn't match private key → TLS fails, error emitted
+113. Valid TLS ClientHello → handshake completes, MuxStream emits plaintext
+114. Invalid TLS from client → handshake fails, stream closed with ERROR(STREAM_REFUSED)
+115. CertificateStore returns null cert → TunnelError.CertExpired, stream refused
+116. Cert doesn't match private key → TLS fails, error emitted
 
 ### Tunnel: CertificateStore integration
-113. Valid cert → mTLS to relay succeeds
-114. Null cert → tunnel emits CertExpired, doesn't attempt mux
-115. getCertExpiry() used by WorkManager for renewal timing
-116. storeCertChain() after renewal → subsequent connections use new cert
+117. Valid cert → mTLS to relay succeeds
+118. Null cert → tunnel emits CertExpired, doesn't attempt mux
+119. getCertExpiry() used by WorkManager for renewal timing
+120. storeCertChain() after renewal → subsequent connections use new cert
 
 ### Tunnel: state machine
-117. DISCONNECTED → connect() → CONNECTING → WebSocket opens → CONNECTED
-118. CONNECTED → OPEN arrives → ACTIVE
-119. ACTIVE → last stream closes → CONNECTED
-120. CONNECTED → disconnect() → DISCONNECTING → CLOSE all → DISCONNECTED
-121. ACTIVE → WebSocket drops → all streams torn down → DISCONNECTED
-122. CONNECTING → handshake fails → DISCONNECTED + ConnectionFailed
-123. CONNECTING → mTLS rejected → DISCONNECTED + AuthRejected
+121. DISCONNECTED → connect() → CONNECTING → WebSocket opens → CONNECTED
+122. CONNECTED → OPEN arrives → ACTIVE
+123. ACTIVE → last stream closes → CONNECTED
+124. CONNECTED → disconnect() → DISCONNECTING → CLOSE all → DISCONNECTED
+125. ACTIVE → WebSocket drops → all streams torn down → DISCONNECTED
+126. CONNECTING → handshake fails → DISCONNECTED + ConnectionFailed
+127. CONNECTING → mTLS rejected → DISCONNECTED + AuthRejected
 
 ### Tunnel: FCM dispatch
-124. FCM `type: "wake"` → TunnelService started, mux connection opened
-125. FCM `type: "renew"` → cert renewal triggered, no mux connection
-126. FCM unknown type → logged, ignored
+128. FCM `type: "wake"` → TunnelService started, mux connection opened
+129. FCM `type: "renew"` → cert renewal triggered, no mux connection
+130. FCM unknown type → logged, ignored
 
 ### Tunnel: cert renewal execution
-127. Renewal with valid mTLS → POST /renew, new cert received and stored
-128. Renewal with expired cert → POST /renew with Firebase token + signature, new cert stored
-129. Renewed cert CN/SAN mismatch → cert rejected, error logged
-130. Relay returns rate_limited → retry scheduled for retry_after
-131. Relay returns 5xx → exponential backoff retry
-132. Network unavailable → WorkManager retry with network constraint
-133. Renewal succeeds during active mux → new cert stored, current mux unaffected
+131. Renewal with valid mTLS → POST /renew, new cert received and stored
+132. Renewal with expired cert → POST /renew with Firebase token + signature, new cert stored
+133. Renewed cert CN/SAN mismatch → cert rejected, error logged
+134. Relay returns rate_limited → retry scheduled for retry_after
+135. Relay returns 5xx → exponential backoff retry
+136. Network unavailable → WorkManager retry with network constraint
+137. Renewal succeeds during active mux → new cert stored, current mux unaffected
 
 ### Tunnel: onboarding execution
-134. Full onboarding: keypair → CSR → /register → cert + subdomain stored
-135. Relay unreachable during onboarding → error surfaced to app
-136. Rate limited during onboarding → rate_limited surfaced with retry_after
-137. Partial failure (keypair generated, /register fails) → no partial state, clean retry
+138. Full onboarding: keypair → CSR → /register → cert + subdomain stored
+139. Relay unreachable during onboarding → error surfaced to app
+140. Rate limited during onboarding → rate_limited surfaced with retry_after
+141. Partial failure (keypair generated, /register fails) → no partial state, clean retry
 
 ### :notifications — NotificationModel + audit
-138. MuxConnected → ShowForeground
-139. MuxDisconnected with tool calls + setting=Summary → PostSummary
-140. MuxDisconnected with tool calls + setting=Each usage → individual PostToolUsage per call
-141. MuxDisconnected with tool calls + setting=Suppress → no post-session notification
-142. MuxDisconnected with zero tool calls → PostWarning("Roused with no usage")
-143. StreamOpened → foreground notification updates stream count
-144. StreamClosed (last stream) → DismissForeground
-145. ErrorOccurred (stream-level) → silent, audit only
-146. ErrorOccurred (connection-level) → PostError
-147. Notification permission denied → post_session forced to Suppress, foreground still works
-148. Audit entry persisted on tool call with all fields (timestamp, tool, args, result, duration, sessionId, providerId)
-149. Audit query by sessionId → correct entries (notification deep-link target)
-150. Audit query by date range + provider → filter works
-151. Audit retention: >30 day entries pruned on launch
-152. Audit empty state → no crash
+142. MuxConnected → ShowForeground
+143. MuxDisconnected with tool calls + setting=Summary → PostSummary
+144. MuxDisconnected with tool calls + setting=Each usage → individual PostToolUsage per call
+145. MuxDisconnected with tool calls + setting=Suppress → no post-session notification
+146. MuxDisconnected with zero tool calls → PostWarning("Roused with no usage")
+147. StreamOpened → foreground notification updates stream count
+148. StreamClosed (last stream) → DismissForeground
+149. ErrorOccurred (stream-level) → silent, audit only
+150. ErrorOccurred (connection-level) → PostError
+151. Notification permission denied → post_session forced to Suppress, foreground still works
+152. Audit entry persisted on tool call with all fields (timestamp, tool, args, result, duration, sessionId, providerId)
+153. Audit query by sessionId → correct entries (notification deep-link target)
+154. Audit query by date range + provider → filter works
+155. Audit retention: >30 day entries pruned on launch
+156. Audit empty state → no crash
 
 ### :work — service lifecycle, wakelock, WorkManager
-153. FCM `wake` → foreground service starts → TunnelClient.connect() called
-154. FCM `renew` → WorkManager renewal enqueued, no service start
-155. Foreground service posts notification via createForegroundNotification()
-156. TunnelState ACTIVE → wakelock acquired
-157. TunnelState CONNECTED (from ACTIVE) → wakelock released
-158. TunnelState CONNECTING → wakelock acquired
-159. TunnelState DISCONNECTED → wakelock released, no leak
-160. Rapid state transitions → wakelock balanced (no leak)
-161. Idle timeout: CONNECTED for N minutes → disconnect() called
-162. Idle timeout cancelled: stream opens before expiry
-163. Idle timeout disabled when battery optimization exempt
-164. Idle timeout cannot be disabled without exemption
-165. WorkManager cert renewal: <14 days → POST /renew triggered
-166. WorkManager cert renewal: cert not expiring → no-op
-167. FCM token refresh → Firestore updated
+157. FCM `wake` → foreground service starts → TunnelClient.connect() called
+158. FCM `renew` → WorkManager renewal enqueued, no service start
+159. Foreground service posts notification via createForegroundNotification()
+160. TunnelState ACTIVE → wakelock acquired
+161. TunnelState CONNECTED (from ACTIVE) → wakelock released
+162. TunnelState CONNECTING → wakelock acquired
+163. TunnelState DISCONNECTED → wakelock released, no leak
+164. Rapid state transitions → wakelock balanced (no leak)
+165. Idle timeout: CONNECTED for N minutes → disconnect() called
+166. Idle timeout cancelled: stream opens before expiry
+167. Idle timeout disabled when battery optimization exempt
+168. Idle timeout cannot be disabled without exemption
+169. WorkManager cert renewal: <14 days → POST /renew triggered
+170. WorkManager cert renewal: cert not expiring → no-op
+171. FCM token refresh → Firestore updated
 
 ### :api + :health — integration contract
-168. HealthConnectIntegration.isAvailable() → true when Health Connect installed, false when not
-169. IntegrationStateStore.setUserEnabled("health", true) → ProviderRegistry exposes /health
-170. IntegrationStateStore.setUserEnabled("health", false) → ProviderRegistry returns null for /health
-171. Integration onboarding route completes → app sets userEnabled=true, state transitions to Pending
-172. Integration onboarding cancelled → state unchanged (Available)
-173. Permissions revoked externally → integration surfaces banner on its settings screen, MCP tools return errors for affected data types
+172. HealthConnectIntegration.isAvailable() → true when Health Connect installed, false when not
+173. IntegrationStateStore.setUserEnabled("health", true) → ProviderRegistry exposes /health
+174. IntegrationStateStore.setUserEnabled("health", false) → ProviderRegistry returns null for /health
+175. Integration onboarding route completes → app sets userEnabled=true, state transitions to Pending
+176. Integration onboarding cancelled → state unchanged (Available)
+177. Permissions revoked externally → integration surfaces banner on its settings screen, MCP tools return errors for affected data types
 
 ### :app — wiring, navigation, integration management
-174. App launch after onboarding → main screen shown
-175. App launch before onboarding → onboarding flow shown
-176. Integration enabled → ProviderRegistry updated → path serves MCP
-177. Integration disabled → ProviderRegistry updated → path returns 404
-178. Device code approval: correct code → token issued
-179. Device code approval: wrong code → error, retry
-180. Device code denial → access_denied to client
-181. Client revoked → token invalid immediately
-182. Subdomain rotation → confirmation → new subdomain, tokens revoked, UI updated
-183. Rotation within 30 days → rejected
-184. Battery optimization card shown when not exempt, dismissable
-185. Notification permission denied at onboarding → forced suppress setting
+178. App launch after onboarding → main screen shown
+179. App launch before onboarding → onboarding flow shown
+180. Integration enabled → ProviderRegistry updated → path serves MCP
+181. Integration disabled → ProviderRegistry updated → path returns 404
+182. Device code approval: correct code → token issued for that integration
+183. Device code approval: wrong code → error, retry
+184. Device code denial → access_denied to client
+185. Client revoked for integration → token invalid for that integration immediately
+186. Subdomain rotation → confirmation → new subdomain, all tokens revoked, UI updated
+187. Rotation within 30 days → rejected
+188. Battery optimization card shown when not exempt, dismissable
+189. Notification permission denied at first integration setup → forced suppress setting
 
 ## Still Needs Design
 
