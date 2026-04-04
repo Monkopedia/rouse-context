@@ -432,237 +432,272 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 61. Rotation during active sessions → all sessions torn down, clients reconnect to new subdomain
 62. Rotation spam protection → relay enforces 30-day cooldown server-side
 
+### Relay: subdomain generation
+63. Generated subdomain is two-word format (adjective-noun, lowercase, hyphen-separated)
+64. Generated subdomain is DNS-safe (alphanumeric + hyphen only)
+65. Collision detected → retry with new words, different subdomain returned
+66. Multiple concurrent registrations → no duplicate subdomains
+
+### Relay: graceful shutdown
+67. SIGTERM → all active streams receive CLOSE
+68. SIGTERM → all mux WebSockets closed after drain timeout (5s)
+69. SIGTERM → in-flight DATA frames drain before close
+70. SIGTERM → no new client TCP connections accepted during shutdown
+71. Shutdown stats logged (sessions closed, mux connections dropped)
+
+### Relay: /status endpoint
+72. Returns correct active_mux_connections count
+73. Returns correct active_streams count
+74. Returns correct total_sessions_served (increments over time)
+75. Returns correct pending_fcm_wakeups count
+76. Returns uptime_secs (monotonically increasing)
+
+### Relay: daily maintenance job
+77. Cert expiry nudge: device with cert_expires < now+7d and no nudge_sent → FCM type:"renew" sent, nudge_sent set
+78. Cert expiry nudge: device already nudged (nudge_sent set) → no duplicate FCM
+79. Cert expiry nudge: device renewed after nudge → nudge_sent cleared, won't be nudged again until next cycle
+80. Pending cert queue: rate limit reset → pending devices processed, certs issued, FCM sent
+81. Pending cert queue: rate limit not yet reset → no processing
+82. Subdomain reclamation: cert_expires > 180 days ago, no renewal → device record deleted
+83. Subdomain reclamation: cert_expires > 180 days ago, recent renewal attempt → NOT deleted
+
+### Relay: config
+84. TOML config file parsed correctly (listen_port, domain, timeouts, acme)
+85. Missing config file → sensible defaults + error log
+86. Env var overrides (CLOUDFLARE_API_TOKEN, FIREBASE_SERVICE_ACCOUNT_JSON) loaded
+87. Missing required env var → relay fails to start with clear error message
+
 ### Cross-module integration (tunnel + mcp-core)
-63. OPEN frame → tunnel TLS accept → plaintext stream → mcp-core Ktor serves HTTP → client gets MCP tool response (full stack)
-64. Client HTTP request spans multiple mux DATA frames → mcp-core reassembles correctly
-65. mcp-core sends large response → tunnel frames as multiple DATA frames → client reassembles
+88. OPEN frame → tunnel TLS accept → plaintext stream → mcp-core Ktor serves HTTP → client gets MCP tool response (full stack)
+89. Client HTTP request spans multiple mux DATA frames → mcp-core reassembles correctly
+90. mcp-core sends large response → tunnel frames as multiple DATA frames → client reassembles
 
 ### Cross-module integration (tunnel + relay)
-66. Tunnel connects to real relay → mTLS handshake → OPEN received → DATA bidirectional → CLOSE
-67. Relay sends OPEN while tunnel is processing previous OPEN → both streams created correctly
-68. Relay sends DATA after tunnel already sent CLOSE for that stream → tunnel ignores, no crash
+91. Tunnel connects to real relay → mTLS handshake → OPEN received → DATA bidirectional → CLOSE
+92. Relay sends OPEN while tunnel is processing previous OPEN → both streams created correctly
+93. Relay sends DATA after tunnel already sent CLOSE for that stream → tunnel ignores, no crash
 
 ### Cross-module integration (cert flow: app → CertificateStore → tunnel → relay)
-69. Fresh cert from onboarding → stored via CertificateStore → tunnel uses for mux mTLS → relay accepts
-70. Renewed cert → stored → tunnel uses new cert on next mux → relay accepts
+94. Fresh cert from onboarding → stored via CertificateStore → tunnel uses for mux mTLS → relay accepts
+95. Renewed cert → stored → tunnel uses new cert on next mux → relay accepts
 
 ### mcp-core: HTTP server + MCP protocol
-71. `GET /health/.well-known/oauth-authorization-server` → valid RFC 8414 metadata for health integration
-72. MCP `initialize` via Streamable HTTP POST to `/health` → server responds with capabilities
-73. `tools/list` to `/health` → returns only Health Connect tools
-74. `tools/call` with valid args → tool executes, result returned
-75. `tools/call` with unknown tool name → MCP error response
-76. `resources/list` → returns resources from targeted provider only
-77. `resources/read` with valid URI → resource content returned
-78. Malformed JSON-RPC → HTTP 400 or MCP parse error
-79. Provider throws exception during tool call → MCP error response, audit logged, stream stays open
+96. `GET /health/.well-known/oauth-authorization-server` → valid RFC 8414 metadata for health integration
+97. MCP `initialize` via Streamable HTTP POST to `/health` → server responds with capabilities
+98. `tools/list` to `/health` → returns only Health Connect tools
+99. `tools/call` with valid args → tool executes, result returned
+100. `tools/call` with unknown tool name → MCP error response
+101. `resources/list` → returns resources from targeted provider only
+102. `resources/read` with valid URI → resource content returned
+103. Malformed JSON-RPC → HTTP 400 or MCP parse error
+104. Provider throws exception during tool call → MCP error response, audit logged, stream stays open
 
 ### mcp-core: OAuth device code flow (per-integration)
-80. `POST /health/device/authorize` → returns device_code, user_code, interval
-81. `POST /health/token` before approval → `authorization_pending`
-82. `POST /health/token` after approval → access_token scoped to `/health`
-83. `POST /health/token` after denial → `access_denied`
-84. `POST /health/token` after 10 min → `expired_token`
-85. `POST /health/token` with invalid device_code → error
-86. Multiple pending device codes for same integration → each tracked independently
-87. Multiple pending device codes across different integrations → independent
-88. Expired device codes pruned, no memory leak
+105. `POST /health/device/authorize` → returns device_code, user_code, interval
+106. `POST /health/token` before approval → `authorization_pending`
+107. `POST /health/token` after approval → access_token scoped to `/health`
+108. `POST /health/token` after denial → `access_denied`
+109. `POST /health/token` after 10 min → `expired_token`
+110. `POST /health/token` with invalid device_code → error
+111. Multiple pending device codes for same integration → each tracked independently
+112. Multiple pending device codes across different integrations → independent
+113. Expired device codes pruned, no memory leak
 
 ### mcp-core: auth middleware (per-integration)
-89. Request to `/health/*` without Bearer → 401 with WWW-Authenticate pointing to `/health/.well-known/...`
-90. Request to `/health/*` with valid `/health` Bearer → passes through to MCP handler
-91. Request to `/health/*` with `/notifications` Bearer → 401 (wrong integration)
-92. Request to `/health/*` with invalid/revoked Bearer → 401
-93. OAuth endpoints (`/{integration}/.well-known/*`, `/{integration}/device/authorize`, `/{integration}/token`) accessible without Bearer
-94. Token `last_used_at` updated on successful authenticated request
+114. Request to `/health/*` without Bearer → 401 with WWW-Authenticate pointing to `/health/.well-known/...`
+115. Request to `/health/*` with valid `/health` Bearer → passes through to MCP handler
+116. Request to `/health/*` with `/notifications` Bearer → 401 (wrong integration)
+117. Request to `/health/*` with invalid/revoked Bearer → 401
+118. OAuth endpoints (`/{integration}/.well-known/*`, `/{integration}/device/authorize`, `/{integration}/token`) accessible without Bearer
+119. Token `last_used_at` updated on successful authenticated request
 
 ### mcp-core: ProviderRegistry + IntegrationStateStore
-95. Integration user-enabled → path returns MCP tools
-96. Integration user-disabled mid-session → next request returns 404
-97. Integration re-enabled → path works again
-98. `enabledPaths()` reflects current IntegrationStateStore state
-99. Unknown path → 404 regardless of registry state
+120. Integration user-enabled → path returns MCP tools
+121. Integration user-disabled mid-session → next request returns 404
+122. Integration re-enabled → path works again
+123. `enabledPaths()` reflects current IntegrationStateStore state
+124. Unknown path → 404 regardless of registry state
 
 ### mcp-core: per-stream HTTP server lifecycle
-100. Stream closes cleanly → Ktor server disposed, no resource leak
-101. Stream closes mid-request → server handles gracefully
-102. Multiple concurrent streams → independent HTTP servers, no cross-contamination
+125. Stream closes cleanly → Ktor server disposed, no resource leak
+126. Stream closes mid-request → server handles gracefully
+127. Multiple concurrent streams → independent HTTP servers, no cross-contamination
 
 ### Tunnel: mux frame parser
-103. Valid DATA frame → payload routed to correct stream
-104. Valid OPEN frame → new MuxStream emitted with correct sniHostname and generated sessionId UUID
-105. Valid CLOSE frame → stream closed, app notified
-106. Valid ERROR frame → TunnelError emitted with correct code and message
-107. Frame with unknown type byte → logged, ignored
-108. Incomplete frame (WebSocket message too short) → error, other streams unaffected
-109. OPEN for stream ID that already exists → error logged, ignored
+128. Valid DATA frame → payload routed to correct stream
+129. Valid OPEN frame → new MuxStream emitted with correct sniHostname and generated sessionId UUID
+130. Valid CLOSE frame → stream closed, app notified
+131. Valid ERROR frame → TunnelError emitted with correct code and message
+132. Frame with unknown type byte → logged, ignored
+133. Incomplete frame (WebSocket message too short) → error, other streams unaffected
+134. OPEN for stream ID that already exists → error logged, ignored
 
 ### Tunnel: mux outbound
-110. App writes to MuxStream.output → framed as DATA with correct stream ID
-111. MuxStream.close() → CLOSE frame sent
-112. Multiple streams writing concurrently → frames interleaved correctly, no corruption
+135. App writes to MuxStream.output → framed as DATA with correct stream ID
+136. MuxStream.close() → CLOSE frame sent
+137. Multiple streams writing concurrently → frames interleaved correctly, no corruption
 
 ### Tunnel: TLS server accept
-113. Valid TLS ClientHello → handshake completes, MuxStream emits plaintext
-114. Invalid TLS from client → handshake fails, stream closed with ERROR(STREAM_REFUSED)
-115. CertificateStore returns null cert → TunnelError.CertExpired, stream refused
-116. Cert doesn't match private key → TLS fails, error emitted
+138. Valid TLS ClientHello → handshake completes, MuxStream emits plaintext
+139. Invalid TLS from client → handshake fails, stream closed with ERROR(STREAM_REFUSED)
+140. CertificateStore returns null cert → TunnelError.CertExpired, stream refused
+141. Cert doesn't match private key → TLS fails, error emitted
 
 ### Tunnel: CertificateStore integration
-117. Valid cert → mTLS to relay succeeds
-118. Null cert → tunnel emits CertExpired, doesn't attempt mux
-119. getCertExpiry() used by WorkManager for renewal timing
-120. storeCertChain() after renewal → subsequent connections use new cert
+142. Valid cert → mTLS to relay succeeds
+143. Null cert → tunnel emits CertExpired, doesn't attempt mux
+144. getCertExpiry() used by WorkManager for renewal timing
+145. storeCertChain() after renewal → subsequent connections use new cert
 
 ### Tunnel: state machine
-121. DISCONNECTED → connect() → CONNECTING → WebSocket opens → CONNECTED
-122. CONNECTED → OPEN arrives → ACTIVE
-123. ACTIVE → last stream closes → CONNECTED
-124. CONNECTED → disconnect() → DISCONNECTING → CLOSE all → DISCONNECTED
-125. ACTIVE → WebSocket drops → all streams torn down → DISCONNECTED
-126. CONNECTING → handshake fails → DISCONNECTED + ConnectionFailed
-127. CONNECTING → mTLS rejected → DISCONNECTED + AuthRejected
+146. DISCONNECTED → connect() → CONNECTING → WebSocket opens → CONNECTED
+147. CONNECTED → OPEN arrives → ACTIVE
+148. ACTIVE → last stream closes → CONNECTED
+149. CONNECTED → disconnect() → DISCONNECTING → CLOSE all → DISCONNECTED
+150. ACTIVE → WebSocket drops → all streams torn down → DISCONNECTED
+151. CONNECTING → handshake fails → DISCONNECTED + ConnectionFailed
+152. CONNECTING → mTLS rejected → DISCONNECTED + AuthRejected
 
 ### Tunnel: FCM dispatch
-128. FCM `type: "wake"` → TunnelService started, mux connection opened
-129. FCM `type: "renew"` → cert renewal triggered, no mux connection
-130. FCM unknown type → logged, ignored
+153. FCM `type: "wake"` → TunnelService started, mux connection opened
+154. FCM `type: "renew"` → cert renewal triggered, no mux connection
+155. FCM unknown type → logged, ignored
 
 ### Tunnel: cert renewal execution
-131. Renewal with valid mTLS → POST /renew, new cert received and stored
-132. Renewal with expired cert → POST /renew with Firebase token + signature, new cert stored
-133. Renewed cert CN/SAN mismatch → cert rejected, error logged
-134. Relay returns rate_limited → retry scheduled for retry_after
-135. Relay returns 5xx → exponential backoff retry
-136. Network unavailable → WorkManager retry with network constraint
-137. Renewal succeeds during active mux → new cert stored, current mux unaffected
+156. Renewal with valid mTLS → POST /renew, new cert received and stored
+157. Renewal with expired cert → POST /renew with Firebase token + signature, new cert stored
+158. Renewed cert CN/SAN mismatch → cert rejected, error logged
+159. Relay returns rate_limited → retry scheduled for retry_after
+160. Relay returns 5xx → exponential backoff retry
+161. Network unavailable → WorkManager retry with network constraint
+162. Renewal succeeds during active mux → new cert stored, current mux unaffected
 
 ### Tunnel: onboarding execution
-138. Full onboarding: keypair → CSR → /register → cert + subdomain stored
-139. Relay unreachable during onboarding → error surfaced to app
-140. Rate limited during onboarding → rate_limited surfaced with retry_after
-141. Partial failure (keypair generated, /register fails) → no partial state, clean retry
+163. Full onboarding: keypair → CSR → /register → cert + subdomain stored
+164. Relay unreachable during onboarding → error surfaced to app
+165. Rate limited during onboarding → rate_limited surfaced with retry_after
+166. Partial failure (keypair generated, /register fails) → no partial state, clean retry
 
 ### :notifications — NotificationModel + audit
-142. MuxConnected → ShowForeground
-143. MuxDisconnected with tool calls + setting=Summary → PostSummary
-144. MuxDisconnected with tool calls + setting=Each usage → individual PostToolUsage per call
-145. MuxDisconnected with tool calls + setting=Suppress → no post-session notification
-146. MuxDisconnected with zero tool calls → PostWarning("Roused with no usage")
-147. StreamOpened → foreground notification updates stream count
-148. StreamClosed (last stream) → DismissForeground
-149. ErrorOccurred (stream-level) → silent, audit only
-150. ErrorOccurred (connection-level) → PostError
-151. Notification permission denied → post_session forced to Suppress, foreground still works
-152. Audit entry persisted on tool call with all fields (timestamp, tool, args, result, duration, sessionId, providerId)
-153. Audit query by sessionId → correct entries (notification deep-link target)
-154. Audit query by date range + provider → filter works
-155. Audit retention: >30 day entries pruned on launch
-156. Audit empty state → no crash
+167. MuxConnected → ShowForeground
+168. MuxDisconnected with tool calls + setting=Summary → PostSummary
+169. MuxDisconnected with tool calls + setting=Each usage → individual PostToolUsage per call
+170. MuxDisconnected with tool calls + setting=Suppress → no post-session notification
+171. MuxDisconnected with zero tool calls → PostWarning("Roused with no usage")
+172. StreamOpened → foreground notification updates stream count
+173. StreamClosed (last stream) → DismissForeground
+174. ErrorOccurred (stream-level) → silent, audit only
+175. ErrorOccurred (connection-level) → PostError
+176. Notification permission denied → post_session forced to Suppress, foreground still works
+177. Audit entry persisted on tool call with all fields (timestamp, tool, args, result, duration, sessionId, providerId)
+178. Audit query by sessionId → correct entries (notification deep-link target)
+179. Audit query by date range + provider → filter works
+180. Audit retention: >30 day entries pruned on launch
+181. Audit empty state → no crash
 
 ### :work — service lifecycle, wakelock, WorkManager
-157. FCM `wake` → foreground service starts → TunnelClient.connect() called
-158. FCM `renew` → WorkManager renewal enqueued, no service start
-159. Foreground service posts notification via createForegroundNotification()
-160. TunnelState ACTIVE → wakelock acquired
-161. TunnelState CONNECTED (from ACTIVE) → wakelock released
-162. TunnelState CONNECTING → wakelock acquired
-163. TunnelState DISCONNECTED → wakelock released, no leak
-164. Rapid state transitions → wakelock balanced (no leak)
-165. Idle timeout: CONNECTED for N minutes → disconnect() called
-166. Idle timeout cancelled: stream opens before expiry
-167. Idle timeout disabled when battery optimization exempt
-168. Idle timeout cannot be disabled without exemption
-169. WorkManager cert renewal: <14 days → POST /renew triggered
-170. WorkManager cert renewal: cert not expiring → no-op
-171. FCM token refresh → Firestore updated
+182. FCM `wake` → foreground service starts → TunnelClient.connect() called
+183. FCM `renew` → WorkManager renewal enqueued, no service start
+184. Foreground service posts notification via createForegroundNotification()
+185. TunnelState ACTIVE → wakelock acquired
+186. TunnelState CONNECTED (from ACTIVE) → wakelock released
+187. TunnelState CONNECTING → wakelock acquired
+188. TunnelState DISCONNECTED → wakelock released, no leak
+189. Rapid state transitions → wakelock balanced (no leak)
+190. Idle timeout: CONNECTED for N minutes → disconnect() called
+191. Idle timeout cancelled: stream opens before expiry
+192. Idle timeout disabled when battery optimization exempt
+193. Idle timeout cannot be disabled without exemption
+194. WorkManager cert renewal: <14 days → POST /renew triggered
+195. WorkManager cert renewal: cert not expiring → no-op
+196. FCM token refresh → Firestore updated
 
 ### :api + :health — integration contract
-172. HealthConnectIntegration.isAvailable() → true when Health Connect installed, false when not
-173. IntegrationStateStore.setUserEnabled("health", true) → ProviderRegistry exposes /health
-174. IntegrationStateStore.setUserEnabled("health", false) → ProviderRegistry returns null for /health
-175. Integration onboarding route completes → app sets userEnabled=true, state transitions to Pending
-176. Integration onboarding cancelled → state unchanged (Available)
-177. Permissions revoked externally → integration surfaces banner on its settings screen, MCP tools return errors for affected data types
+197. HealthConnectIntegration.isAvailable() → true when Health Connect installed, false when not
+198. IntegrationStateStore.setUserEnabled("health", true) → ProviderRegistry exposes /health
+199. IntegrationStateStore.setUserEnabled("health", false) → ProviderRegistry returns null for /health
+200. Integration onboarding route completes → app sets userEnabled=true, state transitions to Pending
+201. Integration onboarding cancelled → state unchanged (Available)
+202. Permissions revoked externally → integration surfaces banner on its settings screen, MCP tools return errors for affected data types
 
 ### :app — wiring, navigation, integration management
-178. App launch after onboarding → main screen shown
-179. App launch before onboarding → onboarding flow shown
-180. Integration enabled → ProviderRegistry updated → path serves MCP
-181. Integration disabled → ProviderRegistry updated → path returns 404
-182. Device code approval: correct code → token issued for that integration
-183. Device code approval: wrong code → error, retry
-184. Device code denial → access_denied to client
-185. Client revoked for integration → token invalid for that integration immediately
-186. Subdomain rotation → confirmation → new subdomain, all tokens revoked, UI updated
-187. Rotation within 30 days → rejected
-188. Battery optimization card shown when not exempt, dismissable
-189. Notification permission denied at first integration setup → forced suppress setting
+203. App launch after onboarding → main screen shown
+204. App launch before onboarding → onboarding flow shown
+205. Integration enabled → ProviderRegistry updated → path serves MCP
+206. Integration disabled → ProviderRegistry updated → path returns 404
+207. Device code approval: correct code → token issued for that integration
+208. Device code approval: wrong code → error, retry
+209. Device code denial → access_denied to client
+210. Client revoked for integration → token invalid for that integration immediately
+211. Subdomain rotation → confirmation → new subdomain, all tokens revoked, UI updated
+212. Rotation within 30 days → rejected
+213. Battery optimization card shown when not exempt, dismissable
+214. Notification permission denied at first integration setup → forced suppress setting
 
 ### UI: navigation flows (Compose host-side JVM tests)
-190. First launch → Welcome → Get Started → Dashboard with cert onboarding banner
-191. First integration: Dashboard → [+ Add] → Picker → Health Connect → Notification Prefs → integration/health/setup
-192. First integration (suppress notifications): select Suppress → no system permission dialog → integration/health/setup
-193. Cert spinner: integration setup completes → Setting Up shown → auto-advances when cert valid
-194. Integration Enabled → Device Code auto-navigate: on URL screen → device code arrives → Device Code Approval
-195. Device Code → Connected → Dashboard: enter code → Approve → Connected → Back to Home → Active on dashboard
-196. Second integration: Dashboard → [+ Add] → skips Notification Prefs → integration setup directly
-197. Re-enable disabled: Add picker → tap disabled → may skip setup → Pending on dashboard
-198. Pending integration tap → Integration Manage (Pending variant) or Setting Up (cert issuing)
-199. Active integration tap → Integration Manage (Active variant)
-200. Integration Manage → Settings → integration/{id}/settings (integration-owned)
-201. Device code from notification: notification intent → Device Code Approval
-202. Audit deep-link: notification intent with sessionId → Audit History filtered
-203. Subdomain rotation: Settings → Generate new address → confirm → new subdomain
-204. Rotation cooldown: within 30 days → button disabled or error
+215. First launch → Welcome → Get Started → Dashboard with cert onboarding banner
+216. First integration: Dashboard → [+ Add] → Picker → Health Connect → Notification Prefs → integration/health/setup
+217. First integration (suppress notifications): select Suppress → no system permission dialog → integration/health/setup
+218. Cert spinner: integration setup completes → Setting Up shown → auto-advances when cert valid
+219. Integration Enabled → Device Code auto-navigate: on URL screen → device code arrives → Device Code Approval
+220. Device Code → Connected → Dashboard: enter code → Approve → Connected → Back to Home → Active on dashboard
+221. Second integration: Dashboard → [+ Add] → skips Notification Prefs → integration setup directly
+222. Re-enable disabled: Add picker → tap disabled → may skip setup → Pending on dashboard
+223. Pending integration tap → Integration Manage (Pending variant) or Setting Up (cert issuing)
+224. Active integration tap → Integration Manage (Active variant)
+225. Integration Manage → Settings → integration/{id}/settings (integration-owned)
+226. Device code from notification: notification intent → Device Code Approval
+227. Audit deep-link: notification intent with sessionId → Audit History filtered
+228. Subdomain rotation: Settings → Generate new address → confirm → new subdomain
+229. Rotation cooldown: within 30 days → button disabled or error
 
 ### UI: bottom nav
-205. Dashboard → Audit tab → Audit History
-206. Dashboard → Settings tab → Settings
-207. Tab state preserved on return
+230. Dashboard → Audit tab → Audit History
+231. Dashboard → Settings tab → Settings
+232. Tab state preserved on return
 
 ### UI: dashboard states (ViewModel-driven)
-208. CertStatus.None → onboarding banner with progress
-209. CertStatus.Onboarding(GENERATING_KEYS) → "Generating keys..."
-210. CertStatus.Onboarding(ISSUING_CERT) → "Issuing certificate..."
-211. CertStatus.Valid → no banner
-212. CertStatus.Expired(renewalInProgress=true) → "Renewing..."
-213. CertStatus.Expired(renewalInProgress=false) → error banner with Retry
-214. CertStatus.RateLimited → delayed banner with date
-215. No integrations → empty state with "Add your first" CTA
-216. Pending + Active integrations → correct badges
-217. [+ Add] hidden when all integrations enabled
-218. Connection status: Disconnected / Connected / Active(N)
-219. Recent activity preview, "View all" navigates to Audit
+233. CertStatus.None → onboarding banner with progress
+234. CertStatus.Onboarding(GENERATING_KEYS) → "Generating keys..."
+235. CertStatus.Onboarding(ISSUING_CERT) → "Issuing certificate..."
+236. CertStatus.Valid → no banner
+237. CertStatus.Expired(renewalInProgress=true) → "Renewing..."
+238. CertStatus.Expired(renewalInProgress=false) → error banner with Retry
+239. CertStatus.RateLimited → delayed banner with date
+240. No integrations → empty state with "Add your first" CTA
+241. Pending + Active integrations → correct badges
+242. [+ Add] hidden when all integrations enabled
+243. Connection status: Disconnected / Connected / Active(N)
+244. Recent activity preview, "View all" navigates to Audit
 
 ### UI: add integration picker
-220. Shows Available + Disabled only
-221. Unavailable greyed out
-222. Disabled shows "Re-enable"
-223. Set up navigates to notification prefs (first) or integration setup (subsequent)
+245. Shows Available + Disabled only
+246. Unavailable greyed out
+247. Disabled shows "Re-enable"
+248. Set up navigates to notification prefs (first) or integration setup (subsequent)
 
 ### UI: integration manage screen
-224. Active: shows URL, recent activity, authorized clients, Settings + Disable buttons
-225. Pending: shows URL, "Waiting for first client", empty clients, Settings + Disable buttons
-226. Revoke token → confirmation → token removed → list updates
-227. Revoke last token → integration transitions Active → Pending
-228. Disable → integration removed from dashboard, back in Add picker
-229. Settings → navigates to integration/{id}/settings
+249. Active: shows URL, recent activity, authorized clients, Settings + Disable buttons
+250. Pending: shows URL, "Waiting for first client", empty clients, Settings + Disable buttons
+251. Revoke token → confirmation → token removed → list updates
+252. Revoke last token → integration transitions Active → Pending
+253. Disable → integration removed from dashboard, back in Add picker
+254. Settings → navigates to integration/{id}/settings
 
 ### UI: settings
-230. Idle timeout dropdown changes DataStore value
-231. Disable timeout toggle only enabled when battery optimization exempt
-232. Notification mode dropdown changes value
-233. Subdomain rotation → confirmation dialog
-234. Battery optimization card shown when not exempt, dismissed persisted
+255. Idle timeout dropdown changes DataStore value
+256. Disable timeout toggle only enabled when battery optimization exempt
+257. Notification mode dropdown changes value
+258. Subdomain rotation → confirmation dialog
+259. Battery optimization card shown when not exempt, dismissed persisted
 
 ### UI: audit history
-235. Entries rendered with timestamp, tool name, duration
-236. Filter by provider
-237. Filter by date range
-238. Deep-link with sessionId pre-filters
-239. Clear history → confirmation → entries deleted
-240. Empty state
+260. Entries rendered with timestamp, tool name, duration
+261. Filter by provider
+262. Filter by date range
+263. Deep-link with sessionId pre-filters
+264. Clear history → confirmation → entries deleted
+265. Empty state
 
 ## Still Needs Design
 
