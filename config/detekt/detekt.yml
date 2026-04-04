@@ -1,0 +1,57 @@
+build:
+  maxIssues: 0
+
+coroutines:
+  active: true
+  GlobalCoroutineUsage:
+    active: true
+  RedundantSuspendModifier:
+    active: true
+  SleepInsteadOfDelay:
+    active: true
+  SuspendFunWithFlowReturnType:
+    active: true
+  SuspendFunSwallowedCancellation:
+    active: true
+
+complexity:
+  active: true
+  LongMethod:
+    threshold: 60
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 10
+  TooManyFunctions:
+    active: false
+
+style:
+  active: true
+  WildcardImport:
+    active: true
+  MaxLineLength:
+    maxLineLength: 120
+  MagicNumber:
+    active: false
+  ReturnCount:
+    max: 4
+  ForbiddenComment:
+    active: false
+  UnnecessaryAbstractClass:
+    active: false
+
+naming:
+  active: true
+  FunctionNaming:
+    # Allow backtick-quoted test names
+    ignoreAnnotated: ['Test']
+
+potential-bugs:
+  active: true
+
+performance:
+  active: true
+
+exceptions:
+  active: true
+  TooGenericExceptionCaught:
+    active: false
