@@ -12,16 +12,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,7 +35,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +43,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -129,18 +136,19 @@ fun MainDashboardScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
+            // Cert banner (most urgent — show first)
+            state.certBanner?.let { banner ->
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CertBannerCard(banner, onRetryRenewal)
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
             // Connection status
             item {
                 ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
                 Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Cert banner
-            state.certBanner?.let { banner ->
-                item {
-                    CertBannerCard(banner, onRetryRenewal)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
             }
 
             // Integrations header
@@ -195,13 +203,26 @@ fun MainDashboardScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                }
-                items(state.recentActivity) { entry ->
-                    ActivityRow(entry)
-                }
-                item {
-                    TextButton(onClick = onViewAllActivity) {
-                        Text("View all")
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            state.recentActivity.forEachIndexed { index, entry ->
+                                ActivityRow(entry)
+                                if (index < state.recentActivity.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onViewAllActivity) {
+                            Text("View all")
+                        }
                     }
                 }
             }
@@ -243,7 +264,7 @@ private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
         } else {
             MaterialTheme.colorScheme.secondaryContainer
         }
-        is CertBanner.RateLimited -> MaterialTheme.colorScheme.tertiaryContainer
+        is CertBanner.RateLimited -> MaterialTheme.colorScheme.secondaryContainer
         is CertBanner.Renewing -> MaterialTheme.colorScheme.secondaryContainer
         is CertBanner.Onboarding -> MaterialTheme.colorScheme.secondaryContainer
     }
@@ -252,63 +273,111 @@ private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
             when (banner) {
-                is CertBanner.Renewing -> {
-                    Text(
-                        "Refreshing your certificate...",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "Integrations may be briefly unavailable.",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+                is CertBanner.Renewing -> Icon(
+                    Icons.Default.Sync,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
                 is CertBanner.Expired -> if (banner.renewalInProgress) {
-                    Text(
-                        "Certificate expired. Renewing...",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "Integrations are offline until this completes.",
-                        style = MaterialTheme.typography.bodySmall
+                    Icon(
+                        Icons.Default.Sync,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
                     )
                 } else {
-                    Text(
-                        "Certificate expired. Renewal failed — check your connection.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(onClick = onRetry) { Text("Retry") }
-                }
-                is CertBanner.RateLimited -> {
-                    Text(
-                        "Certificate issuance delayed.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "Will retry automatically on ${banner.retryDate}.",
-                        style = MaterialTheme.typography.bodySmall
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onErrorContainer
                     )
                 }
-                is CertBanner.Onboarding -> {
-                    Text("Setting up your device...", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    val checkMark = "\u2713"
-                    val dots = "..."
-                    val genStatus = if (banner.generatingKeysDone) checkMark else dots
-                    Text(
-                        text = "Generating keys $genStatus",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        text = "Registering ${if (banner.registeringDone) checkMark else dots}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        text = "Issuing certificate${if (banner.issuingCert) dots else ""}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                is CertBanner.RateLimited -> Icon(
+                    Icons.Default.Schedule,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                is CertBanner.Onboarding -> Icon(
+                    Icons.Default.Build,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                when (banner) {
+                    is CertBanner.Renewing -> {
+                        Text(
+                            "Refreshing your certificate...",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            "Integrations may be briefly unavailable.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    is CertBanner.Expired -> if (banner.renewalInProgress) {
+                        Text(
+                            "Certificate expired. Renewing...",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            "Integrations are offline until this completes.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else {
+                        Text(
+                            "Certificate expired",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            "Renewal failed \u2014 check your connection.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = onRetry,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.onErrorContainer,
+                                contentColor = MaterialTheme.colorScheme.errorContainer
+                            )
+                        ) { Text("Retry") }
+                    }
+                    is CertBanner.RateLimited -> {
+                        Text(
+                            "Certificate issuance delayed",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            "Will retry automatically on ${banner.retryDate}.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    is CertBanner.Onboarding -> {
+                        Text(
+                            "Setting up your device...",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OnboardingStep("Generating keys", banner.generatingKeysDone)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OnboardingStep("Registering", banner.registeringDone)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OnboardingStep(
+                            "Issuing certificate",
+                            done = false,
+                            active = banner.issuingCert
+                        )
+                    }
                 }
             }
         }
@@ -316,18 +385,64 @@ private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
 }
 
 @Composable
+private fun OnboardingStep(label: String, done: Boolean, active: Boolean = false) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when {
+            done -> Icon(
+                Icons.Default.Circle,
+                contentDescription = null,
+                modifier = Modifier.size(8.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            active -> CircularProgressIndicator(
+                modifier = Modifier.size(10.dp),
+                strokeWidth = 2.dp
+            )
+            else -> Icon(
+                Icons.Default.Circle,
+                contentDescription = null,
+                modifier = Modifier.size(8.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (done) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else if (active) {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
+@Composable
 private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = "No integrations enabled yet.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Connect AI assistants to your phone's data.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = onAdd) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -381,9 +496,13 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit, on
                     IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
                 }
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            TextButton(onClick = onCopy) {
-                Text("Copy")
+            Spacer(modifier = Modifier.width(4.dp))
+            IconButton(onClick = onCopy) {
+                Icon(
+                    Icons.Default.ContentCopy,
+                    contentDescription = "Copy URL",
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
@@ -394,12 +513,27 @@ private fun ActivityRow(entry: AuditEntry) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(entry.time, style = MaterialTheme.typography.bodySmall)
-        Text(entry.toolName, style = MaterialTheme.typography.bodySmall)
-        Text("${entry.durationMs}ms", style = MaterialTheme.typography.bodySmall)
+        Text(
+            text = entry.toolName,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = entry.time,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(
+            text = "${entry.durationMs}ms",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

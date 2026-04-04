@@ -1,5 +1,7 @@
 package com.rousecontext.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,11 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -69,16 +72,23 @@ fun IntegrationManageScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(state.integrationName)
                         Spacer(modifier = Modifier.width(12.dp))
+                        val badgeColor = when (state.status) {
+                            IntegrationStatus.ACTIVE -> MaterialTheme.colorScheme.primary
+                            IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
+                        }
                         Text(
                             text = when (state.status) {
                                 IntegrationStatus.ACTIVE -> "Active"
                                 IntegrationStatus.PENDING -> "Pending"
                             },
                             style = MaterialTheme.typography.labelMedium,
-                            color = when (state.status) {
-                                IntegrationStatus.ACTIVE -> MaterialTheme.colorScheme.primary
-                                IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
-                            }
+                            color = badgeColor,
+                            modifier = Modifier
+                                .background(
+                                    color = badgeColor.copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
                 },
@@ -131,10 +141,12 @@ fun IntegrationManageScreen(
                     Text(
                         text = "Waiting for first client...",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.SemiBold
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Add the URL above to your AI client to get started.",
+                        text = "To connect, add the URL above to your AI client. " +
+                            "This screen will update automatically once a client connects.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -148,22 +160,52 @@ fun IntegrationManageScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                items(state.recentActivity) { entry ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(entry.time, style = MaterialTheme.typography.bodySmall)
-                        Text(entry.toolName, style = MaterialTheme.typography.bodySmall)
-                        Text("${entry.durationMs}ms", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
                 if (state.recentActivity.isNotEmpty()) {
                     item {
-                        TextButton(onClick = onViewAllActivity) {
-                            Text("View all")
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column {
+                                state.recentActivity.forEachIndexed { index, entry ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            entry.toolName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            entry.time,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            "${entry.durationMs}ms",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    if (index < state.recentActivity.lastIndex) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(horizontal = 16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(onClick = onViewAllActivity) {
+                                Text("View all")
+                            }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -182,7 +224,7 @@ fun IntegrationManageScreen(
             if (state.authorizedClients.isEmpty()) {
                 item {
                     Text(
-                        text = "(none yet)",
+                        text = "No clients authorized yet",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -190,7 +232,12 @@ fun IntegrationManageScreen(
                 }
             } else {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
                         Column {
                             state.authorizedClients.forEachIndexed { index, client ->
                                 Row(
@@ -211,12 +258,19 @@ fun IntegrationManageScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    TextButton(onClick = { onRevokeClient(client.name) }) {
-                                        Text("Revoke")
+                                    TextButton(
+                                        onClick = { onRevokeClient(client.name) }
+                                    ) {
+                                        Text(
+                                            "Revoke",
+                                            color = MaterialTheme.colorScheme.error
+                                        )
                                     }
                                 }
                                 if (index < state.authorizedClients.lastIndex) {
-                                    HorizontalDivider()
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(horizontal = 16.dp)
+                                    )
                                 }
                             }
                         }
@@ -227,7 +281,7 @@ fun IntegrationManageScreen(
 
             // Action buttons
             item {
-                Button(
+                OutlinedButton(
                     onClick = onSettings,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -236,9 +290,22 @@ fun IntegrationManageScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = onDisable,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                    )
                 ) {
-                    Text("Disable Integration")
+                    Text(
+                        if (state.status == IntegrationStatus.PENDING) {
+                            "Cancel Setup"
+                        } else {
+                            "Disable Integration"
+                        }
+                    )
                 }
                 Spacer(modifier = Modifier.height(24.dp))
             }

@@ -69,7 +69,7 @@ fun IntegrationEnabledScreen(
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(64.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
 
@@ -127,11 +127,11 @@ fun IntegrationEnabledScreen(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(24.dp),
                         color = TealPrimary,
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.5.dp
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = "Waiting for connection...",
                         style = MaterialTheme.typography.bodyMedium,
@@ -142,7 +142,7 @@ fun IntegrationEnabledScreen(
                 Spacer(modifier = Modifier.weight(1f))
 
                 TextButton(onClick = onCancel) {
-                    Text("Cancel")
+                    Text("Done")
                 }
             }
         }

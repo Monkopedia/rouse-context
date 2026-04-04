@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -102,18 +104,29 @@ fun DeviceCodeApprovalScreen(
                 onClick = onApprove,
                 enabled = code.length == state.codeLength && !state.isApproving,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = TealPrimary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = TealPrimary,
+                    disabledContainerColor = TealPrimary.copy(alpha = 0.25f),
+                    disabledContentColor = Color.White.copy(alpha = 0.5f)
+                )
             ) {
-                Text("Approve", modifier = Modifier.padding(vertical = 4.dp))
+                Text("Approve")
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedButton(
                 onClick = onDeny,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                )
             ) {
-                Text("Deny", modifier = Modifier.padding(vertical = 4.dp))
+                Text("Deny")
             }
         }
     }
@@ -131,16 +144,22 @@ private fun CodeInputRow(code: String, length: Int, onCodeChanged: (String) -> U
         decorationBox = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 // First row (4 boxes)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (i in 0 until length / 2) {
-                        CodeBox(char = code.getOrNull(i))
+                        CodeBox(
+                            char = code.getOrNull(i),
+                            isNext = i == code.length
+                        )
                     }
                 }
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
                 // Second row (4 boxes)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     for (i in length / 2 until length) {
-                        CodeBox(char = code.getOrNull(i))
+                        CodeBox(
+                            char = code.getOrNull(i),
+                            isNext = i == code.length
+                        )
                     }
                 }
             }
@@ -149,25 +168,33 @@ private fun CodeInputRow(code: String, length: Int, onCodeChanged: (String) -> U
 }
 
 @Composable
-private fun CodeBox(char: Char?) {
+private fun CodeBox(char: Char?, isNext: Boolean = false) {
     Box(
         modifier = Modifier
             .size(56.dp)
             .border(
                 width = 2.dp,
-                color = if (char != null) {
-                    TealPrimary
-                } else {
-                    MaterialTheme.colorScheme.outline
+                color = when {
+                    char != null -> TealPrimary
+                    isNext -> TealPrimary.copy(alpha = 0.5f)
+                    else -> Color.White.copy(alpha = 0.2f)
                 },
                 shape = RoundedCornerShape(12.dp)
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = char?.toString() ?: "",
-            style = MaterialTheme.typography.headlineMedium
-        )
+        if (char != null) {
+            Text(
+                text = char.toString(),
+                style = MaterialTheme.typography.headlineMedium
+            )
+        } else if (isNext) {
+            Box(
+                modifier = Modifier
+                    .size(width = 2.dp, height = 24.dp)
+                    .background(TealPrimary.copy(alpha = 0.6f))
+            )
+        }
     }
 }
 

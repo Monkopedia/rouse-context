@@ -14,18 +14,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -67,7 +63,7 @@ fun AddIntegrationPickerScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
-            LazyColumn(modifier = Modifier.weight(1f)) {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(integrations) { integration ->
                     Card(
                         modifier = Modifier
@@ -87,11 +83,7 @@ fun AddIntegrationPickerScreen(
                             val isUnavailable =
                                 integration.state == PickerIntegrationState.UNAVAILABLE
                             Text(
-                                text = if (isUnavailable) {
-                                    "${integration.name} (coming soon)"
-                                } else {
-                                    integration.name
-                                },
+                                text = integration.name,
                                 style = MaterialTheme.typography.titleMedium,
                                 color = if (isUnavailable) {
                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -113,32 +105,21 @@ fun AddIntegrationPickerScreen(
                                     }
                                 }
                                 PickerIntegrationState.DISABLED -> {
-                                    OutlinedButton(onClick = { onReEnable(integration.id) }) {
+                                    Button(onClick = { onReEnable(integration.id) }) {
                                         Text("Re-enable")
                                     }
                                 }
                                 PickerIntegrationState.UNAVAILABLE -> {
-                                    OutlinedButton(onClick = {}, enabled = false) {
-                                        Text("Soon")
-                                    }
+                                    Text(
+                                        text = "Coming soon",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
                     }
-
-                    if (integration != integrations.last()) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    }
                 }
-            }
-
-            TextButton(
-                onClick = onCancel,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .padding(bottom = 16.dp)
-            ) {
-                Text("Cancel")
             }
         }
     }

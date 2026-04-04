@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.HourglassEmpty
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.TealPrimary
 
@@ -62,19 +63,18 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                 when (state.variant) {
                     is SettingUpVariant.FirstTime, is SettingUpVariant.Refreshing -> {
                         CircularProgressIndicator(
-                            progress = { 0.7f },
                             color = TealPrimary,
-                            trackColor = TealPrimary.copy(alpha = 0.2f),
+                            trackColor = TealPrimary.copy(alpha = 0.35f),
                             modifier = Modifier.size(64.dp),
-                            strokeWidth = 5.dp,
+                            strokeWidth = 5.dp
                         )
                     }
                     is SettingUpVariant.RateLimited -> {
                         Icon(
-                            imageVector = Icons.Default.HourglassEmpty,
+                            imageVector = Icons.Default.Schedule,
                             contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.tertiary
+                            modifier = Modifier.size(64.dp),
+                            tint = AmberAccent
                         )
                     }
                 }
@@ -86,8 +86,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                         is SettingUpVariant.FirstTime ->
                             "We're issuing a secure certificate for your device."
                         is SettingUpVariant.Refreshing ->
-                            "Your certificate is being refreshed. " +
-                                "This usually takes about 30 seconds."
+                            "Your certificate is being refreshed."
                         is SettingUpVariant.RateLimited ->
                             "Certificate issuance is temporarily delayed."
                     },
@@ -95,7 +94,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 when (state.variant) {
                     is SettingUpVariant.FirstTime -> {
@@ -106,18 +105,24 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    is SettingUpVariant.Refreshing -> { /* no extra text */ }
-                    is SettingUpVariant.RateLimited -> {
+                    is SettingUpVariant.Refreshing -> {
                         Text(
-                            text = "Expected: ${state.variant.expectedDate}.",
+                            text = "This usually takes about 30 seconds.",
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    is SettingUpVariant.RateLimited -> {
+                        Text(
+                            text = "Will retry on ${state.variant.expectedDate}.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
                     text = "We'll notify you when it's ready.",
@@ -129,7 +134,12 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                 Spacer(modifier = Modifier.height(32.dp))
 
                 TextButton(onClick = onCancel) {
-                    Text("Cancel")
+                    Text(
+                        when (state.variant) {
+                            is SettingUpVariant.RateLimited -> "Dismiss"
+                            else -> "Cancel"
+                        }
+                    )
                 }
             }
         }

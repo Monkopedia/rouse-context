@@ -1,9 +1,9 @@
 package com.rousecontext.app.ui.screens
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -28,13 +28,14 @@ fun ConnectionConfirmedScreen(onBackToHome: () -> Unit = {}) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.weight(1f))
+
             Icon(
                 imageVector = Icons.Default.CheckCircle,
                 contentDescription = "Connected",
-                modifier = Modifier.size(72.dp),
+                modifier = Modifier.size(96.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
 
@@ -42,22 +43,26 @@ fun ConnectionConfirmedScreen(onBackToHome: () -> Unit = {}) {
 
             Text(
                 text = "Connected",
-                style = MaterialTheme.typography.headlineMedium
+                style = MaterialTheme.typography.headlineLarge
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = "Your AI client is now authorized.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.bodyLarge
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
-            Button(onClick = onBackToHome) {
+            Button(
+                onClick = onBackToHome,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("Back to Home")
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

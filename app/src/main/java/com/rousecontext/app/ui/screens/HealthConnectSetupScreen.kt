@@ -56,7 +56,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
 
             Text(
                 text = "We'll request access to:",
-                style = MaterialTheme.typography.bodyLarge
+                style = MaterialTheme.typography.titleSmall
             )
 
             Spacer(modifier = Modifier.height(12.dp))
