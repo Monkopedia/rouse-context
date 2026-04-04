@@ -599,6 +599,71 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 188. Battery optimization card shown when not exempt, dismissable
 189. Notification permission denied at first integration setup → forced suppress setting
 
+### UI: navigation flows (Compose host-side JVM tests)
+190. First launch → Welcome → Get Started → Dashboard with cert onboarding banner
+191. First integration: Dashboard → [+ Add] → Picker → Health Connect → Notification Prefs → integration/health/setup
+192. First integration (suppress notifications): select Suppress → no system permission dialog → integration/health/setup
+193. Cert spinner: integration setup completes → Setting Up shown → auto-advances when cert valid
+194. Integration Enabled → Device Code auto-navigate: on URL screen → device code arrives → Device Code Approval
+195. Device Code → Connected → Dashboard: enter code → Approve → Connected → Back to Home → Active on dashboard
+196. Second integration: Dashboard → [+ Add] → skips Notification Prefs → integration setup directly
+197. Re-enable disabled: Add picker → tap disabled → may skip setup → Pending on dashboard
+198. Pending integration tap → Integration Manage (Pending variant) or Setting Up (cert issuing)
+199. Active integration tap → Integration Manage (Active variant)
+200. Integration Manage → Settings → integration/{id}/settings (integration-owned)
+201. Device code from notification: notification intent → Device Code Approval
+202. Audit deep-link: notification intent with sessionId → Audit History filtered
+203. Subdomain rotation: Settings → Generate new address → confirm → new subdomain
+204. Rotation cooldown: within 30 days → button disabled or error
+
+### UI: bottom nav
+205. Dashboard → Audit tab → Audit History
+206. Dashboard → Settings tab → Settings
+207. Tab state preserved on return
+
+### UI: dashboard states (ViewModel-driven)
+208. CertStatus.None → onboarding banner with progress
+209. CertStatus.Onboarding(GENERATING_KEYS) → "Generating keys..."
+210. CertStatus.Onboarding(ISSUING_CERT) → "Issuing certificate..."
+211. CertStatus.Valid → no banner
+212. CertStatus.Expired(renewalInProgress=true) → "Renewing..."
+213. CertStatus.Expired(renewalInProgress=false) → error banner with Retry
+214. CertStatus.RateLimited → delayed banner with date
+215. No integrations → empty state with "Add your first" CTA
+216. Pending + Active integrations → correct badges
+217. [+ Add] hidden when all integrations enabled
+218. Connection status: Disconnected / Connected / Active(N)
+219. Recent activity preview, "View all" navigates to Audit
+
+### UI: add integration picker
+220. Shows Available + Disabled only
+221. Unavailable greyed out
+222. Disabled shows "Re-enable"
+223. Set up navigates to notification prefs (first) or integration setup (subsequent)
+
+### UI: integration manage screen
+224. Active: shows URL, recent activity, authorized clients, Settings + Disable buttons
+225. Pending: shows URL, "Waiting for first client", empty clients, Settings + Disable buttons
+226. Revoke token → confirmation → token removed → list updates
+227. Revoke last token → integration transitions Active → Pending
+228. Disable → integration removed from dashboard, back in Add picker
+229. Settings → navigates to integration/{id}/settings
+
+### UI: settings
+230. Idle timeout dropdown changes DataStore value
+231. Disable timeout toggle only enabled when battery optimization exempt
+232. Notification mode dropdown changes value
+233. Subdomain rotation → confirmation dialog
+234. Battery optimization card shown when not exempt, dismissed persisted
+
+### UI: audit history
+235. Entries rendered with timestamp, tool name, duration
+236. Filter by provider
+237. Filter by date range
+238. Deep-link with sessionId pre-filters
+239. Clear history → confirmation → entries deleted
+240. Empty state
+
 ## Still Needs Design
 
 1. **Third-party provider discovery** — bound service intent filter, verification, trust UI (future, not v1)
