@@ -32,6 +32,7 @@ import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.WakelockManager
@@ -98,6 +99,9 @@ val appModule = module {
             scope = get(named("appScope"))
         )
     }
+
+    // --- FCM token registration ---
+    single { FcmTokenRegistrar(get()) }
 
     // --- Tunnel & work ---
     single<String>(named("relayUrl")) {

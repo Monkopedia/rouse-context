@@ -1,10 +1,14 @@
 package com.rousecontext.app
 
 import android.app.Application
+import android.util.Log
 import com.rousecontext.app.di.appModule
+import com.rousecontext.work.FcmTokenRegistrar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
@@ -35,9 +39,31 @@ class RouseApplication : Application() {
                 appModule
             )
         }
+
+        registerFcmToken()
+    }
+
+    /**
+     * Ensures the current FCM token is registered in Firestore.
+     * Runs on app start so the relay always has an up-to-date token,
+     * even if a previous onNewToken callback was missed.
+     */
+    private fun registerFcmToken() {
+        val registrar: FcmTokenRegistrar by inject()
+        appScope.launch {
+            try {
+                registrar.registerCurrentToken()
+            } catch (e: Exception) {
+                Log.w(TAG, "FCM token registration failed (will retry on next launch)", e)
+            }
+        }
     }
 
     private fun scopeModule() = module {
         single(named("appScope")) { appScope }
+    }
+
+    companion object {
+        private const val TAG = "RouseApplication"
     }
 }
