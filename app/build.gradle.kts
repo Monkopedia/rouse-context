@@ -36,7 +36,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":tunnel"))
+    implementation(project(":core:tunnel"))
     implementation(project(":mcp-core"))
     implementation(project(":mcp-health"))
 
