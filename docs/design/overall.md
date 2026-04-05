@@ -157,9 +157,7 @@ The production `rousecontext.com` DNS zone should have a CAA record restricting 
     "token": "{device_fcm_token}",
     "android": { "priority": "high" },
     "data": {
-      "type": "wake",
-      "relay_host": "relay.rousecontext.com",
-      "relay_port": "443"
+      "type": "wake"
     }
   }
 }
