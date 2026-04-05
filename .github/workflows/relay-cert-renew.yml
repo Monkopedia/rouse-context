@@ -9,7 +9,31 @@ jobs:
   renew:
     runs-on: ubuntu-latest
     steps:
-      - name: Renew cert on VPS
+      - name: Install certbot
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq certbot python3-certbot-dns-cloudflare
+
+      - name: Write Cloudflare credentials
+        run: |
+          mkdir -p ~/.secrets
+          echo "dns_cloudflare_api_token = ${{ secrets.CLOUDFLARE_API_TOKEN }}" > ~/.secrets/cloudflare.ini
+          chmod 600 ~/.secrets/cloudflare.ini
+
+      - name: Run certbot
+        run: |
+          sudo certbot certonly \
+            --dns-cloudflare \
+            --dns-cloudflare-credentials ~/.secrets/cloudflare.ini \
+            -d relay.rousecontext.com \
+            --non-interactive \
+            --agree-tos \
+            --email noreply@rousecontext.com \
+            --config-dir ./certbot-config \
+            --work-dir ./certbot-work \
+            --logs-dir ./certbot-logs
+
+      - name: Deploy cert to VPS
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
@@ -20,8 +44,21 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
+          scp -i ~/.ssh/deploy_key \
+            ./certbot-config/live/relay.rousecontext.com/fullchain.pem \
+            "$VPS_USER@$VPS_HOST":/tmp/relay.pem
+
+          scp -i ~/.ssh/deploy_key \
+            ./certbot-config/live/relay.rousecontext.com/privkey.pem \
+            "$VPS_USER@$VPS_HOST":/tmp/relay-key.pem
+
           ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" bash -s <<'EOF'
-          sudo certbot renew --dns-cloudflare \
-            --dns-cloudflare-credentials /etc/rouse-relay/cloudflare.ini \
-            --deploy-hook "cp /etc/letsencrypt/live/relay.rousecontext.com/fullchain.pem /etc/rouse-relay/tls/relay.pem && cp /etc/letsencrypt/live/relay.rousecontext.com/privkey.pem /etc/rouse-relay/tls/relay-key.pem && systemctl restart rouse-relay"
+          sudo mv /tmp/relay.pem /etc/rouse-relay/tls/relay.pem
+          sudo mv /tmp/relay-key.pem /etc/rouse-relay/tls/relay-key.pem
+          sudo chown root:relay /etc/rouse-relay/tls/*
+          sudo chmod 640 /etc/rouse-relay/tls/*
+          sudo systemctl restart rouse-relay
+          sleep 2
+          sudo systemctl is-active rouse-relay
+          echo "Cert deployed and relay restarted"
           EOF
