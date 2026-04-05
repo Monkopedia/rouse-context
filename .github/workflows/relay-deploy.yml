@@ -1,9 +1,6 @@
 name: Deploy Relay
 
 on:
-  push:
-    branches: [main]
-    paths: ['relay/**']
   workflow_dispatch:
 
 jobs:
