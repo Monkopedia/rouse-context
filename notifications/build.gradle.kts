@@ -25,6 +25,9 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:tunnel"))
+    implementation(project(":core:mcp"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
@@ -34,4 +37,5 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.room.testing)
+    testImplementation("androidx.test:core:1.6.1")
 }

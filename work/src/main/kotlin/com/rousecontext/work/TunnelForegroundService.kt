@@ -53,7 +53,7 @@ class TunnelForegroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         lifecycleScope.launch {
-            tunnelClient.connect()
+            tunnelClient.connect("wss://relay.rousecontext.com/ws")
         }
 
         lifecycleScope.launch {

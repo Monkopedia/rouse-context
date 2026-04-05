@@ -62,7 +62,7 @@ object NotificationModel {
                 add(
                     NotificationAction.PostToolUsage(
                         event.event.toolName,
-                        event.event.provider,
+                        event.event.providerId,
                     ),
                 )
             }

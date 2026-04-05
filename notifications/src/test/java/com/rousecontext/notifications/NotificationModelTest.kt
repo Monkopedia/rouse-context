@@ -1,6 +1,8 @@
 package com.rousecontext.notifications
 
 import com.rousecontext.mcp.core.ToolCallEvent
+import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.TextContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -111,11 +113,12 @@ class NotificationModelTest {
     fun `ToolCallCompleted in Every mode emits PostToolUsage`() {
         val event = ToolCallEvent(
             sessionId = "s1",
+            providerId = "health",
+            timestamp = 1000L,
             toolName = "get_steps",
-            provider = "health",
-            timestampMillis = 1000L,
-            durationMillis = 50L,
-            success = true,
+            arguments = emptyMap(),
+            result = CallToolResult(content = listOf(TextContent(text = "ok"))),
+            durationMs = 50L
         )
         val actions = NotificationModel.onEvent(
             SessionEvent.ToolCallCompleted(event),
@@ -131,11 +134,12 @@ class NotificationModelTest {
     fun `ToolCallCompleted in Summary mode emits nothing`() {
         val event = ToolCallEvent(
             sessionId = "s1",
+            providerId = "health",
+            timestamp = 1000L,
             toolName = "get_steps",
-            provider = "health",
-            timestampMillis = 1000L,
-            durationMillis = 50L,
-            success = true,
+            arguments = emptyMap(),
+            result = CallToolResult(content = listOf(TextContent(text = "ok"))),
+            durationMs = 50L
         )
         val actions = NotificationModel.onEvent(
             SessionEvent.ToolCallCompleted(event),
@@ -193,11 +197,12 @@ class NotificationModelTest {
         // Optional notification suppressed
         val event = ToolCallEvent(
             sessionId = "s1",
+            providerId = "health",
+            timestamp = 1000L,
             toolName = "get_steps",
-            provider = "health",
-            timestampMillis = 1000L,
-            durationMillis = 50L,
-            success = true,
+            arguments = emptyMap(),
+            result = CallToolResult(content = listOf(TextContent(text = "ok"))),
+            durationMs = 50L
         )
         val toolActions = NotificationModel.onEvent(
             SessionEvent.ToolCallCompleted(event),
