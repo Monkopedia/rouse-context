@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rousecontext.mcp.health"
+    namespace = "com.rousecontext.notifications"
     compileSdk = 35
 
     defaultConfig {
@@ -22,8 +22,8 @@ android {
 }
 
 dependencies {
-    implementation(project(":mcp-core"))
+    implementation(project(":core:tunnel"))
+    implementation(project(":core:mcp"))
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.health.connect)
 }

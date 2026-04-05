@@ -7,19 +7,19 @@ Android app + relay server that turns a phone into a secure, on-demand MCP serve
 Three distinct domains live in this repo:
 
 - **Relay server** (`relay/`) — TLS passthrough via SNI routing, `/wake` endpoint, ACME cert orchestration, DNS-01 challenges via Cloudflare API. Never terminates TLS, never sees payloads.
-- **Tunnel client** (`tunnel/`) — Android module. FCM wakeup receiver, TLS client connecting back to relay, session lifecycle, wakelock management. Bridges the relay protocol to on-device MCP.
-- **Android app** (`app/`, `mcp-core/`, `mcp-health/`) — MCP SDK integration, Health Connect server, audit UI, foreground service. Pure Android/Kotlin.
+- **Tunnel client** (`core/tunnel/`) — Mux protocol, TLS client connecting back to relay, session lifecycle, CertificateStore interface. Bridges the relay protocol to on-device MCP.
+- **Android app** (`app/`, `core/mcp/`, `health/`, `api/`, `notifications/`, `work/`) — MCP SDK integration, Health Connect server, audit UI, foreground service. Pure Android/Kotlin.
 
 ## Build & Test
 
-All Gradle commands require `JAVA_HOME=/usr/lib/jvm/java-17-openjdk`.
+All Gradle commands require `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`.
 
 ```bash
-# Build library modules (app has a pre-existing missing icon issue)
-./gradlew :mcp-core:assembleDebug :mcp-health:assembleDebug :tunnel:assembleDebug
+# Build library modules
+./gradlew :core:mcp:assembleDebug :core:tunnel:assembleDebug :health:assembleDebug
 
 # Unit tests
-./gradlew :mcp-core:testDebugUnitTest
+./gradlew :core:mcp:testDebugUnitTest
 
 # Lint & static analysis
 ./gradlew ktlintCheck detekt
@@ -43,11 +43,14 @@ Skip to step 4 for trivial changes (typos, single-line fixes, obvious bugs).
 
 ## Module Boundaries
 
-- `:mcp-core` — MUST NOT depend on Android framework APIs beyond what's in `androidx.core`. It's the contract layer.
-- `:mcp-health` — MUST depend only on `:mcp-core` and Health Connect. No tunnel, no app.
-- `:tunnel` — MUST NOT know about MCP. It provides raw I/O streams. Zero knowledge of what travels over them.
-- `:app` — Wires everything together. The ONLY module that depends on all others.
-- `relay/` — Completely independent. Rust. No Android dependencies. Built with Cargo, deployed as a static binary to a small VPS.
+- `:core:mcp` — MCP session orchestrator, HTTP routing, OAuth device code flow, token management. Contract layer.
+- `:core:tunnel` — Mux protocol, WebSocket client, TLS accept, CertificateStore interface. MUST NOT know about MCP.
+- `:api` — `McpIntegration` interface, `IntegrationStateStore`. Contract for integration modules.
+- `:health` — Health Connect MCP server. Depends on `:api` and `:core:mcp`.
+- `:notifications` — Notification state machine, audit persistence (Room). Depends on `:core:tunnel` and `:core:mcp`.
+- `:work` — Foreground service, FCM receiver, WorkManager, wakelock. Depends on `:core:tunnel` and `:notifications`.
+- `:app` — Wires everything together via Koin. The ONLY module that depends on all others.
+- `relay/` — Completely independent. Rust. No Android dependencies. Built with Cargo.
 
 ## Code Style
 

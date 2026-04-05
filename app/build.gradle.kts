@@ -59,9 +59,9 @@ android {
 }
 
 dependencies {
-    implementation(project(":tunnel"))
-    implementation(project(":mcp-core"))
-    implementation(project(":mcp-health"))
+    implementation(project(":core:tunnel"))
+    implementation(project(":core:mcp"))
+    implementation(project(":health"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
