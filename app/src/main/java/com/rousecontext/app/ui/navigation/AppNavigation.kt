@@ -1,9 +1,15 @@
 package com.rousecontext.app.ui.navigation
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.health.connect.client.PermissionController
+import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.StepsRecord
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -13,6 +19,9 @@ import androidx.navigation.navArgument
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditHistoryScreen
 import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
+import com.rousecontext.app.ui.screens.HealthConnectSetupScreen
+import com.rousecontext.app.ui.screens.IntegrationEnabledScreen
+import com.rousecontext.app.ui.screens.IntegrationEnabledState
 import com.rousecontext.app.ui.screens.IntegrationManageScreen
 import com.rousecontext.app.ui.screens.MainDashboardScreen
 import com.rousecontext.app.ui.screens.OnboardingErrorScreen
@@ -24,6 +33,7 @@ import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
+import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
@@ -41,13 +51,17 @@ object Routes {
     const val ADD_INTEGRATION = "add_integration"
     const val INTEGRATION_MANAGE = "integration/{integrationId}"
     const val INTEGRATION_SETUP = "integration_setup/{integrationId}"
+    const val HEALTH_CONNECT_SETUP = "health_connect_setup"
+    const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
     const val DEVICE_CODE = "device_code/{integrationId}"
 
     fun integrationManage(id: String): String = "integration/$id"
     fun integrationSetup(id: String): String = "integration_setup/$id"
+    fun integrationEnabled(id: String): String = "integration_enabled/$id"
     fun deviceCode(id: String): String = "device_code/$id"
 }
 
+@Suppress("CyclomaticComplexMethod")
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
     val onboardingViewModel: OnboardingViewModel = koinViewModel()
@@ -198,7 +212,13 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             val integrations by viewModel.pickerIntegrations.collectAsState()
             AddIntegrationPickerScreen(
                 integrations = integrations,
-                onSetUp = { id -> navController.navigate(Routes.integrationSetup(id)) },
+                onSetUp = { id ->
+                    if (id == HealthConnectSetupViewModel.HEALTH_INTEGRATION_ID) {
+                        navController.navigate(Routes.HEALTH_CONNECT_SETUP)
+                    } else {
+                        navController.navigate(Routes.integrationSetup(id))
+                    }
+                },
                 onCancel = { navController.popBackStack() }
             )
         }
@@ -233,6 +253,51 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             )
         }
 
+        composable(Routes.HEALTH_CONNECT_SETUP) {
+            val viewModel: HealthConnectSetupViewModel = koinViewModel()
+            val requestPermissions = rememberLauncherForActivityResult(
+                contract = PermissionController.createRequestPermissionResultContract()
+            ) { granted ->
+                val enabled = viewModel.onPermissionsResult(granted)
+                if (enabled) {
+                    navController.navigate(
+                        Routes.integrationEnabled(
+                            HealthConnectSetupViewModel.HEALTH_INTEGRATION_ID
+                        )
+                    ) {
+                        popUpTo(Routes.ADD_INTEGRATION) { inclusive = true }
+                    }
+                }
+            }
+            HealthConnectSetupScreen(
+                onGrantAccess = {
+                    requestPermissions.launch(HEALTH_CONNECT_PERMISSIONS)
+                },
+                onCancel = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.INTEGRATION_ENABLED,
+            arguments = listOf(navArgument("integrationId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val integrationId = backStackEntry.arguments
+                ?.getString("integrationId") ?: return@composable
+            IntegrationEnabledScreen(
+                state = IntegrationEnabledState(
+                    integrationName = when (integrationId) {
+                        HealthConnectSetupViewModel.HEALTH_INTEGRATION_ID -> "Health Connect"
+                        else -> integrationId
+                    }
+                ),
+                onCancel = {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.HOME) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(
             route = Routes.DEVICE_CODE,
             arguments = listOf(navArgument("integrationId") { type = NavType.StringType })
@@ -248,3 +313,13 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
     }
 }
+
+/**
+ * Health Connect permissions requested during setup.
+ * Must match the permissions declared in the health module's AndroidManifest.xml.
+ */
+private val HEALTH_CONNECT_PERMISSIONS = setOf(
+    HealthPermission.getReadPermission(StepsRecord::class),
+    HealthPermission.getReadPermission(HeartRateRecord::class),
+    HealthPermission.getReadPermission(SleepSessionRecord::class)
+)
