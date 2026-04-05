@@ -142,8 +142,7 @@ Content-Type: application/json
 ```json
 {
   "subdomain": "brave-falcon",
-  "cert": "MIICpDCCAYwCCQD...",
-  "relay_host": "relay.rousecontext.com"
+  "cert": "MIICpDCCAYwCCQD..."
 }
 ```
 
@@ -151,7 +150,6 @@ Content-Type: application/json
 |---|---|---|
 | `subdomain` | string | Assigned subdomain (without domain suffix). Full hostname is `{subdomain}.rousecontext.com`. |
 | `cert` | string | Base64-encoded DER certificate chain (leaf + intermediates), PEM-concatenated then Base64-encoded |
-| `relay_host` | string | Hostname the device should connect to for the mux WebSocket |
 
 #### Error Responses
 
@@ -203,8 +201,7 @@ Response (200):
 ```json
 {
   "subdomain": "brave-falcon",
-  "cert": "LS0tLS1CRUdJTi...",
-  "relay_host": "relay.rousecontext.com"
+  "cert": "LS0tLS1CRUdJTi..."
 }
 ```
 
@@ -647,9 +644,7 @@ Sent when a client connects to a device subdomain and the device has no active m
       "priority": "high"
     },
     "data": {
-      "type": "wake",
-      "relay_host": "relay.rousecontext.com",
-      "relay_port": "443"
+      "type": "wake"
     }
   }
 }
@@ -658,12 +653,10 @@ Sent when a client connects to a device subdomain and the device has no active m
 | Data Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"wake"` |
-| `relay_host` | string | Hostname the device should connect to for the mux WebSocket |
-| `relay_port` | string | Port number (always `"443"`, sent as string per FCM data message requirements) |
 
 **Priority:** `high` -- FCM will attempt immediate delivery, waking the device from Doze if necessary.
 
-**Expected device behavior:** Start foreground service, establish mux WebSocket connection to `wss://{relay_host}:{relay_port}/ws` with mTLS.
+**Expected device behavior:** Start foreground service, establish mux WebSocket connection to the relay using the compiled-in relay URL from BuildConfig.
 
 ### Renew Message
 
@@ -677,8 +670,7 @@ Sent by the daily maintenance job when a device's certificate expires within 7 d
       "priority": "normal"
     },
     "data": {
-      "type": "renew",
-      "relay_host": "relay.rousecontext.com"
+      "type": "renew"
     }
   }
 }
@@ -687,11 +679,10 @@ Sent by the daily maintenance job when a device's certificate expires within 7 d
 | Data Field | Type | Description |
 |---|---|---|
 | `type` | string | Always `"renew"` |
-| `relay_host` | string | Hostname to use for the renewal `POST /renew` request |
 
 **Priority:** `normal` -- delivery may be delayed by Doze. Renewal is not time-critical.
 
-**Expected device behavior:** Enqueue a WorkManager task to call `POST /renew`. Show a warning notification if appropriate.
+**Expected device behavior:** Enqueue a WorkManager task to call `POST /renew` using the compiled-in relay URL from BuildConfig. Show a warning notification if appropriate.
 
 ---
 
