@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
     alias(libs.plugins.roborazzi)
 }
 
@@ -61,13 +62,32 @@ android {
 dependencies {
     implementation(project(":core:tunnel"))
     implementation(project(":core:mcp"))
+    implementation(project(":api"))
     implementation(project(":health"))
+    implementation(project(":notifications"))
+    implementation(project(":work"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.material)
+
+    // Koin
+    implementation(libs.koin.core)
+    implementation(libs.koin.android)
+    implementation(libs.koin.compose)
+
+    // DataStore
+    implementation(libs.datastore.preferences)
+
+    // Room
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // Health Connect (for HealthConnectIntegration availability check)
+    implementation(libs.health.connect)
 
     // Compose
     implementation(platform(libs.compose.bom))
