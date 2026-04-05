@@ -1,11 +1,15 @@
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+<<<<<<< HEAD
     alias(libs.plugins.android.library)
+=======
+>>>>>>> feat/tunnel-websocket-tls
 }
 
 kotlin {
     jvm()
 
+<<<<<<< HEAD
     androidTarget {
         compilations.all {
             kotlinOptions {
@@ -52,4 +56,33 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+=======
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                implementation(libs.kotlinx.coroutines.core)
+                implementation(libs.ktor.client.core)
+                implementation(libs.ktor.client.websockets)
+            }
+        }
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
+        val jvmMain by getting {
+            dependencies {
+                implementation(libs.ktor.client.cio)
+            }
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation(libs.ktor.server.core)
+                implementation(libs.ktor.server.cio)
+                implementation(libs.ktor.server.websockets)
+            }
+        }
+    }
+>>>>>>> feat/tunnel-websocket-tls
 }

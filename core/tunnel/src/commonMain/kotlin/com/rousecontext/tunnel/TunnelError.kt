@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+<<<<<<< HEAD
 /** Errors that can occur during tunnel operation. */
 sealed interface TunnelError {
     /** Human-readable description of the error. */
@@ -38,4 +39,21 @@ sealed interface TunnelError {
         val to: TunnelState,
         override val message: String = "Invalid transition from $from to $to",
     ) : TunnelError
+=======
+/**
+ * Errors that can occur during tunnel operation.
+ */
+sealed class TunnelError(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause) {
+    class ConnectionFailed(message: String, cause: Throwable? = null) :
+        TunnelError(message, cause)
+
+    class WebSocketClosed(message: String) : TunnelError(message)
+    class TlsHandshakeFailed(message: String, cause: Throwable? = null) :
+        TunnelError(message, cause)
+
+    class ProtocolError(message: String) : TunnelError(message)
+>>>>>>> feat/tunnel-websocket-tls
 }
