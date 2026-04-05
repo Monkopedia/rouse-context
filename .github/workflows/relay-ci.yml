@@ -1,0 +1,32 @@
+name: Relay CI
+
+on:
+  push:
+    branches: [main]
+    paths: ['relay/**']
+  pull_request:
+    paths: ['relay/**']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            relay/target
+          key: relay-ci-${{ hashFiles('relay/Cargo.lock') }}
+      - name: Test
+        working-directory: relay
+        run: cargo test
+      - name: Clippy
+        working-directory: relay
+        run: cargo clippy -- -D warnings
+      - name: Format check
+        working-directory: relay
+        run: cargo fmt -- --check
