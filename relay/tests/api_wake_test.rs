@@ -30,6 +30,7 @@ fn make_app_with_state(
 ) -> axum::Router {
     let state = Arc::new(rouse_relay::api::AppState {
         relay_state,
+        session_registry: Arc::new(rouse_relay::passthrough::SessionRegistry::new()),
         firestore,
         fcm,
         acme: Arc::new(MockAcme::new("cert")),
@@ -146,6 +147,7 @@ async fn wake_rate_limit_returns_429() {
 
     let state = Arc::new(rouse_relay::api::AppState {
         relay_state,
+        session_registry: Arc::new(rouse_relay::passthrough::SessionRegistry::new()),
         firestore,
         fcm,
         acme: Arc::new(MockAcme::new("cert")),

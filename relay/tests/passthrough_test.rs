@@ -13,10 +13,11 @@ mod test_helpers;
 use rouse_relay::mux::frame::{Frame, FrameType};
 use rouse_relay::mux::lifecycle::{MuxHandle, MuxSession};
 use rouse_relay::passthrough::{
-    resolve_device_stream, splice_stream, PassthroughContext, PassthroughError, SessionRegistry,
+    resolve_device_stream, splice_stream, OpenStreamRequest, PassthroughContext, PassthroughError,
+    SessionRegistry,
 };
 use rouse_relay::state::RelayState;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use test_helpers::{MockFcm, MockFirestore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -24,19 +25,33 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 /// Helper: create a MuxSession, register it in both RelayState and SessionRegistry.
+/// Returns the frame_rx so the test can inspect outgoing frames, and a task handle
+/// for the session handler.
 fn setup_device(
     relay_state: &Arc<RelayState>,
     registry: &Arc<SessionRegistry>,
     subdomain: &str,
     max_streams: u32,
-) -> Arc<Mutex<MuxSession>> {
-    let session = Arc::new(Mutex::new(MuxSession::new(
-        subdomain.to_string(),
-        max_streams,
-    )));
+) -> mpsc::Receiver<Frame> {
+    let mut session = MuxSession::new(subdomain.to_string(), max_streams);
+    let frame_rx = session.take_frame_rx().unwrap();
+
+    let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
+
     relay_state.register_mux_connection(subdomain);
-    registry.insert(subdomain, session.clone());
-    session
+    registry.insert(subdomain, open_tx);
+
+    // Spawn a task to handle open-stream requests
+    tokio::spawn(async move {
+        while let Some(req) = open_rx.recv().await {
+            let result = session
+                .open_stream()
+                .map(|stream| (session.handle(), stream));
+            let _ = req.reply.send(result);
+        }
+    });
+
+    frame_rx
 }
 
 fn make_ctx(
@@ -60,8 +75,7 @@ async fn open_frame_sent_with_sni_hostname() {
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
-    let session = setup_device(&relay_state, &registry, "brave-falcon", 8);
-    let mut frame_rx = session.lock().unwrap().take_frame_rx().unwrap();
+    let mut frame_rx = setup_device(&relay_state, &registry, "brave-falcon", 8);
 
     let ctx = make_ctx(
         relay_state,
@@ -331,9 +345,17 @@ async fn cold_client_fcm_then_device_connects() {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
         // Device wakes up and establishes mux
-        let session = Arc::new(Mutex::new(MuxSession::new("cold-dev".to_string(), 8)));
-        reg.insert("cold-dev", session);
+        let mut session = MuxSession::new("cold-dev".to_string(), 8);
+        let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
+        reg.insert("cold-dev", open_tx);
         rs.register_mux_connection("cold-dev");
+        // Handle open-stream requests
+        while let Some(req) = open_rx.recv().await {
+            let result = session
+                .open_stream()
+                .map(|stream| (session.handle(), stream));
+            let _ = req.reply.send(result);
+        }
     });
 
     let result = resolve_device_stream(&ctx, "cold-dev", "cold-dev.rousecontext.com").await;

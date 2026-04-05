@@ -14,15 +14,15 @@
 use crate::fcm::{self, FcmClient};
 use crate::firestore::FirestoreClient;
 use crate::mux::frame::{Frame, FrameType};
-use crate::mux::lifecycle::{MuxHandle, MuxSession, StreamHandle};
+use crate::mux::lifecycle::{MuxHandle, StreamHandle};
 use crate::state::RelayState;
 use dashmap::DashMap;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 /// Errors that can occur during passthrough.
@@ -58,13 +58,29 @@ impl std::fmt::Display for PassthroughError {
     }
 }
 
+/// A request to open a stream on a mux session.
+/// The session owner processes these and sends back the result.
+pub struct OpenStreamRequest {
+    pub reply: oneshot::Sender<Option<(MuxHandle, StreamHandle)>>,
+}
+
+/// Entry in the session registry for a device.
+/// Contains a channel sender for requesting stream opens from the session owner.
+pub struct SessionEntry {
+    pub open_stream_tx: mpsc::Sender<OpenStreamRequest>,
+}
+
 /// Registry of active mux sessions, keyed by subdomain.
 ///
 /// This is the bridge between the passthrough code (which needs to open streams)
 /// and the mux lifecycle code (which owns the sessions). Both sides access it
 /// through `Arc<SessionRegistry>`.
+///
+/// The registry does not own the `MuxSession` directly -- it communicates with
+/// the session owner task via channels. This avoids holding mutex guards across
+/// await points.
 pub struct SessionRegistry {
-    sessions: DashMap<String, Arc<Mutex<MuxSession>>>,
+    sessions: DashMap<String, SessionEntry>,
 }
 
 impl SessionRegistry {
@@ -75,8 +91,9 @@ impl SessionRegistry {
     }
 
     /// Register a mux session for a subdomain.
-    pub fn insert(&self, subdomain: &str, session: Arc<Mutex<MuxSession>>) {
-        self.sessions.insert(subdomain.to_string(), session);
+    pub fn insert(&self, subdomain: &str, open_stream_tx: mpsc::Sender<OpenStreamRequest>) {
+        self.sessions
+            .insert(subdomain.to_string(), SessionEntry { open_stream_tx });
     }
 
     /// Remove a mux session.
@@ -86,12 +103,14 @@ impl SessionRegistry {
 
     /// Try to open a stream on the device's mux session.
     /// Returns `None` if no session exists or max streams reached.
-    pub fn try_open_stream(&self, subdomain: &str) -> Option<(MuxHandle, StreamHandle)> {
-        let session_arc = self.sessions.get(subdomain)?;
-        let mut session = session_arc.lock().ok()?;
-        let handle = session.handle();
-        let stream = session.open_stream()?;
-        Some((handle, stream))
+    pub async fn try_open_stream(&self, subdomain: &str) -> Option<(MuxHandle, StreamHandle)> {
+        let entry = self.sessions.get(subdomain)?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let req = OpenStreamRequest { reply: reply_tx };
+        entry.open_stream_tx.send(req).await.ok()?;
+        // Don't hold the DashMap ref across the await
+        drop(entry);
+        reply_rx.await.ok()?
     }
 }
 
@@ -128,7 +147,7 @@ pub async fn resolve_device_stream(
     sni_hostname: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
     // Try to open a stream on an existing mux connection
-    if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain) {
+    if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain).await {
         send_open_frame(&handle, stream.stream_id, sni_hostname).await?;
         return Ok(ResolvedStream {
             handle,
@@ -168,7 +187,7 @@ pub async fn resolve_device_stream(
     match result {
         Ok(Ok(())) => {
             // Device connected, try to open stream
-            if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain) {
+            if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain).await {
                 send_open_frame(&handle, stream.stream_id, sni_hostname).await?;
                 Ok(ResolvedStream {
                     handle,
