@@ -2,6 +2,8 @@ package com.rousecontext.app.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
@@ -13,6 +15,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 sealed interface OnboardingState {
     data object Checking : OnboardingState
@@ -54,8 +57,25 @@ class OnboardingViewModel(
 
         _state.value = OnboardingState.InProgress
         viewModelScope.launch {
+            // Get Firebase anonymous auth token
+            val firebaseToken = try {
+                val user = FirebaseAuth.getInstance().signInAnonymously().await().user
+                    ?: return@launch setFailed("Firebase authentication failed.")
+                user.getIdToken(false).await().token
+                    ?: return@launch setFailed("Failed to obtain Firebase ID token.")
+            } catch (e: Exception) {
+                return@launch setFailed("Firebase authentication failed: ${e.message}")
+            }
+
+            // Get FCM registration token
+            val fcmToken = try {
+                FirebaseMessaging.getInstance().token.await()
+            } catch (e: Exception) {
+                return@launch setFailed("Failed to obtain FCM token: ${e.message}")
+            }
+
             val commonName = UUID.randomUUID().toString().take(SUBDOMAIN_LENGTH)
-            when (val result = onboardingFlow.execute(commonName)) {
+            when (val result = onboardingFlow.execute(commonName, firebaseToken, fcmToken)) {
                 is OnboardingResult.Success -> {
                     _state.value = OnboardingState.Onboarded
                 }
@@ -88,6 +108,10 @@ class OnboardingViewModel(
                 }
             }
         }
+    }
+
+    private fun setFailed(message: String) {
+        _state.value = OnboardingState.Failed(message = message)
     }
 
     fun retry() {

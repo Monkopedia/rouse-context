@@ -26,8 +26,9 @@ class MockRelayServer {
         MockResponse(
             status = 201,
             body = RegisterResponse(
-                certificatePem = MOCK_CERT_PEM,
-                subdomain = "test123.rousecontext.com"
+                subdomain = "test123.rousecontext.com",
+                cert = MOCK_CERT_PEM,
+                relayHost = "relay.rousecontext.com"
             )
         )
     }

@@ -9,6 +9,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -22,12 +23,23 @@ class RelayApiClient(
 
     /**
      * Register a new device with the relay server.
-     * Sends the CSR and receives back a signed certificate and subdomain.
+     * Sends the CSR, Firebase auth token, and FCM token.
+     * Receives back a signed certificate, subdomain, and relay host.
      */
-    suspend fun register(csrPem: String): RelayApiResult<RegisterResponse> = executeRequest {
+    suspend fun register(
+        csrPem: String,
+        firebaseToken: String,
+        fcmToken: String
+    ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
             contentType(ContentType.Application.Json)
-            setBody(RegisterRequest(csrPem = csrPem))
+            setBody(
+                RegisterRequest(
+                    firebaseToken = firebaseToken,
+                    csr = csrPem,
+                    fcmToken = fcmToken
+                )
+            )
         }
     }
 
@@ -115,12 +127,17 @@ sealed class RelayApiResult<out T> {
 }
 
 @Serializable
-data class RegisterRequest(val csrPem: String)
+data class RegisterRequest(
+    @SerialName("firebase_token") val firebaseToken: String,
+    @SerialName("csr") val csr: String,
+    @SerialName("fcm_token") val fcmToken: String
+)
 
 @Serializable
 data class RegisterResponse(
-    val certificatePem: String,
-    val subdomain: String
+    @SerialName("subdomain") val subdomain: String,
+    @SerialName("cert") val cert: String,
+    @SerialName("relay_host") val relayHost: String
 )
 
 @Serializable
