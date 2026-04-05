@@ -14,6 +14,7 @@ import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.util.Log
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -75,6 +76,7 @@ class OnboardingViewModel(
             }
 
             val commonName = UUID.randomUUID().toString().take(SUBDOMAIN_LENGTH)
+            Log.i("Onboarding", "Starting onboarding with CN=$commonName, firebaseToken=${firebaseToken.take(20)}..., fcmToken=${fcmToken.take(20)}...")
             when (val result = onboardingFlow.execute(commonName, firebaseToken, fcmToken)) {
                 is OnboardingResult.Success -> {
                     _state.value = OnboardingState.Onboarded
@@ -87,16 +89,19 @@ class OnboardingViewModel(
                     _state.value = OnboardingState.RateLimited(retryDate = retryDate)
                 }
                 is OnboardingResult.RelayError -> {
+                    Log.e("Onboarding", "Relay error: ${result.statusCode} - ${result.message}")
                     _state.value = OnboardingState.Failed(
                         message = "Server error: ${result.message}"
                     )
                 }
                 is OnboardingResult.NetworkError -> {
+                    Log.e("Onboarding", "Network error", result.cause)
                     _state.value = OnboardingState.Failed(
                         message = "Network error. Check your connection and try again."
                     )
                 }
                 is OnboardingResult.KeyGenerationFailed -> {
+                    Log.e("Onboarding", "Key generation failed", result.cause)
                     _state.value = OnboardingState.Failed(
                         message = "Failed to generate device keys."
                     )

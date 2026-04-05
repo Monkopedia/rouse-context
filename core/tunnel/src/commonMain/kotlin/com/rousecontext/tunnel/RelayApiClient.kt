@@ -2,6 +2,7 @@ package com.rousecontext.tunnel
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -33,10 +34,18 @@ class RelayApiClient(
     ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
             contentType(ContentType.Application.Json)
+            val csrBase64 = csrPem
+                .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
+                .replace("-----END CERTIFICATE REQUEST-----", "")
+                .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
+                .replace("-----END NEW CERTIFICATE REQUEST-----", "")
+                .replace("\n", "")
+                .replace("\r", "")
+                .trim()
             setBody(
                 RegisterRequest(
                     firebaseToken = firebaseToken,
-                    csr = csrPem,
+                    csr = csrBase64,
                     fcmToken = fcmToken
                 )
             )
@@ -93,10 +102,13 @@ class RelayApiClient(
                 val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
                 RelayApiResult.RateLimited(retryAfterSeconds = retryAfter)
             }
-            else -> RelayApiResult.Error(
-                statusCode = response.status.value,
-                message = "Relay returned ${response.status}"
-            )
+            else -> {
+                val body = try { response.bodyAsText() } catch (_: Exception) { "" }
+                RelayApiResult.Error(
+                    statusCode = response.status.value,
+                    message = "Relay returned ${response.status}: $body"
+                )
+            }
         }
     } catch (e: Exception) {
         RelayApiResult.NetworkError(cause = e)
