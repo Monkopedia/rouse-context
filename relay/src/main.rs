@@ -406,6 +406,24 @@ impl rouse_relay::firestore::FirestoreClient for StubFirestore {
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
         Ok(())
     }
+
+    async fn list_devices(
+        &self,
+    ) -> Result<
+        Vec<(String, rouse_relay::firestore::DeviceRecord)>,
+        rouse_relay::firestore::FirestoreError,
+    > {
+        Ok(Vec::new())
+    }
+
+    async fn list_pending_certs(
+        &self,
+    ) -> Result<
+        Vec<(String, rouse_relay::firestore::PendingCert)>,
+        rouse_relay::firestore::FirestoreError,
+    > {
+        Ok(Vec::new())
+    }
 }
 
 struct StubFcm;

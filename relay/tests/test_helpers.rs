@@ -112,6 +112,19 @@ impl FirestoreClient for MockFirestore {
         self.pending_certs.lock().unwrap().remove(subdomain);
         Ok(())
     }
+
+    async fn list_devices(&self) -> Result<Vec<(String, DeviceRecord)>, FirestoreError> {
+        let devices = self.devices.lock().unwrap();
+        Ok(devices
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect())
+    }
+
+    async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError> {
+        let certs = self.pending_certs.lock().unwrap();
+        Ok(certs.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
 }
 
 /// Mock FCM client that records sent messages.

@@ -12,12 +12,12 @@
 //! Each task is independently fallible — a failure in one does not block the others.
 
 use crate::acme::AcmeClient;
-use crate::fcm::FcmClient;
+use crate::fcm::{renew_payload, FcmClient};
 use crate::firestore::{DeviceRecord, FirestoreClient};
 use crate::shutdown::ShutdownController;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tracing::info;
+use tracing::{info, warn};
 
 /// Configuration for the maintenance job.
 #[derive(Debug, Clone)]
@@ -109,25 +109,125 @@ pub async fn run_maintenance_loop(
 
 /// Execute a single maintenance pass. Called by the loop or directly in tests.
 pub async fn run_maintenance_once(
-    _config: &MaintenanceConfig,
-    _firestore: &Arc<dyn FirestoreClient>,
-    _fcm: &Arc<dyn FcmClient>,
-    _acme: &Arc<dyn AcmeClient>,
+    config: &MaintenanceConfig,
+    firestore: &Arc<dyn FirestoreClient>,
+    fcm: &Arc<dyn FcmClient>,
+    acme: &Arc<dyn AcmeClient>,
 ) -> MaintenanceReport {
-    let report = MaintenanceReport::default();
+    let mut report = MaintenanceReport::default();
+    let now = SystemTime::now();
+    let nudge_threshold = Duration::from_secs(config.cert_expiry_nudge_days * 86400);
+    let reclaim_threshold = Duration::from_secs(config.subdomain_reclaim_days * 86400);
 
-    // Note: Full implementation requires Firestore list/query operations
-    // which are not yet in the FirestoreClient trait. The maintenance logic
-    // (nudge check, reclaim check) is implemented and tested via unit tests
-    // on the predicate functions above. The loop infrastructure and shutdown
-    // integration are wired and tested.
-    //
-    // When Firestore list operations are added, this function will:
-    // 1. List all devices, filter by needs_renewal_nudge(), send FCM renew
-    // 2. List pending_certs, check ACME quota, issue certs
-    // 3. List all devices, filter by is_reclaimable(), delete records
+    // 1. List devices and process nudges + reclamation
+    match firestore.list_devices().await {
+        Ok(devices) => {
+            for (subdomain, record) in &devices {
+                // Cert expiry nudge
+                if needs_renewal_nudge(record, now, nudge_threshold) {
+                    let payload = renew_payload();
+                    match fcm
+                        .send_data_message(&record.fcm_token, &payload, false)
+                        .await
+                    {
+                        Ok(()) => {
+                            // Mark the device as nudged so we don't re-send
+                            let mut updated = record.clone();
+                            updated.renewal_nudge_sent = Some(now);
+                            if let Err(e) = firestore.put_device(subdomain, &updated).await {
+                                warn!(subdomain, error = %e, "Failed to update nudge timestamp");
+                            }
+                            report.nudges_sent += 1;
+                        }
+                        Err(e) => {
+                            warn!(subdomain, error = %e, "Failed to send renewal nudge");
+                            report.nudge_errors += 1;
+                        }
+                    }
+                }
 
-    info!("Maintenance pass completed (list operations pending Firestore trait extension)");
+                // Subdomain reclamation
+                if is_reclaimable(record, now, reclaim_threshold) {
+                    match firestore.delete_device(subdomain).await {
+                        Ok(()) => {
+                            info!(subdomain, "Reclaimed expired subdomain");
+                            report.subdomains_reclaimed += 1;
+                        }
+                        Err(e) => {
+                            warn!(subdomain, error = %e, "Failed to reclaim subdomain");
+                            report.reclaim_errors += 1;
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to list devices for maintenance");
+        }
+    }
+
+    // 2. Process pending certs if ACME rate limit has reset
+    match firestore.list_pending_certs().await {
+        Ok(pending) => {
+            for (subdomain, cert) in &pending {
+                // Only process if retry_after has passed
+                if now.duration_since(cert.retry_after).is_err() {
+                    // retry_after is still in the future
+                    continue;
+                }
+
+                let csr_bytes = match base64_decode(&cert.csr) {
+                    Some(bytes) => bytes,
+                    None => {
+                        warn!(subdomain, "Invalid base64 CSR in pending cert, removing");
+                        let _ = firestore.delete_pending_cert(subdomain).await;
+                        report.pending_cert_errors += 1;
+                        continue;
+                    }
+                };
+
+                match acme.issue_certificate(subdomain, &csr_bytes).await {
+                    Ok(cert_pem) => {
+                        // Notify device with cert_ready FCM
+                        let payload = crate::fcm::FcmData {
+                            message_type: "cert_ready".to_string(),
+                        };
+                        if let Err(e) = fcm.send_data_message(&cert.fcm_token, &payload, true).await
+                        {
+                            warn!(subdomain, error = %e, "Failed to notify device of cert");
+                        }
+                        // Clean up the pending record
+                        let _ = firestore.delete_pending_cert(subdomain).await;
+                        info!(subdomain, cert_len = cert_pem.len(), "Issued pending cert");
+                        report.pending_certs_processed += 1;
+                    }
+                    Err(crate::acme::AcmeError::RateLimited { retry_after_secs }) => {
+                        info!(
+                            subdomain,
+                            retry_after_secs, "ACME still rate limited, stopping cert processing"
+                        );
+                        // Stop processing further pending certs this cycle
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(subdomain, error = %e, "Failed to issue pending cert");
+                        report.pending_cert_errors += 1;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to list pending certs for maintenance");
+        }
+    }
+
+    info!(?report, "Maintenance pass completed");
 
     report
+}
+
+/// Decode a base64 string, returning None on failure.
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(input).ok()
 }

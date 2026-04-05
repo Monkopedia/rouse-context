@@ -75,4 +75,10 @@ pub trait FirestoreClient: Send + Sync {
 
     /// Delete a pending cert record.
     async fn delete_pending_cert(&self, subdomain: &str) -> Result<(), FirestoreError>;
+
+    /// List all device records. Returns (subdomain, record) pairs.
+    async fn list_devices(&self) -> Result<Vec<(String, DeviceRecord)>, FirestoreError>;
+
+    /// List all pending cert records. Returns (subdomain, pending_cert) pairs.
+    async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError>;
 }
