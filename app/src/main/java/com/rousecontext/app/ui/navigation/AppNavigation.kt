@@ -15,18 +15,26 @@ import com.rousecontext.app.ui.screens.AuditHistoryScreen
 import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
 import com.rousecontext.app.ui.screens.IntegrationManageScreen
 import com.rousecontext.app.ui.screens.MainDashboardScreen
+import com.rousecontext.app.ui.screens.OnboardingErrorScreen
 import com.rousecontext.app.ui.screens.SettingUpScreen
+import com.rousecontext.app.ui.screens.SettingUpState
+import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsScreen
+import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
+import com.rousecontext.app.ui.viewmodels.OnboardingState
+import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import org.koin.androidx.compose.koinViewModel
 
 object Routes {
+    const val WELCOME = "welcome"
+    const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val AUDIT = "audit"
     const val SETTINGS = "settings"
@@ -42,10 +50,94 @@ object Routes {
 
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
+    val onboardingViewModel: OnboardingViewModel = koinViewModel()
+    val onboardingState by onboardingViewModel.state.collectAsState()
+
+    // Wait until the initial check completes before rendering navigation
+    if (onboardingState is OnboardingState.Checking) return
+
+    val startDestination = when (onboardingState) {
+        is OnboardingState.Onboarded -> Routes.HOME
+        else -> Routes.WELCOME
+    }
+
     NavHost(
         navController = navController,
-        startDestination = Routes.HOME
+        startDestination = startDestination
     ) {
+        composable(Routes.WELCOME) {
+            WelcomeScreen(
+                onGetStarted = {
+                    onboardingViewModel.startOnboarding()
+                    navController.navigate(Routes.ONBOARDING) {
+                        popUpTo(Routes.WELCOME) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(Routes.ONBOARDING) {
+            val state by onboardingViewModel.state.collectAsState()
+
+            // Navigate to dashboard on success
+            LaunchedEffect(state) {
+                if (state is OnboardingState.Onboarded) {
+                    navController.navigate(Routes.HOME) {
+                        popUpTo(Routes.ONBOARDING) { inclusive = true }
+                    }
+                }
+            }
+
+            when (state) {
+                is OnboardingState.InProgress -> {
+                    SettingUpScreen(
+                        state = SettingUpState(SettingUpVariant.FirstTime),
+                        onCancel = {
+                            navController.navigate(Routes.WELCOME) {
+                                popUpTo(Routes.ONBOARDING) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                is OnboardingState.RateLimited -> {
+                    val rateLimited = state as OnboardingState.RateLimited
+                    SettingUpScreen(
+                        state = SettingUpState(
+                            SettingUpVariant.RateLimited(rateLimited.retryDate)
+                        ),
+                        onCancel = {
+                            navController.navigate(Routes.WELCOME) {
+                                popUpTo(Routes.ONBOARDING) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                is OnboardingState.Failed -> {
+                    val failed = state as OnboardingState.Failed
+                    OnboardingErrorScreen(
+                        message = failed.message,
+                        onRetry = { onboardingViewModel.retry() },
+                        onBack = {
+                            navController.navigate(Routes.WELCOME) {
+                                popUpTo(Routes.ONBOARDING) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                else -> {
+                    // Checking, NotOnboarded, Onboarded handled by LaunchedEffect above
+                    SettingUpScreen(
+                        state = SettingUpState(SettingUpVariant.FirstTime),
+                        onCancel = {
+                            navController.navigate(Routes.WELCOME) {
+                                popUpTo(Routes.ONBOARDING) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
         composable(Routes.HOME) {
             val viewModel: MainDashboardViewModel = koinViewModel()
             val state by viewModel.state.collectAsState()
