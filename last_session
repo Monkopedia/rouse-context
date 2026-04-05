@@ -1,0 +1,1 @@
+claude --allow-dangerously-skip-permissions --dangerously-skip-permissions --resume "mcp-core-module-implementation"
