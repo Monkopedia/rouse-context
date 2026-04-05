@@ -1,0 +1,23 @@
+[package]
+name = "rouse-relay"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+tokio-rustls = "0.26"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+hyper = { version = "1", features = ["server", "http1"] }
+tungstenite = "0.24"
+tokio-tungstenite = "0.24"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+bytes = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
