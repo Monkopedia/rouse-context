@@ -1,19 +1,34 @@
 //! Shared mock implementations and helpers for API tests.
 
+#[allow(unused_imports)]
 use async_trait::async_trait;
+#[allow(unused_imports)]
 use rouse_relay::acme::{AcmeClient, AcmeError};
+#[allow(unused_imports)]
 use rouse_relay::fcm::{FcmClient, FcmData, FcmError};
+#[allow(unused_imports)]
 use rouse_relay::firebase_auth::{FirebaseAuth, FirebaseAuthError, FirebaseClaims};
+#[allow(unused_imports)]
 use rouse_relay::firestore::{DeviceRecord, FirestoreClient, FirestoreError, PendingCert};
+#[allow(unused_imports)]
 use std::collections::HashMap;
+#[allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 
 /// Mock Firestore client backed by in-memory HashMaps.
+#[allow(dead_code)]
 pub struct MockFirestore {
     pub devices: Mutex<HashMap<String, DeviceRecord>>,
     pub pending_certs: Mutex<HashMap<String, PendingCert>>,
 }
 
+impl Default for MockFirestore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
 impl MockFirestore {
     pub fn new() -> Self {
         Self {
@@ -100,11 +115,19 @@ impl FirestoreClient for MockFirestore {
 }
 
 /// Mock FCM client that records sent messages.
+#[allow(dead_code)]
 pub struct MockFcm {
     pub sent: Mutex<Vec<(String, FcmData, bool)>>,
     pub should_fail: Mutex<bool>,
 }
 
+impl Default for MockFcm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
 impl MockFcm {
     pub fn new() -> Self {
         Self {
@@ -141,11 +164,13 @@ impl FcmClient for MockFcm {
 }
 
 /// Mock ACME client that returns a fixed cert.
+#[allow(dead_code)]
 pub struct MockAcme {
     pub cert: Mutex<String>,
     pub should_fail: Mutex<Option<AcmeError>>,
 }
 
+#[allow(dead_code)]
 impl MockAcme {
     pub fn new(cert: &str) -> Self {
         Self {
@@ -189,11 +214,19 @@ impl AcmeClient for MockAcme {
 }
 
 /// Mock Firebase auth that accepts specific tokens.
+#[allow(dead_code)]
 pub struct MockFirebaseAuth {
     /// Map from token string to UID.
     pub valid_tokens: Mutex<HashMap<String, String>>,
 }
 
+impl Default for MockFirebaseAuth {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
 impl MockFirebaseAuth {
     pub fn new() -> Self {
         Self {
@@ -223,6 +256,7 @@ impl FirebaseAuth for MockFirebaseAuth {
 }
 
 /// Build test AppState with the given mocks.
+#[allow(dead_code)]
 pub fn build_test_state(
     firestore: Arc<dyn FirestoreClient>,
     fcm: Arc<dyn FcmClient>,
