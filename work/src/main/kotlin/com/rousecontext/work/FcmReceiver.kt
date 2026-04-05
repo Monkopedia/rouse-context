@@ -7,6 +7,11 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 
 /**
  * Receives FCM messages and dispatches them to the appropriate handler.
@@ -16,6 +21,8 @@ import com.google.firebase.messaging.RemoteMessage
  * - Unknown types are logged and ignored
  */
 class FcmReceiver : FirebaseMessagingService() {
+
+    private val tokenRegistrar: FcmTokenRegistrar by inject()
 
     override fun onMessageReceived(message: RemoteMessage) {
         val action = FcmDispatch.resolve(message.data)
@@ -30,8 +37,23 @@ class FcmReceiver : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "New FCM token received")
-        // Token registration is handled by :app module
+        // Service-scoped: cancelled in onDestroy
+        serviceScope.launch {
+            try {
+                tokenRegistrar.registerToken(token)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to register FCM token", e)
+            }
+        }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+    }
+
+    /** Coroutine scope tied to this service instance's lifetime. */
+    private val serviceScope = CoroutineScope(SupervisorJob())
 
     private fun startTunnelService() {
         val intent = Intent(this, TunnelForegroundService::class.java)
