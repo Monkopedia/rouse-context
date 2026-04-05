@@ -22,8 +22,5 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:tunnel"))
-    implementation(project(":core:mcp"))
-
     implementation(libs.androidx.core.ktx)
 }
