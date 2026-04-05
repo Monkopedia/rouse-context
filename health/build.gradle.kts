@@ -26,15 +26,9 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.health.connect)
-<<<<<<< HEAD:health/build.gradle.kts
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
-=======
-    implementation(libs.kotlinx.serialization.json)
-
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
->>>>>>> feat/health-connect-tools:mcp-health/build.gradle.kts
 }

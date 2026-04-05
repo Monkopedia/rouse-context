@@ -11,7 +11,6 @@ health-connect = "1.1.0-alpha12"
 mcp-sdk = "0.4.0"
 kotlinx-serialization-json = "1.9.0"
 acme4j = "3.5.0"
-mcp-sdk = "0.4.0"
 ktor = "3.1.3"
 kotlinx-io = "0.7.0"
 junit = "4.13.2"
@@ -46,7 +45,6 @@ health-connect = { group = "androidx.health.connect", name = "connect-client", v
 mcp-sdk = { group = "io.modelcontextprotocol", name = "kotlin-sdk", version.ref = "mcp-sdk" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
 acme4j-client = { group = "org.shredzone.acme4j", name = "acme4j-client", version.ref = "acme4j" }
-mcp-sdk = { group = "io.modelcontextprotocol", name = "kotlin-sdk", version.ref = "mcp-sdk" }
 ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
 ktor-server-core = { group = "io.ktor", name = "ktor-server-core", version.ref = "ktor" }
 ktor-server-cio = { group = "io.ktor", name = "ktor-server-cio", version.ref = "ktor" }
@@ -61,7 +59,6 @@ kotlinx-io-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-io-core", v
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
-kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version = "1.8.1" }
 ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-client-mock = { group = "io.ktor", name = "ktor-client-mock", version.ref = "ktor" }
 ktor-server-netty = { group = "io.ktor", name = "ktor-server-netty", version.ref = "ktor" }
