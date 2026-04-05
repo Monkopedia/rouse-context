@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.rousecontext.tunnel.TlsAcceptTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-04-05T11:39:37" hostname="kaladin" time="0.962">
+  <properties/>
+  <testcase name="TLS handshake completes and plaintext flows through[jvm]" classname="com.rousecontext.tunnel.TlsAcceptTest" time="0.612"/>
+  <testcase name="invalid TLS from client is handled gracefully[jvm]" classname="com.rousecontext.tunnel.TlsAcceptTest" time="0.35"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.rousecontext.tunnel.WebSocketMuxTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-04-05T11:39:39" hostname="kaladin" time="0.023">
+  <properties/>
+  <testcase name="multiple streams multiplex over single WebSocket[jvm]" classname="com.rousecontext.tunnel.WebSocketMuxTest" time="0.009"/>
+  <testcase name="mux frames round-trip over real WebSocket[jvm]" classname="com.rousecontext.tunnel.WebSocketMuxTest" time="0.006"/>
+  <testcase name="OPEN frame from server creates incoming session[jvm]" classname="com.rousecontext.tunnel.WebSocketMuxTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
