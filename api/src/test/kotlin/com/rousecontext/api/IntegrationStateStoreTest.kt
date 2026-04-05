@@ -1,0 +1,112 @@
+package com.rousecontext.api
+
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+class IntegrationStateStoreTest {
+
+    private lateinit var store: FakeIntegrationStateStore
+
+    @Before
+    fun setUp() {
+        store = FakeIntegrationStateStore()
+    }
+
+    @Test
+    fun `default state is disabled`() {
+        assertFalse(store.isUserEnabled("health"))
+    }
+
+    @Test
+    fun `enable persists`() {
+        store.setUserEnabled("health", true)
+        assertTrue(store.isUserEnabled("health"))
+    }
+
+    @Test
+    fun `disable after enable persists`() {
+        store.setUserEnabled("health", true)
+        store.setUserEnabled("health", false)
+        assertFalse(store.isUserEnabled("health"))
+    }
+
+    @Test
+    fun `different integrations are independent`() {
+        store.setUserEnabled("health", true)
+        store.setUserEnabled("notifications", false)
+
+        assertTrue(store.isUserEnabled("health"))
+        assertFalse(store.isUserEnabled("notifications"))
+    }
+
+    @Test
+    fun `observe emits current value`() = runBlocking {
+        store.setUserEnabled("health", true)
+        val value = store.observeUserEnabled("health").first()
+        assertTrue(value)
+    }
+
+    @Test
+    fun `observe emits changes`() = runBlocking {
+        val flow = store.observeUserEnabled("health")
+
+        // Default is false
+        assertEquals(false, flow.first())
+
+        // Enable
+        store.setUserEnabled("health", true)
+        assertEquals(true, flow.first())
+
+        // Disable again
+        store.setUserEnabled("health", false)
+        assertEquals(false, flow.first())
+    }
+
+    @Test
+    fun `wasEverEnabled is false by default`() {
+        assertFalse(store.wasEverEnabled("health"))
+    }
+
+    @Test
+    fun `wasEverEnabled becomes true after enabling`() {
+        store.setUserEnabled("health", true)
+        assertTrue(store.wasEverEnabled("health"))
+    }
+
+    @Test
+    fun `wasEverEnabled stays true after disabling`() {
+        store.setUserEnabled("health", true)
+        store.setUserEnabled("health", false)
+        assertTrue(store.wasEverEnabled("health"))
+    }
+}
+
+/**
+ * In-memory implementation of [IntegrationStateStore] for testing.
+ */
+private class FakeIntegrationStateStore : IntegrationStateStore {
+    private val states = mutableMapOf<String, MutableStateFlow<Boolean>>()
+    private val everEnabled = mutableSetOf<String>()
+
+    private fun flowFor(integrationId: String): MutableStateFlow<Boolean> =
+        states.getOrPut(integrationId) { MutableStateFlow(false) }
+
+    override fun isUserEnabled(integrationId: String): Boolean = flowFor(integrationId).value
+
+    override fun setUserEnabled(integrationId: String, enabled: Boolean) {
+        if (enabled) {
+            everEnabled.add(integrationId)
+        }
+        flowFor(integrationId).value = enabled
+    }
+
+    override fun observeUserEnabled(integrationId: String) = flowFor(integrationId)
+
+    override fun wasEverEnabled(integrationId: String): Boolean = integrationId in everEnabled
+}
