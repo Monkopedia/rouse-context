@@ -99,6 +99,10 @@ dependencies {
     implementation(project(":notifications"))
     implementation(project(":work"))
 
+    // Ktor (mTLS WebSocket client for tunnel)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.websockets)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity)
