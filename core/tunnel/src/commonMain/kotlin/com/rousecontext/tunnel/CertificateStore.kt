@@ -2,6 +2,9 @@ package com.rousecontext.tunnel
 
 /**
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> feat/security-monitoring
  * Platform-agnostic interface for certificate storage.
  *
  * On Android, backed by Android Keystore (hardware-backed HSM).
@@ -23,6 +26,7 @@ interface CertificateStore {
     /** Returns the certificate expiry as epoch milliseconds, or null if no cert. */
     suspend fun getCertExpiry(): Long?
 
+<<<<<<< HEAD
     /** Returns fingerprints of known relay server certificates. */
     suspend fun getKnownFingerprints(): Set<String>
 
@@ -49,4 +53,11 @@ interface CertificateStore {
      */
     fun getKeyAlgorithm(): String
 >>>>>>> feat/tunnel-websocket-tls
+=======
+    /** Returns SHA-256 fingerprints of known/provisioned certificates. */
+    suspend fun getKnownFingerprints(): Set<String>
+
+    /** Stores a certificate fingerprint as known/trusted. */
+    suspend fun storeFingerprint(fingerprint: String)
+>>>>>>> feat/security-monitoring
 }

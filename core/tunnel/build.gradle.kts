@@ -1,14 +1,19 @@
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
 <<<<<<< HEAD
+<<<<<<< HEAD
     alias(libs.plugins.android.library)
 =======
 >>>>>>> feat/tunnel-websocket-tls
+=======
+    alias(libs.plugins.kotlin.serialization)
+>>>>>>> feat/security-monitoring
 }
 
 kotlin {
     jvm()
 
+<<<<<<< HEAD
 <<<<<<< HEAD
     androidTarget {
         compilations.all {
@@ -22,12 +27,19 @@ kotlin {
         commonMain.dependencies {
             implementation(libs.kotlinx.io.core)
             implementation(libs.kotlinx.coroutines.core)
+=======
+    sourceSets {
+        commonMain.dependencies {
+            implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.kotlinx.serialization.json)
+>>>>>>> feat/security-monitoring
         }
 
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
         }
+<<<<<<< HEAD
 
         jvmTest.dependencies {
             implementation(kotlin("test"))
@@ -86,3 +98,7 @@ android {
     }
 >>>>>>> feat/tunnel-websocket-tls
 }
+=======
+    }
+}
+>>>>>>> feat/security-monitoring
