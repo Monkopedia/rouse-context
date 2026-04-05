@@ -1,0 +1,27 @@
+name: Renew Relay Certificate
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Weekly, Monday 3am UTC
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Renew cert on VPS
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" bash -s <<'EOF'
+          sudo certbot renew --dns-cloudflare \
+            --dns-cloudflare-credentials /etc/rouse-relay/cloudflare.ini \
+            --deploy-hook "cp /etc/letsencrypt/live/relay.rousecontext.com/fullchain.pem /etc/rouse-relay/tls/relay.pem && cp /etc/letsencrypt/live/relay.rousecontext.com/privkey.pem /etc/rouse-relay/tls/relay-key.pem && systemctl restart rouse-relay"
+          EOF

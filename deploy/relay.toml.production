@@ -1,0 +1,25 @@
+# Production relay configuration
+# Secrets are in /etc/rouse-relay/env as environment variables
+
+[server]
+bind_addr = "0.0.0.0:443"
+relay_hostname = "relay.rousecontext.com"
+
+[tls]
+cert_path = "/etc/rouse-relay/tls/relay.pem"
+key_path = "/etc/rouse-relay/tls/relay-key.pem"
+ca_cert_path = "/etc/rouse-relay/tls/ca.pem"
+
+[firebase]
+project_id = "rouse-context"
+service_account_path = "/etc/rouse-relay/firebase-sa.json"
+
+[cloudflare]
+zone_id = ""  # Set in env file: CLOUDFLARE_ZONE_ID
+api_token_env = "CLOUDFLARE_API_TOKEN"
+
+[limits]
+max_streams_per_device = 8
+wake_rate_limit = 6
+subdomain_rotation_cooldown_days = 30
+fcm_wakeup_timeout_secs = 20
