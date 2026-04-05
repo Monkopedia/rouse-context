@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
  */
 class DeviceController(
     private val adbPath: String = "/home/jmonk/Android/Sdk/platform-tools/adb",
-    private val packageName: String = "com.rousecontext"
+    private val packageName: String = "com.rousecontext.debug"
 ) {
     companion object {
         private const val ADB_TIMEOUT_SECS = 30L
@@ -42,7 +42,7 @@ class DeviceController(
     fun launchApp(): AdbResult {
         return executeAdb(
             "shell", "am", "start",
-            "-n", "$packageName/.app.MainActivity",
+            "-n", "$packageName/com.rousecontext.app.MainActivity",
             "-a", "android.intent.action.MAIN",
             "-c", "android.intent.category.LAUNCHER"
         )

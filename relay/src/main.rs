@@ -231,6 +231,16 @@ async fn handle_connection(
     let decision = route_connection(initial_bytes, &ctx.relay_hostname);
     debug!(peer = %peer_addr, ?decision, "Routing decision");
 
+    // When TLS is not configured, non-TLS traffic (plain HTTP) should be
+    // routed to the relay API instead of being rejected. SNI parsing only
+    // works on TLS ClientHello messages, so plain HTTP requests get Reject.
+    let decision = if decision == RouteDecision::Reject && ctx.tls_config.is_none() {
+        debug!(peer = %peer_addr, "No TLS configured, routing plain HTTP to relay API");
+        RouteDecision::RelayApi
+    } else {
+        decision
+    };
+
     match decision {
         RouteDecision::RelayApi => {
             handle_relay_api(

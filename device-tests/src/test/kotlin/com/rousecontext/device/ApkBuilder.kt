@@ -15,6 +15,7 @@ class ApkBuilder(
     companion object {
         private const val BUILD_TIMEOUT_MINUTES = 5L
         private const val JAVA_HOME = "/usr/lib/jvm/java-21-openjdk"
+        private const val ANDROID_SDK = "/home/jmonk/Android/Sdk"
     }
 
     /**
@@ -41,6 +42,7 @@ class ApkBuilder(
             .directory(repoRoot)
             .redirectErrorStream(true)
         pb.environment()["JAVA_HOME"] = JAVA_HOME
+        pb.environment()["ANDROID_HOME"] = ANDROID_SDK
 
         println("Building APK: ${command.joinToString(" ")}")
         val proc = pb.start()

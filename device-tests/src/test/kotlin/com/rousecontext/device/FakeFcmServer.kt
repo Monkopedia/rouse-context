@@ -114,7 +114,7 @@ class FakeFcmServer(
             "am",
             "broadcast",
             "-n",
-            "com.rousecontext/com.google.firebase.iid.FirebaseInstanceIdReceiver",
+            "com.rousecontext.debug/com.google.firebase.iid.FirebaseInstanceIdReceiver",
             "-a",
             "com.google.android.c2dm.intent.RECEIVE",
             *data.flatMap { (k, v) -> listOf("--es", k, v) }.toTypedArray()
