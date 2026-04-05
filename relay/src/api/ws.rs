@@ -41,6 +41,19 @@ pub async fn handle_ws(
         }
     };
 
+    // Verify the subdomain is registered in Firestore
+    match state.firestore.get_device(&subdomain).await {
+        Ok(_) => {}
+        Err(crate::firestore::FirestoreError::NotFound(_)) => {
+            warn!(subdomain = %subdomain, "Device not registered in Firestore");
+            return ApiError::forbidden("Device not registered").into_response();
+        }
+        Err(e) => {
+            error!(subdomain = %subdomain, error = %e, "Firestore lookup failed");
+            return ApiError::internal("Failed to verify device registration").into_response();
+        }
+    }
+
     let max_streams = state.config.limits.max_streams_per_device;
     let relay_state = state.relay_state.clone();
     let session_registry = state.session_registry.clone();
@@ -208,4 +221,237 @@ async fn run_session_loop(
     relay_state
         .total_sessions_served
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{self, AppState};
+    use crate::config::RelayConfig;
+    use crate::passthrough::SessionRegistry;
+    use crate::state::RelayState;
+    use axum::http::StatusCode;
+
+    /// Mock Firestore that returns Ok for known subdomains and NotFound for others.
+    struct MockFirestore {
+        registered: Vec<String>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::firestore::FirestoreClient for MockFirestore {
+        async fn get_device(
+            &self,
+            subdomain: &str,
+        ) -> Result<crate::firestore::DeviceRecord, crate::firestore::FirestoreError> {
+            if self.registered.contains(&subdomain.to_string()) {
+                Ok(crate::firestore::DeviceRecord {
+                    fcm_token: "tok".to_string(),
+                    firebase_uid: "uid".to_string(),
+                    public_key: String::new(),
+                    cert_expires: std::time::SystemTime::now(),
+                    registered_at: std::time::SystemTime::now(),
+                    last_rotation: None,
+                    renewal_nudge_sent: None,
+                })
+            } else {
+                Err(crate::firestore::FirestoreError::NotFound(
+                    subdomain.to_string(),
+                ))
+            }
+        }
+        async fn find_device_by_uid(
+            &self,
+            _uid: &str,
+        ) -> Result<
+            Option<(String, crate::firestore::DeviceRecord)>,
+            crate::firestore::FirestoreError,
+        > {
+            Ok(None)
+        }
+        async fn put_device(
+            &self,
+            _s: &str,
+            _r: &crate::firestore::DeviceRecord,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn delete_device(&self, _s: &str) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn put_pending_cert(
+            &self,
+            _s: &str,
+            _p: &crate::firestore::PendingCert,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn get_pending_cert(
+            &self,
+            s: &str,
+        ) -> Result<crate::firestore::PendingCert, crate::firestore::FirestoreError> {
+            Err(crate::firestore::FirestoreError::NotFound(s.to_string()))
+        }
+        async fn delete_pending_cert(
+            &self,
+            _s: &str,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn list_devices(
+            &self,
+        ) -> Result<Vec<(String, crate::firestore::DeviceRecord)>, crate::firestore::FirestoreError>
+        {
+            Ok(Vec::new())
+        }
+        async fn list_pending_certs(
+            &self,
+        ) -> Result<Vec<(String, crate::firestore::PendingCert)>, crate::firestore::FirestoreError>
+        {
+            Ok(Vec::new())
+        }
+    }
+
+    struct StubFcm;
+    #[async_trait::async_trait]
+    impl crate::fcm::FcmClient for StubFcm {
+        async fn send_data_message(
+            &self,
+            _t: &str,
+            _d: &crate::fcm::FcmData,
+            _h: bool,
+        ) -> Result<(), crate::fcm::FcmError> {
+            Ok(())
+        }
+    }
+
+    struct StubAcme;
+    #[async_trait::async_trait]
+    impl crate::acme::AcmeClient for StubAcme {
+        async fn issue_certificate(
+            &self,
+            _s: &str,
+            _c: &[u8],
+        ) -> Result<String, crate::acme::AcmeError> {
+            Ok(String::new())
+        }
+    }
+
+    struct StubFirebaseAuth;
+    #[async_trait::async_trait]
+    impl crate::firebase_auth::FirebaseAuth for StubFirebaseAuth {
+        async fn verify_id_token(
+            &self,
+            _t: &str,
+        ) -> Result<crate::firebase_auth::FirebaseClaims, crate::firebase_auth::FirebaseAuthError>
+        {
+            Err(crate::firebase_auth::FirebaseAuthError::InvalidToken(
+                "stub".to_string(),
+            ))
+        }
+    }
+
+    fn build_test_state(registered_subdomains: Vec<String>) -> Arc<AppState> {
+        Arc::new(AppState {
+            relay_state: Arc::new(RelayState::new()),
+            session_registry: Arc::new(SessionRegistry::new()),
+            firestore: Arc::new(MockFirestore {
+                registered: registered_subdomains,
+            }),
+            fcm: Arc::new(StubFcm),
+            acme: Arc::new(StubAcme),
+            firebase_auth: Arc::new(StubFirebaseAuth),
+            subdomain_generator: crate::subdomain::SubdomainGenerator::new(),
+            rate_limiter: crate::rate_limit::RateLimiter::new(
+                crate::rate_limit::RateLimitConfig::default(),
+            ),
+            config: RelayConfig::default(),
+        })
+    }
+
+    /// Helper that mirrors the auth + Firestore check from handle_ws,
+    /// without requiring a WebSocket upgrade. This lets us test the
+    /// auth/authz logic in isolation.
+    async fn auth_check(
+        State(state): State<Arc<AppState>>,
+        device: Option<axum::Extension<DeviceIdentity>>,
+    ) -> Response {
+        let subdomain = match device {
+            Some(axum::Extension(identity)) => identity.subdomain,
+            None => {
+                return ApiError::unauthorized("Valid client certificate required").into_response();
+            }
+        };
+        match state.firestore.get_device(&subdomain).await {
+            Ok(_) => StatusCode::OK.into_response(),
+            Err(crate::firestore::FirestoreError::NotFound(_)) => {
+                ApiError::forbidden("Device not registered").into_response()
+            }
+            Err(_) => ApiError::internal("Failed to verify device registration").into_response(),
+        }
+    }
+
+    fn request(uri: &str) -> axum::http::Request<axum::body::Body> {
+        axum::http::Request::builder()
+            .uri(uri)
+            .body(axum::body::Body::empty())
+            .unwrap()
+    }
+
+    /// /status is accessible without any client certificate.
+    #[tokio::test]
+    async fn status_accessible_without_client_cert() {
+        let app = api::build_router(build_test_state(vec![]));
+        let resp = tower::ServiceExt::oneshot(app, request("/status"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// No DeviceIdentity extension (no client cert) -> 401.
+    #[tokio::test]
+    async fn ws_without_client_cert_returns_401() {
+        let state = build_test_state(vec![]);
+        let app = axum::Router::new()
+            .route("/ws", axum::routing::get(auth_check))
+            .with_state(state);
+
+        let resp = tower::ServiceExt::oneshot(app, request("/ws"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// Valid cert for an unregistered subdomain -> 403.
+    #[tokio::test]
+    async fn ws_with_cert_for_unregistered_subdomain_returns_403() {
+        let state = build_test_state(vec![]); // no registered subdomains
+        let app = axum::Router::new()
+            .route("/ws", axum::routing::get(auth_check))
+            .with_state(state)
+            .layer(axum::Extension(DeviceIdentity {
+                subdomain: "unknown-device".to_string(),
+            }));
+
+        let resp = tower::ServiceExt::oneshot(app, request("/ws"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// Valid cert for a registered subdomain -> accepted (200).
+    #[tokio::test]
+    async fn ws_with_cert_for_registered_subdomain_accepted() {
+        let state = build_test_state(vec!["my-device".to_string()]);
+        let app = axum::Router::new()
+            .route("/ws", axum::routing::get(auth_check))
+            .with_state(state)
+            .layer(axum::Extension(DeviceIdentity {
+                subdomain: "my-device".to_string(),
+            }));
+
+        let resp = tower::ServiceExt::oneshot(app, request("/ws"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }
