@@ -1,0 +1,19 @@
+[server]
+bind_addr = "0.0.0.0:443"
+relay_hostname = "relay.rousecontext.com"
+
+[tls]
+cert_path = "/etc/relay/cert.pem"
+key_path = "/etc/relay/key.pem"
+
+[firebase]
+project_id = "rouse-context"
+service_account_path = "/etc/relay/firebase-sa.json"
+
+[cloudflare]
+zone_id = "your-cloudflare-zone-id"
+api_token_env = "CF_API_TOKEN"
+
+[limits]
+max_streams_per_device = 8
+wake_rate_limit = 6  # per minute per subdomain
