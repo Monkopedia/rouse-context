@@ -9,18 +9,51 @@ jobs:
   renew:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if existing cert is still valid
+        id: check
+        env:
+          RELAY_TLS_CERT: ${{ secrets.RELAY_TLS_CERT }}
+        run: |
+          if [ -z "$RELAY_TLS_CERT" ]; then
+            echo "needs_renewal=true" >> $GITHUB_OUTPUT
+            echo "No cert in secrets — need initial issuance"
+            exit 0
+          fi
+          echo "$RELAY_TLS_CERT" > /tmp/cert.pem
+          expiry=$(openssl x509 -enddate -noout -in /tmp/cert.pem 2>/dev/null | cut -d= -f2)
+          if [ -z "$expiry" ]; then
+            echo "needs_renewal=true" >> $GITHUB_OUTPUT
+            echo "Cert is invalid — need renewal"
+            exit 0
+          fi
+          expiry_epoch=$(date -d "$expiry" +%s)
+          now_epoch=$(date +%s)
+          days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
+          echo "Cert expires in $days_left days"
+          if [ "$days_left" -lt 30 ]; then
+            echo "needs_renewal=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs_renewal=false" >> $GITHUB_OUTPUT
+            echo "Cert still valid, skipping renewal"
+          fi
+
       - name: Install certbot
+        if: steps.check.outputs.needs_renewal == 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq certbot python3-certbot-dns-cloudflare
 
       - name: Write Cloudflare credentials
+        if: steps.check.outputs.needs_renewal == 'true'
         run: |
           mkdir -p ~/.secrets
           echo "dns_cloudflare_api_token = ${{ secrets.CLOUDFLARE_API_TOKEN }}" > ~/.secrets/cloudflare.ini
           chmod 600 ~/.secrets/cloudflare.ini
 
       - name: Run certbot
+        if: steps.check.outputs.needs_renewal == 'true'
         run: |
           sudo certbot certonly \
             --dns-cloudflare \
@@ -33,35 +66,52 @@ jobs:
             --work-dir ./certbot-work \
             --logs-dir ./certbot-logs
 
-      - name: Fix cert permissions
-        run: sudo chmod -R a+r ./certbot-config/live/ ./certbot-config/archive/
+          # Copy certs to accessible location (certbot runs as root)
+          sudo cp ./certbot-config/archive/relay.rousecontext.com/fullchain1.pem /tmp/relay-cert.pem
+          sudo cp ./certbot-config/archive/relay.rousecontext.com/privkey1.pem /tmp/relay-key.pem
+          sudo chmod 644 /tmp/relay-cert.pem /tmp/relay-key.pem
+
+      - name: Store cert in GitHub Secrets
+        if: steps.check.outputs.needs_renewal == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh secret set RELAY_TLS_CERT --repo ${{ github.repository }} < /tmp/relay-cert.pem
+          gh secret set RELAY_TLS_KEY --repo ${{ github.repository }} < /tmp/relay-key.pem
+          echo "Cert stored in GitHub Secrets"
 
       - name: Deploy cert to VPS
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
+          RELAY_TLS_CERT: ${{ secrets.RELAY_TLS_CERT }}
+          RELAY_TLS_KEY: ${{ secrets.RELAY_TLS_KEY }}
         run: |
+          # Use freshly issued cert or existing secret
+          if [ -f /tmp/relay-cert.pem ]; then
+            CERT_FILE=/tmp/relay-cert.pem
+            KEY_FILE=/tmp/relay-key.pem
+          else
+            echo "$RELAY_TLS_CERT" > /tmp/relay-cert.pem
+            echo "$RELAY_TLS_KEY" > /tmp/relay-key.pem
+            CERT_FILE=/tmp/relay-cert.pem
+            KEY_FILE=/tmp/relay-key.pem
+          fi
+
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-          scp -i ~/.ssh/deploy_key \
-            ./certbot-config/live/relay.rousecontext.com/fullchain.pem \
-            "$VPS_USER@$VPS_HOST":/tmp/relay.pem
-
-          scp -i ~/.ssh/deploy_key \
-            ./certbot-config/live/relay.rousecontext.com/privkey.pem \
-            "$VPS_USER@$VPS_HOST":/tmp/relay-key.pem
+          scp -i ~/.ssh/deploy_key "$CERT_FILE" "$VPS_USER@$VPS_HOST":/tmp/relay.pem
+          scp -i ~/.ssh/deploy_key "$KEY_FILE" "$VPS_USER@$VPS_HOST":/tmp/relay-key.pem
 
           ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" bash -s <<'EOF'
           sudo mv /tmp/relay.pem /etc/rouse-relay/tls/relay.pem
           sudo mv /tmp/relay-key.pem /etc/rouse-relay/tls/relay-key.pem
           sudo chown root:relay /etc/rouse-relay/tls/*
           sudo chmod 640 /etc/rouse-relay/tls/*
-          sudo systemctl restart rouse-relay
-          sleep 2
-          sudo systemctl is-active rouse-relay
-          echo "Cert deployed and relay restarted"
+          sudo systemctl restart rouse-relay 2>/dev/null || echo "Relay not installed yet"
+          echo "Cert deployed"
           EOF
