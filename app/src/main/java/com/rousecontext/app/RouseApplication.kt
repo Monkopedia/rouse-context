@@ -6,7 +6,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import org.koin.android.ext.koin.androidContext
+import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
+import org.koin.core.context.stopKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
@@ -20,6 +22,11 @@ class RouseApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Stop any existing Koin instance (Robolectric may recreate Application)
+        if (GlobalContext.getOrNull() != null) {
+            stopKoin()
+        }
 
         startKoin {
             androidContext(this@RouseApplication)
