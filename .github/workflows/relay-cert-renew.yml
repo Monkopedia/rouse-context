@@ -74,7 +74,7 @@ jobs:
       - name: Store cert in GitHub Secrets
         if: steps.check.outputs.needs_renewal == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           gh secret set RELAY_TLS_CERT --repo ${{ github.repository }} < /tmp/relay-cert.pem
           gh secret set RELAY_TLS_KEY --repo ${{ github.repository }} < /tmp/relay-key.pem
