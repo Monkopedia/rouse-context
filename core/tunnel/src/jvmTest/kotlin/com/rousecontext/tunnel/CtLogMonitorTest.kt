@@ -1,8 +1,8 @@
 package com.rousecontext.tunnel
 
-import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertIs
+import kotlinx.coroutines.runBlocking
 
 class CtLogMonitorTest {
 
@@ -20,16 +20,16 @@ class CtLogMonitorTest {
                  "not_before":"2025-01-01T00:00:00",
                  "not_after":"2025-04-01T00:00:00",
                  "serial_number":"abcdef0123456789"}
-            ]""",
+            ]"""
         )
         val store = SecurityCertificateStore(
             subdomain = "abc123",
-            knownFingerprints = mutableSetOf(knownFingerprint),
+            knownFingerprints = mutableSetOf(knownFingerprint)
         )
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
         )
 
         val result = monitor.check()
@@ -55,13 +55,13 @@ class CtLogMonitorTest {
                  "not_before":"2025-02-01T00:00:00",
                  "not_after":"2025-05-01T00:00:00",
                  "serial_number":"deadbeef01234567"}
-            ]""",
+            ]"""
         )
         val store = SecurityCertificateStore(subdomain = "abc123")
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
         )
 
         val result = monitor.check()
@@ -76,7 +76,7 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
         )
 
         val result = monitor.check()
@@ -91,7 +91,7 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
         )
 
         val result = monitor.check()
@@ -106,7 +106,7 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
         )
 
         val result = monitor.check()
@@ -118,7 +118,7 @@ class CtLogMonitorTest {
 /** Fake fetcher for testing CtLogMonitor without real network calls. */
 class FakeCtLogFetcher(
     private val response: String = "[]",
-    private val throwOnFetch: Boolean = false,
+    private val throwOnFetch: Boolean = false
 ) : CtLogFetcher {
     override suspend fun fetch(domain: String): String {
         if (throwOnFetch) {

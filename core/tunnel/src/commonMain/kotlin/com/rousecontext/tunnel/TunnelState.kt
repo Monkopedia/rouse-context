@@ -27,5 +27,5 @@ enum class TunnelState {
     ACTIVE,
 
     /** Graceful shutdown in progress, draining streams. */
-    DISCONNECTING,
+    DISCONNECTING
 }

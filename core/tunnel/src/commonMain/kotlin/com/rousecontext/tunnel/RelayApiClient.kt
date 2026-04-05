@@ -17,40 +17,38 @@ import kotlinx.serialization.json.Json
  */
 class RelayApiClient(
     private val baseUrl: String,
-    private val httpClient: HttpClient = createDefaultClient(),
+    private val httpClient: HttpClient = createDefaultClient()
 ) {
 
     /**
      * Register a new device with the relay server.
      * Sends the CSR and receives back a signed certificate and subdomain.
      */
-    suspend fun register(csrPem: String): RelayApiResult<RegisterResponse> =
-        executeRequest {
-            httpClient.post("$baseUrl/register") {
-                contentType(ContentType.Application.Json)
-                setBody(RegisterRequest(csrPem = csrPem))
-            }
+    suspend fun register(csrPem: String): RelayApiResult<RegisterResponse> = executeRequest {
+        httpClient.post("$baseUrl/register") {
+            contentType(ContentType.Application.Json)
+            setBody(RegisterRequest(csrPem = csrPem))
         }
+    }
 
     /**
      * Renew a device certificate using mTLS (valid cert) authentication.
      */
     suspend fun renewWithMtls(
         csrPem: String,
-        currentCertPem: String,
-    ): RelayApiResult<RenewResponse> =
-        executeRequest {
-            httpClient.post("$baseUrl/renew") {
-                contentType(ContentType.Application.Json)
-                setBody(
-                    RenewRequest(
-                        csrPem = csrPem,
-                        authMethod = "mtls",
-                        currentCertPem = currentCertPem,
-                    ),
+        currentCertPem: String
+    ): RelayApiResult<RenewResponse> = executeRequest {
+        httpClient.post("$baseUrl/renew") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                RenewRequest(
+                    csrPem = csrPem,
+                    authMethod = "mtls",
+                    currentCertPem = currentCertPem
                 )
-            }
+            )
         }
+    }
 
     /**
      * Renew a device certificate using Firebase token + signature (for expired certs).
@@ -58,54 +56,51 @@ class RelayApiClient(
     suspend fun renewWithFirebase(
         csrPem: String,
         firebaseToken: String,
-        signature: String,
-    ): RelayApiResult<RenewResponse> =
-        executeRequest {
-            httpClient.post("$baseUrl/renew") {
-                contentType(ContentType.Application.Json)
-                setBody(
-                    RenewRequest(
-                        csrPem = csrPem,
-                        authMethod = "firebase",
-                        firebaseToken = firebaseToken,
-                        signature = signature,
-                    ),
+        signature: String
+    ): RelayApiResult<RenewResponse> = executeRequest {
+        httpClient.post("$baseUrl/renew") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                RenewRequest(
+                    csrPem = csrPem,
+                    authMethod = "firebase",
+                    firebaseToken = firebaseToken,
+                    signature = signature
                 )
-            }
+            )
         }
+    }
 
     private suspend inline fun <reified T> executeRequest(
-        crossinline block: suspend () -> HttpResponse,
-    ): RelayApiResult<T> =
-        try {
-            val response = block()
-            when (response.status.value) {
-                200, 201 -> RelayApiResult.Success(response.body<T>())
-                429 -> {
-                    val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
-                    RelayApiResult.RateLimited(retryAfterSeconds = retryAfter)
-                }
-                else -> RelayApiResult.Error(
-                    statusCode = response.status.value,
-                    message = "Relay returned ${response.status}",
-                )
+        crossinline block: suspend () -> HttpResponse
+    ): RelayApiResult<T> = try {
+        val response = block()
+        when (response.status.value) {
+            200, 201 -> RelayApiResult.Success(response.body<T>())
+            429 -> {
+                val retryAfter = response.headers["Retry-After"]?.toLongOrNull()
+                RelayApiResult.RateLimited(retryAfterSeconds = retryAfter)
             }
-        } catch (e: Exception) {
-            RelayApiResult.NetworkError(cause = e)
+            else -> RelayApiResult.Error(
+                statusCode = response.status.value,
+                message = "Relay returned ${response.status}"
+            )
         }
+    } catch (e: Exception) {
+        RelayApiResult.NetworkError(cause = e)
+    }
 
     companion object {
-        fun createDefaultClient(): HttpClient =
-            HttpClient {
-                install(ContentNegotiation) {
-                    json(
-                        Json {
-                            ignoreUnknownKeys = true
-                            encodeDefaults = true
-                        },
-                    )
-                }
+        fun createDefaultClient(): HttpClient = HttpClient {
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        encodeDefaults = true
+                    }
+                )
             }
+        }
     }
 }
 
@@ -125,7 +120,7 @@ data class RegisterRequest(val csrPem: String)
 @Serializable
 data class RegisterResponse(
     val certificatePem: String,
-    val subdomain: String,
+    val subdomain: String
 )
 
 @Serializable
@@ -134,10 +129,10 @@ data class RenewRequest(
     val authMethod: String,
     val currentCertPem: String? = null,
     val firebaseToken: String? = null,
-    val signature: String? = null,
+    val signature: String? = null
 )
 
 @Serializable
 data class RenewResponse(
-    val certificatePem: String,
+    val certificatePem: String
 )

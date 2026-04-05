@@ -4,6 +4,7 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.cert.FileCertificateStore
+import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
@@ -20,6 +21,7 @@ import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
+import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.tunnel.CertificateStore
@@ -52,6 +54,9 @@ val appModule = module {
 
     // --- Notification settings ---
     single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(androidContext()) }
+
+    // --- Health Connect repository ---
+    single<HealthConnectRepository> { RealHealthConnectRepository(androidContext()) }
 
     // --- Integrations ---
     single<McpIntegration>(named("health")) { HealthConnectIntegration(androidContext()) }

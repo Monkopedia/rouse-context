@@ -70,22 +70,22 @@ class AuditDaoTest {
     @Test
     fun `query by date range with provider filter`() = runBlocking {
         dao.insert(
-            createEntry(timestampMillis = 5000L, provider = "health", toolName = "get_steps"),
+            createEntry(timestampMillis = 5000L, provider = "health", toolName = "get_steps")
         )
         dao.insert(
-            createEntry(timestampMillis = 5000L, provider = "files", toolName = "read_file"),
+            createEntry(timestampMillis = 5000L, provider = "files", toolName = "read_file")
         )
 
         val allResults = dao.queryByDateRange(
             startMillis = 1000L,
-            endMillis = 10000L,
+            endMillis = 10000L
         )
         assertEquals(2, allResults.size)
 
         val healthOnly = dao.queryByDateRange(
             startMillis = 1000L,
             endMillis = 10000L,
-            provider = "health",
+            provider = "health"
         )
         assertEquals(1, healthOnly.size)
         assertEquals("get_steps", healthOnly[0].toolName)
@@ -127,7 +127,7 @@ class AuditDaoTest {
         timestampMillis: Long = System.currentTimeMillis(),
         durationMillis: Long = 100L,
         success: Boolean = true,
-        errorMessage: String? = null,
+        errorMessage: String? = null
     ) = AuditEntry(
         sessionId = sessionId,
         toolName = toolName,
@@ -135,6 +135,6 @@ class AuditDaoTest {
         timestampMillis = timestampMillis,
         durationMillis = durationMillis,
         success = success,
-        errorMessage = errorMessage,
+        errorMessage = errorMessage
     )
 }

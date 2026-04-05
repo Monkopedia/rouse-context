@@ -9,7 +9,7 @@ package com.rousecontext.tunnel
 class OnboardingFlow(
     private val csrGenerator: CsrGenerator,
     private val relayApiClient: RelayApiClient,
-    private val certificateStore: CertificateStore,
+    private val certificateStore: CertificateStore
 ) {
 
     suspend fun execute(commonName: String): OnboardingResult {
@@ -40,7 +40,7 @@ class OnboardingFlow(
             is RelayApiResult.Error -> {
                 OnboardingResult.RelayError(
                     statusCode = response.statusCode,
-                    message = response.message,
+                    message = response.message
                 )
             }
             is RelayApiResult.NetworkError -> {

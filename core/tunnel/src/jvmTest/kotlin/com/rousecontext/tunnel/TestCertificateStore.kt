@@ -1,7 +1,6 @@
 package com.rousecontext.tunnel
 
 import java.io.File
-import java.security.KeyPair
 import java.security.KeyStore
 import java.security.cert.X509Certificate
 import javax.net.ssl.KeyManagerFactory
@@ -36,7 +35,7 @@ class TestCertificateStore {
                 "-storetype", "PKCS12",
                 "-keystore", tempFile.absolutePath,
                 "-storepass", PASS_STR,
-                "-keypass", PASS_STR,
+                "-keypass", PASS_STR
             )
                 .redirectErrorStream(true)
                 .start()

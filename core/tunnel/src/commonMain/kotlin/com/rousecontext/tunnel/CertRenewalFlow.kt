@@ -15,7 +15,7 @@ class CertRenewalFlow(
     private val certificateStore: CertificateStore,
     private val certInspector: CertInspector = CertInspector(),
     private val maxRetries: Int = 3,
-    private val baseRetryDelayMs: Long = 1000L,
+    private val baseRetryDelayMs: Long = 1000L
 ) {
 
     /**
@@ -41,7 +41,7 @@ class CertRenewalFlow(
         return executeWithRetry {
             val result = relayApiClient.renewWithMtls(
                 csrPem = csrResult.csrPem,
-                currentCertPem = currentCert,
+                currentCertPem = currentCert
             )
             handleRenewResponse(result, csrResult, currentCert)
         }
@@ -50,10 +50,7 @@ class CertRenewalFlow(
     /**
      * Renew the device certificate using Firebase token + signature (cert expired).
      */
-    suspend fun renewWithFirebase(
-        firebaseToken: String,
-        signature: String,
-    ): RenewalResult {
+    suspend fun renewWithFirebase(firebaseToken: String, signature: String): RenewalResult {
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate
 
@@ -67,7 +64,7 @@ class CertRenewalFlow(
             val result = relayApiClient.renewWithFirebase(
                 csrPem = csrResult.csrPem,
                 firebaseToken = firebaseToken,
-                signature = signature,
+                signature = signature
             )
             handleRenewResponse(result, csrResult, null)
         }
@@ -76,7 +73,7 @@ class CertRenewalFlow(
     private suspend fun handleRenewResponse(
         result: RelayApiResult<RenewResponse>,
         csrResult: CsrResult,
-        currentCertForValidation: String?,
+        currentCertForValidation: String?
     ): RetryableResult {
         if (result is RelayApiResult.Success && currentCertForValidation != null) {
             val oldInspection = certInspector.inspect(currentCertForValidation)
@@ -85,8 +82,8 @@ class CertRenewalFlow(
                 return RetryableResult.Terminal(
                     RenewalResult.CnMismatch(
                         expected = oldInspection.commonName,
-                        actual = newInspection.commonName,
-                    ),
+                        actual = newInspection.commonName
+                    )
                 )
             }
         }
@@ -98,15 +95,15 @@ class CertRenewalFlow(
             }
             is RelayApiResult.RateLimited -> {
                 RetryableResult.Terminal(
-                    RenewalResult.RateLimited(retryAfterSeconds = result.retryAfterSeconds),
+                    RenewalResult.RateLimited(retryAfterSeconds = result.retryAfterSeconds)
                 )
             }
             is RelayApiResult.Error -> {
                 RetryableResult.Terminal(
                     RenewalResult.RelayError(
                         statusCode = result.statusCode,
-                        message = result.message,
-                    ),
+                        message = result.message
+                    )
                 )
             }
             is RelayApiResult.NetworkError -> {
@@ -115,9 +112,7 @@ class CertRenewalFlow(
         }
     }
 
-    private suspend fun executeWithRetry(
-        block: suspend () -> RetryableResult,
-    ): RenewalResult {
+    private suspend fun executeWithRetry(block: suspend () -> RetryableResult): RenewalResult {
         var lastException: Exception? = null
         for (attempt in 0 until maxRetries) {
             when (val result = block()) {
@@ -131,7 +126,7 @@ class CertRenewalFlow(
             }
         }
         return RenewalResult.NetworkError(
-            cause = lastException ?: IllegalStateException("Retries exhausted"),
+            cause = lastException ?: IllegalStateException("Retries exhausted")
         )
     }
 }
@@ -169,5 +164,5 @@ open class CertInspector {
 
 data class CertInfo(
     val commonName: String? = null,
-    val isExpired: Boolean = false,
+    val isExpired: Boolean = false
 )

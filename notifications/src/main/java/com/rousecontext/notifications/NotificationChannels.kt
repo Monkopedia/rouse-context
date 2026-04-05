@@ -24,31 +24,31 @@ object NotificationChannels {
             NotificationChannel(
                 FOREGROUND_CHANNEL_ID,
                 "Foreground Service",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Ongoing notification while the MCP server is active"
             },
             NotificationChannel(
                 SESSION_CHANNEL_ID,
                 "Session Activity",
-                NotificationManager.IMPORTANCE_DEFAULT,
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Session summaries and tool call notifications"
             },
             NotificationChannel(
                 ERROR_CHANNEL_ID,
                 "Errors",
-                NotificationManager.IMPORTANCE_HIGH,
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Connection and certificate errors"
             },
             NotificationChannel(
                 ALERT_CHANNEL_ID,
                 "Security Alerts",
-                NotificationManager.IMPORTANCE_HIGH,
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Security-related alerts requiring attention"
-            },
+            }
         )
 
         channels.forEach { manager.createNotificationChannel(it) }

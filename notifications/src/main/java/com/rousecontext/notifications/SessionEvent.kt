@@ -14,7 +14,7 @@ sealed interface SessionEvent {
 
     data class ErrorOccurred(
         val message: String,
-        val streamId: Int? = null,
+        val streamId: Int? = null
     ) : SessionEvent
 
     data class ToolCallCompleted(val event: ToolCallEvent) : SessionEvent

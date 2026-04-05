@@ -55,7 +55,7 @@ class MuxFrameTest {
         val frame = MuxFrame.Error(
             streamId = 7u,
             errorCode = MuxErrorCode.PROTOCOL_ERROR,
-            message = "bad",
+            message = "bad"
         )
         val encoded = MuxCodec.encode(frame)
 
@@ -77,7 +77,7 @@ class MuxFrameTest {
         val frame = MuxFrame.Error(
             streamId = 1u,
             errorCode = MuxErrorCode.STREAM_REFUSED,
-            message = "",
+            message = ""
         )
         val encoded = MuxCodec.encode(frame)
 
@@ -89,8 +89,12 @@ class MuxFrameTest {
     fun decodeDataFrame() {
         val bytes = byteArrayOf(
             MuxFrameType.DATA,
-            0x00, 0x00, 0x00, 0x0A, // stream_id = 10
-            0xAA.toByte(), 0xBB.toByte(), // payload
+            0x00,
+            0x00,
+            0x00,
+            0x0A, // stream_id = 10
+            0xAA.toByte(),
+            0xBB.toByte() // payload
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -104,7 +108,10 @@ class MuxFrameTest {
     fun decodeOpenFrame() {
         val bytes = byteArrayOf(
             MuxFrameType.OPEN,
-            0x00, 0x00, 0x01, 0x00, // stream_id = 256
+            0x00,
+            0x00,
+            0x01,
+            0x00 // stream_id = 256
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -117,7 +124,10 @@ class MuxFrameTest {
     fun decodeCloseFrame() {
         val bytes = byteArrayOf(
             MuxFrameType.CLOSE,
-            0x00, 0x00, 0x00, 0x01, // stream_id = 1
+            0x00,
+            0x00,
+            0x00,
+            0x01 // stream_id = 1
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -132,7 +142,7 @@ class MuxFrameTest {
         val bytes = byteArrayOf(
             MuxFrameType.ERROR,
             0x00, 0x00, 0x00, 0x05, // stream_id = 5
-            0x00, 0x00, 0x00, 0x01, // error_code = STREAM_REFUSED (1)
+            0x00, 0x00, 0x00, 0x01 // error_code = STREAM_REFUSED (1)
         ) + msgBytes
 
         val frame = MuxCodec.decode(bytes)
@@ -148,7 +158,7 @@ class MuxFrameTest {
         val bytes = byteArrayOf(
             MuxFrameType.ERROR,
             0x00, 0x00, 0x00, 0x02, // stream_id = 2
-            0x00, 0x00, 0x00, 0x04, // error_code = INTERNAL_ERROR (4)
+            0x00, 0x00, 0x00, 0x04 // error_code = INTERNAL_ERROR (4)
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -163,7 +173,10 @@ class MuxFrameTest {
     fun decodeUnknownFrameTypeThrows() {
         val bytes = byteArrayOf(
             0x7F, // unknown type
-            0x00, 0x00, 0x00, 0x01,
+            0x00,
+            0x00,
+            0x00,
+            0x01
         )
 
         assertFailsWith<MuxProtocolException> {
@@ -185,8 +198,12 @@ class MuxFrameTest {
         // ERROR frame needs at least 4 bytes of payload for error_code
         val bytes = byteArrayOf(
             MuxFrameType.ERROR,
-            0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, // only 2 bytes of error code, need 4
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            0x00 // only 2 bytes of error code, need 4
         )
 
         assertFailsWith<MuxProtocolException> {
@@ -220,7 +237,7 @@ class MuxFrameTest {
         val original = MuxFrame.Error(
             streamId = 123u,
             errorCode = MuxErrorCode.STREAM_RESET,
-            message = "connection lost",
+            message = "connection lost"
         )
         val decoded = MuxCodec.decode(MuxCodec.encode(original))
         assertEquals(original, decoded)

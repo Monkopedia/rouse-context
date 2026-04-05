@@ -15,10 +15,7 @@ object NotificationModel {
      * because it is required by the Android foreground service contract.
      * All other notifications respect the mode and permission settings.
      */
-    fun onEvent(
-        event: SessionEvent,
-        settings: NotificationSettings,
-    ): List<NotificationAction> {
+    fun onEvent(event: SessionEvent, settings: NotificationSettings): List<NotificationAction> {
         // Permission denied forces suppress for everything except foreground
         val effectiveMode = if (settings.permissionGranted) {
             settings.mode
@@ -28,7 +25,7 @@ object NotificationModel {
 
         return when (event) {
             is SessionEvent.MuxConnected -> listOf(
-                NotificationAction.ShowForeground("Connected"),
+                NotificationAction.ShowForeground("Connected")
             )
 
             is SessionEvent.MuxDisconnected -> buildList {
@@ -42,14 +39,18 @@ object NotificationModel {
 
             is SessionEvent.StreamOpened -> listOf(
                 NotificationAction.ShowForeground(
-                    "Connected \u2022 ${event.streamCount} active stream${plural(event.streamCount)}",
-                ),
+                    "Connected \u2022 ${event.streamCount} active stream${plural(
+                        event.streamCount
+                    )}"
+                )
             )
 
             is SessionEvent.StreamClosed -> listOf(
                 NotificationAction.ShowForeground(
-                    "Connected \u2022 ${event.streamCount} active stream${plural(event.streamCount)}",
-                ),
+                    "Connected \u2022 ${event.streamCount} active stream${plural(
+                        event.streamCount
+                    )}"
+                )
             )
 
             is SessionEvent.ErrorOccurred -> buildList {
@@ -62,8 +63,8 @@ object NotificationModel {
                 add(
                     NotificationAction.PostToolUsage(
                         event.event.toolName,
-                        event.event.providerId,
-                    ),
+                        event.event.providerId
+                    )
                 )
             }
 
@@ -84,7 +85,11 @@ object NotificationModel {
 
             is SessionEvent.RateLimited -> buildList {
                 if (effectiveMode == NotificationMode.Suppress) return@buildList
-                add(NotificationAction.PostInfo("Rate limited. Retry after ${event.retryAfterMillis}ms"))
+                add(
+                    NotificationAction.PostInfo(
+                        "Rate limited. Retry after ${event.retryAfterMillis}ms"
+                    )
+                )
             }
 
             is SessionEvent.SecurityAlert -> buildList {

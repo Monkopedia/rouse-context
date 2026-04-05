@@ -22,14 +22,14 @@ import kotlinx.coroutines.withContext
  * After the handshake completes, plaintext bytes flow through the returned streams.
  */
 class TlsAcceptor(
-    private val sslContext: SSLContext,
+    private val sslContext: SSLContext
 ) {
     /**
      * Result of a successful TLS accept: plaintext I/O streams.
      */
     data class TlsSession(
         val input: InputStream,
-        val output: OutputStream,
+        val output: OutputStream
     )
 
     /**
@@ -38,71 +38,70 @@ class TlsAcceptor(
      *
      * @throws TunnelError.TlsHandshakeFailed if handshake fails
      */
-    suspend fun accept(stream: MuxStream): TlsSession =
-        withContext(Dispatchers.IO) {
-            try {
-                val engine = sslContext.createSSLEngine()
-                engine.useClientMode = false
+    suspend fun accept(stream: MuxStream): TlsSession = withContext(Dispatchers.IO) {
+        try {
+            val engine = sslContext.createSSLEngine()
+            engine.useClientMode = false
 
-                val session = engine.session
-                val appBufferSize = session.applicationBufferSize
-                val netBufferSize = session.packetBufferSize
+            val session = engine.session
+            val appBufferSize = session.applicationBufferSize
+            val netBufferSize = session.packetBufferSize
 
-                var appIn = java.nio.ByteBuffer.allocate(appBufferSize)
-                var appOut = java.nio.ByteBuffer.allocate(appBufferSize)
-                var netIn = java.nio.ByteBuffer.allocate(netBufferSize)
-                var netOut = java.nio.ByteBuffer.allocate(netBufferSize)
+            var appIn = java.nio.ByteBuffer.allocate(appBufferSize)
+            var appOut = java.nio.ByteBuffer.allocate(appBufferSize)
+            var netIn = java.nio.ByteBuffer.allocate(netBufferSize)
+            var netOut = java.nio.ByteBuffer.allocate(netBufferSize)
 
-                engine.beginHandshake()
+            engine.beginHandshake()
 
-                // Pump handshake to completion
-                var hsStatus = engine.handshakeStatus
-                while (hsStatus != SSLEngineResult.HandshakeStatus.FINISHED &&
-                    hsStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
-                ) {
-                    when (hsStatus) {
-                        SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
-                            netOut.clear()
-                            val result = engine.wrap(appOut, netOut)
-                            hsStatus = result.handshakeStatus
-                            netOut.flip()
-                            if (netOut.hasRemaining()) {
-                                val data = ByteArray(netOut.remaining())
-                                netOut.get(data)
-                                stream.write(data)
-                            }
+            // Pump handshake to completion
+            var hsStatus = engine.handshakeStatus
+            while (hsStatus != SSLEngineResult.HandshakeStatus.FINISHED &&
+                hsStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
+            ) {
+                when (hsStatus) {
+                    SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
+                        netOut.clear()
+                        val result = engine.wrap(appOut, netOut)
+                        hsStatus = result.handshakeStatus
+                        netOut.flip()
+                        if (netOut.hasRemaining()) {
+                            val data = ByteArray(netOut.remaining())
+                            netOut.get(data)
+                            stream.write(data)
                         }
-                        SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-                            val tlsData = stream.read()
-                            netIn = ensureCapacity(netIn, tlsData.size)
-                            netIn.put(tlsData)
-                            netIn.flip()
-                            val result = engine.unwrap(netIn, appIn)
-                            hsStatus = result.handshakeStatus
-                            netIn.compact()
-                        }
-                        SSLEngineResult.HandshakeStatus.NEED_TASK -> {
-                            var task = engine.delegatedTask
-                            while (task != null) {
-                                task.run()
-                                task = engine.delegatedTask
-                            }
-                            hsStatus = engine.handshakeStatus
-                        }
-                        else -> break
                     }
+                    SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+                        val tlsData = stream.read()
+                        netIn = ensureCapacity(netIn, tlsData.size)
+                        netIn.put(tlsData)
+                        netIn.flip()
+                        val result = engine.unwrap(netIn, appIn)
+                        hsStatus = result.handshakeStatus
+                        netIn.compact()
+                    }
+                    SSLEngineResult.HandshakeStatus.NEED_TASK -> {
+                        var task = engine.delegatedTask
+                        while (task != null) {
+                            task.run()
+                            task = engine.delegatedTask
+                        }
+                        hsStatus = engine.handshakeStatus
+                    }
+                    else -> break
                 }
-
-                TlsSession(
-                    input = TlsInputStream(engine, stream, netIn),
-                    output = TlsOutputStream(engine, stream),
-                )
-            } catch (e: TunnelError) {
-                throw e
-            } catch (e: Exception) {
-                throw TunnelError.TlsHandshakeFailed("TLS handshake failed", e)
             }
+
+            TlsSession(
+                input = TlsInputStream(engine, stream, netIn),
+                output = TlsOutputStream(engine, stream)
+            )
+        } catch (e: TunnelError) {
+            throw e
+        } catch (e: Exception) {
+            throw TunnelError.TlsHandshakeFailed("TLS handshake failed", e)
         }
+    }
 
     companion object {
         /**
@@ -116,7 +115,7 @@ class TlsAcceptor(
         fun fromCertAndKey(
             certDer: ByteArray,
             keyDer: ByteArray,
-            keyAlgorithm: String = "RSA",
+            keyAlgorithm: String = "RSA"
         ): TlsAcceptor {
             val certFactory = CertificateFactory.getInstance("X.509")
             val cert = certFactory.generateCertificate(certDer.inputStream()) as X509Certificate
@@ -139,10 +138,7 @@ class TlsAcceptor(
     }
 }
 
-private fun ensureCapacity(
-    buffer: java.nio.ByteBuffer,
-    additionalBytes: Int,
-): java.nio.ByteBuffer {
+private fun ensureCapacity(buffer: java.nio.ByteBuffer, additionalBytes: Int): java.nio.ByteBuffer {
     if (buffer.remaining() >= additionalBytes) return buffer
     val newBuffer = java.nio.ByteBuffer.allocate(buffer.position() + additionalBytes)
     buffer.flip()
@@ -156,7 +152,7 @@ private fun ensureCapacity(
 internal class TlsInputStream(
     private val engine: SSLEngine,
     private val stream: MuxStream,
-    private var netIn: java.nio.ByteBuffer,
+    private var netIn: java.nio.ByteBuffer
 ) : InputStream() {
     private var appIn = java.nio.ByteBuffer.allocate(engine.session.applicationBufferSize)
     init {
@@ -169,11 +165,7 @@ internal class TlsInputStream(
         return if (n == -1) -1 else buf[0].toInt() and 0xFF
     }
 
-    override fun read(
-        b: ByteArray,
-        off: Int,
-        len: Int,
-    ): Int {
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
         if (appIn.hasRemaining()) {
             val toRead = minOf(len, appIn.remaining())
             appIn.get(b, off, toRead)
@@ -229,7 +221,7 @@ internal class TlsInputStream(
  */
 internal class TlsOutputStream(
     private val engine: SSLEngine,
-    private val stream: MuxStream,
+    private val stream: MuxStream
 ) : OutputStream() {
     private val netOut = java.nio.ByteBuffer.allocate(engine.session.packetBufferSize)
 
@@ -237,11 +229,7 @@ internal class TlsOutputStream(
         write(byteArrayOf(b.toByte()), 0, 1)
     }
 
-    override fun write(
-        b: ByteArray,
-        off: Int,
-        len: Int,
-    ) {
+    override fun write(b: ByteArray, off: Int, len: Int) {
         val appOut = java.nio.ByteBuffer.wrap(b, off, len)
         while (appOut.hasRemaining()) {
             netOut.clear()

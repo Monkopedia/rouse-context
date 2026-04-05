@@ -7,10 +7,7 @@ import androidx.core.app.NotificationCompat
 /**
  * Creates the ongoing foreground service notification.
  */
-fun createForegroundNotification(
-    context: Context,
-    message: String = "Connected",
-): Notification =
+fun createForegroundNotification(context: Context, message: String = "Connected"): Notification =
     NotificationCompat.Builder(context, NotificationChannels.FOREGROUND_CHANNEL_ID)
         .setContentTitle("Rouse Context")
         .setContentText(message)

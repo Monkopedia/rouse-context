@@ -32,7 +32,7 @@ class NotificationAdapter(private val context: Context) {
             is NotificationAction.PostSummary -> {
                 val notification = buildSessionNotification(
                     "Session Complete",
-                    "${action.toolCallCount} tool call${if (action.toolCallCount == 1) "" else "s"} processed",
+                    "${action.toolCallCount} tool call${if (action.toolCallCount == 1) "" else "s"} processed"
                 )
                 manager.notify(nextId(), notification)
             }
@@ -55,7 +55,7 @@ class NotificationAdapter(private val context: Context) {
             is NotificationAction.PostToolUsage -> {
                 val notification = buildSessionNotification(
                     "Tool Call",
-                    "${action.toolName} (${action.provider})",
+                    "${action.toolName} (${action.provider})"
                 )
                 manager.notify(nextId(), notification)
             }

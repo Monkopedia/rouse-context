@@ -42,18 +42,17 @@ class ConnectionStateMachine {
         return true
     }
 
-    private fun isValidTransition(from: TunnelState, to: TunnelState): Boolean =
-        when (from) {
-            TunnelState.DISCONNECTED -> to == TunnelState.CONNECTING
-            TunnelState.CONNECTING -> to == TunnelState.CONNECTED || to == TunnelState.DISCONNECTED
-            TunnelState.CONNECTED ->
-                to == TunnelState.ACTIVE || to == TunnelState.DISCONNECTING ||
-                    to == TunnelState.DISCONNECTED
+    private fun isValidTransition(from: TunnelState, to: TunnelState): Boolean = when (from) {
+        TunnelState.DISCONNECTED -> to == TunnelState.CONNECTING
+        TunnelState.CONNECTING -> to == TunnelState.CONNECTED || to == TunnelState.DISCONNECTED
+        TunnelState.CONNECTED ->
+            to == TunnelState.ACTIVE || to == TunnelState.DISCONNECTING ||
+                to == TunnelState.DISCONNECTED
 
-            TunnelState.ACTIVE ->
-                to == TunnelState.DISCONNECTING || to == TunnelState.CONNECTED ||
-                    to == TunnelState.DISCONNECTED
+        TunnelState.ACTIVE ->
+            to == TunnelState.DISCONNECTING || to == TunnelState.CONNECTED ||
+                to == TunnelState.DISCONNECTED
 
-            TunnelState.DISCONNECTING -> to == TunnelState.DISCONNECTED
-        }
+        TunnelState.DISCONNECTING -> to == TunnelState.DISCONNECTED
+    }
 }

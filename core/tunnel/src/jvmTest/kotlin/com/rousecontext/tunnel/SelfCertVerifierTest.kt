@@ -1,10 +1,10 @@
 package com.rousecontext.tunnel
 
-import kotlinx.coroutines.runBlocking
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import kotlin.test.Test
 import kotlin.test.assertIs
+import kotlinx.coroutines.runBlocking
 
 class SelfCertVerifierTest {
 
@@ -30,7 +30,7 @@ class SelfCertVerifierTest {
             "-storetype", "PKCS12",
             "-keystore", tempFile.absolutePath,
             "-storepass", "test123",
-            "-keypass", "test123",
+            "-keypass", "test123"
         )
             .redirectErrorStream(true)
             .start()
@@ -52,7 +52,7 @@ class SelfCertVerifierTest {
         val fingerprint = sha256Hex(cert.encoded)
         val store = SecurityCertificateStore(
             certChain = listOf(cert.encoded),
-            knownFingerprints = mutableSetOf(fingerprint),
+            knownFingerprints = mutableSetOf(fingerprint)
         )
         val verifier = SelfCertVerifier(store)
 
@@ -66,7 +66,7 @@ class SelfCertVerifierTest {
         val cert = generateSelfSignedCert()
         val store = SecurityCertificateStore(
             certChain = listOf(cert.encoded),
-            knownFingerprints = mutableSetOf("AA:BB:CC:FAKE:FINGERPRINT"),
+            knownFingerprints = mutableSetOf("AA:BB:CC:FAKE:FINGERPRINT")
         )
         val verifier = SelfCertVerifier(store)
 
@@ -83,7 +83,7 @@ class SelfCertVerifierTest {
         val newFingerprint = sha256Hex(newCert.encoded)
         val store = SecurityCertificateStore(
             certChain = listOf(newCert.encoded),
-            knownFingerprints = mutableSetOf(oldFingerprint, newFingerprint),
+            knownFingerprints = mutableSetOf(oldFingerprint, newFingerprint)
         )
         val verifier = SelfCertVerifier(store)
 
@@ -113,7 +113,7 @@ class SelfCertVerifierTest {
         val leafFingerprint = sha256Hex(leafCert.encoded)
         val store = SecurityCertificateStore(
             certChain = listOf(leafCert.encoded, intermediateCert.encoded),
-            knownFingerprints = mutableSetOf(leafFingerprint),
+            knownFingerprints = mutableSetOf(leafFingerprint)
         )
         val verifier = SelfCertVerifier(store)
 
@@ -131,7 +131,7 @@ class SelfCertVerifierTest {
 class SecurityCertificateStore(
     private val certChain: List<ByteArray>? = null,
     private val knownFingerprints: MutableSet<String> = mutableSetOf(),
-    private val subdomain: String? = "test",
+    private val subdomain: String? = "test"
 ) : CertificateStore {
     override suspend fun getCertChain(): List<ByteArray>? = certChain
     override suspend fun getPrivateKeyBytes(): ByteArray? = null
