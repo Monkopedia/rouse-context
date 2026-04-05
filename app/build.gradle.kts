@@ -60,12 +60,17 @@ android {
 }
 
 dependencies {
+<<<<<<< HEAD
     implementation(project(":core:tunnel"))
     implementation(project(":core:mcp"))
     implementation(project(":api"))
     implementation(project(":health"))
     implementation(project(":notifications"))
     implementation(project(":work"))
+=======
+    implementation(project(":mcp-core"))
+    implementation(project(":mcp-health"))
+>>>>>>> fix/cleanup-duplicate-tunnel
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
