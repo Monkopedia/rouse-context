@@ -15,6 +15,7 @@ import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
+import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
@@ -140,6 +141,7 @@ val appModule = module {
     viewModel { AuditHistoryViewModel(get()) }
     viewModel { SettingsViewModel(get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
+    viewModel { HealthConnectSetupViewModel(get()) }
     viewModel { IntegrationSetupViewModel(get()) }
     viewModel { OnboardingViewModel(get(), get()) }
 }
