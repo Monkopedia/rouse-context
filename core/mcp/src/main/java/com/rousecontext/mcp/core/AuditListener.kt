@@ -12,6 +12,8 @@ fun interface AuditListener {
 }
 
 data class ToolCallEvent(
+    val sessionId: String,
+    val providerId: String,
     val timestamp: Long,
     val toolName: String,
     val arguments: Map<String, JsonElement>,
