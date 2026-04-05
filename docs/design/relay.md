@@ -106,8 +106,7 @@ Response (success):
 ```json
 {
   "subdomain": "brave-falcon",
-  "cert": "base64-encoded-cert-chain",
-  "relay_host": "relay.rousecontext.com"
+  "cert": "base64-encoded-cert-chain"
 }
 ```
 
@@ -222,9 +221,7 @@ Authorization: Bearer {oauth2_token}
     "token": "{device_fcm_token}",
     "android": { "priority": "high" },
     "data": {
-      "type": "wake",
-      "relay_host": "relay.rousecontext.com",
-      "relay_port": "443"
+      "type": "wake"
     }
   }
 }

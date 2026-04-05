@@ -50,9 +50,9 @@ No reconnect during active streams. If WebSocket drops, all streams die. Clean r
 ### Receiver
 `FirebaseMessagingService` subclass in `androidMain`. On receiving a data message:
 
-1. Extract `type`, `relay_host`, `relay_port` from data payload
+1. Extract `type` from data payload
 2. Dispatch by type:
-   - `"wake"` (high priority): start TunnelService (foreground service), open mux WebSocket to `relay_host:relay_port`
+   - `"wake"` (high priority): start TunnelService (foreground service), open mux WebSocket to the compiled-in relay URL (from BuildConfig)
    - `"renew"` (normal priority): trigger immediate cert renewal via WorkManager (no mux connection needed)
    - Unknown type: log warning, ignore
 
