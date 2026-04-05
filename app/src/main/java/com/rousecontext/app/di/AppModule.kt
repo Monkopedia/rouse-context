@@ -3,6 +3,7 @@ package com.rousecontext.app.di
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
+import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.registry.HealthConnectIntegration
@@ -25,12 +26,20 @@ import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.work.IdleTimeoutManager
+import com.rousecontext.work.RealWakeLockHandle
+import com.rousecontext.work.WakelockManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
+
+/** Idle timeout before disconnecting the tunnel (5 minutes). */
+private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
 
 /**
  * Root Koin module that wires all app dependencies.
@@ -78,6 +87,33 @@ val appModule = module {
         RoomAuditListener(
             dao = get(),
             scope = get(named("appScope"))
+        )
+    }
+
+    // --- Tunnel & work ---
+    single<String>(named("relayUrl")) {
+        "wss://${BuildConfig.RELAY_HOST}:${BuildConfig.RELAY_PORT}/ws"
+    }
+
+    single<TunnelClient> {
+        TunnelClientImpl(scope = get(named("appScope")))
+    }
+
+    single {
+        val pm = androidContext().getSystemService(android.os.PowerManager::class.java)
+        val wakeLock = pm.newWakeLock(
+            android.os.PowerManager.PARTIAL_WAKE_LOCK,
+            "rousecontext:tunnel"
+        )
+        WakelockManager(RealWakeLockHandle(wakeLock))
+    }
+
+    single {
+        val tunnelClient: TunnelClient = get()
+        IdleTimeoutManager(
+            timeoutMillis = IDLE_TIMEOUT_MS,
+            batteryExempt = false,
+            onTimeout = { tunnelClient.disconnect() }
         )
     }
 

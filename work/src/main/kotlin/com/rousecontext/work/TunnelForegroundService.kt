@@ -12,6 +12,8 @@ import com.rousecontext.notifications.createForegroundNotification
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
+import org.koin.core.qualifier.named
 
 /**
  * Foreground service that keeps the tunnel alive during active MCP sessions.
@@ -22,22 +24,15 @@ import kotlinx.coroutines.launch
  * - Manages idle timeout via [IdleTimeoutManager]
  * - Connects and disconnects the [TunnelClient]
  *
- * The [tunnelClient], [wakelockManager], and [idleTimeoutManager] are injected
- * by the :app module (via Koin or manual DI in onCreate).
+ * Dependencies are injected via Koin. The :app module registers [TunnelClient],
+ * [WakelockManager], and [IdleTimeoutManager] in its Koin module.
  */
 class TunnelForegroundService : LifecycleService() {
 
-    /** Injected by :app module. */
-    lateinit var tunnelClient: TunnelClient
-
-    /** Injected by :app module. */
-    lateinit var wakelockManager: WakelockManager
-
-    /** Injected by :app module. */
-    lateinit var idleTimeoutManager: IdleTimeoutManager
-
-    /** Relay WebSocket URL, injected by :app module from BuildConfig. */
-    var relayUrl: String = "wss://relay.rousecontext.com/ws"
+    private val tunnelClient: TunnelClient by inject()
+    private val wakelockManager: WakelockManager by inject()
+    private val idleTimeoutManager: IdleTimeoutManager by inject()
+    private val relayUrl: String by inject(named("relayUrl"))
 
     override fun onCreate() {
         super.onCreate()
