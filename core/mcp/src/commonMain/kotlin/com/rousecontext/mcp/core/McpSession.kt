@@ -1,89 +1,76 @@
 package com.rousecontext.mcp.core
 
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
-import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
-import java.io.InputStream
-import java.io.OutputStream
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.embeddedServer
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.io.asSink
-import kotlinx.io.asSource
-import kotlinx.io.buffered
 
 /**
- * Orchestrates a single MCP session over a raw byte stream.
+ * Orchestrates MCP HTTP sessions with per-integration OAuth and auth.
  *
- * Creates an SDK [Server], lets each [McpServerProvider] register its tools/resources,
- * then connects via [StdioServerTransport] over the provided streams. Suspends until
- * the session ends (stream close, error, or [close] called).
+ * Wraps a Ktor embedded HTTP server that routes by integration path prefix.
+ * Each integration path is an independent MCP server with its own OAuth endpoints,
+ * device codes, and tokens.
+ *
+ * The session is long-lived and shared across streams. Provider changes
+ * (enable/disable) are reflected immediately via [ProviderRegistry].
  *
  * Usage:
  * ```
  * val session = McpSession(
- *     providers = listOf(healthServer),
- *     serverName = "rouse-context",
- *     serverVersion = "0.1.0",
+ *     registry = providerRegistry,
+ *     tokenStore = roomTokenStore,
+ *     auditListener = auditLog,
+ *     hostname = "brave-falcon.rousecontext.com"
  * )
- * // In a coroutine — suspends until session ends
- * session.run(tunnelInput, tunnelOutput)
+ * session.start(port = 0) // starts embedded HTTP server
+ * session.awaitClose()    // suspends until stopped
  * ```
  */
 class McpSession(
-    private val providers: List<McpServerProvider>,
-    @Suppress("UnusedPrivateProperty") // wired in follow-up PR
+    private val registry: ProviderRegistry,
+    private val tokenStore: TokenStore,
+    private val deviceCodeManager: DeviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
     private val auditListener: AuditListener? = null,
+    private val hostname: String = "localhost",
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0"
 ) {
 
-    private var transport: StdioServerTransport? = null
     private val done = CompletableDeferred<Unit>()
+    private var engine: io.ktor.server.engine.EmbeddedServer<*, *>? = null
 
     /**
-     * Runs the MCP session. Suspends until the transport closes or [close] is called.
+     * Starts the embedded HTTP server on the given port.
+     * Use port 0 for an OS-assigned ephemeral port.
      */
-    suspend fun run(input: InputStream, output: OutputStream) {
-        val server = Server(
-            Implementation(name = serverName, version = serverVersion),
-            ServerOptions(
-                capabilities = ServerCapabilities(
-                    tools = ServerCapabilities.Tools(listChanged = false),
-                    resources = ServerCapabilities.Resources(
-                        subscribe = false,
-                        listChanged = false
-                    )
-                )
+    fun start(port: Int = 0) {
+        val server = embeddedServer(CIO, port = port) {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = hostname,
+                auditListener = auditListener,
+                serverName = serverName,
+                serverVersion = serverVersion
             )
-        )
-
-        for (provider in providers) {
-            provider.register(server)
         }
+        engine = server
+        server.start(wait = false)
+    }
 
-        val stdioTransport = StdioServerTransport(
-            inputStream = input.asSource().buffered(),
-            outputStream = output.asSink().buffered()
-        )
-        transport = stdioTransport
-
-        // Register close callback before connecting so we don't miss it
-        server.onClose {
-            done.complete(Unit)
-        }
-
-        server.connect(stdioTransport)
-
-        // Suspend until the server/transport closes
+    /**
+     * Suspends until [stop] is called.
+     */
+    suspend fun awaitClose() {
         done.await()
     }
 
     /**
-     * Signals the session to stop. Safe to call from any coroutine.
+     * Stops the HTTP server and completes the session.
      */
-    suspend fun close() {
-        transport?.close()
+    fun stop() {
+        engine?.stop()
         done.complete(Unit)
     }
 }

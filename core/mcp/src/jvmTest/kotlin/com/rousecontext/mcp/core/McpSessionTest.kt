@@ -1,35 +1,32 @@
 package com.rousecontext.mcp.core
 
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.ReadResourceRequest
 import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
 import io.modelcontextprotocol.kotlin.sdk.Tool
-import io.modelcontextprotocol.kotlin.sdk.client.Client
-import io.modelcontextprotocol.kotlin.sdk.client.StdioClientTransport
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import java.net.ServerSocket
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.io.asSink
-import kotlinx.io.asSource
-import kotlinx.io.buffered
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpSessionTest {
 
     private class TestProvider : McpServerProvider {
-        override val id = "test"
-        override val displayName = "Test Provider"
+        override val id = "health"
+        override val displayName = "Health Connect"
 
         override fun register(server: Server) {
             server.addTool(
@@ -50,122 +47,149 @@ class McpSessionTest {
                 val message = request.arguments["message"]?.jsonPrimitive?.content ?: "empty"
                 CallToolResult(content = listOf(TextContent(message)))
             }
-
-            server.addResource(
-                uri = "test://greeting",
-                name = "Greeting",
-                description = "A test greeting",
-                mimeType = "text/plain"
-            ) { request ->
-                io.modelcontextprotocol.kotlin.sdk.ReadResourceResult(
-                    contents = listOf(
-                        TextResourceContents("Hello from test", request.uri, "text/plain")
-                    )
-                )
-            }
         }
     }
 
-    /**
-     * Sets up a loopback MCP session (server + client) and runs [block] once the
-     * client handshake completes. All coroutines are structured children of the
-     * [runBlocking] scope and cleaned up in the finally block.
-     */
-    private fun mcpTest(
-        providers: List<McpServerProvider> = listOf(TestProvider()),
-        block: suspend (Client) -> Unit
-    ) = runBlocking {
-        val serverSocket = ServerSocket(0)
-        val session = McpSession(providers = providers)
+    private fun mcpJsonRpc(method: String, params: String? = null, id: Int = 1): String {
+        val paramsStr = if (params != null) ""","params":$params""" else ""
+        return """{"jsonrpc":"2.0","method":"$method"$paramsStr,"id":$id}"""
+    }
 
-        // Server: accept connection, run MCP session
-        launch(Dispatchers.IO) {
-            serverSocket.use { ss ->
-                val socket = ss.accept()
-                socket.use {
-                    session.run(it.getInputStream(), it.getOutputStream())
-                }
-            }
+    @Test
+    fun `HTTP POST with valid Bearer returns MCP initialize response`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        val provider = TestProvider()
+        registry.register("health", provider)
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val token = tokenStore.createToken("health", "test-client")
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com"
+            )
         }
 
-        // Client: connect transport and complete handshake
-        val client = Client(Implementation(name = "test-client", version = "1.0"))
-        val clientSocket = java.net.Socket("127.0.0.1", serverSocket.localPort)
-        val clientTransport = StdioClientTransport(
-            clientSocket.getInputStream().asSource().buffered(),
-            clientSocket.getOutputStream().asSink().buffered()
+        val initRequest = mcpJsonRpc(
+            "initialize",
+            """{"protocolVersion":"2025-03-26","capabilities":{}""" +
+                ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
 
-        val clientConnected = CompletableDeferred<Unit>()
-        // connect() starts long-lived transport read/write children in this scope
-        launch(Dispatchers.IO) {
-            client.connect(clientTransport)
-            clientConnected.complete(Unit)
+        val response = client.post("/health/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(initRequest)
         }
-        clientConnected.await()
 
-        try {
-            block(client)
-        } finally {
-            client.close()
-            session.close()
-            clientSocket.close()
-            coroutineContext.cancelChildren()
-        }
+        assertEquals(HttpStatusCode.OK, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("2.0", json["jsonrpc"]?.jsonPrimitive?.content)
+        val result = json["result"]?.jsonObject
+        assertTrue(result != null)
+        assertTrue(result!!.containsKey("protocolVersion"))
+        assertTrue(result.containsKey("serverInfo"))
     }
 
     @Test
-    fun `session handles initialize and tools list`() = mcpTest { client ->
-        val toolsResult = client.listTools()!!
-        assertEquals(1, toolsResult.tools.size)
+    fun `tools list returns registered tools`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        val provider = TestProvider()
+        registry.register("health", provider)
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val token = tokenStore.createToken("health", "test-client")
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
-        val tool = toolsResult.tools.first()
-        assertEquals("echo", tool.name)
-        assertEquals("Echoes back the input message", tool.description)
-    }
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com"
+            )
+        }
 
-    @Test
-    fun `session handles tool call`() = mcpTest { client ->
-        val result = client.callTool(
-            name = "echo",
-            arguments = mapOf("message" to JsonPrimitive("hello world"))
+        // Initialize first
+        val initRequest = mcpJsonRpc(
+            "initialize",
+            """{"protocolVersion":"2025-03-26","capabilities":{}""" +
+                ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        assertNotNull(result)
-        val content = (result as CallToolResult).content.first() as TextContent
-        assertEquals("hello world", content.text)
+        client.post("/health/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(initRequest)
+        }
+
+        // List tools
+        val toolsRequest = mcpJsonRpc("tools/list", id = 2)
+        val response = client.post("/health/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(toolsRequest)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        val result = json["result"]?.jsonObject
+        val tools = result?.get("tools")?.jsonArray
+        assertTrue(tools != null && tools.size == 1)
+        assertEquals("echo", tools!![0].jsonObject["name"]?.jsonPrimitive?.content)
     }
 
     @Test
-    fun `session handles resource read`() = mcpTest { client ->
-        val result = client.readResource(ReadResourceRequest(uri = "test://greeting"))!!
-        assertEquals(1, result.contents.size)
-        val content = result.contents.first() as TextResourceContents
-        assertEquals("Hello from test", content.text)
-        assertEquals("text/plain", content.mimeType)
-    }
+    fun `tools call returns correct result`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        val provider = TestProvider()
+        registry.register("health", provider)
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val token = tokenStore.createToken("health", "test-client")
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
-    @Test
-    fun `session aggregates tools from multiple providers`() {
-        val secondProvider = object : McpServerProvider {
-            override val id = "second"
-            override val displayName = "Second Provider"
-
-            override fun register(server: Server) {
-                server.addTool(
-                    name = "ping",
-                    description = "Returns pong"
-                ) { _ ->
-                    CallToolResult(content = listOf(TextContent("pong")))
-                }
-            }
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com"
+            )
         }
 
-        mcpTest(providers = listOf(TestProvider(), secondProvider)) { client ->
-            val toolsResult = client.listTools()!!
-            assertEquals(2, toolsResult.tools.size)
-
-            val toolNames = toolsResult.tools.map { it.name }.toSet()
-            assertEquals(setOf("echo", "ping"), toolNames)
+        // Initialize first
+        val initRequest = mcpJsonRpc(
+            "initialize",
+            """{"protocolVersion":"2025-03-26","capabilities":{}""" +
+                ""","clientInfo":{"name":"test","version":"1.0"}}"""
+        )
+        client.post("/health/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(initRequest)
         }
+
+        // Call tool
+        val callRequest = mcpJsonRpc(
+            "tools/call",
+            """{"name":"echo","arguments":{"message":"hello world"}}""",
+            id = 3
+        )
+        val response = client.post("/health/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(callRequest)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        val result = json["result"]?.jsonObject
+        val content = result?.get("content")?.jsonArray
+        assertTrue(content != null && content.size == 1)
+        assertEquals("hello world", content!![0].jsonObject["text"]?.jsonPrimitive?.content)
     }
 }
