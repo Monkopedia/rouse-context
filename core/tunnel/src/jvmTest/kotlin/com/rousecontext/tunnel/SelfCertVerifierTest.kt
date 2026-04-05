@@ -50,7 +50,7 @@ class SelfCertVerifierTest {
     fun `fingerprint matches provisioned cert - verified`(): Unit = runBlocking {
         val cert = generateSelfSignedCert()
         val fingerprint = sha256Hex(cert.encoded)
-        val store = InMemoryCertificateStore(
+        val store = SecurityCertificateStore(
             certChain = listOf(cert.encoded),
             knownFingerprints = mutableSetOf(fingerprint),
         )
@@ -64,7 +64,7 @@ class SelfCertVerifierTest {
     @Test
     fun `fingerprint mismatch - alert`(): Unit = runBlocking {
         val cert = generateSelfSignedCert()
-        val store = InMemoryCertificateStore(
+        val store = SecurityCertificateStore(
             certChain = listOf(cert.encoded),
             knownFingerprints = mutableSetOf("AA:BB:CC:FAKE:FINGERPRINT"),
         )
@@ -81,7 +81,7 @@ class SelfCertVerifierTest {
         val newCert = generateSelfSignedCert("new.rousecontext.com")
         val oldFingerprint = sha256Hex(oldCert.encoded)
         val newFingerprint = sha256Hex(newCert.encoded)
-        val store = InMemoryCertificateStore(
+        val store = SecurityCertificateStore(
             certChain = listOf(newCert.encoded),
             knownFingerprints = mutableSetOf(oldFingerprint, newFingerprint),
         )
@@ -111,7 +111,7 @@ class SelfCertVerifierTest {
         val leafCert = generateSelfSignedCert("leaf.rousecontext.com")
         val intermediateCert = generateSelfSignedCert("intermediate.rousecontext.com")
         val leafFingerprint = sha256Hex(leafCert.encoded)
-        val store = InMemoryCertificateStore(
+        val store = SecurityCertificateStore(
             certChain = listOf(leafCert.encoded, intermediateCert.encoded),
             knownFingerprints = mutableSetOf(leafFingerprint),
         )
@@ -124,29 +124,37 @@ class SelfCertVerifierTest {
     }
 }
 
-/** Simple in-memory CertificateStore for testing. */
-class InMemoryCertificateStore(
+/**
+ * CertificateStore for security monitoring tests.
+ * Implements the full interface but only uses the security-monitoring subset.
+ */
+class SecurityCertificateStore(
     private val certChain: List<ByteArray>? = null,
     private val knownFingerprints: MutableSet<String> = mutableSetOf(),
     private val subdomain: String? = "test",
 ) : CertificateStore {
     override suspend fun getCertChain(): List<ByteArray>? = certChain
-    override suspend fun getPrivateKey(): ByteArray? = null
+    override suspend fun getPrivateKeyBytes(): ByteArray? = null
     override suspend fun storeCertChain(chain: List<ByteArray>) {}
-    override suspend fun getSubdomain(): String? = subdomain
     override suspend fun getCertExpiry(): Long? = null
     override suspend fun getKnownFingerprints(): Set<String> = knownFingerprints
     override suspend fun storeFingerprint(fingerprint: String) {
         knownFingerprints.add(fingerprint)
     }
+    override suspend fun storeCertificate(pemChain: String) {}
+    override suspend fun getCertificate(): String? = null
+    override suspend fun storeSubdomain(subdomain: String) {}
+    override suspend fun getSubdomain(): String? = subdomain
+    override suspend fun storePrivateKey(pemKey: String) {}
+    override suspend fun getPrivateKey(): String? = null
+    override suspend fun clear() {}
 }
 
 /** CertificateStore that throws on fingerprint access, simulating a storage error. */
 class FailingCertificateStore : CertificateStore {
     override suspend fun getCertChain(): List<ByteArray>? = null
-    override suspend fun getPrivateKey(): ByteArray? = null
+    override suspend fun getPrivateKeyBytes(): ByteArray? = null
     override suspend fun storeCertChain(chain: List<ByteArray>) {}
-    override suspend fun getSubdomain(): String? = null
     override suspend fun getCertExpiry(): Long? = null
     override suspend fun getKnownFingerprints(): Set<String> {
         throw java.io.IOException("Storage unavailable")
@@ -154,4 +162,11 @@ class FailingCertificateStore : CertificateStore {
     override suspend fun storeFingerprint(fingerprint: String) {
         throw java.io.IOException("Storage unavailable")
     }
+    override suspend fun storeCertificate(pemChain: String) {}
+    override suspend fun getCertificate(): String? = null
+    override suspend fun storeSubdomain(subdomain: String) {}
+    override suspend fun getSubdomain(): String? = null
+    override suspend fun storePrivateKey(pemKey: String) {}
+    override suspend fun getPrivateKey(): String? = null
+    override suspend fun clear() {}
 }

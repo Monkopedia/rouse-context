@@ -1,7 +1,6 @@
 package com.rousecontext.tunnel
 
 /**
-<<<<<<< HEAD
  * Represents the lifecycle state of a tunnel connection.
  *
  * Valid transitions:
@@ -11,6 +10,7 @@ package com.rousecontext.tunnel
  * - CONNECTED -> ACTIVE (first mux stream opened)
  * - CONNECTED -> DISCONNECTING
  * - ACTIVE -> DISCONNECTING
+ * - ACTIVE -> CONNECTED (last stream closed)
  * - DISCONNECTING -> DISCONNECTED
  */
 enum class TunnelState {
@@ -28,12 +28,4 @@ enum class TunnelState {
 
     /** Graceful shutdown in progress, draining streams. */
     DISCONNECTING,
-=======
- * Represents the current state of the tunnel connection.
- */
-sealed interface TunnelState {
-    data object Disconnected : TunnelState
-    data object Connecting : TunnelState
-    data object Connected : TunnelState
->>>>>>> feat/tunnel-websocket-tls
 }

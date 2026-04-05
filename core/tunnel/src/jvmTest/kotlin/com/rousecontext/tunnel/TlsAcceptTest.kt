@@ -2,7 +2,6 @@ package com.rousecontext.tunnel
 
 import java.io.InputStream
 import java.io.OutputStream
-import javax.net.ssl.SSLContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -10,6 +9,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -30,13 +31,13 @@ class TlsAcceptTest {
 
             val serverStream =
                 ChannelMuxStream(
-                    streamId = 1,
+                    streamIdValue = 1u,
                     readChannel = clientToServer,
                     writeChannel = serverToClient,
                 )
             val clientStream =
                 ChannelMuxStream(
-                    streamId = 1,
+                    streamIdValue = 1u,
                     readChannel = serverToClient,
                     writeChannel = clientToServer,
                 )
@@ -76,7 +77,7 @@ class TlsAcceptTest {
                             if (netOut.hasRemaining()) {
                                 val data = ByteArray(netOut.remaining())
                                 netOut.get(data)
-                                clientStream.write(data)
+                                clientStream.send(data)
                             }
                         }
                         javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
@@ -151,7 +152,7 @@ class TlsAcceptTest {
 
             val serverStream =
                 ChannelMuxStream(
-                    streamId = 1,
+                    streamIdValue = 1u,
                     readChannel = clientToServer,
                     writeChannel = serverToClient,
                 )
@@ -182,16 +183,21 @@ class TlsAcceptTest {
  * A MuxStream backed by channels for testing. Simulates a bidirectional pipe.
  */
 internal class ChannelMuxStream(
-    override val streamId: Int,
+    private val streamIdValue: UInt,
     private val readChannel: Channel<ByteArray>,
     private val writeChannel: Channel<ByteArray>,
 ) : MuxStream {
+    override val id: UInt get() = streamIdValue
+
+    private val _incoming = readChannel
+    override val incoming: Flow<ByteArray> get() = _incoming.receiveAsFlow()
+
     override var isClosed: Boolean = false
         private set
 
     override suspend fun read(): ByteArray = readChannel.receive()
 
-    override suspend fun write(data: ByteArray) {
+    override suspend fun send(data: ByteArray) {
         writeChannel.send(data)
     }
 
@@ -308,7 +314,7 @@ internal class TlsClientOutputStream(
             if (netOut.hasRemaining()) {
                 val data = ByteArray(netOut.remaining())
                 netOut.get(data)
-                kotlinx.coroutines.runBlocking { stream.write(data) }
+                kotlinx.coroutines.runBlocking { stream.send(data) }
             }
             if (result.status != javax.net.ssl.SSLEngineResult.Status.OK) {
                 throw java.io.IOException("TLS wrap failed: ${result.status}")

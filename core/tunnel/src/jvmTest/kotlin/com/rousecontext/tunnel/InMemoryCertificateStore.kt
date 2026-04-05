@@ -1,18 +1,22 @@
 package com.rousecontext.tunnel
 
 /**
- * In-memory implementation of [CertificateStore] for testing.
+ * In-memory implementation of [CertificateStore] for testing onboarding/renewal flows.
  */
 class InMemoryCertificateStore : CertificateStore {
 
     private var certificate: String? = null
     private var subdomain: String? = null
     private var privateKey: String? = null
+    private var certChain: List<ByteArray>? = null
+    private val knownFingerprints: MutableSet<String> = mutableSetOf()
 
     var storeCallCount = 0
         private set
 
     var throwOnStore: Exception? = null
+
+    // --- PEM access (onboarding/renewal) ---
 
     override suspend fun storeCertificate(pemChain: String) {
         throwOnStore?.let { throw it }
@@ -43,5 +47,23 @@ class InMemoryCertificateStore : CertificateStore {
         subdomain = null
         privateKey = null
         storeCallCount = 0
+    }
+
+    // --- Binary access (security monitoring) ---
+
+    override suspend fun getCertChain(): List<ByteArray>? = certChain
+
+    override suspend fun getPrivateKeyBytes(): ByteArray? = null
+
+    override suspend fun storeCertChain(chain: List<ByteArray>) {
+        certChain = chain
+    }
+
+    override suspend fun getCertExpiry(): Long? = null
+
+    override suspend fun getKnownFingerprints(): Set<String> = knownFingerprints
+
+    override suspend fun storeFingerprint(fingerprint: String) {
+        knownFingerprints.add(fingerprint)
     }
 }

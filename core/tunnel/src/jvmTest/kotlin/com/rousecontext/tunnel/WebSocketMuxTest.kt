@@ -2,7 +2,6 @@ package com.rousecontext.tunnel
 
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
-import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.routing.routing
 import io.ktor.server.websocket.WebSockets as ServerWebSockets
@@ -10,7 +9,6 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readBytes
 import java.net.ServerSocket
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.CompletableDeferred
@@ -34,9 +32,9 @@ class WebSocketMuxTest {
                         webSocket("/tunnel") {
                             for (frame in incoming) {
                                 if (frame is Frame.Binary) {
-                                    val muxFrame = MuxFrame.decode(frame.readBytes())
+                                    val muxFrame = MuxCodec.decode(frame.readBytes())
                                     // Echo it back
-                                    send(Frame.Binary(true, muxFrame.encode()))
+                                    send(Frame.Binary(true, MuxCodec.encode(muxFrame)))
                                 }
                             }
                         }
@@ -49,11 +47,11 @@ class WebSocketMuxTest {
 
                 client.connect("ws://localhost:$port/tunnel")
 
-                assertEquals(TunnelState.Connected, client.state.value)
+                assertEquals(TunnelState.CONNECTED, client.state.value)
 
                 // Disconnect and verify state
                 client.disconnect()
-                assertEquals(TunnelState.Disconnected, client.state.value)
+                assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
                 coroutineContext.cancelChildren()
             } finally {
@@ -95,19 +93,26 @@ class WebSocketMuxTest {
 
                 // Server sends an OPEN frame
                 val serverWs = serverSessionRef.await()
-                val openFrame = MuxFrame(MuxFrame.Type.OPEN, streamId = 42)
-                serverWs.send(Frame.Binary(true, openFrame.encode()))
+                serverWs.send(
+                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 42u))),
+                )
 
                 // Client should receive the session
                 val session =
                     withTimeout(5000) {
                         sessionReceived.await()
                     }
-                assertEquals(42, session.streamId)
+                assertEquals(42u, session.id)
 
                 // Server sends DATA for that stream
-                val dataFrame = MuxFrame(MuxFrame.Type.DATA, streamId = 42, payload = "hello".toByteArray())
-                serverWs.send(Frame.Binary(true, dataFrame.encode()))
+                serverWs.send(
+                    Frame.Binary(
+                        true,
+                        MuxCodec.encode(
+                            MuxFrame.Data(streamId = 42u, payload = "hello".toByteArray()),
+                        ),
+                    ),
+                )
 
                 val received =
                     withTimeout(5000) {
@@ -116,7 +121,7 @@ class WebSocketMuxTest {
                 assertEquals("hello", String(received))
 
                 // Client writes back
-                session.write("world".toByteArray())
+                session.send("world".toByteArray())
 
                 client.disconnect()
                 collectJob.cancel()
@@ -163,17 +168,31 @@ class WebSocketMuxTest {
                 val serverWs = serverSessionRef.await()
 
                 // Open two streams
-                serverWs.send(Frame.Binary(true, MuxFrame(MuxFrame.Type.OPEN, streamId = 1).encode()))
-                serverWs.send(Frame.Binary(true, MuxFrame(MuxFrame.Type.OPEN, streamId = 2).encode()))
+                serverWs.send(
+                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 1u))),
+                )
+                serverWs.send(
+                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 2u))),
+                )
 
                 withTimeout(5000) { twoSessions.await() }
 
                 // Send data to each stream
                 serverWs.send(
-                    Frame.Binary(true, MuxFrame(MuxFrame.Type.DATA, 1, "stream1".toByteArray()).encode()),
+                    Frame.Binary(
+                        true,
+                        MuxCodec.encode(
+                            MuxFrame.Data(1u, "stream1".toByteArray()),
+                        ),
+                    ),
                 )
                 serverWs.send(
-                    Frame.Binary(true, MuxFrame(MuxFrame.Type.DATA, 2, "stream2".toByteArray()).encode()),
+                    Frame.Binary(
+                        true,
+                        MuxCodec.encode(
+                            MuxFrame.Data(2u, "stream2".toByteArray()),
+                        ),
+                    ),
                 )
 
                 val data1 = withTimeout(5000) { sessions[0].read() }

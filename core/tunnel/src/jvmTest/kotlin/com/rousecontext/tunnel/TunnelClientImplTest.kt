@@ -44,7 +44,7 @@ class TunnelClientImplTest {
             try {
                 val client = TunnelClientImpl(this)
 
-                assertEquals(TunnelState.Disconnected, client.state.value)
+                assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
                 // Track state transitions
                 val states = mutableListOf<TunnelState>()
@@ -58,11 +58,11 @@ class TunnelClientImplTest {
 
                 client.connect("ws://localhost:$port/tunnel")
 
-                assertEquals(TunnelState.Connected, client.state.value)
+                assertEquals(TunnelState.CONNECTED, client.state.value)
 
                 client.disconnect()
 
-                assertEquals(TunnelState.Disconnected, client.state.value)
+                assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
                 collectJob.cancel()
                 coroutineContext.cancelChildren()
@@ -105,13 +105,15 @@ class TunnelClientImplTest {
 
                 // Server sends OPEN
                 val serverWs = serverSessionRef.await()
-                serverWs.send(Frame.Binary(true, MuxFrame(MuxFrame.Type.OPEN, streamId = 7).encode()))
+                serverWs.send(
+                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 7u))),
+                )
 
                 val session =
                     withTimeout(5000) {
                         sessionReceived.await()
                     }
-                assertEquals(7, session.streamId)
+                assertEquals(7u, session.id)
 
                 client.disconnect()
                 collectJob.cancel()
@@ -137,9 +139,9 @@ class TunnelClientImplTest {
                             serverSessionRef.complete(this)
                             for (frame in incoming) {
                                 if (frame is Frame.Binary) {
-                                    val muxFrame = MuxFrame.decode(frame.readBytes())
+                                    val muxFrame = MuxCodec.decode(frame.readBytes())
                                     receivedFrames.add(muxFrame)
-                                    if (muxFrame.type == MuxFrame.Type.CLOSE) {
+                                    if (muxFrame is MuxFrame.Close) {
                                         closeReceived.complete(Unit)
                                     }
                                 }
@@ -163,7 +165,9 @@ class TunnelClientImplTest {
 
                 // Server opens a stream
                 val serverWs = serverSessionRef.await()
-                serverWs.send(Frame.Binary(true, MuxFrame(MuxFrame.Type.OPEN, streamId = 10).encode()))
+                serverWs.send(
+                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 10u))),
+                )
 
                 withTimeout(5000) { sessionReceived.await() }
 
@@ -172,9 +176,12 @@ class TunnelClientImplTest {
 
                 withTimeout(5000) { closeReceived.await() }
 
-                val closeFrames = receivedFrames.filter { it.type == MuxFrame.Type.CLOSE }
+                val closeFrames = receivedFrames.filterIsInstance<MuxFrame.Close>()
                 assertTrue(closeFrames.isNotEmpty(), "Expected CLOSE frames to be sent")
-                assertTrue(closeFrames.any { it.streamId == 10 }, "Expected CLOSE for stream 10")
+                assertTrue(
+                    closeFrames.any { it.streamId == 10u },
+                    "Expected CLOSE for stream 10",
+                )
 
                 collectJob.cancel()
                 coroutineContext.cancelChildren()
@@ -213,7 +220,7 @@ class TunnelClientImplTest {
                     }
 
                 client.connect("ws://localhost:$port/tunnel")
-                assertEquals(TunnelState.Connected, client.state.value)
+                assertEquals(TunnelState.CONNECTED, client.state.value)
 
                 // Wait for server to close the WebSocket
                 val error =
@@ -228,11 +235,11 @@ class TunnelClientImplTest {
 
                 // State should transition to disconnected
                 withTimeout(5000) {
-                    while (client.state.value != TunnelState.Disconnected) {
+                    while (client.state.value != TunnelState.DISCONNECTED) {
                         delay(50)
                     }
                 }
-                assertEquals(TunnelState.Disconnected, client.state.value)
+                assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
                 errorJob.cancel()
                 coroutineContext.cancelChildren()
@@ -263,7 +270,7 @@ class TunnelClientImplTest {
                     errorReceived.await()
                 }
             assertTrue(error is TunnelError.ConnectionFailed)
-            assertEquals(TunnelState.Disconnected, client.state.value)
+            assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
             errorJob.cancel()
             coroutineContext.cancelChildren()

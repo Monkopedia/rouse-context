@@ -10,6 +10,7 @@ import io.ktor.websocket.readBytes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,16 +34,17 @@ class TunnelClientImpl(
     private val _errors = MutableSharedFlow<TunnelError>(extraBufferCapacity = 16)
 
     override val state: StateFlow<TunnelState> = stateMachine.state
-    override val incomingSessions: SharedFlow<MuxStream>
-        get() = muxDemux?.incomingSessions ?: MutableSharedFlow()
+    override val incomingSessions: Flow<MuxStream>
+        get() = muxDemux?.incomingStreams ?: MutableSharedFlow()
     override val errors: SharedFlow<TunnelError> = _errors.asSharedFlow()
 
     override suspend fun connect(url: String) {
-        stateMachine.transition(TunnelState.Connecting)
+        stateMachine.transition(TunnelState.CONNECTING)
         try {
             val wsSession = httpClient.webSocketSession(url)
-            val demux = MuxDemux { frame ->
-                wsSession.send(Frame.Binary(true, frame.encode()))
+            val demux = MuxDemux()
+            demux.onOutgoingFrame = { frame ->
+                wsSession.send(Frame.Binary(true, MuxCodec.encode(frame)))
             }
             muxDemux = demux
             session = wsSession
@@ -51,8 +53,8 @@ class TunnelClientImpl(
                 try {
                     for (frame in wsSession.incoming) {
                         if (frame is Frame.Binary) {
-                            val muxFrame = MuxFrame.decode(frame.readBytes())
-                            demux.onFrame(muxFrame)
+                            val muxFrame = MuxCodec.decode(frame.readBytes())
+                            demux.handleFrame(muxFrame)
                         }
                     }
                     // WebSocket closed normally
@@ -66,9 +68,9 @@ class TunnelClientImpl(
                 }
             }
 
-            stateMachine.transition(TunnelState.Connected)
+            stateMachine.transition(TunnelState.CONNECTED)
         } catch (e: Exception) {
-            stateMachine.transition(TunnelState.Disconnected)
+            stateMachine.transition(TunnelState.DISCONNECTED)
             val error = TunnelError.ConnectionFailed("Failed to connect: ${e.message}", e)
             _errors.emit(error)
             throw error
@@ -82,8 +84,8 @@ class TunnelClientImpl(
             receiveJob?.cancelAndJoin()
         } finally {
             cleanup()
-            if (stateMachine.state.value != TunnelState.Disconnected) {
-                stateMachine.transition(TunnelState.Disconnected)
+            if (stateMachine.state.value != TunnelState.DISCONNECTED) {
+                stateMachine.transition(TunnelState.DISCONNECTED)
             }
         }
     }
@@ -91,8 +93,8 @@ class TunnelClientImpl(
     private suspend fun handleDisconnect(error: TunnelError) {
         _errors.emit(error)
         cleanup()
-        if (stateMachine.state.value != TunnelState.Disconnected) {
-            stateMachine.transition(TunnelState.Disconnected)
+        if (stateMachine.state.value != TunnelState.DISCONNECTED) {
+            stateMachine.transition(TunnelState.DISCONNECTED)
         }
     }
 

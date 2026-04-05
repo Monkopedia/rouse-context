@@ -22,7 +22,7 @@ class CtLogMonitorTest {
                  "serial_number":"abcdef0123456789"}
             ]""",
         )
-        val store = InMemoryCertificateStore(
+        val store = SecurityCertificateStore(
             subdomain = "abc123",
             knownFingerprints = mutableSetOf(knownFingerprint),
         )
@@ -57,7 +57,7 @@ class CtLogMonitorTest {
                  "serial_number":"deadbeef01234567"}
             ]""",
         )
-        val store = InMemoryCertificateStore(subdomain = "abc123")
+        val store = SecurityCertificateStore(subdomain = "abc123")
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
@@ -72,7 +72,7 @@ class CtLogMonitorTest {
     @Test
     fun `crt sh unreachable - warning`(): Unit = runBlocking {
         val fetcher = FakeCtLogFetcher(throwOnFetch = true)
-        val store = InMemoryCertificateStore(subdomain = "abc123")
+        val store = SecurityCertificateStore(subdomain = "abc123")
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
@@ -87,7 +87,7 @@ class CtLogMonitorTest {
     @Test
     fun `empty response for new subdomain - verified`(): Unit = runBlocking {
         val fetcher = FakeCtLogFetcher(response = "[]")
-        val store = InMemoryCertificateStore(subdomain = "brandnew")
+        val store = SecurityCertificateStore(subdomain = "brandnew")
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
@@ -102,7 +102,7 @@ class CtLogMonitorTest {
     @Test
     fun `malformed JSON handled gracefully`(): Unit = runBlocking {
         val fetcher = FakeCtLogFetcher(response = "this is not json {{{")
-        val store = InMemoryCertificateStore(subdomain = "abc123")
+        val store = SecurityCertificateStore(subdomain = "abc123")
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
