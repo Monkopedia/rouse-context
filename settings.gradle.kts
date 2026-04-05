@@ -23,6 +23,5 @@ dependencyResolutionManagement {
 rootProject.name = "rouse-context"
 
 include(":app")
-include(":tunnel")
 include(":mcp-core")
 include(":mcp-health")
