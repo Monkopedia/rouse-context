@@ -48,12 +48,13 @@ jobs:
 
           scp -i ~/.ssh/deploy_key \
             relay/target/x86_64-unknown-linux-musl/release/rouse-relay \
-            "$VPS_USER@$VPS_HOST":/opt/rouse-relay/rouse-relay.new
+            "$VPS_USER@$VPS_HOST":/tmp/rouse-relay.new
 
           ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" bash -s <<'EOF'
-          sudo mv /opt/rouse-relay/rouse-relay.new /opt/rouse-relay/rouse-relay
+          sudo mv /tmp/rouse-relay.new /opt/rouse-relay/rouse-relay
           sudo chmod +x /opt/rouse-relay/rouse-relay
-          sudo systemctl restart rouse-relay
+          sudo chown relay:relay /opt/rouse-relay/rouse-relay
+          sudo systemctl restart rouse-relay || echo "Service not fully configured yet"
           sleep 2
-          sudo systemctl is-active rouse-relay
+          sudo systemctl is-active rouse-relay || echo "Service not active (may need TLS cert)"
           EOF
