@@ -166,7 +166,7 @@ pub async fn resolve_device_stream(
             other => PassthroughError::FirestoreFailed(other.to_string()),
         })?;
 
-    let payload = fcm::wake_payload(&ctx.relay_hostname);
+    let payload = fcm::wake_payload();
     ctx.fcm
         .send_data_message(&device.fcm_token, &payload, true)
         .await

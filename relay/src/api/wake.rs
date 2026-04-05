@@ -54,7 +54,7 @@ pub async fn handle_wake(
     }
 
     // 5. Send FCM wake message
-    let payload = fcm::wake_payload(&state.config.server.relay_hostname);
+    let payload = fcm::wake_payload();
     if let Err(e) = state
         .fcm
         .send_data_message(&device.fcm_token, &payload, true)

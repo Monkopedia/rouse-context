@@ -36,6 +36,9 @@ class TunnelForegroundService : LifecycleService() {
     /** Injected by :app module. */
     lateinit var idleTimeoutManager: IdleTimeoutManager
 
+    /** Relay WebSocket URL, injected by :app module from BuildConfig. */
+    var relayUrl: String = "wss://relay.rousecontext.com/ws"
+
     override fun onCreate() {
         super.onCreate()
         NotificationChannels.createAll(this)
@@ -53,7 +56,7 @@ class TunnelForegroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         lifecycleScope.launch {
-            tunnelClient.connect("wss://relay.rousecontext.com/ws")
+            tunnelClient.connect(relayUrl)
         }
 
         lifecycleScope.launch {

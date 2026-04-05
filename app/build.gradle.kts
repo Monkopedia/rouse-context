@@ -18,6 +18,11 @@ android {
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        val relayHost = project.findProperty("relay.host")?.toString() ?: "relay.rousecontext.com"
+        val relayPort = project.findProperty("relay.port")?.toString() ?: "443"
+        buildConfigField("String", "RELAY_HOST", "\"$relayHost\"")
+        buildConfigField("int", "RELAY_PORT", "$relayPort")
     }
 
     buildTypes {
@@ -28,6 +33,10 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

@@ -18,13 +18,11 @@ pub enum FcmError {
 }
 
 /// The data payload for an FCM message.
+/// Only contains the message type — the device knows its relay URL from BuildConfig.
 #[derive(Debug, Clone, Serialize)]
 pub struct FcmData {
     #[serde(rename = "type")]
     pub message_type: String,
-    pub relay_host: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relay_port: Option<String>,
 }
 
 #[async_trait]
@@ -39,19 +37,15 @@ pub trait FcmClient: Send + Sync {
 }
 
 /// Build a "wake" FCM data payload.
-pub fn wake_payload(relay_host: &str) -> FcmData {
+pub fn wake_payload() -> FcmData {
     FcmData {
         message_type: "wake".to_string(),
-        relay_host: relay_host.to_string(),
-        relay_port: Some("443".to_string()),
     }
 }
 
 /// Build a "renew" FCM data payload.
-pub fn renew_payload(relay_host: &str) -> FcmData {
+pub fn renew_payload() -> FcmData {
     FcmData {
         message_type: "renew".to_string(),
-        relay_host: relay_host.to_string(),
-        relay_port: None,
     }
 }
