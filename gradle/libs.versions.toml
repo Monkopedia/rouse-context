@@ -8,6 +8,8 @@ activity = "1.10.1"
 lifecycle = "2.9.0"
 firebase-bom = "33.10.0"
 health-connect = "1.1.0-alpha12"
+mcp-sdk = "0.4.0"
+kotlinx-serialization-json = "1.9.0"
 acme4j = "3.5.0"
 
 [libraries]
@@ -20,6 +22,8 @@ material = { group = "com.google.android.material", name = "material", version.r
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
 health-connect = { group = "androidx.health.connect", name = "connect-client", version.ref = "health-connect" }
+mcp-sdk = { group = "io.modelcontextprotocol", name = "kotlin-sdk", version.ref = "mcp-sdk" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
 acme4j-client = { group = "org.shredzone.acme4j", name = "acme4j-client", version.ref = "acme4j" }
 
 [plugins]
