@@ -10,6 +10,21 @@ android {
     namespace = "com.rousecontext.app"
     compileSdk = 35
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("${rootProject.projectDir}/.signing/release.keystore")
+            storePassword = "rousecontext-release"
+            keyAlias = "release"
+            keyPassword = "rousecontext-release"
+        }
+        getByName("debug") {
+            storeFile = file("${rootProject.projectDir}/.signing/debug.keystore")
+            storePassword = "rousecontext"
+            keyAlias = "debug"
+            keyPassword = "rousecontext"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.rousecontext"
         minSdk = 29
@@ -26,7 +41,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
