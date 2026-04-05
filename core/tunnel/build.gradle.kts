@@ -2,17 +2,22 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform)
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
     alias(libs.plugins.android.library)
 =======
 >>>>>>> feat/tunnel-websocket-tls
 =======
     alias(libs.plugins.kotlin.serialization)
 >>>>>>> feat/security-monitoring
+=======
+    alias(libs.plugins.kotlin.serialization)
+>>>>>>> feat/tunnel-onboarding
 }
 
 kotlin {
     jvm()
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
     androidTarget {
@@ -70,10 +75,19 @@ android {
     }
 =======
     sourceSets {
+=======
+    @Suppress("OPT_IN_USAGE")
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
+    sourceSets {
+>>>>>>> feat/tunnel-onboarding
         val commonMain by getting {
             dependencies {
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.ktor.client.core)
+<<<<<<< HEAD
                 implementation(libs.ktor.client.websockets)
             }
         }
@@ -81,6 +95,10 @@ android {
             dependencies {
                 implementation(kotlin("test"))
                 implementation(libs.kotlinx.coroutines.test)
+=======
+                implementation(libs.ktor.client.content.negotiation)
+                implementation(libs.ktor.serialization.kotlinx.json)
+>>>>>>> feat/tunnel-onboarding
             }
         }
         val jvmMain by getting {
@@ -90,6 +108,7 @@ android {
         }
         val jvmTest by getting {
             dependencies {
+<<<<<<< HEAD
                 implementation(libs.ktor.server.core)
                 implementation(libs.ktor.server.cio)
                 implementation(libs.ktor.server.websockets)
@@ -102,3 +121,16 @@ android {
     }
 }
 >>>>>>> feat/security-monitoring
+=======
+                implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test)
+                implementation(libs.ktor.client.mock)
+                implementation(libs.ktor.server.core)
+                implementation(libs.ktor.server.netty)
+                implementation(libs.ktor.server.content.negotiation)
+                implementation(libs.ktor.serialization.kotlinx.json)
+            }
+        }
+    }
+}
+>>>>>>> feat/tunnel-onboarding

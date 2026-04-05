@@ -3,7 +3,11 @@
 /local.properties
 /.idea
 .DS_Store
+<<<<<<< HEAD
 build/
+=======
+**/build
+>>>>>>> feat/tunnel-onboarding
 /captures
 .externalNativeBuild
 .cxx
