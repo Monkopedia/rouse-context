@@ -17,6 +17,7 @@ import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
+import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.ProviderRegistry
@@ -25,6 +26,9 @@ import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.CsrGenerator
+import com.rousecontext.tunnel.OnboardingFlow
+import com.rousecontext.tunnel.RelayApiClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
@@ -45,6 +49,11 @@ val appModule = module {
 
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
+
+    // --- Onboarding ---
+    single { CsrGenerator() }
+    single { RelayApiClient("https://relay.rousecontext.com") }
+    single { OnboardingFlow(get(), get(), get()) }
 
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class
@@ -89,4 +98,5 @@ val appModule = module {
     viewModel { SettingsViewModel(get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel { IntegrationSetupViewModel(get()) }
+    viewModel { OnboardingViewModel(get(), get()) }
 }
