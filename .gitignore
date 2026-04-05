@@ -3,13 +3,10 @@
 /local.properties
 /.idea
 .DS_Store
-<<<<<<< HEAD
-build/
-=======
 **/build
->>>>>>> feat/tunnel-onboarding
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 google-services.json
+relay/target/
