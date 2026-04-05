@@ -9,6 +9,8 @@ android {
 
     defaultConfig {
         minSdk = 29
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -26,4 +28,14 @@ dependencies {
     implementation(project(":notifications"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.service)
+    implementation(libs.workmanager)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.workmanager.testing)
+    testImplementation(libs.robolectric)
+    testImplementation("androidx.test:core:1.6.1")
 }
