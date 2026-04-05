@@ -29,6 +29,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.service)
+    implementation(libs.koin.android)
     implementation(libs.workmanager)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
