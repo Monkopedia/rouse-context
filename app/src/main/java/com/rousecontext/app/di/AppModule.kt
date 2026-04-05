@@ -10,6 +10,13 @@ import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
+import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
+import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
+import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
+import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
+import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
+import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
+import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
@@ -18,6 +25,7 @@ import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.tunnel.CertificateStore
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
+import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
@@ -67,4 +75,13 @@ val appModule = module {
             scope = get(named("appScope"))
         )
     }
+
+    // --- ViewModels ---
+    viewModel { MainDashboardViewModel(get(), get(), get(), get()) }
+    viewModel { AddIntegrationViewModel(get(), get(), get()) }
+    viewModel { IntegrationManageViewModel(get(), get(), get(), get()) }
+    viewModel { AuditHistoryViewModel(get()) }
+    viewModel { SettingsViewModel(get()) }
+    viewModel { DeviceCodeApprovalViewModel(get()) }
+    viewModel { IntegrationSetupViewModel(get()) }
 }
