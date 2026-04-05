@@ -8,12 +8,27 @@ use futures_util::stream::StreamExt;
 use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair};
 use rouse_relay::api::ws::DeviceIdentity;
 use rouse_relay::api::{self, AppState};
+use rouse_relay::firestore::DeviceRecord;
 use rouse_relay::mux::frame::{Frame, FrameType};
 use rouse_relay::passthrough::SessionRegistry;
 use rouse_relay::state::RelayState;
 use std::sync::Arc;
+use std::time::SystemTime;
 use test_helpers::*;
 use tokio::net::TcpListener;
+
+/// Create a dummy DeviceRecord for tests.
+fn dummy_device_record() -> DeviceRecord {
+    DeviceRecord {
+        fcm_token: "test-fcm-token".to_string(),
+        firebase_uid: "test-uid".to_string(),
+        public_key: String::new(),
+        cert_expires: SystemTime::now(),
+        registered_at: SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+    }
+}
 
 /// Build a test CA + server cert + client cert using rcgen.
 #[allow(dead_code)]
@@ -117,10 +132,12 @@ async fn ws_upgrade_with_device_identity() {
     let relay_state = Arc::new(RelayState::new());
     let session_registry = Arc::new(SessionRegistry::new());
 
+    let firestore = MockFirestore::new().with_device("test-device", dummy_device_record());
+
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
         session_registry: session_registry.clone(),
-        firestore: Arc::new(MockFirestore::new()),
+        firestore: Arc::new(firestore),
         fcm: Arc::new(MockFcm::new()),
         acme: Arc::new(MockAcme::new("cert")),
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
@@ -226,10 +243,12 @@ async fn mux_frame_round_trip_through_ws() {
     let relay_state = Arc::new(RelayState::new());
     let session_registry = Arc::new(SessionRegistry::new());
 
+    let firestore = MockFirestore::new().with_device("roundtrip-dev", dummy_device_record());
+
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
         session_registry: session_registry.clone(),
-        firestore: Arc::new(MockFirestore::new()),
+        firestore: Arc::new(firestore),
         fcm: Arc::new(MockFcm::new()),
         acme: Arc::new(MockAcme::new("cert")),
         firebase_auth: Arc::new(MockFirebaseAuth::new()),

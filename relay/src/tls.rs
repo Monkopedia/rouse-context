@@ -4,9 +4,12 @@
 //! device WebSocket connections). Device-to-MCP-client connections are pure
 //! TLS passthrough -- the relay never terminates TLS for that traffic.
 //!
-//! When a CA cert is configured, the relay requires and verifies client
-//! certificates (mTLS). The device's subdomain is extracted from the
-//! client certificate's Common Name (CN) or Subject Alternative Name (SAN).
+//! When a CA cert is configured, the relay accepts and verifies client
+//! certificates (mTLS) but does not require them at the TLS level. This
+//! allows unauthenticated endpoints (/status, /register, etc.) to work
+//! without a client cert, while the /ws handler enforces the cert requirement.
+//! The device's subdomain is extracted from the client certificate's
+//! Common Name (CN) or Subject Alternative Name (SAN).
 
 use crate::config::TlsConfig;
 use rustls::pki_types::CertificateDer;
@@ -38,6 +41,7 @@ pub fn build_relay_tls_config(config: &TlsConfig) -> io::Result<Arc<rustls::Serv
             })?;
         }
         let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(root_store))
+            .allow_unauthenticated()
             .build()
             .map_err(|e| {
                 io::Error::new(
