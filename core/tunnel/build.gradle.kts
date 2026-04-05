@@ -44,6 +44,8 @@ kotlin {
                 implementation(libs.ktor.server.websockets)
                 implementation(libs.ktor.server.content.negotiation)
                 implementation(libs.ktor.serialization.json)
+                // Integration test: MCP module for end-to-end tunnel+MCP tests
+                implementation(project(":core:mcp"))
             }
         }
     }
