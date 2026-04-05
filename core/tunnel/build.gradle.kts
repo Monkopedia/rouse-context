@@ -11,6 +11,11 @@ kotlin {
         freeCompilerArgs.add("-Xexpect-actual-classes")
     }
 
+    // Pass repo root to JVM tests so integration tests can find the relay binary
+    tasks.named<Test>("jvmTest") {
+        systemProperty("repo.root", rootProject.projectDir.absolutePath)
+    }
+
     sourceSets {
         val commonMain by getting {
             dependencies {

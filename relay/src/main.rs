@@ -24,6 +24,13 @@ use tracing::{debug, error, info, warn};
 
 #[tokio::main]
 async fn main() {
+    // Install ring as the default crypto provider for rustls.
+    // This is needed because both ring and aws-lc-rs features are enabled
+    // (via transitive dependencies), and rustls cannot auto-detect which to use.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
