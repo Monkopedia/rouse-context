@@ -36,6 +36,8 @@ import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsScreen
 import com.rousecontext.app.ui.screens.SettingsState
+import com.rousecontext.app.ui.screens.TrustOverallStatus
+import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import org.junit.Rule
@@ -370,6 +372,60 @@ class ScreenScreenshotTest {
             state = SettingsState(
                 showBatteryWarning = false,
                 batteryOptimizationExempt = true
+            )
+        )
+    }
+
+    // 11. Settings - Trust status verified
+    @Test
+    fun settingsTrustVerified() = capture("28_settings_trust_verified") {
+        SettingsScreen(
+            state = SettingsState(
+                showBatteryWarning = false,
+                batteryOptimizationExempt = true,
+                trustStatus = TrustStatusState(
+                    lastCheckTime = System.currentTimeMillis() - 7_200_000,
+                    selfCheckResult = "verified",
+                    ctCheckResult = "verified",
+                    certFingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                    overallStatus = TrustOverallStatus.VERIFIED
+                )
+            )
+        )
+    }
+
+    // 11. Settings - Trust status warning
+    @Test
+    fun settingsTrustWarning() = capture("29_settings_trust_warning") {
+        SettingsScreen(
+            state = SettingsState(
+                showBatteryWarning = false,
+                batteryOptimizationExempt = true,
+                trustStatus = TrustStatusState(
+                    lastCheckTime = System.currentTimeMillis() - 7_200_000,
+                    selfCheckResult = "verified",
+                    ctCheckResult = "warning",
+                    certFingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                    overallStatus = TrustOverallStatus.WARNING
+                )
+            )
+        )
+    }
+
+    // 11. Settings - Trust status alert
+    @Test
+    fun settingsTrustAlert() = capture("30_settings_trust_alert") {
+        SettingsScreen(
+            state = SettingsState(
+                showBatteryWarning = false,
+                batteryOptimizationExempt = true,
+                trustStatus = TrustStatusState(
+                    lastCheckTime = System.currentTimeMillis() - 7_200_000,
+                    selfCheckResult = "verified",
+                    ctCheckResult = "alert",
+                    certFingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                    overallStatus = TrustOverallStatus.ALERT
+                )
             )
         )
     }

@@ -1,6 +1,7 @@
 package com.rousecontext.app.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -8,10 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -44,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.AmberAccent
@@ -51,6 +56,21 @@ import com.rousecontext.app.ui.theme.OnWarningContainer
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.TealPrimary
 import com.rousecontext.app.ui.theme.WarningContainer
+
+enum class TrustOverallStatus {
+    VERIFIED,
+    WARNING,
+    ALERT
+}
+
+@Immutable
+data class TrustStatusState(
+    val lastCheckTime: Long = 0L,
+    val selfCheckResult: String = "",
+    val ctCheckResult: String = "",
+    val certFingerprint: String = "",
+    val overallStatus: TrustOverallStatus = TrustOverallStatus.VERIFIED
+)
 
 @Immutable
 data class SettingsState(
@@ -61,7 +81,8 @@ data class SettingsState(
     val canRotateAddress: Boolean = true,
     val rotationCooldownMessage: String? = null,
     val showBatteryWarning: Boolean = true,
-    val versionName: String = "0.1.0"
+    val versionName: String = "0.1.0",
+    val trustStatus: TrustStatusState? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -238,6 +259,13 @@ fun SettingsScreen(
                 }
             }
 
+            // Trust Status section
+            if (state.trustStatus != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+                SectionHeader("Trust Status")
+                TrustStatusSection(state.trustStatus)
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // About section
@@ -255,6 +283,156 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
+
+private const val FINGERPRINT_TRUNCATE_LENGTH = 23
+
+@Composable
+private fun TrustStatusSection(trustStatus: TrustStatusState) {
+    val (statusIcon, statusColor, statusLabel) = when (trustStatus.overallStatus) {
+        TrustOverallStatus.VERIFIED -> Triple(Icons.Default.CheckCircle, TealPrimary, "Verified")
+        TrustOverallStatus.WARNING -> Triple(Icons.Default.Warning, AmberAccent, "Warning")
+        TrustOverallStatus.ALERT -> Triple(Icons.Default.Error, Color(0xFFFF6B6B), "Alert")
+    }
+
+    val timeAgo = formatTimeAgo(trustStatus.lastCheckTime)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = if (trustStatus.overallStatus == TrustOverallStatus.ALERT) {
+            CardDefaults.cardColors(containerColor = Color(0xFF3A0000))
+        } else {
+            CardDefaults.cardColors()
+        }
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Overall status row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    statusIcon,
+                    contentDescription = statusLabel,
+                    tint = statusColor,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = statusColor
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Self-check row
+            TrustCheckRow(
+                label = "Self-check",
+                result = trustStatus.selfCheckResult,
+                timeAgo = timeAgo
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // CT log row
+            TrustCheckRow(
+                label = "CT log",
+                result = trustStatus.ctCheckResult,
+                timeAgo = timeAgo
+            )
+
+            // Cert fingerprint
+            if (trustStatus.certFingerprint.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(12.dp))
+                CertFingerprintRow(trustStatus.certFingerprint)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
+    val (icon, color, displayResult) = when (result) {
+        "verified" -> Triple(Icons.Default.CheckCircle, TealPrimary, "Verified")
+        "warning" -> Triple(Icons.Default.Warning, AmberAccent, "Unable to verify")
+        "alert" -> Triple(Icons.Default.Error, Color(0xFFFF6B6B), "Verification failed")
+        else -> Triple(
+            Icons.Default.Warning,
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            "Not checked"
+        )
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = "$label: $displayResult",
+            style = MaterialTheme.typography.bodyMedium,
+            color = color,
+            modifier = Modifier.weight(1f)
+        )
+        if (timeAgo.isNotEmpty()) {
+            Text(
+                text = timeAgo,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun CertFingerprintRow(fingerprint: String) {
+    var expanded by remember { mutableStateOf(false) }
+    val displayFingerprint = if (expanded || fingerprint.length <= FINGERPRINT_TRUNCATE_LENGTH) {
+        fingerprint
+    } else {
+        fingerprint.take(FINGERPRINT_TRUNCATE_LENGTH) + "..."
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+    ) {
+        Text(
+            text = "Certificate fingerprint",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = displayFingerprint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+private fun formatTimeAgo(epochMillis: Long): String {
+    if (epochMillis == 0L) return ""
+    val now = System.currentTimeMillis()
+    val diffMinutes = (now - epochMillis) / 60_000
+    return when {
+        diffMinutes < 1 -> "just now"
+        diffMinutes < 60 -> "$diffMinutes min ago"
+        diffMinutes < 1440 -> "${diffMinutes / 60} hours ago"
+        else -> "${diffMinutes / 1440} days ago"
     }
 }
 
