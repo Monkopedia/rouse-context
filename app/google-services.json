@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "991526271986",
+    "project_id": "rouse-context",
+    "storage_bucket": "rouse-context.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:991526271986:android:dc864e8d168fd52aa2896b",
+        "android_client_info": {
+          "package_name": "com.rousecontext"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAv9Qr-J2We1psD4VEbf6D-KSdD52knKfo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:991526271986:android:e8657156ffe6af3ba2896b",
+        "android_client_info": {
+          "package_name": "com.rousecontext.debug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAv9Qr-J2We1psD4VEbf6D-KSdD52knKfo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

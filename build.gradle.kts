@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.ktlint) apply false
     alias(libs.plugins.detekt)
     alias(libs.plugins.roborazzi) apply false
+    alias(libs.plugins.google.services) apply false
 }
 
 subprojects {
