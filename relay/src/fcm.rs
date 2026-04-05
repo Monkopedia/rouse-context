@@ -3,8 +3,10 @@
 //! Sends data-only push notifications to devices via the FCM HTTP v1 API.
 //! Uses a trait so tests can substitute a mock.
 
+use crate::google_auth::TokenProvider;
 use async_trait::async_trait;
 use serde::Serialize;
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -61,6 +63,7 @@ pub struct RealFcmClient {
     http: reqwest::Client,
     base_url: String,
     project_id: String,
+    token_provider: Arc<dyn TokenProvider>,
 }
 
 impl RealFcmClient {
@@ -68,11 +71,17 @@ impl RealFcmClient {
     ///
     /// `base_url` is the scheme+host (e.g. `https://fcm.googleapis.com`).
     /// `project_id` is the Firebase project ID used in the send URL path.
-    pub fn new(base_url: String, project_id: String) -> Self {
+    /// `token_provider` supplies OAuth2 bearer tokens for the FCM API.
+    pub fn new(
+        base_url: String,
+        project_id: String,
+        token_provider: Arc<dyn TokenProvider>,
+    ) -> Self {
         Self {
             http: reqwest::Client::new(),
             base_url,
             project_id,
+            token_provider,
         }
     }
 
@@ -103,9 +112,16 @@ impl FcmClient for RealFcmClient {
             }
         });
 
+        let access_token = self
+            .token_provider
+            .access_token()
+            .await
+            .map_err(|e| FcmError::Auth(e.to_string()))?;
+
         let resp = self
             .http
             .post(self.send_url())
+            .bearer_auth(&access_token)
             .json(&body)
             .send()
             .await
@@ -131,10 +147,27 @@ impl FcmClient for RealFcmClient {
 mod tests {
     use super::*;
 
+    /// Stub token provider for unit tests.
+    struct StubTokenProvider;
+
+    #[async_trait]
+    impl TokenProvider for StubTokenProvider {
+        async fn access_token(&self) -> Result<String, crate::google_auth::AuthError> {
+            Ok("test-token".to_string())
+        }
+    }
+
+    fn stub_provider() -> Arc<dyn TokenProvider> {
+        Arc::new(StubTokenProvider)
+    }
+
     #[test]
     fn send_url_uses_default_base() {
-        let client =
-            RealFcmClient::new(DEFAULT_FCM_BASE_URL.to_string(), "my-project".to_string());
+        let client = RealFcmClient::new(
+            DEFAULT_FCM_BASE_URL.to_string(),
+            "my-project".to_string(),
+            stub_provider(),
+        );
         assert_eq!(
             client.send_url(),
             "https://fcm.googleapis.com/v1/projects/my-project/messages:send"
@@ -143,8 +176,11 @@ mod tests {
 
     #[test]
     fn send_url_uses_custom_base() {
-        let client =
-            RealFcmClient::new("http://localhost:9099".to_string(), "test-proj".to_string());
+        let client = RealFcmClient::new(
+            "http://localhost:9099".to_string(),
+            "test-proj".to_string(),
+            stub_provider(),
+        );
         assert_eq!(
             client.send_url(),
             "http://localhost:9099/v1/projects/test-proj/messages:send"
@@ -153,8 +189,11 @@ mod tests {
 
     #[test]
     fn send_url_strips_trailing_slash() {
-        let client =
-            RealFcmClient::new("http://localhost:9099/".to_string(), "test-proj".to_string());
+        let client = RealFcmClient::new(
+            "http://localhost:9099/".to_string(),
+            "test-proj".to_string(),
+            stub_provider(),
+        );
         assert_eq!(
             client.send_url(),
             "http://localhost:9099/v1/projects/test-proj/messages:send"

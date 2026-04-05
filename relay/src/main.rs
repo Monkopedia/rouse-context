@@ -90,12 +90,14 @@ async fn main() {
     let relay_state = Arc::new(RelayState::new());
     let session_registry = Arc::new(SessionRegistry::new());
 
-    // Stub external service clients for now (real implementations will be wired later)
+    // Build external service clients — use real implementations when a service account is available
     let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(StubFirestore);
-    let fcm: Arc<dyn rouse_relay::fcm::FcmClient> = Arc::new(StubFcm);
     let acme: Arc<dyn rouse_relay::acme::AcmeClient> = Arc::new(StubAcme);
-    let firebase_auth: Arc<dyn rouse_relay::firebase_auth::FirebaseAuth> =
-        Arc::new(StubFirebaseAuth);
+
+    let (fcm, firebase_auth): (
+        Arc<dyn rouse_relay::fcm::FcmClient>,
+        Arc<dyn rouse_relay::firebase_auth::FirebaseAuth>,
+    ) = build_service_clients(&config);
 
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
@@ -352,8 +354,73 @@ where
     Ok(())
 }
 
+/// Build FCM and Firebase Auth clients from config.
+///
+/// When `firebase.service_account_path` points to a valid service account JSON file,
+/// this creates real clients that talk to Google APIs. Otherwise, falls back to stubs.
+fn build_service_clients(
+    config: &RelayConfig,
+) -> (
+    Arc<dyn rouse_relay::fcm::FcmClient>,
+    Arc<dyn rouse_relay::firebase_auth::FirebaseAuth>,
+) {
+    let sa_path = &config.firebase.service_account_path;
+
+    if sa_path.is_empty() || !Path::new(sa_path).exists() {
+        if sa_path.is_empty() {
+            info!("No firebase.service_account_path configured, using stub FCM + Firebase Auth");
+        } else {
+            warn!(
+                path = %sa_path,
+                "Service account file not found, using stub FCM + Firebase Auth"
+            );
+        }
+        return (Arc::new(StubFcm), Arc::new(StubFirebaseAuth));
+    }
+
+    // Load service account key
+    let sa_key = match rouse_relay::google_auth::ServiceAccountKey::from_file(Path::new(sa_path)) {
+        Ok(key) => key,
+        Err(e) => {
+            error!(path = %sa_path, "Failed to load service account: {e}");
+            return (Arc::new(StubFcm), Arc::new(StubFirebaseAuth));
+        }
+    };
+
+    let project_id = if config.firebase.project_id.is_empty() {
+        // Fall back to the project_id in the service account file
+        sa_key.project_id.clone()
+    } else {
+        config.firebase.project_id.clone()
+    };
+
+    info!(
+        project_id = %project_id,
+        "Service account loaded, wiring real FCM + Firebase Auth"
+    );
+
+    // Build token provider for FCM
+    let auth_manager = rouse_relay::google_auth::fcm_auth_manager(sa_key);
+
+    // FCM base URL: allow override via env var for testing
+    let fcm_base_url = std::env::var("FCM_BASE_URL")
+        .unwrap_or_else(|_| rouse_relay::fcm::DEFAULT_FCM_BASE_URL.to_string());
+
+    let fcm: Arc<dyn rouse_relay::fcm::FcmClient> = Arc::new(rouse_relay::fcm::RealFcmClient::new(
+        fcm_base_url,
+        project_id.clone(),
+        auth_manager,
+    ));
+
+    let firebase_auth: Arc<dyn rouse_relay::firebase_auth::FirebaseAuth> = Arc::new(
+        rouse_relay::firebase_auth::RealFirebaseAuth::new(project_id),
+    );
+
+    (fcm, firebase_auth)
+}
+
 // --- Stub implementations for external services ---
-// These will be replaced with real implementations when the services are wired.
+// Used as fallbacks when no service account is configured.
 
 struct StubFirestore;
 
