@@ -114,9 +114,9 @@ class FakeFcmServer(
             "am",
             "broadcast",
             "-n",
-            "com.rousecontext.debug/com.google.firebase.iid.FirebaseInstanceIdReceiver",
+            "com.rousecontext.debug/com.rousecontext.app.debug.TestWakeReceiver",
             "-a",
-            "com.google.android.c2dm.intent.RECEIVE",
+            "com.rousecontext.action.TEST_WAKE",
             *data.flatMap { (k, v) -> listOf("--es", k, v) }.toTypedArray()
         )
     }

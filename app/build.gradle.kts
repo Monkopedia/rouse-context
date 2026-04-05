@@ -37,8 +37,10 @@ android {
 
         val relayHost = project.findProperty("relay.host")?.toString() ?: "relay.rousecontext.com"
         val relayPort = project.findProperty("relay.port")?.toString() ?: "443"
+        val relayScheme = project.findProperty("relay.scheme")?.toString() ?: "wss"
         buildConfigField("String", "RELAY_HOST", "\"$relayHost\"")
         buildConfigField("int", "RELAY_PORT", "$relayPort")
+        buildConfigField("String", "RELAY_SCHEME", "\"$relayScheme\"")
     }
 
     buildTypes {
