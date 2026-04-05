@@ -55,6 +55,8 @@ pub struct CloudflareConfig {
 pub struct LimitsConfig {
     pub max_streams_per_device: u32,
     pub wake_rate_limit: u32,
+    pub subdomain_rotation_cooldown_days: Option<u32>,
+    pub fcm_wakeup_timeout_secs: Option<u64>,
 }
 
 impl Default for ServerConfig {
@@ -80,6 +82,8 @@ impl Default for LimitsConfig {
         Self {
             max_streams_per_device: 8,
             wake_rate_limit: 6,
+            subdomain_rotation_cooldown_days: Some(30),
+            fcm_wakeup_timeout_secs: Some(20),
         }
     }
 }
