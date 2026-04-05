@@ -11,6 +11,7 @@ use test_helpers::*;
 fn make_app(relay_state: Arc<RelayState>) -> axum::Router {
     let state = Arc::new(rouse_relay::api::AppState {
         relay_state,
+        session_registry: Arc::new(rouse_relay::passthrough::SessionRegistry::new()),
         firestore: Arc::new(MockFirestore::new()),
         fcm: Arc::new(MockFcm::new()),
         acme: Arc::new(MockAcme::new("cert")),

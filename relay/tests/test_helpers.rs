@@ -265,6 +265,7 @@ pub fn build_test_state(
 ) -> Arc<rouse_relay::api::AppState> {
     Arc::new(rouse_relay::api::AppState {
         relay_state: Arc::new(rouse_relay::state::RelayState::new()),
+        session_registry: Arc::new(rouse_relay::passthrough::SessionRegistry::new()),
         firestore,
         fcm,
         acme,

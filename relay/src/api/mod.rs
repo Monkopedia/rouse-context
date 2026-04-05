@@ -166,6 +166,7 @@ impl IntoResponse for ApiError {
 /// Shared application state passed to all handlers via axum's State extractor.
 pub struct AppState {
     pub relay_state: std::sync::Arc<crate::state::RelayState>,
+    pub session_registry: std::sync::Arc<crate::passthrough::SessionRegistry>,
     pub firestore: std::sync::Arc<dyn crate::firestore::FirestoreClient>,
     pub fcm: std::sync::Arc<dyn crate::fcm::FcmClient>,
     pub acme: std::sync::Arc<dyn crate::acme::AcmeClient>,

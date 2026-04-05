@@ -34,6 +34,9 @@ pub struct ServerConfig {
 pub struct TlsConfig {
     pub cert_path: String,
     pub key_path: String,
+    /// Path to the CA certificate used to verify device client certificates (mTLS).
+    /// If empty, client certificate verification is disabled.
+    pub ca_cert_path: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -104,7 +107,7 @@ impl RelayConfig {
     }
 
     /// Apply environment variable overrides to the config.
-    fn apply_env_overrides(&mut self) {
+    pub fn apply_env_overrides(&mut self) {
         if let Ok(val) = std::env::var("RELAY_BIND_ADDR") {
             self.server.bind_addr = val;
         }
