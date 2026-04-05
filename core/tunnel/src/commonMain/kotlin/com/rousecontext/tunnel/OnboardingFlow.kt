@@ -12,7 +12,11 @@ class OnboardingFlow(
     private val certificateStore: CertificateStore
 ) {
 
-    suspend fun execute(commonName: String): OnboardingResult {
+    suspend fun execute(
+        commonName: String,
+        firebaseToken: String,
+        fcmToken: String
+    ): OnboardingResult {
         // Step 1: Generate keypair and CSR
         val csrResult = try {
             csrGenerator.generate(commonName)
@@ -21,11 +25,17 @@ class OnboardingFlow(
         }
 
         // Step 2: Call /register on relay
-        return when (val response = relayApiClient.register(csrResult.csrPem)) {
+        return when (
+            val response = relayApiClient.register(
+                csrPem = csrResult.csrPem,
+                firebaseToken = firebaseToken,
+                fcmToken = fcmToken
+            )
+        ) {
             is RelayApiResult.Success -> {
                 try {
                     certificateStore.storePrivateKey(csrResult.privateKeyPem)
-                    certificateStore.storeCertificate(response.data.certificatePem)
+                    certificateStore.storeCertificate(response.data.cert)
                     certificateStore.storeSubdomain(response.data.subdomain)
                     OnboardingResult.Success(subdomain = response.data.subdomain)
                 } catch (e: Exception) {
