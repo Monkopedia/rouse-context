@@ -31,9 +31,18 @@ class DeviceController(
 
     /**
      * Install an APK on the connected device. Replaces existing installation.
+     *
+     * If installation fails due to signature mismatch (INSTALL_FAILED_UPDATE_INCOMPATIBLE),
+     * uninstalls the existing package and retries. This handles the case where a previous
+     * install was signed with a different key (e.g., after regenerating a debug keystore).
      */
     fun installApk(apkPath: String): AdbResult {
-        return executeAdb("install", "-r", apkPath)
+        val result = executeAdb("install", "-r", apkPath)
+        if (!result.isSuccess && result.output.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE")) {
+            executeAdb("uninstall", packageName)
+            return executeAdb("install", "-r", apkPath)
+        }
+        return result
     }
 
     /**
@@ -127,13 +136,18 @@ class DeviceController(
 
     /**
      * Send a broadcast to the device, simulating an FCM wake message.
+     *
+     * Uses the debug-only [TestWakeReceiver] which doesn't require the
+     * `com.google.android.c2dm.permission.SEND` permission that the Firebase
+     * receiver demands. ADB shell broadcasts run as uid 2000 and lack that
+     * permission, so targeting the Firebase receiver directly would fail.
      */
     fun sendWakeBroadcast(): AdbResult {
         return executeAdb(
             "shell", "am", "broadcast",
             "-n",
-            "$packageName/com.google.firebase.iid.FirebaseInstanceIdReceiver",
-            "-a", "com.google.android.c2dm.intent.RECEIVE",
+            "$packageName/com.rousecontext.app.debug.TestWakeReceiver",
+            "-a", "com.rousecontext.action.TEST_WAKE",
             "--es", "type", "wake"
         )
     }

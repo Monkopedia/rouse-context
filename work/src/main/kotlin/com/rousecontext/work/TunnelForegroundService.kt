@@ -51,7 +51,11 @@ class TunnelForegroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         lifecycleScope.launch {
-            tunnelClient.connect(relayUrl)
+            try {
+                tunnelClient.connect(relayUrl)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to connect to relay", e)
+            }
         }
 
         lifecycleScope.launch {

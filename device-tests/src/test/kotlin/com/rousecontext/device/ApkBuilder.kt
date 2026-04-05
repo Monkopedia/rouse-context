@@ -23,9 +23,10 @@ class ApkBuilder(
      *
      * @param relayHost The IP/hostname the device should connect to (e.g., "192.168.68.92")
      * @param relayPort The port the relay is listening on
+     * @param relayScheme WebSocket scheme: "ws" for plain, "wss" for TLS (default: "ws")
      * @return The path to the built APK file
      */
-    fun build(relayHost: String, relayPort: Int): File {
+    fun build(relayHost: String, relayPort: Int, relayScheme: String = "ws"): File {
         val gradlew = File(repoRoot, "gradlew")
         require(gradlew.exists() && gradlew.canExecute()) {
             "gradlew not found at ${gradlew.absolutePath}"
@@ -35,7 +36,8 @@ class ApkBuilder(
             gradlew.absolutePath,
             ":app:assembleDebug",
             "-Prelay.host=$relayHost",
-            "-Prelay.port=$relayPort"
+            "-Prelay.port=$relayPort",
+            "-Prelay.scheme=$relayScheme"
         )
 
         val pb = ProcessBuilder(command)

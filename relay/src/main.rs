@@ -329,6 +329,10 @@ async fn handle_relay_api(
         }
         None => {
             // No TLS - serve plain HTTP (for testing/development)
+            // Inject a test device identity so /ws works without mTLS
+            let router = router.layer(axum::Extension(DeviceIdentity {
+                subdomain: "test-device".to_string(),
+            }));
             serve_http(hyper_util::rt::TokioIo::new(stream), router).await
         }
     }

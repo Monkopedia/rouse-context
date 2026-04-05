@@ -101,7 +101,7 @@ val appModule = module {
 
     // --- Tunnel & work ---
     single<String>(named("relayUrl")) {
-        "wss://${BuildConfig.RELAY_HOST}:${BuildConfig.RELAY_PORT}/ws"
+        "${BuildConfig.RELAY_SCHEME}://${BuildConfig.RELAY_HOST}:${BuildConfig.RELAY_PORT}/ws"
     }
 
     single<TunnelClient> {
