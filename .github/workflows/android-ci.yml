@@ -24,7 +24,7 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
       - name: Build
-        run: ./gradlew assemble
+        run: ./gradlew :core:tunnel:jvmJar :core:mcp:assembleDebug :api:assembleDebug :health:assembleDebug :notifications:assembleDebug :work:assembleDebug
       - name: Test
         run: ./gradlew :core:tunnel:jvmTest :core:mcp:jvmTest :api:testDebugUnitTest :notifications:testDebugUnitTest :work:testDebugUnitTest :app:testDebugUnitTest
       - name: Lint
