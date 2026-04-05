@@ -10,3 +10,4 @@
 local.properties
 google-services.json
 relay/target/
+.claude/worktrees/
