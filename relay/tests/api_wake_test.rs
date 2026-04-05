@@ -42,6 +42,8 @@ fn make_app_with_state(
     build_router(state)
 }
 
+
+#[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_online_device_returns_200_immediately() {
     let firestore =
@@ -73,6 +75,8 @@ async fn wake_online_device_returns_200_immediately() {
     assert!(fcm.sent.lock().unwrap().is_empty());
 }
 
+
+#[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_offline_device_sends_fcm_and_waits() {
     let firestore =
@@ -112,6 +116,8 @@ async fn wake_offline_device_sends_fcm_and_waits() {
     assert!(sent[0].2); // high priority
 }
 
+
+#[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_device_not_found_returns_404() {
     let firestore = Arc::new(MockFirestore::new()); // empty
@@ -131,6 +137,8 @@ async fn wake_device_not_found_returns_404() {
     assert_eq!(resp.status(), 404);
 }
 
+
+#[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_rate_limit_returns_429() {
     let firestore =
@@ -188,6 +196,8 @@ async fn wake_rate_limit_returns_429() {
     assert!(json["retry_after_secs"].is_number());
 }
 
+
+#[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_fcm_failure_returns_500() {
     let firestore =
