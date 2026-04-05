@@ -62,7 +62,10 @@ val appModule = module {
 
     // --- Onboarding ---
     single { CsrGenerator() }
-    single { RelayApiClient("https://relay.rousecontext.com") }
+    single {
+        val httpScheme = if (BuildConfig.RELAY_SCHEME == "wss") "https" else "http"
+        RelayApiClient("$httpScheme://${BuildConfig.RELAY_HOST}")
+    }
     single { OnboardingFlow(get(), get(), get()) }
 
     // --- Token store ---
