@@ -21,14 +21,15 @@ actual class CsrGenerator actual constructor() {
         return CsrResult(csrPem = csrPem, privateKeyPem = privateKeyPem)
     }
 
-    private fun buildCsr(
-        commonName: String,
-        keyPair: java.security.KeyPair,
-    ): ByteArray {
+    private fun buildCsr(commonName: String, keyPair: java.security.KeyPair): ByteArray {
         // Build CertificationRequestInfo
         val version = byteArrayOf(0x02, 0x01, 0x00) // INTEGER 0
         val cnOid = byteArrayOf(
-            0x06, 0x03, 0x55, 0x04, 0x03, // OID 2.5.4.3 (CN)
+            0x06,
+            0x03,
+            0x55,
+            0x04,
+            0x03 // OID 2.5.4.3 (CN)
         )
         val cnValue = derUtf8String(commonName)
         val atv = derSequence(cnOid + cnValue)
@@ -51,8 +52,8 @@ actual class CsrGenerator actual constructor() {
             byteArrayOf(
                 0x06, 0x09, 0x2A.toByte(), 0x86.toByte(), 0x48, 0x86.toByte(),
                 0xF7.toByte(), 0x0D, 0x01, 0x01, 0x0B,
-                0x05, 0x00, // NULL parameters
-            ),
+                0x05, 0x00 // NULL parameters
+            )
         )
         val signatureBitString = derBitString(signatureBytes)
 
@@ -63,7 +64,10 @@ actual class CsrGenerator actual constructor() {
 
     private fun derSet(content: ByteArray): ByteArray = derTag(0x31, content)
 
-    private fun derUtf8String(value: String): ByteArray = derTag(0x0C, value.toByteArray(Charsets.UTF_8))
+    private fun derUtf8String(value: String): ByteArray = derTag(
+        0x0C,
+        value.toByteArray(Charsets.UTF_8)
+    )
 
     private fun derBitString(content: ByteArray): ByteArray {
         val payload = byteArrayOf(0x00) + content // 0 unused bits
@@ -75,16 +79,15 @@ actual class CsrGenerator actual constructor() {
         return byteArrayOf(tag.toByte()) + lengthBytes + content
     }
 
-    private fun derLength(length: Int): ByteArray =
-        when {
-            length < 128 -> byteArrayOf(length.toByte())
-            length < 256 -> byteArrayOf(0x81.toByte(), length.toByte())
-            else -> byteArrayOf(
-                0x82.toByte(),
-                (length shr 8).toByte(),
-                (length and 0xFF).toByte(),
-            )
-        }
+    private fun derLength(length: Int): ByteArray = when {
+        length < 128 -> byteArrayOf(length.toByte())
+        length < 256 -> byteArrayOf(0x81.toByte(), length.toByte())
+        else -> byteArrayOf(
+            0x82.toByte(),
+            (length shr 8).toByte(),
+            (length and 0xFF).toByte()
+        )
+    }
 
     private fun derToPem(der: ByteArray, label: String): String {
         val base64 = Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(der)

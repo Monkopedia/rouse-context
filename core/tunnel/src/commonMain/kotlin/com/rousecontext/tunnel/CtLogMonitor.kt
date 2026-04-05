@@ -26,7 +26,7 @@ interface CtLogFetcher {
 class CtLogMonitor(
     private val certificateStore: CertificateStore,
     private val ctLogFetcher: CtLogFetcher,
-    private val expectedIssuers: Set<String>,
+    private val expectedIssuers: Set<String>
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -40,7 +40,7 @@ class CtLogMonitor(
             certificateStore.getSubdomain()
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
-                "Could not retrieve subdomain: ${e.message}",
+                "Could not retrieve subdomain: ${e.message}"
             )
         }
 
@@ -54,7 +54,7 @@ class CtLogMonitor(
             responseBody = ctLogFetcher.fetch(domain)
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
-                "Could not reach CT log service: ${e.message}",
+                "Could not reach CT log service: ${e.message}"
             )
         }
 
@@ -63,7 +63,7 @@ class CtLogMonitor(
             entries = json.decodeFromString<List<CtLogEntry>>(responseBody)
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
-                "Malformed CT log response: ${e.message}",
+                "Malformed CT log response: ${e.message}"
             )
         }
 
@@ -77,7 +77,7 @@ class CtLogMonitor(
         } else {
             val issuers = unexpectedEntries.map { it.issuerName }.distinct()
             SecurityCheckResult.Alert(
-                "Unexpected certificate issuer(s) for $domain: $issuers",
+                "Unexpected certificate issuer(s) for $domain: $issuers"
             )
         }
     }
@@ -93,5 +93,5 @@ internal data class CtLogEntry(
     @SerialName("entry_timestamp") val entryTimestamp: String = "",
     @SerialName("not_before") val notBefore: String = "",
     @SerialName("not_after") val notAfter: String = "",
-    @SerialName("serial_number") val serialNumber: String = "",
+    @SerialName("serial_number") val serialNumber: String = ""
 )

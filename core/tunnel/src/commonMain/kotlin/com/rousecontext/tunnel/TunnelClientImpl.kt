@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
  */
 class TunnelClientImpl(
     private val scope: CoroutineScope,
-    private val httpClient: HttpClient = defaultHttpClient(),
+    private val httpClient: HttpClient = defaultHttpClient()
 ) : TunnelClient {
     private val stateMachine = ConnectionStateMachine()
     private var muxDemux: MuxDemux? = null
@@ -62,7 +62,7 @@ class TunnelClientImpl(
                 } catch (e: Exception) {
                     if (isActive) {
                         handleDisconnect(
-                            TunnelError.ConnectionFailed("WebSocket error", e),
+                            TunnelError.ConnectionFailed("WebSocket error", e)
                         )
                     }
                 }
@@ -105,9 +105,8 @@ class TunnelClientImpl(
     }
 
     companion object {
-        fun defaultHttpClient(): HttpClient =
-            HttpClient {
-                install(WebSockets)
-            }
+        fun defaultHttpClient(): HttpClient = HttpClient {
+            install(WebSockets)
+        }
     }
 }

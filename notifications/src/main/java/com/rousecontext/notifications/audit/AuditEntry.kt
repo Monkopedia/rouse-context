@@ -16,5 +16,5 @@ data class AuditEntry(
     val timestampMillis: Long,
     val durationMillis: Long,
     val success: Boolean,
-    val errorMessage: String? = null,
+    val errorMessage: String? = null
 )

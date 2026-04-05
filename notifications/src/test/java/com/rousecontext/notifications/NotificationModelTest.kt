@@ -11,17 +11,17 @@ class NotificationModelTest {
 
     private val summarySettings = NotificationSettings(
         mode = NotificationMode.Summary,
-        permissionGranted = true,
+        permissionGranted = true
     )
 
     private val everySettings = NotificationSettings(
         mode = NotificationMode.Every,
-        permissionGranted = true,
+        permissionGranted = true
     )
 
     private val suppressSettings = NotificationSettings(
         mode = NotificationMode.Suppress,
-        permissionGranted = true,
+        permissionGranted = true
     )
 
     // --- MuxConnected ---
@@ -39,7 +39,7 @@ class NotificationModelTest {
     fun `MuxDisconnected with tool calls in Summary mode emits PostSummary`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.MuxDisconnected(toolCallCount = 5),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val summary = actions[0] as NotificationAction.PostSummary
@@ -50,7 +50,7 @@ class NotificationModelTest {
     fun `MuxDisconnected with zero tool calls emits PostWarning`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.MuxDisconnected(toolCallCount = 0),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         assertTrue(actions[0] is NotificationAction.PostWarning)
@@ -62,7 +62,7 @@ class NotificationModelTest {
     fun `StreamOpened updates foreground with stream count`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.StreamOpened(streamCount = 3),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val fg = actions[0] as NotificationAction.ShowForeground
@@ -73,7 +73,7 @@ class NotificationModelTest {
     fun `StreamClosed updates foreground with stream count`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.StreamClosed(streamCount = 1),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val fg = actions[0] as NotificationAction.ShowForeground
@@ -88,7 +88,7 @@ class NotificationModelTest {
     fun `ErrorOccurred connection-level emits PostError`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.ErrorOccurred("Relay unreachable"),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val error = actions[0] as NotificationAction.PostError
@@ -100,7 +100,7 @@ class NotificationModelTest {
     fun `ErrorOccurred stream-level emits PostError with stream context`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.ErrorOccurred("TLS failed", streamId = 7),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val error = actions[0] as NotificationAction.PostError
@@ -122,7 +122,7 @@ class NotificationModelTest {
         )
         val actions = NotificationModel.onEvent(
             SessionEvent.ToolCallCompleted(event),
-            everySettings,
+            everySettings
         )
         assertEquals(1, actions.size)
         val usage = actions[0] as NotificationAction.PostToolUsage
@@ -143,7 +143,7 @@ class NotificationModelTest {
         )
         val actions = NotificationModel.onEvent(
             SessionEvent.ToolCallCompleted(event),
-            summarySettings,
+            summarySettings
         )
         assertTrue(actions.isEmpty())
     }
@@ -159,14 +159,14 @@ class NotificationModelTest {
             SessionEvent.CertRenewalFailed("timeout"),
             SessionEvent.CertExpired,
             SessionEvent.RateLimited(60_000L),
-            SessionEvent.SecurityAlert("suspicious"),
+            SessionEvent.SecurityAlert("suspicious")
         )
 
         events.forEach { event ->
             val actions = NotificationModel.onEvent(event, suppressSettings)
             assertTrue(
                 "Expected no actions for $event in Suppress mode, got $actions",
-                actions.isEmpty(),
+                actions.isEmpty()
             )
         }
     }
@@ -179,7 +179,7 @@ class NotificationModelTest {
 
         val streamActions = NotificationModel.onEvent(
             SessionEvent.StreamOpened(streamCount = 2),
-            suppressSettings,
+            suppressSettings
         )
         assertEquals(1, streamActions.size)
         assertTrue(streamActions[0] is NotificationAction.ShowForeground)
@@ -191,7 +191,7 @@ class NotificationModelTest {
     fun `Permission denied forces suppress for optional notifications`() {
         val deniedSettings = NotificationSettings(
             mode = NotificationMode.Every,
-            permissionGranted = false,
+            permissionGranted = false
         )
 
         // Optional notification suppressed
@@ -206,7 +206,7 @@ class NotificationModelTest {
         )
         val toolActions = NotificationModel.onEvent(
             SessionEvent.ToolCallCompleted(event),
-            deniedSettings,
+            deniedSettings
         )
         assertTrue(toolActions.isEmpty())
 
@@ -229,7 +229,7 @@ class NotificationModelTest {
     fun `CertRenewalFailed emits PostError`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.CertRenewalFailed("ACME timeout"),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val error = actions[0] as NotificationAction.PostError
@@ -249,7 +249,7 @@ class NotificationModelTest {
     fun `RateLimited emits PostInfo with retry info`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.RateLimited(retryAfterMillis = 30_000L),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val info = actions[0] as NotificationAction.PostInfo
@@ -262,7 +262,7 @@ class NotificationModelTest {
     fun `SecurityAlert emits PostAlert`() {
         val actions = NotificationModel.onEvent(
             SessionEvent.SecurityAlert("Unauthorized access attempt"),
-            summarySettings,
+            summarySettings
         )
         assertEquals(1, actions.size)
         val alert = actions[0] as NotificationAction.PostAlert

@@ -14,7 +14,7 @@ import java.security.MessageDigest
  * rather than an [SecurityCheckResult.Alert], since the check could not be completed.
  */
 class SelfCertVerifier(
-    private val certificateStore: CertificateStore,
+    private val certificateStore: CertificateStore
 ) {
 
     /**
@@ -31,7 +31,7 @@ class SelfCertVerifier(
             knownFingerprints = certificateStore.getKnownFingerprints()
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
-                "Could not retrieve known fingerprints: ${e.message}",
+                "Could not retrieve known fingerprints: ${e.message}"
             )
         }
 
@@ -42,7 +42,7 @@ class SelfCertVerifier(
             SecurityCheckResult.Verified
         } else {
             SecurityCheckResult.Alert(
-                "Leaf certificate fingerprint $leafFingerprint does not match any known fingerprint",
+                "Leaf certificate fingerprint $leafFingerprint does not match any known fingerprint"
             )
         }
     }

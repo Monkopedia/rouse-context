@@ -24,233 +24,187 @@ import kotlinx.coroutines.withTimeout
  */
 class TunnelClientImplTest {
     @Test
-    fun `connect transitions DISCONNECTED to CONNECTING to CONNECTED`() =
-        runBlocking {
-            val port = findFreePort()
+    fun `connect transitions DISCONNECTED to CONNECTING to CONNECTED`() = runBlocking {
+        val port = findFreePort()
 
-            val server =
-                embeddedServer(CIO, port = port) {
-                    install(ServerWebSockets)
-                    routing {
-                        webSocket("/tunnel") {
-                            for (frame in incoming) {
-                                // consume
-                            }
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        for (frame in incoming) {
+                            // consume
                         }
                     }
                 }
-            server.start(wait = false)
-
-            try {
-                val client = TunnelClientImpl(this)
-
-                assertEquals(TunnelState.DISCONNECTED, client.state.value)
-
-                // Track state transitions
-                val states = mutableListOf<TunnelState>()
-                val collectJob =
-                    launch {
-                        client.state.collect { states.add(it) }
-                    }
-
-                // Allow collector to start
-                delay(50)
-
-                client.connect("ws://localhost:$port/tunnel")
-
-                assertEquals(TunnelState.CONNECTED, client.state.value)
-
-                client.disconnect()
-
-                assertEquals(TunnelState.DISCONNECTED, client.state.value)
-
-                collectJob.cancel()
-                coroutineContext.cancelChildren()
-            } finally {
-                server.stop(0, 0)
             }
+        server.start(wait = false)
+
+        try {
+            val client = TunnelClientImpl(this)
+
+            assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+            // Track state transitions
+            val states = mutableListOf<TunnelState>()
+            val collectJob =
+                launch {
+                    client.state.collect { states.add(it) }
+                }
+
+            // Allow collector to start
+            delay(50)
+
+            client.connect("ws://localhost:$port/tunnel")
+
+            assertEquals(TunnelState.CONNECTED, client.state.value)
+
+            client.disconnect()
+
+            assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+            collectJob.cancel()
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
         }
+    }
 
     @Test
-    fun `OPEN frame received emits to incomingSessions`() =
-        runBlocking {
-            val port = findFreePort()
-            val serverSessionRef = CompletableDeferred<io.ktor.websocket.WebSocketSession>()
+    fun `OPEN frame received emits to incomingSessions`() = runBlocking {
+        val port = findFreePort()
+        val serverSessionRef = CompletableDeferred<io.ktor.websocket.WebSocketSession>()
 
-            val server =
-                embeddedServer(CIO, port = port) {
-                    install(ServerWebSockets)
-                    routing {
-                        webSocket("/tunnel") {
-                            serverSessionRef.complete(this)
-                            for (frame in incoming) {
-                                // consume
-                            }
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        serverSessionRef.complete(this)
+                        for (frame in incoming) {
+                            // consume
                         }
                     }
                 }
-            server.start(wait = false)
-
-            try {
-                val client = TunnelClientImpl(this)
-                client.connect("ws://localhost:$port/tunnel")
-
-                val sessionReceived = CompletableDeferred<MuxStream>()
-                val collectJob =
-                    launch {
-                        client.incomingSessions.collect { session ->
-                            sessionReceived.complete(session)
-                        }
-                    }
-
-                // Server sends OPEN
-                val serverWs = serverSessionRef.await()
-                serverWs.send(
-                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 7u))),
-                )
-
-                val session =
-                    withTimeout(5000) {
-                        sessionReceived.await()
-                    }
-                assertEquals(7u, session.id)
-
-                client.disconnect()
-                collectJob.cancel()
-                coroutineContext.cancelChildren()
-            } finally {
-                server.stop(0, 0)
             }
+        server.start(wait = false)
+
+        try {
+            val client = TunnelClientImpl(this)
+            client.connect("ws://localhost:$port/tunnel")
+
+            val sessionReceived = CompletableDeferred<MuxStream>()
+            val collectJob =
+                launch {
+                    client.incomingSessions.collect { session ->
+                        sessionReceived.complete(session)
+                    }
+                }
+
+            // Server sends OPEN
+            val serverWs = serverSessionRef.await()
+            serverWs.send(
+                Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 7u)))
+            )
+
+            val session =
+                withTimeout(5000) {
+                    sessionReceived.await()
+                }
+            assertEquals(7u, session.id)
+
+            client.disconnect()
+            collectJob.cancel()
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
         }
+    }
 
     @Test
-    fun `disconnect sends CLOSE for all streams`() =
-        runBlocking {
-            val port = findFreePort()
-            val serverSessionRef = CompletableDeferred<io.ktor.websocket.WebSocketSession>()
-            val receivedFrames = mutableListOf<MuxFrame>()
-            val closeReceived = CompletableDeferred<Unit>()
+    fun `disconnect sends CLOSE for all streams`() = runBlocking {
+        val port = findFreePort()
+        val serverSessionRef = CompletableDeferred<io.ktor.websocket.WebSocketSession>()
+        val receivedFrames = mutableListOf<MuxFrame>()
+        val closeReceived = CompletableDeferred<Unit>()
 
-            val server =
-                embeddedServer(CIO, port = port) {
-                    install(ServerWebSockets)
-                    routing {
-                        webSocket("/tunnel") {
-                            serverSessionRef.complete(this)
-                            for (frame in incoming) {
-                                if (frame is Frame.Binary) {
-                                    val muxFrame = MuxCodec.decode(frame.readBytes())
-                                    receivedFrames.add(muxFrame)
-                                    if (muxFrame is MuxFrame.Close) {
-                                        closeReceived.complete(Unit)
-                                    }
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        serverSessionRef.complete(this)
+                        for (frame in incoming) {
+                            if (frame is Frame.Binary) {
+                                val muxFrame = MuxCodec.decode(frame.readBytes())
+                                receivedFrames.add(muxFrame)
+                                if (muxFrame is MuxFrame.Close) {
+                                    closeReceived.complete(Unit)
                                 }
                             }
                         }
                     }
                 }
-            server.start(wait = false)
-
-            try {
-                val client = TunnelClientImpl(this)
-                client.connect("ws://localhost:$port/tunnel")
-
-                val sessionReceived = CompletableDeferred<MuxStream>()
-                val collectJob =
-                    launch {
-                        client.incomingSessions.collect { session ->
-                            sessionReceived.complete(session)
-                        }
-                    }
-
-                // Server opens a stream
-                val serverWs = serverSessionRef.await()
-                serverWs.send(
-                    Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 10u))),
-                )
-
-                withTimeout(5000) { sessionReceived.await() }
-
-                // Disconnect should close all streams
-                client.disconnect()
-
-                withTimeout(5000) { closeReceived.await() }
-
-                val closeFrames = receivedFrames.filterIsInstance<MuxFrame.Close>()
-                assertTrue(closeFrames.isNotEmpty(), "Expected CLOSE frames to be sent")
-                assertTrue(
-                    closeFrames.any { it.streamId == 10u },
-                    "Expected CLOSE for stream 10",
-                )
-
-                collectJob.cancel()
-                coroutineContext.cancelChildren()
-            } finally {
-                server.stop(0, 0)
             }
-        }
+        server.start(wait = false)
 
-    @Test
-    fun `WebSocket drop transitions to DISCONNECTED`() =
-        runBlocking {
-            val port = findFreePort()
+        try {
+            val client = TunnelClientImpl(this)
+            client.connect("ws://localhost:$port/tunnel")
 
-            val server =
-                embeddedServer(CIO, port = port) {
-                    install(ServerWebSockets)
-                    routing {
-                        webSocket("/tunnel") {
-                            // Close after brief delay to simulate drop
-                            delay(200)
-                            close()
-                        }
+            val sessionReceived = CompletableDeferred<MuxStream>()
+            val collectJob =
+                launch {
+                    client.incomingSessions.collect { session ->
+                        sessionReceived.complete(session)
                     }
                 }
-            server.start(wait = false)
 
-            try {
-                val client = TunnelClientImpl(this)
+            // Server opens a stream
+            val serverWs = serverSessionRef.await()
+            serverWs.send(
+                Frame.Binary(true, MuxCodec.encode(MuxFrame.Open(streamId = 10u)))
+            )
 
-                val errorReceived = CompletableDeferred<TunnelError>()
-                val errorJob =
-                    launch {
-                        client.errors.collect { error ->
-                            errorReceived.complete(error)
-                        }
-                    }
+            withTimeout(5000) { sessionReceived.await() }
 
-                client.connect("ws://localhost:$port/tunnel")
-                assertEquals(TunnelState.CONNECTED, client.state.value)
+            // Disconnect should close all streams
+            client.disconnect()
 
-                // Wait for server to close the WebSocket
-                val error =
-                    withTimeout(5000) {
-                        errorReceived.await()
-                    }
+            withTimeout(5000) { closeReceived.await() }
 
-                assertTrue(
-                    error is TunnelError.WebSocketClosed || error is TunnelError.ConnectionFailed,
-                    "Expected WebSocketClosed or ConnectionFailed, got ${error::class.simpleName}",
-                )
+            val closeFrames = receivedFrames.filterIsInstance<MuxFrame.Close>()
+            assertTrue(closeFrames.isNotEmpty(), "Expected CLOSE frames to be sent")
+            assertTrue(
+                closeFrames.any { it.streamId == 10u },
+                "Expected CLOSE for stream 10"
+            )
 
-                // State should transition to disconnected
-                withTimeout(5000) {
-                    while (client.state.value != TunnelState.DISCONNECTED) {
-                        delay(50)
-                    }
-                }
-                assertEquals(TunnelState.DISCONNECTED, client.state.value)
-
-                errorJob.cancel()
-                coroutineContext.cancelChildren()
-            } finally {
-                server.stop(0, 0)
-            }
+            collectJob.cancel()
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
         }
+    }
 
     @Test
-    fun `connection failure emits error on SharedFlow`() =
-        runBlocking {
+    fun `WebSocket drop transitions to DISCONNECTED`() = runBlocking {
+        val port = findFreePort()
+
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        // Close after brief delay to simulate drop
+                        delay(200)
+                        close()
+                    }
+                }
+            }
+        server.start(wait = false)
+
+        try {
             val client = TunnelClientImpl(this)
 
             val errorReceived = CompletableDeferred<TunnelError>()
@@ -261,18 +215,59 @@ class TunnelClientImplTest {
                     }
                 }
 
-            // Connect to a port that nothing is listening on
-            val result = runCatching { client.connect("ws://localhost:19999/nonexistent") }
-            assertTrue(result.isFailure)
+            client.connect("ws://localhost:$port/tunnel")
+            assertEquals(TunnelState.CONNECTED, client.state.value)
 
+            // Wait for server to close the WebSocket
             val error =
                 withTimeout(5000) {
                     errorReceived.await()
                 }
-            assertTrue(error is TunnelError.ConnectionFailed)
+
+            assertTrue(
+                error is TunnelError.WebSocketClosed || error is TunnelError.ConnectionFailed,
+                "Expected WebSocketClosed or ConnectionFailed, got ${error::class.simpleName}"
+            )
+
+            // State should transition to disconnected
+            withTimeout(5000) {
+                while (client.state.value != TunnelState.DISCONNECTED) {
+                    delay(50)
+                }
+            }
             assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
             errorJob.cancel()
             coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
         }
+    }
+
+    @Test
+    fun `connection failure emits error on SharedFlow`() = runBlocking {
+        val client = TunnelClientImpl(this)
+
+        val errorReceived = CompletableDeferred<TunnelError>()
+        val errorJob =
+            launch {
+                client.errors.collect { error ->
+                    errorReceived.complete(error)
+                }
+            }
+
+        // Connect to a port that nothing is listening on
+        val result = runCatching { client.connect("ws://localhost:19999/nonexistent") }
+        assertTrue(result.isFailure)
+
+        val error =
+            withTimeout(5000) {
+                errorReceived.await()
+            }
+        assertTrue(error is TunnelError.ConnectionFailed)
+        assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+        errorJob.cancel()
+        coroutineContext.cancelChildren()
+    }
 }

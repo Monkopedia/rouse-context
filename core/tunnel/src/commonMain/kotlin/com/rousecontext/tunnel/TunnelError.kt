@@ -5,7 +5,7 @@ package com.rousecontext.tunnel
  */
 sealed class TunnelError(
     message: String,
-    cause: Throwable? = null,
+    cause: Throwable? = null
 ) : Exception(message, cause) {
 
     /** TLS handshake failed (cert expired, untrusted, etc.). */
@@ -25,13 +25,13 @@ sealed class TunnelError(
     /** A mux stream was refused by the remote. */
     class StreamRefused(
         val streamId: UInt,
-        message: String,
+        message: String
     ) : TunnelError(message)
 
     /** A mux stream was reset by the remote. */
     class StreamReset(
         val streamId: UInt,
-        message: String,
+        message: String
     ) : TunnelError(message)
 
     /** Internal error on the remote side. */
@@ -43,6 +43,6 @@ sealed class TunnelError(
     /** Invalid state transition attempted. */
     class InvalidStateTransition(
         val from: TunnelState,
-        val to: TunnelState,
+        val to: TunnelState
     ) : TunnelError("Invalid transition from $from to $to")
 }

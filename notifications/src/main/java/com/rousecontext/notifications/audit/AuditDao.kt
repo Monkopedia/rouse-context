@@ -20,12 +20,12 @@ interface AuditDao {
         "SELECT * FROM audit_entries " +
             "WHERE timestampMillis >= :startMillis AND timestampMillis <= :endMillis " +
             "AND (:provider IS NULL OR provider = :provider) " +
-            "ORDER BY timestampMillis ASC",
+            "ORDER BY timestampMillis ASC"
     )
     suspend fun queryByDateRange(
         startMillis: Long,
         endMillis: Long,
-        provider: String? = null,
+        provider: String? = null
     ): List<AuditEntry>
 
     @Query("DELETE FROM audit_entries WHERE timestampMillis < :cutoffMillis")

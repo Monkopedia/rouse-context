@@ -20,163 +20,164 @@ import kotlinx.coroutines.withTimeout
  */
 class TlsAcceptTest {
     @Test
-    fun `TLS handshake completes and plaintext flows through`() =
-        runBlocking {
-            val certStore = TestCertificateStore()
-            val acceptor = TlsAcceptor.create(certStore.sslContext)
+    fun `TLS handshake completes and plaintext flows through`() = runBlocking {
+        val certStore = TestCertificateStore()
+        val acceptor = TlsAcceptor.create(certStore.sslContext)
 
-            // Create a pair of connected MuxStreams (simulated pipe)
-            val serverToClient = Channel<ByteArray>(Channel.BUFFERED)
-            val clientToServer = Channel<ByteArray>(Channel.BUFFERED)
+        // Create a pair of connected MuxStreams (simulated pipe)
+        val serverToClient = Channel<ByteArray>(Channel.BUFFERED)
+        val clientToServer = Channel<ByteArray>(Channel.BUFFERED)
 
-            val serverStream =
-                ChannelMuxStream(
-                    streamIdValue = 1u,
-                    readChannel = clientToServer,
-                    writeChannel = serverToClient,
-                )
-            val clientStream =
-                ChannelMuxStream(
-                    streamIdValue = 1u,
-                    readChannel = serverToClient,
-                    writeChannel = clientToServer,
-                )
-
-            val tlsSessionDeferred = CompletableDeferred<TlsAcceptor.TlsSession>()
-
-            // Server side: TLS accept
-            launch(Dispatchers.IO) {
-                val tlsSession = acceptor.accept(serverStream)
-                tlsSessionDeferred.complete(tlsSession)
-            }
-
-            // Client side: TLS handshake as client
-            val clientTlsResult = CompletableDeferred<Pair<InputStream, OutputStream>>()
-            launch(Dispatchers.IO) {
-                val sslEngine = certStore.trustingSslContext.createSSLEngine("test.rousecontext.com", 443)
-                sslEngine.useClientMode = true
-
-                val session = sslEngine.session
-                var netIn = java.nio.ByteBuffer.allocate(session.packetBufferSize)
-                var netOut = java.nio.ByteBuffer.allocate(session.packetBufferSize)
-                val appIn = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
-                val appOut = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
-
-                sslEngine.beginHandshake()
-                var hsStatus = sslEngine.handshakeStatus
-
-                while (hsStatus != javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED &&
-                    hsStatus != javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
-                ) {
-                    when (hsStatus) {
-                        javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
-                            netOut.clear()
-                            val result = sslEngine.wrap(appOut, netOut)
-                            hsStatus = result.handshakeStatus
-                            netOut.flip()
-                            if (netOut.hasRemaining()) {
-                                val data = ByteArray(netOut.remaining())
-                                netOut.get(data)
-                                clientStream.send(data)
-                            }
-                        }
-                        javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-                            val tlsData = clientStream.read()
-                            netIn = ensureCapacity(netIn, tlsData.size)
-                            netIn.put(tlsData)
-                            netIn.flip()
-                            val result = sslEngine.unwrap(netIn, appIn)
-                            hsStatus = result.handshakeStatus
-                            netIn.compact()
-                        }
-                        javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_TASK -> {
-                            var task = sslEngine.delegatedTask
-                            while (task != null) {
-                                task.run()
-                                task = sslEngine.delegatedTask
-                            }
-                            hsStatus = sslEngine.handshakeStatus
-                        }
-                        else -> break
-                    }
-                }
-
-                // Handshake complete - send plaintext
-                clientTlsResult.complete(
-                    Pair(
-                        TlsClientInputStream(sslEngine, clientStream, netIn),
-                        TlsClientOutputStream(sslEngine, clientStream),
-                    ),
-                )
-            }
-
-            // Wait for both sides to complete handshake
-            val serverSession =
-                withTimeout(10000) {
-                    tlsSessionDeferred.await()
-                }
-            val (clientIn, clientOut) =
-                withTimeout(10000) {
-                    clientTlsResult.await()
-                }
-
-            // Client writes plaintext, server reads it
-            clientOut.write("hello from client".toByteArray())
-            clientOut.flush()
-
-            val buf = ByteArray(1024)
-            val n = serverSession.input.read(buf, 0, buf.size)
-            assertTrue(n > 0)
-            assertEquals("hello from client", String(buf, 0, n))
-
-            // Server writes plaintext, client reads it
-            serverSession.output.write("hello from server".toByteArray())
-            serverSession.output.flush()
-
-            val buf2 = ByteArray(1024)
-            val n2 = clientIn.read(buf2, 0, buf2.size)
-            assertTrue(n2 > 0)
-            assertEquals("hello from server", String(buf2, 0, n2))
-
-            coroutineContext.cancelChildren()
-        }
-
-    @Test
-    fun `invalid TLS from client is handled gracefully`() =
-        runBlocking {
-            val certStore = TestCertificateStore()
-            val acceptor = TlsAcceptor.create(certStore.sslContext)
-
-            val serverToClient = Channel<ByteArray>(Channel.BUFFERED)
-            val clientToServer = Channel<ByteArray>(Channel.BUFFERED)
-
-            val serverStream =
-                ChannelMuxStream(
-                    streamIdValue = 1u,
-                    readChannel = clientToServer,
-                    writeChannel = serverToClient,
-                )
-
-            // Send garbage data instead of a proper TLS ClientHello
-            clientToServer.send("this is not TLS data at all".toByteArray())
-            clientToServer.close()
-
-            val result =
-                runCatching {
-                    withTimeout(5000) {
-                        acceptor.accept(serverStream)
-                    }
-                }
-
-            assertTrue(result.isFailure)
-            val error = result.exceptionOrNull()
-            assertTrue(
-                error is TunnelError.TlsHandshakeFailed,
-                "Expected TlsHandshakeFailed but got ${error?.javaClass?.name}: ${error?.message}",
+        val serverStream =
+            ChannelMuxStream(
+                streamIdValue = 1u,
+                readChannel = clientToServer,
+                writeChannel = serverToClient
+            )
+        val clientStream =
+            ChannelMuxStream(
+                streamIdValue = 1u,
+                readChannel = serverToClient,
+                writeChannel = clientToServer
             )
 
-            coroutineContext.cancelChildren()
+        val tlsSessionDeferred = CompletableDeferred<TlsAcceptor.TlsSession>()
+
+        // Server side: TLS accept
+        launch(Dispatchers.IO) {
+            val tlsSession = acceptor.accept(serverStream)
+            tlsSessionDeferred.complete(tlsSession)
         }
+
+        // Client side: TLS handshake as client
+        val clientTlsResult = CompletableDeferred<Pair<InputStream, OutputStream>>()
+        launch(Dispatchers.IO) {
+            val sslEngine = certStore.trustingSslContext.createSSLEngine(
+                "test.rousecontext.com",
+                443
+            )
+            sslEngine.useClientMode = true
+
+            val session = sslEngine.session
+            var netIn = java.nio.ByteBuffer.allocate(session.packetBufferSize)
+            var netOut = java.nio.ByteBuffer.allocate(session.packetBufferSize)
+            val appIn = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
+            val appOut = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
+
+            sslEngine.beginHandshake()
+            var hsStatus = sslEngine.handshakeStatus
+
+            while (hsStatus != javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED &&
+                hsStatus != javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
+            ) {
+                when (hsStatus) {
+                    javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
+                        netOut.clear()
+                        val result = sslEngine.wrap(appOut, netOut)
+                        hsStatus = result.handshakeStatus
+                        netOut.flip()
+                        if (netOut.hasRemaining()) {
+                            val data = ByteArray(netOut.remaining())
+                            netOut.get(data)
+                            clientStream.send(data)
+                        }
+                    }
+                    javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+                        val tlsData = clientStream.read()
+                        netIn = ensureCapacity(netIn, tlsData.size)
+                        netIn.put(tlsData)
+                        netIn.flip()
+                        val result = sslEngine.unwrap(netIn, appIn)
+                        hsStatus = result.handshakeStatus
+                        netIn.compact()
+                    }
+                    javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_TASK -> {
+                        var task = sslEngine.delegatedTask
+                        while (task != null) {
+                            task.run()
+                            task = sslEngine.delegatedTask
+                        }
+                        hsStatus = sslEngine.handshakeStatus
+                    }
+                    else -> break
+                }
+            }
+
+            // Handshake complete - send plaintext
+            clientTlsResult.complete(
+                Pair(
+                    TlsClientInputStream(sslEngine, clientStream, netIn),
+                    TlsClientOutputStream(sslEngine, clientStream)
+                )
+            )
+        }
+
+        // Wait for both sides to complete handshake
+        val serverSession =
+            withTimeout(10000) {
+                tlsSessionDeferred.await()
+            }
+        val (clientIn, clientOut) =
+            withTimeout(10000) {
+                clientTlsResult.await()
+            }
+
+        // Client writes plaintext, server reads it
+        clientOut.write("hello from client".toByteArray())
+        clientOut.flush()
+
+        val buf = ByteArray(1024)
+        val n = serverSession.input.read(buf, 0, buf.size)
+        assertTrue(n > 0)
+        assertEquals("hello from client", String(buf, 0, n))
+
+        // Server writes plaintext, client reads it
+        serverSession.output.write("hello from server".toByteArray())
+        serverSession.output.flush()
+
+        val buf2 = ByteArray(1024)
+        val n2 = clientIn.read(buf2, 0, buf2.size)
+        assertTrue(n2 > 0)
+        assertEquals("hello from server", String(buf2, 0, n2))
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `invalid TLS from client is handled gracefully`() = runBlocking {
+        val certStore = TestCertificateStore()
+        val acceptor = TlsAcceptor.create(certStore.sslContext)
+
+        val serverToClient = Channel<ByteArray>(Channel.BUFFERED)
+        val clientToServer = Channel<ByteArray>(Channel.BUFFERED)
+
+        val serverStream =
+            ChannelMuxStream(
+                streamIdValue = 1u,
+                readChannel = clientToServer,
+                writeChannel = serverToClient
+            )
+
+        // Send garbage data instead of a proper TLS ClientHello
+        clientToServer.send("this is not TLS data at all".toByteArray())
+        clientToServer.close()
+
+        val result =
+            runCatching {
+                withTimeout(5000) {
+                    acceptor.accept(serverStream)
+                }
+            }
+
+        assertTrue(result.isFailure)
+        val error = result.exceptionOrNull()
+        assertTrue(
+            error is TunnelError.TlsHandshakeFailed,
+            "Expected TlsHandshakeFailed but got ${error?.javaClass?.name}: ${error?.message}"
+        )
+
+        coroutineContext.cancelChildren()
+    }
 }
 
 /**
@@ -185,7 +186,7 @@ class TlsAcceptTest {
 internal class ChannelMuxStream(
     private val streamIdValue: UInt,
     private val readChannel: Channel<ByteArray>,
-    private val writeChannel: Channel<ByteArray>,
+    private val writeChannel: Channel<ByteArray>
 ) : MuxStream {
     override val id: UInt get() = streamIdValue
 
@@ -207,10 +208,7 @@ internal class ChannelMuxStream(
     }
 }
 
-private fun ensureCapacity(
-    buffer: java.nio.ByteBuffer,
-    additionalBytes: Int,
-): java.nio.ByteBuffer {
+private fun ensureCapacity(buffer: java.nio.ByteBuffer, additionalBytes: Int): java.nio.ByteBuffer {
     if (buffer.remaining() >= additionalBytes) return buffer
     val newBuffer = java.nio.ByteBuffer.allocate(buffer.position() + additionalBytes)
     buffer.flip()
@@ -224,7 +222,7 @@ private fun ensureCapacity(
 internal class TlsClientInputStream(
     private val engine: javax.net.ssl.SSLEngine,
     private val stream: MuxStream,
-    private var netIn: java.nio.ByteBuffer,
+    private var netIn: java.nio.ByteBuffer
 ) : java.io.InputStream() {
     private var appIn = java.nio.ByteBuffer.allocate(engine.session.applicationBufferSize)
 
@@ -238,11 +236,7 @@ internal class TlsClientInputStream(
         return if (n == -1) -1 else buf[0].toInt() and 0xFF
     }
 
-    override fun read(
-        b: ByteArray,
-        off: Int,
-        len: Int,
-    ): Int {
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
         if (appIn.hasRemaining()) {
             val toRead = minOf(len, appIn.remaining())
             appIn.get(b, off, toRead)
@@ -293,7 +287,7 @@ internal class TlsClientInputStream(
  */
 internal class TlsClientOutputStream(
     private val engine: javax.net.ssl.SSLEngine,
-    private val stream: MuxStream,
+    private val stream: MuxStream
 ) : java.io.OutputStream() {
     private val netOut = java.nio.ByteBuffer.allocate(engine.session.packetBufferSize)
 
@@ -301,11 +295,7 @@ internal class TlsClientOutputStream(
         write(byteArrayOf(b.toByte()), 0, 1)
     }
 
-    override fun write(
-        b: ByteArray,
-        off: Int,
-        len: Int,
-    ) {
+    override fun write(b: ByteArray, off: Int, len: Int) {
         val appOut = java.nio.ByteBuffer.wrap(b, off, len)
         while (appOut.hasRemaining()) {
             netOut.clear()

@@ -18,5 +18,5 @@ expect class CsrGenerator() {
  */
 data class CsrResult(
     val csrPem: String,
-    val privateKeyPem: String,
+    val privateKeyPem: String
 )

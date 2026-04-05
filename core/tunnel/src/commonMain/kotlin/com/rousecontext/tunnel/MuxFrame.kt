@@ -60,7 +60,7 @@ sealed class MuxFrame {
     data class Error(
         override val streamId: UInt,
         val errorCode: UInt,
-        val message: String,
+        val message: String
     ) : MuxFrame()
 
     companion object

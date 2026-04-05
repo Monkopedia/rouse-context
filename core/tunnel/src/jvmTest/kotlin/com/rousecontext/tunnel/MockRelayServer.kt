@@ -13,8 +13,8 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
-import kotlinx.serialization.json.Json
 import java.net.ServerSocket
+import kotlinx.serialization.json.Json
 
 /**
  * Embedded Ktor/Netty server that simulates the relay's /register and /renew endpoints.
@@ -27,19 +27,20 @@ class MockRelayServer {
             status = 201,
             body = RegisterResponse(
                 certificatePem = MOCK_CERT_PEM,
-                subdomain = "test123.rousecontext.com",
-            ),
+                subdomain = "test123.rousecontext.com"
+            )
         )
     }
 
     var renewHandler: (suspend (RenewRequest) -> MockRenewResponse) = { _ ->
         MockRenewResponse(
             status = 200,
-            body = RenewResponse(certificatePem = MOCK_CERT_PEM),
+            body = RenewResponse(certificatePem = MOCK_CERT_PEM)
         )
     }
 
-    private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
+    private var server:
+        EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
     var port: Int = 0
         private set
 
@@ -51,7 +52,7 @@ class MockRelayServer {
                     Json {
                         ignoreUnknownKeys = true
                         encodeDefaults = true
-                    },
+                    }
                 )
             }
             routing {
@@ -64,7 +65,7 @@ class MockRelayServer {
                     when (val body = response.body) {
                         is RegisterResponse -> call.respond(
                             HttpStatusCode.fromValue(response.status),
-                            body,
+                            body
                         )
                         else -> call.respond(HttpStatusCode.fromValue(response.status), "")
                     }
@@ -78,7 +79,7 @@ class MockRelayServer {
                     when (val body = response.body) {
                         is RenewResponse -> call.respond(
                             HttpStatusCode.fromValue(response.status),
-                            body,
+                            body
                         )
                         else -> call.respond(HttpStatusCode.fromValue(response.status), "")
                     }
@@ -122,11 +123,11 @@ AQABMA0GCSqGSIb3DQEBCwUAA0EAhN+z/EvKbL4TiT3FHSGA
 data class MockResponse(
     val status: Int = 201,
     val body: RegisterResponse? = null,
-    val retryAfter: Long? = null,
+    val retryAfter: Long? = null
 )
 
 data class MockRenewResponse(
     val status: Int = 200,
     val body: RenewResponse? = null,
-    val retryAfter: Long? = null,
+    val retryAfter: Long? = null
 )

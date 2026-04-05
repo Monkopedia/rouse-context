@@ -1,6 +1,5 @@
 package com.rousecontext.tunnel
 
-import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -8,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
 class OnboardingFlowTest {
 
@@ -22,7 +22,7 @@ class OnboardingFlowTest {
         flow = OnboardingFlow(
             csrGenerator = CsrGenerator(),
             relayApiClient = client,
-            certificateStore = store,
+            certificateStore = store
         )
     }
 
@@ -39,8 +39,8 @@ class OnboardingFlowTest {
                 status = 201,
                 body = RegisterResponse(
                     certificatePem = MockRelayServer.MOCK_CERT_PEM,
-                    subdomain = "abc123.rousecontext.com",
-                ),
+                    subdomain = "abc123.rousecontext.com"
+                )
             )
         }
 
@@ -61,7 +61,7 @@ class OnboardingFlowTest {
         val offlineFlow = OnboardingFlow(
             csrGenerator = CsrGenerator(),
             relayApiClient = client,
-            certificateStore = store,
+            certificateStore = store
         )
 
         val result = offlineFlow.execute("test.rousecontext.com")

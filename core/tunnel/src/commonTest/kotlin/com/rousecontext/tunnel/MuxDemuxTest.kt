@@ -1,5 +1,9 @@
 package com.rousecontext.tunnel
 
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.first
@@ -7,10 +11,6 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class MuxDemuxTest {
 
@@ -107,8 +107,8 @@ class MuxDemuxTest {
             MuxFrame.Error(
                 streamId = 1u,
                 errorCode = MuxErrorCode.STREAM_RESET,
-                message = "reset",
-            ),
+                message = "reset"
+            )
         )
 
         assertTrue(stream.isClosed)
@@ -125,8 +125,8 @@ class MuxDemuxTest {
             MuxFrame.Error(
                 streamId = 999u,
                 errorCode = MuxErrorCode.INTERNAL_ERROR,
-                message = "oops",
-            ),
+                message = "oops"
+            )
         )
     }
 

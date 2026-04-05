@@ -1,11 +1,11 @@
 package com.rousecontext.tunnel
 
-import kotlinx.coroutines.runBlocking
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
 
 class CertRenewalTest {
 
@@ -44,7 +44,7 @@ class CertRenewalTest {
             certificateStore = store,
             certInspector = inspector,
             maxRetries = 2,
-            baseRetryDelayMs = 10L,
+            baseRetryDelayMs = 10L
         )
     }
 
@@ -59,7 +59,7 @@ class CertRenewalTest {
             assertEquals("mtls", request.authMethod)
             MockRenewResponse(
                 status = 200,
-                body = RenewResponse(certificatePem = MockRelayServer.MOCK_CERT_PEM),
+                body = RenewResponse(certificatePem = MockRelayServer.MOCK_CERT_PEM)
             )
         }
 
@@ -89,13 +89,13 @@ class CertRenewalTest {
             assertEquals("fake-sig", request.signature)
             MockRenewResponse(
                 status = 200,
-                body = RenewResponse(certificatePem = MockRelayServer.MOCK_CERT_PEM),
+                body = RenewResponse(certificatePem = MockRelayServer.MOCK_CERT_PEM)
             )
         }
 
         val result = flow.renewWithFirebase(
             firebaseToken = "fake-token",
-            signature = "fake-sig",
+            signature = "fake-sig"
         )
         assertTrue(result is RenewalResult.Success)
     }
@@ -109,7 +109,7 @@ class CertRenewalTest {
         mockServer.renewHandler = { _ ->
             MockRenewResponse(
                 status = 200,
-                body = RenewResponse(certificatePem = MockRelayServer.MOCK_MISMATCHED_CERT_PEM),
+                body = RenewResponse(certificatePem = MockRelayServer.MOCK_MISMATCHED_CERT_PEM)
             )
         }
 
@@ -146,7 +146,7 @@ class CertRenewalTest {
             certificateStore = store,
             certInspector = validInspector,
             maxRetries = 2,
-            baseRetryDelayMs = 10L,
+            baseRetryDelayMs = 10L
         )
 
         val result = flow.renewWithMtls()

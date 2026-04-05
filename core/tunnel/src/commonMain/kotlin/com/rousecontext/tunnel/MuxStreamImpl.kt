@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
  */
 class MuxStreamImpl(
     override val id: UInt,
-    private val sendFrame: suspend (MuxFrame) -> Unit,
+    private val sendFrame: suspend (MuxFrame) -> Unit
 ) : MuxStream {
 
     private val dataChannel = Channel<ByteArray>(Channel.BUFFERED)

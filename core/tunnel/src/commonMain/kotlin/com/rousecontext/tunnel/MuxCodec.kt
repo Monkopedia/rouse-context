@@ -53,7 +53,7 @@ object MuxCodec {
     fun decode(data: ByteArray): MuxFrame {
         if (data.size < MUX_HEADER_SIZE) {
             throw MuxProtocolException(
-                "Frame too short: ${data.size} bytes, need at least $MUX_HEADER_SIZE",
+                "Frame too short: ${data.size} bytes, need at least $MUX_HEADER_SIZE"
             )
         }
 
@@ -68,7 +68,7 @@ object MuxCodec {
             MuxFrameType.ERROR -> {
                 if (payload.size < 4) {
                     throw MuxProtocolException(
-                        "ERROR frame payload too short: ${payload.size} bytes, need at least 4",
+                        "ERROR frame payload too short: ${payload.size} bytes, need at least 4"
                     )
                 }
                 val errorCode = getUInt32BE(payload, 0)
@@ -79,7 +79,9 @@ object MuxCodec {
                 }
                 MuxFrame.Error(streamId, errorCode, message)
             }
-            else -> throw MuxProtocolException("Unknown frame type: 0x${type.toUByte().toString(16)}")
+            else -> throw MuxProtocolException(
+                "Unknown frame type: 0x${type.toUByte().toString(16)}"
+            )
         }
     }
 
@@ -91,10 +93,12 @@ object MuxCodec {
     }
 
     private fun getUInt32BE(buf: ByteArray, offset: Int): UInt {
-        return ((buf[offset].toUByte().toUInt() shl 24) or
-            (buf[offset + 1].toUByte().toUInt() shl 16) or
-            (buf[offset + 2].toUByte().toUInt() shl 8) or
-            buf[offset + 3].toUByte().toUInt())
+        return (
+            (buf[offset].toUByte().toUInt() shl 24) or
+                (buf[offset + 1].toUByte().toUInt() shl 16) or
+                (buf[offset + 2].toUByte().toUInt() shl 8) or
+                buf[offset + 3].toUByte().toUInt()
+            )
     }
 }
 

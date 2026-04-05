@@ -8,7 +8,7 @@ package com.rousecontext.notifications
  */
 data class NotificationSettings(
     val mode: NotificationMode = NotificationMode.Summary,
-    val permissionGranted: Boolean = true,
+    val permissionGranted: Boolean = true
 )
 
 /**
@@ -22,5 +22,5 @@ enum class NotificationMode {
     Every,
 
     /** Suppress all optional notifications; only show the required foreground notification. */
-    Suppress,
+    Suppress
 }
