@@ -181,7 +181,8 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
     axum::Router::new()
         .route("/register", axum::routing::post(register::handle_register))
         .route("/renew", axum::routing::post(renew::handle_renew))
-        .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))
+        // /wake disabled — passthrough handles FCM wake implicitly on client connect
+        // .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))
         .route("/status", axum::routing::get(status::handle_status))
         .route("/ws", axum::routing::get(ws::handle_ws))
         .with_state(state)
