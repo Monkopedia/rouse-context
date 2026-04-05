@@ -9,8 +9,12 @@ lifecycle = "2.9.0"
 firebase-bom = "33.10.0"
 health-connect = "1.1.0-alpha12"
 acme4j = "3.5.0"
+junit = "4.13.2"
+robolectric = "4.14.1"
 
 [libraries]
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-activity = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity" }

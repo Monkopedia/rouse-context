@@ -19,6 +19,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -26,4 +30,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.health.connect)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
 }
