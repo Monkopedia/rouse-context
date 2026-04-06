@@ -59,8 +59,33 @@ Each integration needs: module, MCP provider, setup UI, permission handling, tes
 
 **5b. Lower minSdk** — Investigate what breaks below API 28, add feature flags.
 
-### Phase 6: Security Audit (LAST)
-**6. Comprehensive security review** — All permissions, data flows, auth, cert handling, relay security, OWASP review of HTTP endpoints, audit of all special permissions.
+### Phase 6: Device Integration Testing
+Run after all implementation is complete. Uses the Pixel 3 XL attached to adolin.lan via ADB (`~/Android/Sdk/platform-tools/adb -s 84TY004PW`).
+
+**6a. Build, deploy, and smoke test** — `./gradlew :app:assembleDebug`, scp to adolin, adb install. Launch app, verify it starts without crash.
+
+**6b. Onboarding flow** — If not already onboarded, walk through: Firebase auth → relay registration → cert issuance → subdomain assignment. Verify dashboard shows after.
+
+**6c. Tunnel connectivity** — Wake via ADB broadcast, verify relay shows `active_mux_connections: 1`. Test HTTP through tunnel with curl + `--resolve`.
+
+**6d. OAuth flow** — Hit the MCP endpoint, verify 401 → discovery → register → authorize page → approve via ADB → token exchange → 200. Verify tools/list returns tools.
+
+**6e. Tool calls** — Call each available tool (echo, get_time, device_info) via curl through the tunnel. Verify correct responses.
+
+**6f. Integration setup** — Enable Health Connect (if available on device). Verify it appears in the integration list. Test health tools if data available.
+
+**6g. Audit verification** — After tool calls, check audit history in the app (via screenshot or adb activity launch). Verify entries appear.
+
+**6h. Notification/approval UX** — Trigger an auth request, verify notification appears on device. Tap approve, verify flow completes.
+
+**6i. UI screenshots** — Capture screenshots of all screens in both light and dark mode. Review for visual issues. Use `adb shell screencap` + `adb pull`.
+
+**6j. Idle/reconnect** — Wait for idle timeout, verify service stops gracefully. Re-wake, verify reconnect works. Test double-wake handling.
+
+**6k. Write test report** — Document what passed, what failed, blockers found. Save to `docs/device-test-report.md`.
+
+### Phase 7: Security Audit (LAST)
+**7. Comprehensive security review** — All permissions, data flows, auth, cert handling, relay security, OWASP review of HTTP endpoints, audit of all special permissions.
 
 ## Agent Strategy
 - Use opus for all coding work
