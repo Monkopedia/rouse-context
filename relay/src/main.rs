@@ -122,7 +122,8 @@ async fn main() {
     let session_registry = Arc::new(SessionRegistry::new());
 
     // Build external service clients — use real implementations when a service account is available
-    let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(StubFirestore);
+    let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(InMemoryFirestore::new());
+    info!("Using in-memory Firestore (data lost on restart)");
     let acme: Arc<dyn rouse_relay::acme::AcmeClient> = build_acme_client(&config);
 
     let (fcm, firebase_auth): (
@@ -518,49 +519,75 @@ fn build_service_clients(
 // --- Stub implementations for external services ---
 // Used as fallbacks when no service account is configured.
 
-struct StubFirestore;
+/// In-memory Firestore implementation for development/testing.
+/// Persists data for the relay's lifetime but not across restarts.
+/// TODO: Replace with RealFirestoreClient backed by Firestore REST API.
+struct InMemoryFirestore {
+    devices: std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::DeviceRecord>>,
+    pending_certs: std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::PendingCert>>,
+}
+
+impl InMemoryFirestore {
+    fn new() -> Self {
+        Self {
+            devices: std::sync::Mutex::new(std::collections::HashMap::new()),
+            pending_certs: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+}
 
 #[async_trait::async_trait]
-impl rouse_relay::firestore::FirestoreClient for StubFirestore {
+impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
     async fn get_device(
         &self,
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::DeviceRecord, rouse_relay::firestore::FirestoreError> {
-        Err(rouse_relay::firestore::FirestoreError::NotFound(
-            subdomain.to_string(),
-        ))
+        let devices = self.devices.lock().unwrap();
+        devices.get(subdomain).cloned().ok_or_else(|| {
+            rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string())
+        })
     }
 
     async fn find_device_by_uid(
         &self,
-        _firebase_uid: &str,
+        firebase_uid: &str,
     ) -> Result<
         Option<(String, rouse_relay::firestore::DeviceRecord)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        Ok(None)
+        let devices = self.devices.lock().unwrap();
+        Ok(devices
+            .iter()
+            .find(|(_, r)| r.firebase_uid == firebase_uid)
+            .map(|(k, v)| (k.clone(), v.clone())))
     }
 
     async fn put_device(
         &self,
-        _subdomain: &str,
-        _record: &rouse_relay::firestore::DeviceRecord,
+        subdomain: &str,
+        record: &rouse_relay::firestore::DeviceRecord,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut devices = self.devices.lock().unwrap();
+        devices.insert(subdomain.to_string(), record.clone());
         Ok(())
     }
 
     async fn delete_device(
         &self,
-        _subdomain: &str,
+        subdomain: &str,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut devices = self.devices.lock().unwrap();
+        devices.remove(subdomain);
         Ok(())
     }
 
     async fn put_pending_cert(
         &self,
-        _subdomain: &str,
-        _pending: &rouse_relay::firestore::PendingCert,
+        subdomain: &str,
+        pending: &rouse_relay::firestore::PendingCert,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut certs = self.pending_certs.lock().unwrap();
+        certs.insert(subdomain.to_string(), pending.clone());
         Ok(())
     }
 
@@ -568,15 +595,18 @@ impl rouse_relay::firestore::FirestoreClient for StubFirestore {
         &self,
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::PendingCert, rouse_relay::firestore::FirestoreError> {
-        Err(rouse_relay::firestore::FirestoreError::NotFound(
-            subdomain.to_string(),
-        ))
+        let certs = self.pending_certs.lock().unwrap();
+        certs.get(subdomain).cloned().ok_or_else(|| {
+            rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string())
+        })
     }
 
     async fn delete_pending_cert(
         &self,
-        _subdomain: &str,
+        subdomain: &str,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut certs = self.pending_certs.lock().unwrap();
+        certs.remove(subdomain);
         Ok(())
     }
 
@@ -586,7 +616,8 @@ impl rouse_relay::firestore::FirestoreClient for StubFirestore {
         Vec<(String, rouse_relay::firestore::DeviceRecord)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        Ok(Vec::new())
+        let devices = self.devices.lock().unwrap();
+        Ok(devices.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 
     async fn list_pending_certs(
@@ -595,7 +626,8 @@ impl rouse_relay::firestore::FirestoreClient for StubFirestore {
         Vec<(String, rouse_relay::firestore::PendingCert)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        Ok(Vec::new())
+        let certs = self.pending_certs.lock().unwrap();
+        Ok(certs.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 }
 
