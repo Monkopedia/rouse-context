@@ -114,11 +114,13 @@ val appModule = module {
     // --- MCP session ---
     single {
         val subdomainFile = java.io.File(androidContext().filesDir, "rouse_subdomain.txt")
-        val hostname = if (subdomainFile.exists()) {
+        val subdomain = if (subdomainFile.exists()) {
             subdomainFile.readText().trim()
         } else {
-            "localhost"
+            null
         }
+        val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
+        val hostname = subdomain?.let { "$it.$baseDomain" } ?: "localhost"
         McpSession(
             registry = get(),
             tokenStore = get(),
