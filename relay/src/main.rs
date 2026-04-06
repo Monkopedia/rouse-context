@@ -123,10 +123,8 @@ async fn main() {
 
     // Build external service clients — use real implementations when a service account is available
     let mem_store = InMemoryFirestore::new();
-    // Seed a test device so integration tests can connect via mTLS without
-    // needing to call POST /register (which requires Firebase auth).
-    mem_store.seed_test_device("test-device");
-    mem_store.seed_test_device("main-board");
+    // No seed devices needed -- devices auto-register when they connect via
+    // mTLS WebSocket. The relay CA cert in the client cert is sufficient auth.
     let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(mem_store);
     info!("Using in-memory Firestore (data lost on restart)");
     let acme: Arc<dyn rouse_relay::acme::AcmeClient> = build_acme_client(&config);
@@ -528,8 +526,10 @@ fn build_service_clients(
 /// Persists data for the relay's lifetime but not across restarts.
 /// TODO: Replace with RealFirestoreClient backed by Firestore REST API.
 struct InMemoryFirestore {
-    devices: std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::DeviceRecord>>,
-    pending_certs: std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::PendingCert>>,
+    devices:
+        std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::DeviceRecord>>,
+    pending_certs:
+        std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::PendingCert>>,
 }
 
 impl InMemoryFirestore {
@@ -538,24 +538,6 @@ impl InMemoryFirestore {
             devices: std::sync::Mutex::new(std::collections::HashMap::new()),
             pending_certs: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
-    }
-
-    /// Pre-populate a device record so mTLS WebSocket connections with matching
-    /// client cert CN pass the Firestore registration check.
-    fn seed_test_device(&self, subdomain: &str) {
-        let record = rouse_relay::firestore::DeviceRecord {
-            fcm_token: "test-fcm-token".to_string(),
-            firebase_uid: "test-uid".to_string(),
-            public_key: String::new(),
-            cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400),
-            registered_at: std::time::SystemTime::now(),
-            last_rotation: None,
-            renewal_nudge_sent: None,
-        };
-        self.devices
-            .lock()
-            .unwrap()
-            .insert(subdomain.to_string(), record);
     }
 }
 
@@ -566,9 +548,10 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::DeviceRecord, rouse_relay::firestore::FirestoreError> {
         let devices = self.devices.lock().unwrap();
-        devices.get(subdomain).cloned().ok_or_else(|| {
-            rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string())
-        })
+        devices
+            .get(subdomain)
+            .cloned()
+            .ok_or_else(|| rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string()))
     }
 
     async fn find_device_by_uid(
@@ -619,9 +602,10 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::PendingCert, rouse_relay::firestore::FirestoreError> {
         let certs = self.pending_certs.lock().unwrap();
-        certs.get(subdomain).cloned().ok_or_else(|| {
-            rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string())
-        })
+        certs
+            .get(subdomain)
+            .cloned()
+            .ok_or_else(|| rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string()))
     }
 
     async fn delete_pending_cert(
@@ -640,7 +624,10 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         rouse_relay::firestore::FirestoreError,
     > {
         let devices = self.devices.lock().unwrap();
-        Ok(devices.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        Ok(devices
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect())
     }
 
     async fn list_pending_certs(

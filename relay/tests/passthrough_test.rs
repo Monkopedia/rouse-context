@@ -494,7 +494,14 @@ async fn cold_wake_full_data_roundtrip() {
     let stream_id = resolved.stream_id;
 
     let splice_handle = tokio::spawn(async move {
-        splice_stream(server_stream, client_hello, stream_id, &mux_handle, stream_rx).await
+        splice_stream(
+            server_stream,
+            client_hello,
+            stream_id,
+            &mux_handle,
+            stream_rx,
+        )
+        .await
     });
 
     // Verify ClientHello arrives as first DATA frame on the mux
@@ -628,9 +635,8 @@ async fn cold_wake_stream_refused_max_streams_zero() {
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
-    let firestore = Arc::new(
-        MockFirestore::new().with_device("full-dev", make_device_record("fcm-full")),
-    );
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("full-dev", make_device_record("fcm-full")));
     let fcm = Arc::new(MockFcm::new());
 
     let ctx = PassthroughContext {
@@ -651,8 +657,7 @@ async fn cold_wake_stream_refused_max_streams_zero() {
         Duration::from_millis(50),
     );
 
-    let result =
-        resolve_device_stream(&ctx, "full-dev", "full-dev.rousecontext.com").await;
+    let result = resolve_device_stream(&ctx, "full-dev", "full-dev.rousecontext.com").await;
 
     assert!(
         matches!(result, Err(PassthroughError::StreamRefused)),
@@ -675,9 +680,8 @@ async fn client_hello_preserved_through_wake_delay() {
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
-    let firestore = Arc::new(
-        MockFirestore::new().with_device("exact-dev", make_device_record("fcm-exact")),
-    );
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("exact-dev", make_device_record("fcm-exact")));
     let fcm = Arc::new(MockFcm::new());
 
     let ctx = PassthroughContext {

@@ -41,22 +41,28 @@ pub async fn handle_ws(
         }
     };
 
-    // Verify the subdomain is registered in Firestore
-    match state.firestore.get_device(&subdomain).await {
-        Ok(_) => {}
+    // mTLS client cert is sufficient authentication -- the cert was issued by
+    // our relay CA during registration. If Firestore has no record (e.g. after
+    // relay restart with InMemoryFirestore), we auto-create one below.
+    let firestore_has_record = match state.firestore.get_device(&subdomain).await {
+        Ok(_) => true,
         Err(crate::firestore::FirestoreError::NotFound(_)) => {
-            warn!(subdomain = %subdomain, "Device not registered in Firestore");
-            return ApiError::forbidden("Device not registered").into_response();
+            warn!(
+                subdomain = %subdomain,
+                "Device not in Firestore (mTLS cert valid, will auto-create record on connect)"
+            );
+            false
         }
         Err(e) => {
             error!(subdomain = %subdomain, error = %e, "Firestore lookup failed");
-            return ApiError::internal("Failed to verify device registration").into_response();
+            false
         }
-    }
+    };
 
     let max_streams = state.config.limits.max_streams_per_device;
     let relay_state = state.relay_state.clone();
     let session_registry = state.session_registry.clone();
+    let firestore = state.firestore.clone();
 
     info!(subdomain = %subdomain, "Device WebSocket upgrade accepted");
 
@@ -67,6 +73,8 @@ pub async fn handle_ws(
             max_streams,
             relay_state,
             session_registry,
+            firestore,
+            firestore_has_record,
         )
     })
 }
@@ -77,7 +85,27 @@ async fn handle_mux_session(
     max_streams: u32,
     relay_state: Arc<crate::state::RelayState>,
     session_registry: Arc<SessionRegistry>,
+    firestore: Arc<dyn crate::firestore::FirestoreClient>,
+    firestore_has_record: bool,
 ) {
+    // If no Firestore record exists (e.g. after relay restart), auto-create one
+    // with a placeholder FCM token. The device will send its real token shortly.
+    if !firestore_has_record {
+        let placeholder = crate::firestore::DeviceRecord {
+            fcm_token: String::new(),
+            firebase_uid: String::new(),
+            public_key: String::new(),
+            cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400 * 90),
+            registered_at: std::time::SystemTime::now(),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+        };
+        if let Err(e) = firestore.put_device(&subdomain, &placeholder).await {
+            warn!(subdomain = %subdomain, error = %e, "Failed to auto-create Firestore record");
+        } else {
+            info!(subdomain = %subdomain, "Auto-created Firestore record from mTLS cert");
+        }
+    }
     let mut session = MuxSession::new(subdomain.clone(), max_streams);
     let frame_rx = match session.take_frame_rx() {
         Some(rx) => rx,
@@ -104,8 +132,10 @@ async fn handle_mux_session(
     // Channel for the read loop to dispatch incoming frames
     let (incoming_tx, incoming_rx) = mpsc::channel::<Frame>(256);
 
-    // Spawn WebSocket read task: reads WS messages, decodes frames, sends to incoming_tx
+    // Spawn WebSocket read task: reads WS messages, decodes frames, sends to incoming_tx.
+    // Text messages are used as a control channel (e.g. FCM token registration).
     let read_subdomain = subdomain.clone();
+    let read_firestore = firestore.clone();
     let read_task = tokio::spawn(async move {
         while let Some(msg) = ws_receiver.next().await {
             match msg {
@@ -120,15 +150,15 @@ async fn handle_mux_session(
                         warn!(subdomain = %read_subdomain, error = %e, "Bad frame from device");
                     }
                 },
+                Ok(Message::Text(text)) => {
+                    handle_control_message(&read_subdomain, &text, &read_firestore).await;
+                }
                 Ok(Message::Close(_)) => {
                     debug!(subdomain = %read_subdomain, "Device sent WS close");
                     break;
                 }
                 Ok(Message::Ping(_) | Message::Pong(_)) => {
                     // axum handles ping/pong automatically
-                }
-                Ok(_) => {
-                    // Text or other messages are unexpected, ignore
                 }
                 Err(e) => {
                     debug!(subdomain = %read_subdomain, error = %e, "WebSocket read error");
@@ -169,6 +199,65 @@ async fn handle_mux_session(
     let _ = write_task.await;
 
     info!(subdomain = %subdomain, "Mux session ended");
+}
+
+/// JSON control message sent by the device over a WebSocket text frame.
+#[derive(serde::Deserialize)]
+struct ControlMessage {
+    #[serde(rename = "type")]
+    msg_type: String,
+    /// FCM registration token (present when msg_type == "fcm_token").
+    #[serde(default)]
+    token: String,
+}
+
+/// Handle a text WebSocket message as a control-plane command.
+///
+/// Currently supported:
+/// - `{"type":"fcm_token","token":"..."}` -- updates the device's FCM token
+///   in Firestore so the relay can wake it after a restart.
+async fn handle_control_message(
+    subdomain: &str,
+    text: &str,
+    firestore: &Arc<dyn crate::firestore::FirestoreClient>,
+) {
+    let msg: ControlMessage = match serde_json::from_str(text) {
+        Ok(m) => m,
+        Err(e) => {
+            warn!(subdomain = %subdomain, error = %e, "Ignoring unparseable control message");
+            return;
+        }
+    };
+
+    match msg.msg_type.as_str() {
+        "fcm_token" => {
+            if msg.token.is_empty() {
+                warn!(subdomain = %subdomain, "Received empty FCM token, ignoring");
+                return;
+            }
+            // Update the existing Firestore record's FCM token
+            match firestore.get_device(subdomain).await {
+                Ok(mut record) => {
+                    record.fcm_token = msg.token.clone();
+                    if let Err(e) = firestore.put_device(subdomain, &record).await {
+                        error!(subdomain = %subdomain, error = %e, "Failed to update FCM token");
+                    } else {
+                        info!(subdomain = %subdomain, "FCM token updated from device control message");
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        subdomain = %subdomain,
+                        error = %e,
+                        "No Firestore record to update FCM token on"
+                    );
+                }
+            }
+        }
+        other => {
+            debug!(subdomain = %subdomain, msg_type = %other, "Unknown control message type");
+        }
+    }
 }
 
 /// Run the mux session's main loop. Handles:
@@ -376,25 +465,15 @@ mod tests {
         })
     }
 
-    /// Helper that mirrors the auth + Firestore check from handle_ws,
-    /// without requiring a WebSocket upgrade. This lets us test the
-    /// auth/authz logic in isolation.
+    /// Helper that mirrors the auth check from handle_ws (mTLS only, no
+    /// Firestore gate), without requiring a WebSocket upgrade.
     async fn auth_check(
-        State(state): State<Arc<AppState>>,
+        _state: State<Arc<AppState>>,
         device: Option<axum::Extension<DeviceIdentity>>,
     ) -> Response {
-        let subdomain = match device {
-            Some(axum::Extension(identity)) => identity.subdomain,
-            None => {
-                return ApiError::unauthorized("Valid client certificate required").into_response();
-            }
-        };
-        match state.firestore.get_device(&subdomain).await {
-            Ok(_) => StatusCode::OK.into_response(),
-            Err(crate::firestore::FirestoreError::NotFound(_)) => {
-                ApiError::forbidden("Device not registered").into_response()
-            }
-            Err(_) => ApiError::internal("Failed to verify device registration").into_response(),
+        match device {
+            Some(axum::Extension(_identity)) => StatusCode::OK.into_response(),
+            None => ApiError::unauthorized("Valid client certificate required").into_response(),
         }
     }
 
@@ -429,9 +508,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
-    /// Valid cert for an unregistered subdomain -> 403.
+    /// Valid cert for an unregistered subdomain -> 200.
+    /// mTLS is sufficient auth; Firestore record is auto-created on connect.
     #[tokio::test]
-    async fn ws_with_cert_for_unregistered_subdomain_returns_403() {
+    async fn ws_with_cert_for_unregistered_subdomain_accepted() {
         let state = build_test_state(vec![]); // no registered subdomains
         let app = axum::Router::new()
             .route("/ws", axum::routing::get(auth_check))
@@ -443,7 +523,7 @@ mod tests {
         let resp = tower::ServiceExt::oneshot(app, request("/ws"))
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 
     /// Valid cert for a registered subdomain -> accepted (200).
