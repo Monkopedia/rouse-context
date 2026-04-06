@@ -29,7 +29,8 @@ actual class CsrGenerator actual constructor() {
             0x03,
             0x55,
             0x04,
-            0x03 // OID 2.5.4.3 (CN)
+            // OID 2.5.4.3 (CN)
+            0x03
         )
         val cnValue = derUtf8String(commonName)
         val atv = derSequence(cnOid + cnValue)
@@ -52,7 +53,8 @@ actual class CsrGenerator actual constructor() {
             byteArrayOf(
                 0x06, 0x09, 0x2A.toByte(), 0x86.toByte(), 0x48, 0x86.toByte(),
                 0xF7.toByte(), 0x0D, 0x01, 0x01, 0x0B,
-                0x05, 0x00 // NULL parameters
+                // NULL parameters
+                0x05, 0x00
             )
         )
         val signatureBitString = derBitString(signatureBytes)

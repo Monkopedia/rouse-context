@@ -30,9 +30,13 @@ class NotificationAdapter(private val context: Context) {
             }
 
             is NotificationAction.PostSummary -> {
+                val suffix =
+                    if (action.toolCallCount == 1) "" else "s"
+                val body =
+                    "${action.toolCallCount} tool call$suffix processed"
                 val notification = buildSessionNotification(
                     "Session Complete",
-                    "${action.toolCallCount} tool call${if (action.toolCallCount == 1) "" else "s"} processed"
+                    body
                 )
                 manager.notify(nextId(), notification)
             }
