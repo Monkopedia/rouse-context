@@ -72,9 +72,14 @@ class TlsAcceptor(
                         }
                     }
                     SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-                        val tlsData = stream.read()
-                        netIn = ensureCapacity(netIn, tlsData.size)
-                        netIn.put(tlsData)
+                        // Only read from the stream if netIn is empty.
+                        // Multiple TLS records may arrive in a single mux DATA frame,
+                        // so netIn may still have data from a previous read.
+                        if (netIn.position() == 0) {
+                            val tlsData = stream.read()
+                            netIn = ensureCapacity(netIn, tlsData.size)
+                            netIn.put(tlsData)
+                        }
                         netIn.flip()
                         val result = engine.unwrap(netIn, appIn)
                         hsStatus = result.handshakeStatus

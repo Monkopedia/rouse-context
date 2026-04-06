@@ -2,7 +2,6 @@ package com.rousecontext.tunnel
 
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
@@ -36,7 +35,8 @@ class MuxStreamImpl(
     override val isClosed: Boolean
         get() = closed
 
-    override suspend fun read(): ByteArray = incoming.first()
+    override suspend fun read(): ByteArray =
+        dataChannel.receive()
 
     /**
      * Called by [MuxDemux] when a DATA frame arrives for this stream.
