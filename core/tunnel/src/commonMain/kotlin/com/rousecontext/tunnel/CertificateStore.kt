@@ -45,6 +45,12 @@ interface CertificateStore {
     /** Retrieve the stored PEM-encoded client certificate, or null if none. */
     suspend fun getClientCertificate(): String?
 
+    /** Store the relay CA certificate PEM (issuer of the client cert, for mTLS chain). */
+    suspend fun storeRelayCaCert(pem: String)
+
+    /** Retrieve the stored relay CA certificate PEM, or null if none. */
+    suspend fun getRelayCaCert(): String?
+
     /** Store the device subdomain (e.g. "abc123.rousecontext.com"). */
     suspend fun storeSubdomain(subdomain: String)
 

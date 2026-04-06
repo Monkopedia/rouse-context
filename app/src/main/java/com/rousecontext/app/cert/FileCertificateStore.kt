@@ -41,6 +41,15 @@ class FileCertificateStore(
         return if (f.exists()) f.readText() else null
     }
 
+    override suspend fun storeRelayCaCert(pem: String) {
+        File(filesDir, RELAY_CA_PEM_FILE).writeText(pem)
+    }
+
+    override suspend fun getRelayCaCert(): String? {
+        val f = File(filesDir, RELAY_CA_PEM_FILE)
+        return if (f.exists()) f.readText() else null
+    }
+
     override suspend fun storeSubdomain(subdomain: String) {
         subdomainFile.writeText(subdomain)
     }
@@ -104,6 +113,9 @@ class FileCertificateStore(
 
     override suspend fun clear() {
         certFile.delete()
+        File(filesDir, CLIENT_CERT_PEM_FILE).delete()
+        File(filesDir, RELAY_CA_PEM_FILE).delete()
+        File(filesDir, KEY_PEM_FILE).delete()
         subdomainFile.delete()
         fingerprintsFile.delete()
         val keyStore = androidKeyStore()
@@ -157,6 +169,7 @@ class FileCertificateStore(
     companion object {
         private const val CERT_PEM_FILE = "rouse_cert.pem"
         private const val CLIENT_CERT_PEM_FILE = "rouse_client_cert.pem"
+        private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
         private const val KEY_PEM_FILE = "rouse_key.pem"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"

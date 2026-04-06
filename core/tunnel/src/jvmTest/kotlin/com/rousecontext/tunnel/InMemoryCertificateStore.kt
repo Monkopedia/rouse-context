@@ -14,6 +14,9 @@ class InMemoryCertificateStore : CertificateStore {
     var storeCallCount = 0
         private set
 
+    private var clientCertificate: String? = null
+    private var relayCaCert: String? = null
+
     var throwOnStore: Exception? = null
 
     // --- PEM access (onboarding/renewal) ---
@@ -25,6 +28,22 @@ class InMemoryCertificateStore : CertificateStore {
     }
 
     override suspend fun getCertificate(): String? = certificate
+
+    override suspend fun storeClientCertificate(pemChain: String) {
+        throwOnStore?.let { throw it }
+        storeCallCount++
+        clientCertificate = pemChain
+    }
+
+    override suspend fun getClientCertificate(): String? = clientCertificate
+
+    override suspend fun storeRelayCaCert(pem: String) {
+        throwOnStore?.let { throw it }
+        storeCallCount++
+        relayCaCert = pem
+    }
+
+    override suspend fun getRelayCaCert(): String? = relayCaCert
 
     override suspend fun storeSubdomain(subdomain: String) {
         throwOnStore?.let { throw it }
