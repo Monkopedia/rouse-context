@@ -2,6 +2,7 @@ package com.rousecontext.mcp.core
 
 import java.security.MessageDigest
 import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
 /**
@@ -31,6 +32,7 @@ data class PendingAuthRequest(
     val displayCode: String,
     val integration: String,
     val clientId: String,
+    val clientName: String?,
     val createdAt: Long
 )
 
@@ -76,7 +78,21 @@ class AuthorizationCodeManager(
         var authorizationCode: String? = null
     )
 
+    /**
+     * Maps client_id to client_name, populated during /register.
+     * Used to display human-readable names in the authorized clients list.
+     */
+    private val clientNames = ConcurrentHashMap<String, String>()
+
     private val requests = mutableListOf<PendingRequest>()
+
+    /**
+     * Registers a client_id to client_name mapping, called during /register.
+     * The name is later used as the display label when issuing tokens.
+     */
+    fun registerClient(clientId: String, clientName: String) {
+        clientNames[clientId] = clientName
+    }
 
     /**
      * Creates a pending authorization request.
@@ -204,7 +220,8 @@ class AuthorizationCodeManager(
                 return null
             }
 
-            return tokenStore.createToken(request.integration, request.clientId)
+            val clientName = clientNames[request.clientId]
+            return tokenStore.createToken(request.integration, request.clientId, clientName)
         }
     }
 
@@ -221,6 +238,7 @@ class AuthorizationCodeManager(
                         displayCode = it.displayCode,
                         integration = it.integration,
                         clientId = it.clientId,
+                        clientName = clientNames[it.clientId],
                         createdAt = it.createdAt
                     )
                 }

@@ -23,7 +23,7 @@ class RoomTokenStore(
         return true
     }
 
-    override fun createToken(integrationId: String, clientId: String): String {
+    override fun createToken(integrationId: String, clientId: String, clientName: String?): String {
         val raw = ByteArray(TOKEN_BYTES)
         SecureRandom().nextBytes(raw)
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(raw)
@@ -34,7 +34,7 @@ class RoomTokenStore(
                 integrationId = integrationId,
                 clientId = clientId,
                 tokenHash = hashToken(token),
-                label = clientId,
+                label = clientName ?: clientId,
                 createdAt = now,
                 lastUsedAt = now
             )

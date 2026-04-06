@@ -174,6 +174,7 @@ fun Application.configureMcpRouting(
 
                 val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
                 val clientId = java.util.UUID.randomUUID().toString()
+                authorizationCodeManager.registerClient(clientId, clientName)
                 val response = buildJsonObject {
                     put("client_id", clientId)
                     put("client_name", clientName)

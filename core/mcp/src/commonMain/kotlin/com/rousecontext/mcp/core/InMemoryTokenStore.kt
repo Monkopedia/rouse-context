@@ -15,6 +15,7 @@ class InMemoryTokenStore(
     private data class StoredToken(
         val integrationId: String,
         val clientId: String,
+        val clientName: String?,
         val token: String,
         val createdAt: Long,
         var lastUsedAt: Long,
@@ -33,7 +34,7 @@ class InMemoryTokenStore(
         }
     }
 
-    override fun createToken(integrationId: String, clientId: String): String {
+    override fun createToken(integrationId: String, clientId: String, clientName: String?): String {
         val token = generateToken()
         val now = clock.currentTimeMillis()
         synchronized(this) {
@@ -41,6 +42,7 @@ class InMemoryTokenStore(
                 StoredToken(
                     integrationId = integrationId,
                     clientId = clientId,
+                    clientName = clientName,
                     token = token,
                     createdAt = now,
                     lastUsedAt = now
@@ -67,7 +69,7 @@ class InMemoryTokenStore(
                         clientId = it.clientId,
                         createdAt = it.createdAt,
                         lastUsedAt = it.lastUsedAt,
-                        label = it.clientId
+                        label = it.clientName ?: it.clientId
                     )
                 }
         }

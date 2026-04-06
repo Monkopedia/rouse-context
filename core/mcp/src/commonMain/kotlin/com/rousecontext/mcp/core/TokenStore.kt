@@ -18,10 +18,11 @@ interface TokenStore {
 
     /**
      * Creates and returns a new access token for [integrationId], associated with
-     * the given [clientId]. The returned token is the raw value the client should
-     * use as a Bearer token.
+     * the given [clientId]. The optional [clientName] is a human-readable label
+     * for display in the authorized clients UI. The returned token is the raw value
+     * the client should use as a Bearer token.
      */
-    fun createToken(integrationId: String, clientId: String): String
+    fun createToken(integrationId: String, clientId: String, clientName: String? = null): String
 
     /**
      * Revokes a specific token. No-op if the token does not exist.

@@ -47,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 enum class ConnectionStatus { CONNECTED, DISCONNECTED }
@@ -145,13 +146,15 @@ fun MainDashboardScreen(
                 }
             }
 
-            // Connection status
-            item {
-                if (state.certBanner == null) {
+            // Connection status (debug builds only)
+            if (BuildConfig.DEBUG) {
+                item {
+                    if (state.certBanner == null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
                     Spacer(modifier = Modifier.height(16.dp))
                 }
-                ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
-                Spacer(modifier = Modifier.height(16.dp))
             }
 
             // Integrations header

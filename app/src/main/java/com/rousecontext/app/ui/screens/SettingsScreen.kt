@@ -171,10 +171,16 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Notifications section
-            SectionHeader("Notifications")
+            // Audit notifications section
+            SectionHeader("Audit Notifications")
             SettingsSectionCard {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Show a notification when AI clients use your tools",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                     SettingsDropdown(
                         label = "After session",
                         selected = state.postSessionMode,
