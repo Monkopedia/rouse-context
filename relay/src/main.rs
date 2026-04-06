@@ -584,9 +584,11 @@ impl rouse_relay::acme::AcmeClient for StubAcme {
     async fn issue_certificate(
         &self,
         _subdomain: &str,
-        _csr_der: &[u8],
-    ) -> Result<String, rouse_relay::acme::AcmeError> {
-        Ok("stub-cert".to_string())
+    ) -> Result<rouse_relay::acme::CertificateBundle, rouse_relay::acme::AcmeError> {
+        Ok(rouse_relay::acme::CertificateBundle {
+            cert_pem: "stub-cert".to_string(),
+            private_key_pem: "stub-key".to_string(),
+        })
     }
 }
 

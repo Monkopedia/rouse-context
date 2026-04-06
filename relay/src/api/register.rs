@@ -31,6 +31,7 @@ pub struct RegisterRequest {
 pub struct RegisterResponse {
     pub subdomain: String,
     pub cert: String,
+    pub private_key: String,
     pub relay_host: String,
 }
 
@@ -136,9 +137,9 @@ pub async fn handle_register(
         state.subdomain_generator.generate()
     };
 
-    // 6. Issue certificate via ACME
-    let cert = match state.acme.issue_certificate(&subdomain, &csr_der).await {
-        Ok(c) => c,
+    // 6. Issue certificate via ACME (relay generates keypair + CSR with correct FQDN)
+    let bundle = match state.acme.issue_certificate(&subdomain).await {
+        Ok(b) => b,
         Err(crate::acme::AcmeError::RateLimited { retry_after_secs }) => {
             return ApiError::acme_rate_limited(
                 "Certificate issuance rate limited",
@@ -179,7 +180,8 @@ pub async fn handle_register(
         StatusCode::OK,
         Json(RegisterResponse {
             subdomain,
-            cert,
+            cert: bundle.cert_pem,
+            private_key: bundle.private_key_pem,
             relay_host: state.config.server.relay_hostname.clone(),
         }),
     )

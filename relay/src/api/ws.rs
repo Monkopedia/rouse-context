@@ -330,9 +330,11 @@ mod tests {
         async fn issue_certificate(
             &self,
             _s: &str,
-            _c: &[u8],
-        ) -> Result<String, crate::acme::AcmeError> {
-            Ok(String::new())
+        ) -> Result<crate::acme::CertificateBundle, crate::acme::AcmeError> {
+            Ok(crate::acme::CertificateBundle {
+                cert_pem: String::new(),
+                private_key_pem: String::new(),
+            })
         }
     }
 
