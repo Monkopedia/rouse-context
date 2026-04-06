@@ -9,6 +9,7 @@ import com.rousecontext.app.cert.MtlsWebSocketFactory
 import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
+import com.rousecontext.app.registry.NotificationIntegration
 import com.rousecontext.app.registry.OutreachIntegration
 import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
@@ -32,6 +33,7 @@ import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
+import com.rousecontext.notifications.capture.NotificationDatabase
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.CsrGenerator
 import com.rousecontext.tunnel.OnboardingFlow
@@ -63,6 +65,8 @@ val appModule = module {
     single { get<TokenDatabase>().tokenDao() }
     single { AuditDatabase.create(androidContext()) }
     single { get<AuditDatabase>().auditDao() }
+    single { NotificationDatabase.create(androidContext()) }
+    single { get<NotificationDatabase>().notificationDao() }
 
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
@@ -90,11 +94,15 @@ val appModule = module {
     // --- Integrations ---
     single<McpIntegration>(named("health")) { HealthConnectIntegration(androidContext()) }
     single<McpIntegration>(named("outreach")) { OutreachIntegration(androidContext()) }
+    single<McpIntegration>(named("notifications")) {
+        NotificationIntegration(androidContext(), get())
+    }
 
     single<List<McpIntegration>> {
         buildList {
             add(get(named("health")))
             add(get(named("outreach")))
+            add(get(named("notifications")))
             getKoin().getOrNull<McpIntegration>(named("test"))?.let { add(it) }
         }
     }

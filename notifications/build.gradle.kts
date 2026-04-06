@@ -27,8 +27,11 @@ android {
 dependencies {
     implementation(project(":core:tunnel"))
     implementation(project(":core:mcp"))
+    implementation(project(":api"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
