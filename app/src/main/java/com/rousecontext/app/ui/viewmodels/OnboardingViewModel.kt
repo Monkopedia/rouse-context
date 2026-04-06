@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
+import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
@@ -35,7 +36,8 @@ sealed interface OnboardingState {
  */
 class OnboardingViewModel(
     private val certificateStore: CertificateStore,
-    private val onboardingFlow: OnboardingFlow
+    private val onboardingFlow: OnboardingFlow,
+    private val lazyWebSocketFactory: LazyWebSocketFactory
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<OnboardingState>(OnboardingState.Checking)
@@ -80,40 +82,45 @@ class OnboardingViewModel(
                     20
                 )}..., fcmToken=${fcmToken.take(20)}..."
             )
-            when (val result = onboardingFlow.execute(firebaseToken, fcmToken)) {
-                is OnboardingResult.Success -> {
-                    _state.value = OnboardingState.Onboarded
-                }
-                is OnboardingResult.RateLimited -> {
-                    val retryDate = result.retryAfterSeconds?.let { seconds ->
-                        val date = Date(System.currentTimeMillis() + seconds * MILLIS_PER_SECOND)
-                        DATE_FORMAT.format(date)
-                    } ?: "later"
-                    _state.value = OnboardingState.RateLimited(retryDate = retryDate)
-                }
-                is OnboardingResult.RelayError -> {
-                    Log.e("Onboarding", "Relay error: ${result.statusCode} - ${result.message}")
-                    _state.value = OnboardingState.Failed(
-                        message = "Server error: ${result.message}"
-                    )
-                }
-                is OnboardingResult.NetworkError -> {
-                    Log.e("Onboarding", "Network error", result.cause)
-                    _state.value = OnboardingState.Failed(
-                        message = "Network error. Check your connection and try again."
-                    )
-                }
-                is OnboardingResult.KeyGenerationFailed -> {
-                    Log.e("Onboarding", "Key generation failed", result.cause)
-                    _state.value = OnboardingState.Failed(
-                        message = "Failed to generate device keys."
-                    )
-                }
-                is OnboardingResult.StorageFailed -> {
-                    _state.value = OnboardingState.Failed(
-                        message = "Failed to save certificate."
-                    )
-                }
+            handleResult(onboardingFlow.execute(firebaseToken, fcmToken))
+        }
+    }
+
+    private fun handleResult(result: OnboardingResult) {
+        when (result) {
+            is OnboardingResult.Success -> {
+                lazyWebSocketFactory.invalidate()
+                _state.value = OnboardingState.Onboarded
+            }
+            is OnboardingResult.RateLimited -> {
+                val retryDate = result.retryAfterSeconds?.let { seconds ->
+                    val date = Date(System.currentTimeMillis() + seconds * MILLIS_PER_SECOND)
+                    DATE_FORMAT.format(date)
+                } ?: "later"
+                _state.value = OnboardingState.RateLimited(retryDate = retryDate)
+            }
+            is OnboardingResult.RelayError -> {
+                Log.e("Onboarding", "Relay error: ${result.statusCode} - ${result.message}")
+                _state.value = OnboardingState.Failed(
+                    message = "Server error: ${result.message}"
+                )
+            }
+            is OnboardingResult.NetworkError -> {
+                Log.e("Onboarding", "Network error", result.cause)
+                _state.value = OnboardingState.Failed(
+                    message = "Network error. Check your connection and try again."
+                )
+            }
+            is OnboardingResult.KeyGenerationFailed -> {
+                Log.e("Onboarding", "Key generation failed", result.cause)
+                _state.value = OnboardingState.Failed(
+                    message = "Failed to generate device keys."
+                )
+            }
+            is OnboardingResult.StorageFailed -> {
+                _state.value = OnboardingState.Failed(
+                    message = "Failed to save certificate."
+                )
             }
         }
     }

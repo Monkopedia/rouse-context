@@ -11,7 +11,7 @@ import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.MainActivity
 import com.rousecontext.app.cert.FileCertificateStore
-import com.rousecontext.app.cert.MtlsWebSocketFactory
+import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.receivers.AuthApprovalReceiver
 import com.rousecontext.app.registry.HealthConnectIntegration
@@ -174,10 +174,12 @@ val appModule = module {
         "${BuildConfig.RELAY_SCHEME}://${BuildConfig.RELAY_HOST}:${BuildConfig.RELAY_PORT}/ws"
     }
 
+    single { LazyWebSocketFactory(androidContext()) }
+
     single<TunnelClient> {
         TunnelClientImpl(
             scope = get(named("appScope")),
-            webSocketFactory = MtlsWebSocketFactory.create(androidContext())
+            webSocketFactory = get<LazyWebSocketFactory>()
         )
     }
 
@@ -219,7 +221,7 @@ val appModule = module {
     viewModel { AuthorizationApprovalViewModel(get<McpSession>().authorizationCodeManager) }
     viewModel { HealthConnectSetupViewModel(get()) }
     viewModel { IntegrationSetupViewModel(get()) }
-    viewModel { OnboardingViewModel(get(), get()) }
+    viewModel { OnboardingViewModel(get(), get(), get()) }
 }
 
 /** Notification ID offset for auth request notifications. */
