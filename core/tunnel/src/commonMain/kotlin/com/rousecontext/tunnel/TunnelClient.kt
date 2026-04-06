@@ -24,6 +24,14 @@ interface TunnelClient {
     suspend fun disconnect()
 
     /**
+     * Send the device's FCM token to the relay so it can send push wakeups.
+     *
+     * Must be called after [connect] succeeds (i.e. when [state] is [TunnelState.CONNECTED]).
+     * Safe to call multiple times (e.g. when the FCM token refreshes).
+     */
+    suspend fun sendFcmToken(token: String)
+
+    /**
      * Flow of incoming mux sessions.
      *
      * Each emission is a [MuxStream] representing a new session opened

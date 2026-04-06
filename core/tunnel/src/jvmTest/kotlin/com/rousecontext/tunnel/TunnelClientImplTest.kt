@@ -9,6 +9,7 @@ import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readBytes
+import io.ktor.websocket.readText
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -242,6 +243,52 @@ class TunnelClientImplTest {
         } finally {
             server.stop(0, 0)
         }
+    }
+
+    @Test
+    fun `sendFcmToken sends JSON text frame to relay`() = runBlocking {
+        val port = findFreePort()
+        val textReceived = CompletableDeferred<String>()
+
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        for (frame in incoming) {
+                            if (frame is Frame.Text) {
+                                textReceived.complete(frame.readText())
+                            }
+                        }
+                    }
+                }
+            }
+        server.start(wait = false)
+
+        try {
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            client.connect("ws://localhost:$port/tunnel")
+
+            client.sendFcmToken("test-fcm-token-123")
+
+            val received = withTimeout(5000) { textReceived.await() }
+            assertEquals("""{"type":"fcm_token","token":"test-fcm-token-123"}""", received)
+
+            client.disconnect()
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
+        }
+    }
+
+    @Test
+    fun `sendFcmToken before connect is a no-op`() = runBlocking {
+        val client = TunnelClientImpl(this, KtorWebSocketFactory())
+
+        // Should not throw
+        client.sendFcmToken("some-token")
+
+        coroutineContext.cancelChildren()
     }
 
     @Test

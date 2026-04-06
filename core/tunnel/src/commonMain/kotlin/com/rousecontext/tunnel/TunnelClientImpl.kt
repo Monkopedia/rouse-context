@@ -105,6 +105,12 @@ class TunnelClientImpl(
         }
     }
 
+    override suspend fun sendFcmToken(token: String) {
+        val handle = wsHandle ?: return
+        val json = """{"type":"fcm_token","token":"$token"}"""
+        handle.sendText(json)
+    }
+
     override suspend fun disconnect() {
         try {
             muxDemux?.closeAll()

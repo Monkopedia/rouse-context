@@ -67,6 +67,12 @@ private class KtorWebSocketHandle : WebSocketHandle {
         return true
     }
 
+    override suspend fun sendText(text: String): Boolean {
+        val session = sessionDeferred.await()
+        session.send(Frame.Text(text))
+        return true
+    }
+
     override suspend fun close(code: Int, reason: String) {
         if (sessionDeferred.isCompleted) {
             sessionDeferred.await().close()

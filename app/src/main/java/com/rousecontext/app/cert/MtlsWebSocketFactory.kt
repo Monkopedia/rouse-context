@@ -268,6 +268,10 @@ private class OkHttpWebSocketHandle(private val ws: WebSocket) : WebSocketHandle
         return ws.send(data.toByteString())
     }
 
+    override suspend fun sendText(text: String): Boolean {
+        return ws.send(text)
+    }
+
     override suspend fun close(code: Int, reason: String) {
         ws.close(code, reason)
     }

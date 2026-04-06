@@ -8,13 +8,17 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.createForegroundNotification
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
 
@@ -84,8 +88,23 @@ class TunnelForegroundService : LifecycleService() {
         }
         try {
             tunnelClient.connect(relayUrl)
+            sendFcmToken()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect to relay", e)
+        }
+    }
+
+    private suspend fun sendFcmToken() {
+        try {
+            val token = suspendCancellableCoroutine { cont ->
+                FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { cont.resume(it) }
+                    .addOnFailureListener { cont.resumeWithException(it) }
+            }
+            tunnelClient.sendFcmToken(token)
+            Log.i(TAG, "Sent FCM token to relay")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to send FCM token to relay", e)
         }
     }
 
@@ -176,6 +195,7 @@ class TunnelForegroundService : LifecycleService() {
                 try {
                     tunnelClient.connect(relayUrl)
                     Log.i(TAG, "Reconnect succeeded")
+                    sendFcmToken()
                     return@launch
                 } catch (e: Exception) {
                     Log.w(TAG, "Reconnect attempt failed", e)

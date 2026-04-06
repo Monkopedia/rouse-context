@@ -34,6 +34,12 @@ interface WebSocketHandle {
     suspend fun sendBinary(data: ByteArray): Boolean
 
     /**
+     * Send a text frame. Returns true if enqueued successfully, false if the
+     * connection is closing/closed.
+     */
+    suspend fun sendText(text: String): Boolean
+
+    /**
      * Initiate a graceful close.
      */
     suspend fun close(code: Int = 1000, reason: String = "")
