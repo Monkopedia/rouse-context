@@ -2,11 +2,11 @@ package com.rousecontext.tunnel
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.statement.bodyAsText
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
@@ -103,7 +103,11 @@ class RelayApiClient(
                 RelayApiResult.RateLimited(retryAfterSeconds = retryAfter)
             }
             else -> {
-                val body = try { response.bodyAsText() } catch (_: Exception) { "" }
+                val body = try {
+                    response.bodyAsText()
+                } catch (_: Exception) {
+                    ""
+                }
                 RelayApiResult.Error(
                     statusCode = response.status.value,
                     message = "Relay returned ${response.status}: $body"

@@ -92,9 +92,11 @@ class MuxFrameTest {
             0x00,
             0x00,
             0x00,
-            0x0A, // stream_id = 10
+            // stream_id = 10
+            0x0A,
+            // payload
             0xAA.toByte(),
-            0xBB.toByte() // payload
+            0xBB.toByte()
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -111,7 +113,8 @@ class MuxFrameTest {
             0x00,
             0x00,
             0x01,
-            0x00 // stream_id = 256
+            // stream_id = 256
+            0x00
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -127,7 +130,8 @@ class MuxFrameTest {
             0x00,
             0x00,
             0x00,
-            0x01 // stream_id = 1
+            // stream_id = 1
+            0x01
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -141,8 +145,10 @@ class MuxFrameTest {
         val msgBytes = "refused".encodeToByteArray()
         val bytes = byteArrayOf(
             MuxFrameType.ERROR,
-            0x00, 0x00, 0x00, 0x05, // stream_id = 5
-            0x00, 0x00, 0x00, 0x01 // error_code = STREAM_REFUSED (1)
+            // stream_id = 5
+            0x00, 0x00, 0x00, 0x05,
+            // error_code = STREAM_REFUSED (1)
+            0x00, 0x00, 0x00, 0x01
         ) + msgBytes
 
         val frame = MuxCodec.decode(bytes)
@@ -157,8 +163,10 @@ class MuxFrameTest {
     fun decodeErrorFrameWithoutMessage() {
         val bytes = byteArrayOf(
             MuxFrameType.ERROR,
-            0x00, 0x00, 0x00, 0x02, // stream_id = 2
-            0x00, 0x00, 0x00, 0x04 // error_code = INTERNAL_ERROR (4)
+            // stream_id = 2
+            0x00, 0x00, 0x00, 0x02,
+            // error_code = INTERNAL_ERROR (4)
+            0x00, 0x00, 0x00, 0x04
         )
 
         val frame = MuxCodec.decode(bytes)
@@ -172,7 +180,8 @@ class MuxFrameTest {
     @Test
     fun decodeUnknownFrameTypeThrows() {
         val bytes = byteArrayOf(
-            0x7F, // unknown type
+            // unknown type
+            0x7F,
             0x00,
             0x00,
             0x00,
@@ -203,7 +212,8 @@ class MuxFrameTest {
             0x00,
             0x01,
             0x00,
-            0x00 // only 2 bytes of error code, need 4
+            // only 2 bytes of error code, need 4
+            0x00
         )
 
         assertFailsWith<MuxProtocolException> {

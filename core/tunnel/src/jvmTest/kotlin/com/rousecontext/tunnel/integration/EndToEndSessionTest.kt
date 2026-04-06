@@ -932,13 +932,15 @@ class EndToEndSessionTest {
         // ClientHello body: version(2) + random(32) + session_id_len(1) +
         // cipher_suites_len(2) + cipher(2) + comp_len(1) + comp(1) + extensions
         val random = ByteArray(32) { 0x42 }
+        // length = 2 bytes (1 suite), TLS_RSA_WITH_AES_128_CBC_SHA
         val cipherSuites = byteArrayOf(
             0x00,
-            0x02, // length = 2 bytes (1 suite)
+            0x02,
             0x00,
-            0x2F // TLS_RSA_WITH_AES_128_CBC_SHA
+            0x2F
         )
-        val compression = byteArrayOf(0x01, 0x00) // 1 method: null
+        // 1 method: null
+        val compression = byteArrayOf(0x01, 0x00)
 
         val helloBody = ByteArray(
             2 + 32 + 1 + cipherSuites.size + compression.size + extensions.size

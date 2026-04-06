@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
@@ -14,7 +15,6 @@ import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import android.util.Log
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -76,7 +76,12 @@ class OnboardingViewModel(
             }
 
             val commonName = UUID.randomUUID().toString().take(SUBDOMAIN_LENGTH)
-            Log.i("Onboarding", "Starting onboarding with CN=$commonName, firebaseToken=${firebaseToken.take(20)}..., fcmToken=${fcmToken.take(20)}...")
+            Log.i(
+                "Onboarding",
+                "Starting onboarding with CN=$commonName, firebaseToken=${firebaseToken.take(
+                    20
+                )}..., fcmToken=${fcmToken.take(20)}..."
+            )
             when (val result = onboardingFlow.execute(commonName, firebaseToken, fcmToken)) {
                 is OnboardingResult.Success -> {
                     _state.value = OnboardingState.Onboarded
