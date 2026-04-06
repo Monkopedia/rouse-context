@@ -95,6 +95,7 @@ class AuthorizationCodeManager(
         val now = clock.currentTimeMillis()
 
         synchronized(this) {
+            cleanup(now)
             requests.add(
                 PendingRequest(
                     requestId = requestId,
@@ -123,6 +124,7 @@ class AuthorizationCodeManager(
      */
     fun getStatus(requestId: String): AuthorizationRequestStatus {
         synchronized(this) {
+            cleanup(clock.currentTimeMillis())
             val request = requests.find { it.requestId == requestId }
                 ?: return AuthorizationRequestStatus.Expired
 
@@ -223,6 +225,13 @@ class AuthorizationCodeManager(
                     )
                 }
         }
+    }
+
+    /**
+     * Removes expired pending requests. Must be called inside synchronized(this).
+     */
+    private fun cleanup(now: Long) {
+        requests.removeAll { (now - it.createdAt) > AUTH_REQUEST_TTL_MS }
     }
 
     private fun generateDisplayCode(): String {

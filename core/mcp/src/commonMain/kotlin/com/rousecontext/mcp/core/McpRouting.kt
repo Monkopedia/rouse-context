@@ -64,6 +64,7 @@ fun Application.configureMcpRouting(
     hostname: String,
     auditListener: AuditListener? = null,
     clock: Clock = SystemClock,
+    rateLimiter: RateLimiter? = null,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0"
 ) {
@@ -146,6 +147,10 @@ fun Application.configureMcpRouting(
                 val integration = call.parameters["integration"] ?: return@post
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
+                    return@post
+                }
+                if (rateLimiter != null && !rateLimiter.tryAcquire("register")) {
+                    call.respond(HttpStatusCode.TooManyRequests)
                     return@post
                 }
 
@@ -239,6 +244,10 @@ fun Application.configureMcpRouting(
                     call.respond(HttpStatusCode.NotFound)
                     return@get
                 }
+                if (rateLimiter != null && !rateLimiter.tryAcquire("authorize")) {
+                    call.respond(HttpStatusCode.TooManyRequests)
+                    return@get
+                }
 
                 val responseType = call.request.queryParameters["response_type"]
                 val clientId = call.request.queryParameters["client_id"]
@@ -306,6 +315,10 @@ fun Application.configureMcpRouting(
                 val integration = call.parameters["integration"] ?: return@post
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
+                    return@post
+                }
+                if (rateLimiter != null && !rateLimiter.tryAcquire("token")) {
+                    call.respond(HttpStatusCode.TooManyRequests)
                     return@post
                 }
 

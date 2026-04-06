@@ -71,6 +71,7 @@ class DeviceCodeManager(
         val now = clock.currentTimeMillis()
 
         synchronized(this) {
+            cleanup(now)
             pendingCodes.add(
                 PendingCode(
                     deviceCode = deviceCode,
@@ -92,6 +93,7 @@ class DeviceCodeManager(
      */
     fun poll(deviceCode: String): DeviceCodePollResult {
         synchronized(this) {
+            val now = clock.currentTimeMillis()
             val pending = pendingCodes.find { it.deviceCode == deviceCode }
                 ?: return DeviceCodePollResult(DeviceCodeStatus.INVALID_CODE)
 
@@ -155,6 +157,13 @@ class DeviceCodeManager(
                     )
                 }
         }
+    }
+
+    /**
+     * Removes expired pending codes. Must be called inside synchronized(this).
+     */
+    private fun cleanup(now: Long) {
+        pendingCodes.removeAll { (now - it.createdAt) > DEVICE_CODE_TTL_MS }
     }
 
     private fun generateDeviceCode(): String {
