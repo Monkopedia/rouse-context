@@ -85,7 +85,9 @@ class McpProtocolTest {
 
     private fun configureTestApp(
         registry: InMemoryProviderRegistry,
-        tokenStore: InMemoryTokenStore
+        tokenStore: InMemoryTokenStore,
+        auditListener: AuditListener? = null,
+        clock: Clock = SystemClock
     ): io.ktor.server.testing.ApplicationTestBuilder.() -> Unit = {
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
         application {
@@ -93,7 +95,9 @@ class McpProtocolTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                auditListener = auditListener,
+                clock = clock
             )
         }
     }
@@ -405,5 +409,114 @@ class McpProtocolTest {
             "Client 2 should get 2024-02-20 result",
             text2?.contains("2024-02-20") == true
         )
+    }
+
+    // -- Audit logging tests --
+
+    @Test
+    fun `tool call emits audit event with correct fields`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val events = mutableListOf<ToolCallEvent>()
+        val clock = FakeClock(1000L)
+        configureTestApp(
+            registry,
+            tokenStore,
+            auditListener = AuditListener { events.add(it) },
+            clock = clock
+        ).invoke(this)
+
+        client.initialize(token)
+
+        val callRequest = mcpJsonRpc(
+            "tools/call",
+            """{"name":"get_steps","arguments":{"date":"2024-01-15"}}""",
+            id = 2
+        )
+        val response = client.mcpPost(token, callRequest)
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("Expected exactly one audit event", 1, events.size)
+
+        val event = events[0]
+        assertEquals("get_steps", event.toolName)
+        assertEquals("health", event.providerId)
+        assertEquals("health", event.sessionId)
+        assertEquals(1000L, event.timestamp)
+        assertTrue("Arguments should contain date key", event.arguments.containsKey("date"))
+        assertNotNull("Result should not be null", event.result)
+    }
+
+    @Test
+    fun `non-tool-call methods do not emit audit events`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val events = mutableListOf<ToolCallEvent>()
+        configureTestApp(
+            registry,
+            tokenStore,
+            auditListener = AuditListener { events.add(it) }
+        ).invoke(this)
+
+        client.initialize(token)
+
+        // tools/list should NOT trigger audit
+        client.mcpPost(token, mcpJsonRpc("tools/list", id = 2))
+        // resources/list should NOT trigger audit
+        client.mcpPost(token, mcpJsonRpc("resources/list", id = 3))
+
+        assertEquals("No audit events for non-tool-call methods", 0, events.size)
+    }
+
+    @Test
+    fun `multiple tool calls emit multiple audit events`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val events = mutableListOf<ToolCallEvent>()
+        configureTestApp(
+            registry,
+            tokenStore,
+            auditListener = AuditListener { events.add(it) }
+        ).invoke(this)
+
+        client.initialize(token)
+
+        client.mcpPost(
+            token,
+            mcpJsonRpc(
+                "tools/call",
+                """{"name":"get_steps","arguments":{"date":"2024-01-15"}}""",
+                id = 2
+            )
+        )
+        client.mcpPost(
+            token,
+            mcpJsonRpc(
+                "tools/call",
+                """{"name":"get_steps","arguments":{"date":"2024-01-16"}}""",
+                id = 3
+            )
+        )
+
+        assertEquals("Expected two audit events", 2, events.size)
+        assertEquals("get_steps", events[0].toolName)
+        assertEquals("get_steps", events[1].toolName)
+    }
+
+    @Test
+    fun `null audit listener does not break tool calls`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        configureTestApp(registry, tokenStore, auditListener = null).invoke(this)
+
+        client.initialize(token)
+
+        val callRequest = mcpJsonRpc(
+            "tools/call",
+            """{"name":"get_steps","arguments":{"date":"2024-01-15"}}""",
+            id = 2
+        )
+        val response = client.mcpPost(token, callRequest)
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        val result = json["result"]?.jsonObject
+        assertNotNull("Tool call should still succeed without audit listener", result)
     }
 }

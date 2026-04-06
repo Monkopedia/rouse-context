@@ -15,9 +15,11 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.modelcontextprotocol.kotlin.sdk.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.Implementation
 import io.modelcontextprotocol.kotlin.sdk.JSONRPCMessage
 import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
+import io.modelcontextprotocol.kotlin.sdk.TextContent
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import kotlinx.coroutines.sync.Mutex
@@ -26,6 +28,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -59,8 +62,8 @@ fun Application.configureMcpRouting(
     deviceCodeManager: DeviceCodeManager,
     authorizationCodeManager: AuthorizationCodeManager = AuthorizationCodeManager(tokenStore),
     hostname: String,
-    @Suppress("UNUSED_PARAMETER")
     auditListener: AuditListener? = null,
+    clock: Clock = SystemClock,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0"
 ) {
@@ -152,8 +155,15 @@ fun Application.configureMcpRouting(
                     }
                     mcpJson.parseToJsonElement(text).jsonObject
                 } catch (e: Exception) {
-                    println("McpRouting: /register body read failed: ${e::class.simpleName}: ${e.message}")
-                    call.respondText("{}", ContentType.Application.Json, HttpStatusCode.BadRequest)
+                    println(
+                        "McpRouting: /register body read failed: " +
+                            "${e::class.simpleName}: ${e.message}"
+                    )
+                    call.respondText(
+                        "{}",
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
                     return@post
                 }
 
@@ -395,7 +405,20 @@ fun Application.configureMcpRouting(
                     dispatchNotification(integrationServer.transport, requestBody)
                     call.respond(HttpStatusCode.Accepted)
                 } else {
+                    val startMs = clock.currentTimeMillis()
                     val responseJson = dispatchJsonRpc(integrationServer.transport, requestBody)
+
+                    if (auditListener != null && parsed != null) {
+                        emitAuditEvent(
+                            auditListener,
+                            parsed,
+                            responseJson,
+                            integration,
+                            startMs,
+                            clock
+                        )
+                    }
+
                     call.respondText(responseJson, ContentType.Application.Json)
                 }
             }
@@ -643,6 +666,75 @@ private fun buildAuthorizePage(
         </body>
         </html>
     """.trimIndent()
+}
+
+/**
+ * Emits an audit event for tools/call requests.
+ * Silently ignores non-tool-call methods and parse failures.
+ */
+@Suppress("TooGenericExceptionCaught")
+private fun emitAuditEvent(
+    auditListener: AuditListener,
+    request: JsonObject,
+    responseJson: String,
+    integration: String,
+    startMs: Long,
+    clock: Clock
+) {
+    val method = try {
+        request["method"]?.jsonPrimitive?.content
+    } catch (_: Exception) {
+        null
+    }
+    if (method != "tools/call") return
+
+    try {
+        val params = request["params"]?.jsonObject ?: return
+        val toolName = params["name"]?.jsonPrimitive?.content ?: return
+        val arguments = params["arguments"]?.jsonObject
+            ?.mapValues { (_, v) -> v }
+            ?: emptyMap()
+
+        val endMs = clock.currentTimeMillis()
+
+        // Parse response to determine success and extract result
+        val responseObj = mcpJson.parseToJsonElement(responseJson).jsonObject
+        val error = responseObj["error"]
+        val isError = error != null && error !is JsonNull
+        val resultObj = responseObj["result"]?.jsonObject
+
+        val result = if (isError) {
+            val errorMsg = error?.jsonObject?.get("message")?.jsonPrimitive?.content
+                ?: "Unknown error"
+            CallToolResult(
+                content = listOf(TextContent(errorMsg)),
+                isError = true
+            )
+        } else {
+            val contentArray = resultObj?.get("content")?.jsonArray
+            val textContent = contentArray?.mapNotNull { element ->
+                val obj = element.jsonObject
+                val text = obj["text"]?.jsonPrimitive?.content
+                text?.let { TextContent(it) }
+            } ?: emptyList()
+            val resultIsError = resultObj?.get("isError")?.jsonPrimitive?.content == "true"
+            CallToolResult(content = textContent, isError = resultIsError)
+        }
+
+        auditListener.onToolCall(
+            ToolCallEvent(
+                sessionId = integration,
+                providerId = integration,
+                timestamp = startMs,
+                toolName = toolName,
+                arguments = arguments,
+                result = result,
+                durationMs = endMs - startMs
+            )
+        )
+    } catch (_: Exception) {
+        // Audit is best-effort; never fail the request due to audit errors
+    }
 }
 
 private fun jsonRpcError(
