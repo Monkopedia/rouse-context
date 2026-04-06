@@ -86,7 +86,10 @@ val appModule = module {
     single<McpIntegration>(named("health")) { HealthConnectIntegration(androidContext()) }
 
     single<List<McpIntegration>> {
-        listOf(get(named("health")))
+        buildList {
+            add(get(named("health")))
+            getKoin().getOrNull<McpIntegration>(named("test"))?.let { add(it) }
+        }
     }
 
     // --- Provider registry ---

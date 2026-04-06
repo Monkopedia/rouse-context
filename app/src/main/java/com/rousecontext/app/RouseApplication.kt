@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.SecurityCheckWorker
@@ -41,7 +42,8 @@ class RouseApplication : Application() {
             androidContext(this@RouseApplication)
             modules(
                 scopeModule(),
-                appModule
+                appModule,
+                *debugModules().toTypedArray()
             )
         }
 
