@@ -5,6 +5,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.cert.FileCertificateStore
+import com.rousecontext.app.cert.MtlsHttpClientFactory
 import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
@@ -113,7 +114,10 @@ val appModule = module {
     }
 
     single<TunnelClient> {
-        TunnelClientImpl(scope = get(named("appScope")))
+        TunnelClientImpl(
+            scope = get(named("appScope")),
+            httpClient = MtlsHttpClientFactory.create(androidContext())
+        )
     }
 
     single {

@@ -92,3 +92,99 @@ connection to the local relay, then checks `/status` for `active_mux_connections
 - Handle the ws:// vs wss:// scheme based on whether TLS is configured
 - Ensure the `TunnelForegroundService` is declared in a manifest (currently the
   `:work` module's `AndroidManifest.xml` is empty)
+
+---
+
+# Blockers for FCM Wake Flow (April 2026)
+
+## Summary
+
+The FCM wake flow was tested end-to-end on a Pixel 2 XL (API 30) with
+package `com.rousecontext.debug`. The flow starts correctly but the WebSocket
+connection to the relay is rejected with HTTP 401 because the device cannot
+present a valid mTLS client certificate.
+
+## What works
+
+1. **ADB test broadcast**: `TestWakeReceiver` correctly receives the broadcast
+   and starts `TunnelForegroundService`.
+2. **Foreground service**: The service creates successfully, shows a foreground
+   notification, and attempts to connect via `TunnelClientImpl.connect()`.
+3. **Koin DI**: All dependencies (TunnelClient, WakelockManager,
+   IdleTimeoutManager, relayUrl) resolve correctly at runtime.
+4. **Relay connectivity**: The device can reach `relay.rousecontext.com:443`
+   and the TLS handshake to the relay completes (the 401 comes at HTTP level,
+   not TLS level, because the relay uses `allow_unauthenticated()` for TLS).
+5. **Onboarding flow**: The UI correctly detects missing subdomain and presents
+   the onboarding screen. Tapping "Get Started" triggers the full flow:
+   Firebase anonymous auth, FCM token retrieval, CSR generation, and relay
+   `/register` call. The relay responds with a subdomain.
+
+## Blockers
+
+### 1. Relay ACME client is stubbed (relay-side)
+
+**File**: `relay/src/main.rs` line 95
+
+```rust
+let acme: Arc<dyn rouse_relay::acme::AcmeClient> = Arc::new(StubAcme);
+```
+
+The production relay at `relay.rousecontext.com` uses `StubAcme`, which returns
+`"stub-cert"` instead of a real PEM certificate chain. This means:
+
+- The device's `rouse_cert.pem` file contains the literal string `stub-cert`
+- There is no valid X.509 certificate for the device to present during mTLS
+- The relay's `/ws` handler checks for a `DeviceIdentity` extension (extracted
+  from the client cert CN/SAN) and returns 401 when none is present
+
+**To fix**: Wire up a real ACME client (Let's Encrypt + Cloudflare DNS-01) in
+the relay. The `AcmeClient` trait already exists in `relay/src/acme.rs`; a
+real implementation needs to be built and connected in `main.rs`.
+
+### 2. mTLS HttpClient was not configured (FIXED in this branch)
+
+**Before this fix**: `TunnelClientImpl` used a bare `HttpClient` with no client
+certificate configuration. Even with a valid cert on disk, it would never be
+presented during the TLS handshake.
+
+**After this fix**: The Koin module creates an `HttpClient` via
+`MtlsHttpClientFactory` which loads the device cert from `rouse_cert.pem` and
+the private key from Android Keystore, then configures the Ktor CIO engine's
+TLS `certificates` list with a `CertificateAndKey`.
+
+## ADB test command
+
+```bash
+# Force-stop ensures fresh Koin initialization
+adb shell am force-stop com.rousecontext.debug
+
+# Send wake broadcast (must include type=wake extra)
+adb shell am broadcast \
+  -n com.rousecontext.debug/com.rousecontext.app.debug.TestWakeReceiver \
+  -a com.rousecontext.action.TEST_WAKE \
+  --es type wake
+
+# Watch logs
+adb logcat -s TestWakeReceiver:* TunnelForegroundService:* MtlsHttpClientFactory:*
+```
+
+## Observed log sequence (with fix, stub cert)
+
+```
+MtlsHttpClientFactory: Certificate chain is empty
+MtlsHttpClientFactory: No device cert available, creating plain HttpClient
+TunnelForegroundService: TunnelForegroundService created
+TunnelForegroundService: Tunnel disconnected, stopping service
+TunnelForegroundService: Failed to connect to relay
+  ConnectionFailed: Handshake exception, expected status code 101 but was 401
+TunnelForegroundService: TunnelForegroundService destroyed
+```
+
+## Next steps
+
+1. Implement real ACME cert issuance in the relay (wire `AcmeClient` trait
+   to Let's Encrypt + Cloudflare DNS-01)
+2. Re-onboard the device to get a real certificate
+3. Re-test the wake flow -- with a valid cert, `MtlsHttpClientFactory` will
+   configure the HttpClient and the relay should accept the mTLS connection
