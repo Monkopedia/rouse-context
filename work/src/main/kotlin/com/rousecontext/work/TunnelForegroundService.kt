@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.messaging.FirebaseMessaging
+import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.createForegroundNotification
 import com.rousecontext.tunnel.TunnelClient
@@ -40,6 +41,7 @@ class TunnelForegroundService : LifecycleService() {
     private val sessionHandler: SessionHandler by inject()
     private val wakelockManager: WakelockManager by inject()
     private val idleTimeoutManager: IdleTimeoutManager by inject()
+    private val providerRegistry: ProviderRegistry by inject()
     private val relayUrl: String by inject(named("relayUrl"))
 
     /** Set true when idle timeout fires or user explicitly stops — suppresses reconnect. */
@@ -63,6 +65,12 @@ class TunnelForegroundService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+
+        if (providerRegistry.enabledPaths().isEmpty()) {
+            Log.i(TAG, "No integrations enabled, stopping service")
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         lifecycleScope.launch { connectToRelay() }
         lifecycleScope.launch { wakelockManager.observe(tunnelClient.state) }
