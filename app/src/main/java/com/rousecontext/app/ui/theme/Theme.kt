@@ -5,6 +5,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // Brand colors — navy + amber palette
@@ -16,9 +18,16 @@ val AmberDark = Color(0xFFBA7517) // darker amber for light-mode secondary
 val SurfaceDark = Color(0xFF0F1C32) // dark mode surface
 val WarmWhite = Color(0xFFFAF8F4) // light mode background
 val SurfaceLight = Color(0xFFF5F6FA) // light mode surface
-val WarningContainer = Color(0xFF3A2800) // dark warning card background
-val OnWarningContainer = Color(0xFFFFE0A0) // warning card text
+val WarningContainerDark = Color(0xFF3A2800) // dark warning card background
+val OnWarningContainerDark = Color(0xFFFFE0A0) // dark warning card text
+val WarningContainerLight = Color(0xFFFFF3E0) // light warning card background
+val OnWarningContainerLight = Color(0xFF5D4200) // light warning card text
 val SuccessGreen = Color(0xFF4CAF50) // status: verified, connected
+val AlertContainerDark = Color(0xFF3A0000) // dark alert card background
+val AlertContainerLight = Color(0xFFFFEBEE) // light alert card background
+val AlertContentDark = Color(0xFFFF6B6B) // dark alert text/icon
+val AlertContentLight = Color(0xFFBA1A1A) // light alert text/icon
+val CodeBoxBorderEmpty = Color(0xFF404950) // light-mode empty code box border
 
 private val DarkColorScheme = darkColorScheme(
     primary = AmberAccent,
@@ -66,12 +75,44 @@ private val LightColorScheme = lightColorScheme(
     outlineVariant = Color(0xFFBFC4CE)
 )
 
+data class ExtendedColors(
+    val warningContainer: Color,
+    val onWarningContainer: Color,
+    val warningAccent: Color,
+    val alertContainer: Color,
+    val alertContent: Color,
+    val codeBoxBorderEmpty: Color
+)
+
+private val DarkExtendedColors = ExtendedColors(
+    warningContainer = WarningContainerDark,
+    onWarningContainer = OnWarningContainerDark,
+    warningAccent = AmberAccent,
+    alertContainer = AlertContainerDark,
+    alertContent = AlertContentDark,
+    codeBoxBorderEmpty = Color.White.copy(alpha = 0.2f)
+)
+
+private val LightExtendedColors = ExtendedColors(
+    warningContainer = WarningContainerLight,
+    onWarningContainer = OnWarningContainerLight,
+    warningAccent = AmberDark,
+    alertContainer = AlertContainerLight,
+    alertContent = AlertContentLight,
+    codeBoxBorderEmpty = CodeBoxBorderEmpty
+)
+
+val LocalExtendedColors = staticCompositionLocalOf { DarkExtendedColors }
+
 @Composable
 fun RouseContextTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val extendedColors = if (darkTheme) DarkExtendedColors else LightExtendedColors
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content
-    )
+    CompositionLocalProvider(LocalExtendedColors provides extendedColors) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content
+        )
+    }
 }

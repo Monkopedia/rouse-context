@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -48,14 +49,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.rousecontext.app.ui.theme.AmberAccent
-import com.rousecontext.app.ui.theme.OnWarningContainer
+import com.rousecontext.app.ui.theme.LocalExtendedColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
-import com.rousecontext.app.ui.theme.WarningContainer
 
 enum class TrustOverallStatus {
     VERIFIED,
@@ -224,10 +222,11 @@ fun SettingsScreen(
             // Battery warning
             if (state.showBatteryWarning) {
                 Spacer(modifier = Modifier.height(16.dp))
+                val ext = LocalExtendedColors.current
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = WarningContainer
+                        containerColor = ext.warningContainer
                     )
                 ) {
                     Row(
@@ -237,27 +236,27 @@ fun SettingsScreen(
                         Icon(
                             Icons.Default.Warning,
                             contentDescription = null,
-                            tint = AmberAccent
+                            tint = ext.warningAccent
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 "Battery optimization",
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = AmberAccent
+                                color = ext.warningAccent
                             )
                             Text(
                                 "Disable to ensure reliable wake-ups.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = OnWarningContainer
+                                color = ext.onWarningContainer
                             )
                         }
                         OutlinedButton(
                             onClick = onFixBatteryOptimization,
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = AmberAccent
+                                contentColor = ext.warningAccent
                             ),
-                            border = BorderStroke(1.dp, AmberAccent)
+                            border = BorderStroke(1.dp, ext.warningAccent)
                         ) {
                             Text("Fix this")
                         }
@@ -296,10 +295,11 @@ private const val FINGERPRINT_TRUNCATE_LENGTH = 23
 
 @Composable
 private fun TrustStatusSection(trustStatus: TrustStatusState) {
+    val ext = LocalExtendedColors.current
     val (statusIcon, statusColor, statusLabel) = when (trustStatus.overallStatus) {
         TrustOverallStatus.VERIFIED -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
-        TrustOverallStatus.WARNING -> Triple(Icons.Default.Warning, AmberAccent, "Warning")
-        TrustOverallStatus.ALERT -> Triple(Icons.Default.Error, Color(0xFFFF6B6B), "Alert")
+        TrustOverallStatus.WARNING -> Triple(Icons.Default.Warning, ext.warningAccent, "Warning")
+        TrustOverallStatus.ALERT -> Triple(Icons.Default.Error, ext.alertContent, "Alert")
     }
 
     val timeAgo = formatTimeAgo(trustStatus.lastCheckTime)
@@ -307,7 +307,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = if (trustStatus.overallStatus == TrustOverallStatus.ALERT) {
-            CardDefaults.cardColors(containerColor = Color(0xFF3A0000))
+            CardDefaults.cardColors(containerColor = ext.alertContainer)
         } else {
             CardDefaults.cardColors()
         }
@@ -365,10 +365,11 @@ private fun TrustStatusSection(trustStatus: TrustStatusState) {
 
 @Composable
 private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
+    val ext = LocalExtendedColors.current
     val (icon, color, displayResult) = when (result) {
         "verified" -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
-        "warning" -> Triple(Icons.Default.Warning, AmberAccent, "Unable to verify")
-        "alert" -> Triple(Icons.Default.Error, Color(0xFFFF6B6B), "Verification failed")
+        "warning" -> Triple(Icons.Default.Warning, ext.warningAccent, "Unable to verify")
+        "alert" -> Triple(Icons.Default.Error, ext.alertContent, "Verification failed")
         else -> Triple(
             Icons.Default.Warning,
             MaterialTheme.colorScheme.onSurfaceVariant,
@@ -531,6 +532,40 @@ fun SettingsNoBatteryWarningPreview() {
             state = SettingsState(
                 showBatteryWarning = false,
                 batteryOptimizationExempt = true
+            )
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun SettingsLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        SettingsScreen()
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun SettingsTrustStatusLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        SettingsScreen(
+            state = SettingsState(
+                trustStatus = TrustStatusState(
+                    lastCheckTime = System.currentTimeMillis() - 300_000,
+                    selfCheckResult = "verified",
+                    ctCheckResult = "warning",
+                    certFingerprint = "SHA256:AB:CD:EF:12:34:56:78:90",
+                    overallStatus = TrustOverallStatus.WARNING
+                )
             )
         )
     }

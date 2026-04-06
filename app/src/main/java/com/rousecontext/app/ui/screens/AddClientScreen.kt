@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -205,6 +206,27 @@ fun AddClientScreenMultiplePreview() {
                     EndpointItem(
                         integrationName = "Notifications",
                         url = "https://brave-falcon.rousecontext.com/notifications/mcp"
+                    )
+                )
+            )
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun AddClientScreenLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        AddClientScreen(
+            state = AddClientState(
+                endpoints = listOf(
+                    EndpointItem(
+                        integrationName = "Health Connect",
+                        url = "https://brave-falcon.rousecontext.com/health/mcp"
                     )
                 )
             )

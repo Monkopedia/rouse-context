@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.AmberAccent
+import com.rousecontext.app.ui.theme.LocalExtendedColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 @Immutable
@@ -169,6 +171,7 @@ private fun CodeInputRow(code: String, length: Int, onCodeChanged: (String) -> U
 
 @Composable
 private fun CodeBox(char: Char?, isNext: Boolean = false) {
+    val ext = LocalExtendedColors.current
     Box(
         modifier = Modifier
             .size(56.dp)
@@ -177,7 +180,7 @@ private fun CodeBox(char: Char?, isNext: Boolean = false) {
                 color = when {
                     char != null -> AmberAccent
                     isNext -> AmberAccent.copy(alpha = 0.5f)
-                    else -> Color.White.copy(alpha = 0.2f)
+                    else -> ext.codeBoxBorderEmpty
                 },
                 shape = RoundedCornerShape(12.dp)
             ),
@@ -212,6 +215,20 @@ fun DeviceCodeApprovalFilledPreview() {
     RouseContextTheme(darkTheme = true) {
         DeviceCodeApprovalScreen(
             state = DeviceCodeApprovalState(enteredCode = "ABCD1234")
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun DeviceCodeApprovalLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        DeviceCodeApprovalScreen(
+            state = DeviceCodeApprovalState(enteredCode = "ABCD")
         )
     }
 }

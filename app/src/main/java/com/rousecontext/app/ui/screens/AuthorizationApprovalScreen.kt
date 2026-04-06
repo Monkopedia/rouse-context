@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -176,6 +177,25 @@ fun AuthorizationApprovalWithRequestsPreview() {
                 AuthorizationApprovalItem(
                     displayCode = "7YMN-4HPQ",
                     integration = "Notifications"
+                )
+            )
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun AuthorizationApprovalWithRequestsLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        AuthorizationApprovalScreen(
+            pendingRequests = listOf(
+                AuthorizationApprovalItem(
+                    displayCode = "AB3X-9K2F",
+                    integration = "Health Connect"
                 )
             )
         )

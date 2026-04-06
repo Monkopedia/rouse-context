@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -350,6 +351,30 @@ fun AuditHistoryFilteredPreview() {
                         dateLabel = "Today",
                         entries = listOf(
                             AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}")
+                        )
+                    )
+                )
+            )
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun AuditHistoryPopulatedLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        AuditHistoryScreen(
+            state = AuditHistoryState(
+                groups = listOf(
+                    AuditHistoryGroup(
+                        dateLabel = "Today",
+                        entries = listOf(
+                            AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}"),
+                            AuditHistoryEntry("10:31 AM", "health/get_sleep", 89, "{days: 1}")
                         )
                     )
                 )

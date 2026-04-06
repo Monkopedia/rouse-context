@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -810,6 +811,53 @@ fun DashboardCertOnboardingPreview() {
                     generatingKeysDone = true,
                     registeringDone = true,
                     issuingCert = true
+                )
+            )
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun DashboardEmptyLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        MainDashboardScreen(state = DashboardState())
+    }
+}
+
+@Preview(
+    showBackground = true,
+    showSystemUi = true,
+    uiMode = Configuration.UI_MODE_NIGHT_NO
+)
+@Composable
+fun DashboardWithIntegrationsLightPreview() {
+    RouseContextTheme(darkTheme = false) {
+        MainDashboardScreen(
+            state = DashboardState(
+                connectionStatus = ConnectionStatus.CONNECTED,
+                activeSessionCount = 1,
+                integrations = listOf(
+                    IntegrationItem(
+                        id = "health",
+                        name = "Health Connect",
+                        status = IntegrationStatus.ACTIVE,
+                        url = "https://brave-falcon.rousecontext.com/health"
+                    ),
+                    IntegrationItem(
+                        id = "notifications",
+                        name = "Notifications",
+                        status = IntegrationStatus.PENDING,
+                        url = "https://brave-falcon.rousecontext.com/notifications"
+                    )
+                ),
+                recentActivity = listOf(
+                    AuditEntry("10:32 AM", "health/get_steps", 142),
+                    AuditEntry("10:31 AM", "health/get_sleep", 89)
                 )
             )
         )
