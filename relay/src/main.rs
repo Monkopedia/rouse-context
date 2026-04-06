@@ -264,7 +264,7 @@ async fn handle_connection(
     let initial_bytes = &buf[..n];
 
     let decision = route_connection(initial_bytes, &ctx.relay_hostname);
-    debug!(peer = %peer_addr, ?decision, "Routing decision");
+    info!(peer = %peer_addr, ?decision, "Routing decision");
 
     // When TLS is not configured, non-TLS traffic (plain HTTP) should be
     // routed to the relay API instead of being rejected. SNI parsing only

@@ -23,7 +23,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// Errors that can occur during passthrough.
 #[derive(Debug)]
@@ -244,7 +244,7 @@ pub async fn splice_stream(
         .await
         .map_err(|_| PassthroughError::ChannelClosed)?;
 
-    debug!(stream_id, "Passthrough splice started");
+    info!(stream_id, "Passthrough splice started");
 
     // 2. Bidirectional splice
     let mut buf = vec![0u8; 16384];
