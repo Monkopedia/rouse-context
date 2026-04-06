@@ -9,6 +9,7 @@ import com.rousecontext.app.cert.MtlsWebSocketFactory
 import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
+import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.token.RoomTokenStore
@@ -23,6 +24,7 @@ import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
 import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.mcp.core.AuditListener
+import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
@@ -37,6 +39,7 @@ import com.rousecontext.tunnel.TunnelClientImpl
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.RealWakeLockHandle
+import com.rousecontext.work.SessionHandler
 import com.rousecontext.work.WakelockManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
@@ -105,6 +108,30 @@ val appModule = module {
         RoomAuditListener(
             dao = get(),
             scope = get(named("appScope"))
+        )
+    }
+
+    // --- MCP session ---
+    single {
+        val subdomainFile = java.io.File(androidContext().filesDir, "rouse_subdomain.txt")
+        val hostname = if (subdomainFile.exists()) {
+            subdomainFile.readText().trim()
+        } else {
+            "localhost"
+        }
+        McpSession(
+            registry = get(),
+            tokenStore = get(),
+            auditListener = get(),
+            hostname = hostname
+        ).also { it.start(port = 0) }
+    }
+
+    // --- Session handler (TLS accept + bridge to MCP) ---
+    single<SessionHandler> {
+        McpSessionBridge(
+            mcpSession = get(),
+            certStore = get()
         )
     }
 
