@@ -94,7 +94,7 @@ class MainDashboardViewModel(
                 isAvailable = integration.isAvailable(),
                 hasTokens = tokenStore.hasTokens(integration.id)
             )
-            derived == IntegrationState.Available || derived == IntegrationState.Disabled
+            derived != IntegrationState.Active && derived != IntegrationState.Pending
         }
 
         val pendingAuthCount = authorizationCodeManager?.pendingRequests()?.size ?: 0

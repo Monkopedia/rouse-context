@@ -27,7 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import com.rousecontext.app.ui.theme.TealPrimary
+import com.rousecontext.app.ui.theme.SuccessGreen
 
 @Immutable
 data class AuthorizationApprovalItem(
@@ -142,7 +142,7 @@ private fun AuthRequestCard(
                     onClick = onApprove,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = TealPrimary,
+                        containerColor = SuccessGreen,
                         contentColor = Color.White
                     )
                 ) {

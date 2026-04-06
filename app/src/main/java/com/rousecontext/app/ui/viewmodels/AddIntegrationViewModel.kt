@@ -30,23 +30,26 @@ class AddIntegrationViewModel(
 
     val pickerIntegrations: StateFlow<List<PickerIntegration>> = refreshTrigger
         .map {
-            integrations.map { integration ->
+            integrations.mapNotNull { integration ->
                 val derived = deriveIntegrationState(
                     userEnabled = stateStore.isUserEnabled(integration.id),
                     wasEverEnabled = stateStore.wasEverEnabled(integration.id),
                     isAvailable = integration.isAvailable(),
                     hasTokens = tokenStore.hasTokens(integration.id)
                 )
+                // Only show integrations that are not already enabled
+                val pickerState = when (derived) {
+                    IntegrationState.Available -> PickerIntegrationState.AVAILABLE
+                    IntegrationState.Disabled -> PickerIntegrationState.DISABLED
+                    IntegrationState.Unavailable -> PickerIntegrationState.UNAVAILABLE
+                    // Active and Pending integrations are already enabled
+                    IntegrationState.Active, IntegrationState.Pending -> return@mapNotNull null
+                }
                 PickerIntegration(
                     id = integration.id,
                     name = integration.displayName,
                     description = integration.description,
-                    state = when (derived) {
-                        IntegrationState.Available -> PickerIntegrationState.AVAILABLE
-                        IntegrationState.Disabled -> PickerIntegrationState.DISABLED
-                        IntegrationState.Unavailable -> PickerIntegrationState.UNAVAILABLE
-                        else -> PickerIntegrationState.AVAILABLE
-                    }
+                    state = pickerState
                 )
             }
         }
