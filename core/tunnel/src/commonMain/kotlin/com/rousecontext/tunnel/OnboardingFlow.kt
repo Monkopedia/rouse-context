@@ -1,8 +1,15 @@
 package com.rousecontext.tunnel
 
 /**
- * Orchestrates first-run device onboarding: keypair generation, CSR creation,
- * relay registration, and certificate storage.
+ * Orchestrates first-run device onboarding with two-round-trip registration:
+ *
+ * Round 1: POST /register — get subdomain assignment
+ * Round 2: POST /register/certs — submit CSR with correct FQDN, get both certs
+ *
+ * The device generates its own keypair. The private key never leaves the device.
+ * The relay issues two certs using the device's public key:
+ * - ACME server cert (serverAuth) for inner TLS with AI clients
+ * - Relay CA client cert (clientAuth) for outer mTLS with relay
  *
  * Guarantees atomicity: if any step fails, no partial state is persisted.
  */
@@ -13,49 +20,65 @@ class OnboardingFlow(
 ) {
 
     suspend fun execute(
-        commonName: String,
         firebaseToken: String,
-        fcmToken: String
+        fcmToken: String,
+        baseDomain: String = "rousecontext.com"
     ): OnboardingResult {
-        // Step 1: Generate keypair and CSR
-        val csrResult = try {
-            csrGenerator.generate(commonName)
-        } catch (e: Exception) {
-            return OnboardingResult.KeyGenerationFailed(e)
-        }
-
-        // Step 2: Call /register on relay
-        return when (
+        // Round 1: Register with relay to get subdomain
+        val subdomain = when (
             val response = relayApiClient.register(
-                csrPem = csrResult.csrPem,
                 firebaseToken = firebaseToken,
                 fcmToken = fcmToken
             )
         ) {
+            is RelayApiResult.Success -> response.data.subdomain
+            is RelayApiResult.RateLimited ->
+                return OnboardingResult.RateLimited(retryAfterSeconds = response.retryAfterSeconds)
+            is RelayApiResult.Error ->
+                return OnboardingResult.RelayError(
+                    statusCode = response.statusCode,
+                    message = response.message
+                )
+            is RelayApiResult.NetworkError ->
+                return OnboardingResult.NetworkError(cause = response.cause)
+        }
+
+        // Generate keypair and CSR with the assigned FQDN
+        val fqdn = "$subdomain.$baseDomain"
+        val csrResult = try {
+            csrGenerator.generate(fqdn)
+        } catch (e: Exception) {
+            return OnboardingResult.KeyGenerationFailed(e)
+        }
+
+        // Round 2: Submit CSR to get both certs
+        return when (
+            val certResponse = relayApiClient.registerCerts(
+                csrPem = csrResult.csrPem,
+                firebaseToken = firebaseToken
+            )
+        ) {
             is RelayApiResult.Success -> {
                 try {
-                    certificateStore.storePrivateKey(response.data.privateKey)
-                    certificateStore.storeCertificate(response.data.cert)
-                    certificateStore.storeSubdomain(response.data.subdomain)
-                    OnboardingResult.Success(subdomain = response.data.subdomain)
+                    certificateStore.storePrivateKey(csrResult.privateKeyPem)
+                    certificateStore.storeCertificate(certResponse.data.serverCert)
+                    certificateStore.storeClientCertificate(certResponse.data.clientCert)
+                    certificateStore.storeSubdomain(subdomain)
+                    OnboardingResult.Success(subdomain = subdomain)
                 } catch (e: Exception) {
-                    // Rollback on storage failure
                     certificateStore.clear()
                     OnboardingResult.StorageFailed(e)
                 }
             }
-            is RelayApiResult.RateLimited -> {
-                OnboardingResult.RateLimited(retryAfterSeconds = response.retryAfterSeconds)
-            }
-            is RelayApiResult.Error -> {
+            is RelayApiResult.RateLimited ->
+                OnboardingResult.RateLimited(retryAfterSeconds = certResponse.retryAfterSeconds)
+            is RelayApiResult.Error ->
                 OnboardingResult.RelayError(
-                    statusCode = response.statusCode,
-                    message = response.message
+                    statusCode = certResponse.statusCode,
+                    message = certResponse.message
                 )
-            }
-            is RelayApiResult.NetworkError -> {
-                OnboardingResult.NetworkError(cause = response.cause)
-            }
+            is RelayApiResult.NetworkError ->
+                OnboardingResult.NetworkError(cause = certResponse.cause)
         }
     }
 }

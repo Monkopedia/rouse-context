@@ -32,6 +32,15 @@ class FileCertificateStore(
         return if (certFile.exists()) certFile.readText() else null
     }
 
+    override suspend fun storeClientCertificate(pemChain: String) {
+        File(filesDir, CLIENT_CERT_PEM_FILE).writeText(pemChain)
+    }
+
+    override suspend fun getClientCertificate(): String? {
+        val f = File(filesDir, CLIENT_CERT_PEM_FILE)
+        return if (f.exists()) f.readText() else null
+    }
+
     override suspend fun storeSubdomain(subdomain: String) {
         subdomainFile.writeText(subdomain)
     }
@@ -147,6 +156,7 @@ class FileCertificateStore(
 
     companion object {
         private const val CERT_PEM_FILE = "rouse_cert.pem"
+        private const val CLIENT_CERT_PEM_FILE = "rouse_client_cert.pem"
         private const val KEY_PEM_FILE = "rouse_key.pem"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"

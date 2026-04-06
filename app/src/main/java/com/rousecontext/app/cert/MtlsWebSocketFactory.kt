@@ -33,7 +33,9 @@ import okio.ByteString.Companion.toByteString
 object MtlsWebSocketFactory {
 
     private const val TAG = "MtlsWebSocketFactory"
-    private const val CERT_PEM_FILE = "rouse_cert.pem"
+    // Use the CLIENT cert (relay CA, clientAuth) for mTLS to the relay,
+    // NOT the server cert (ACME, serverAuth) which is for AI clients.
+    private const val CERT_PEM_FILE = "rouse_client_cert.pem"
     private const val KEY_PEM_FILE = "rouse_key.pem"
 
     /**

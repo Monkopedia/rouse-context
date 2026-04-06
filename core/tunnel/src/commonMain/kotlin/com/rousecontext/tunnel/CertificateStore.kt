@@ -33,11 +33,17 @@ interface CertificateStore {
 
     // --- PEM cert access (onboarding/renewal) ---
 
-    /** Store a PEM-encoded certificate chain. */
+    /** Store a PEM-encoded server certificate (ACME, serverAuth — for inner TLS). */
     suspend fun storeCertificate(pemChain: String)
 
-    /** Retrieve the stored PEM-encoded certificate chain, or null if none. */
+    /** Retrieve the stored PEM-encoded server certificate, or null if none. */
     suspend fun getCertificate(): String?
+
+    /** Store a PEM-encoded client certificate (relay CA, clientAuth — for outer mTLS). */
+    suspend fun storeClientCertificate(pemChain: String)
+
+    /** Retrieve the stored PEM-encoded client certificate, or null if none. */
+    suspend fun getClientCertificate(): String?
 
     /** Store the device subdomain (e.g. "abc123.rousecontext.com"). */
     suspend fun storeSubdomain(subdomain: String)

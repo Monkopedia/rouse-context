@@ -23,16 +23,35 @@ class RelayApiClient(
 ) {
 
     /**
-     * Register a new device with the relay server.
-     * Sends the CSR, Firebase auth token, and FCM token.
-     * Receives back a signed certificate, subdomain, and relay host.
+     * Round 1: Register a new device with the relay server.
+     * Sends Firebase auth token and FCM token.
+     * Receives back the assigned subdomain.
      */
     suspend fun register(
-        csrPem: String,
         firebaseToken: String,
         fcmToken: String
     ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                RegisterRequest(
+                    firebaseToken = firebaseToken,
+                    fcmToken = fcmToken
+                )
+            )
+        }
+    }
+
+    /**
+     * Round 2: Submit CSR to receive both certificates.
+     * The CSR must have CN={subdomain}.rousecontext.com.
+     * Returns server cert (ACME/LE), client cert (relay CA), and relay CA cert.
+     */
+    suspend fun registerCerts(
+        csrPem: String,
+        firebaseToken: String
+    ): RelayApiResult<CertResponse> = executeRequest {
+        httpClient.post("$baseUrl/register/certs") {
             contentType(ContentType.Application.Json)
             val csrBase64 = csrPem
                 .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
@@ -43,10 +62,9 @@ class RelayApiClient(
                 .replace("\r", "")
                 .trim()
             setBody(
-                RegisterRequest(
+                CertRequest(
                     firebaseToken = firebaseToken,
-                    csr = csrBase64,
-                    fcmToken = fcmToken
+                    csr = csrBase64
                 )
             )
         }
@@ -150,15 +168,27 @@ sealed class RelayApiResult<out T> {
 @Serializable
 data class RegisterRequest(
     @SerialName("firebase_token") val firebaseToken: String,
-    @SerialName("csr") val csr: String,
     @SerialName("fcm_token") val fcmToken: String
 )
 
 @Serializable
 data class RegisterResponse(
     @SerialName("subdomain") val subdomain: String,
-    @SerialName("cert") val cert: String,
-    @SerialName("private_key") val privateKey: String,
+    @SerialName("relay_host") val relayHost: String
+)
+
+@Serializable
+data class CertRequest(
+    @SerialName("firebase_token") val firebaseToken: String,
+    @SerialName("csr") val csr: String
+)
+
+@Serializable
+data class CertResponse(
+    @SerialName("subdomain") val subdomain: String,
+    @SerialName("server_cert") val serverCert: String,
+    @SerialName("client_cert") val clientCert: String,
+    @SerialName("relay_ca_cert") val relayCaCert: String,
     @SerialName("relay_host") val relayHost: String
 )
 

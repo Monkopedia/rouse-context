@@ -75,14 +75,13 @@ class OnboardingViewModel(
                 return@launch setFailed("Failed to obtain FCM token: ${e.message}")
             }
 
-            val commonName = UUID.randomUUID().toString().take(SUBDOMAIN_LENGTH)
             Log.i(
                 "Onboarding",
-                "Starting onboarding with CN=$commonName, firebaseToken=${firebaseToken.take(
+                "Starting onboarding, firebaseToken=${firebaseToken.take(
                     20
                 )}..., fcmToken=${fcmToken.take(20)}..."
             )
-            when (val result = onboardingFlow.execute(commonName, firebaseToken, fcmToken)) {
+            when (val result = onboardingFlow.execute(firebaseToken, fcmToken)) {
                 is OnboardingResult.Success -> {
                     _state.value = OnboardingState.Onboarded
                 }
