@@ -28,6 +28,7 @@ class MockRelayServer {
             body = RegisterResponse(
                 subdomain = "test123.rousecontext.com",
                 cert = MOCK_CERT_PEM,
+                privateKey = MOCK_PRIVATE_KEY_PEM,
                 relayHost = "relay.rousecontext.com"
             )
         )
@@ -109,6 +110,10 @@ SIb3DQEBCwUAMBExDzANBgNVBAMMBnRlc3QxMjMwHhcNMjUwMTAxMDAwMDAwWhcN
 MjYwMTAxMDAwMDAwWjARMQ8wDQYDVQQDDAZ0ZXN0MTIzCAwGdGVzdDEyMwIDAQAB
 MA0GCSqGSIb3DQEBCwUAA0EAhN+z/EvKbL4TiT3FHSGA
 -----END CERTIFICATE-----"""
+
+        const val MOCK_PRIVATE_KEY_PEM = """-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDZBPk0ybdUXTAN
+-----END PRIVATE KEY-----"""
 
         const val MOCK_MISMATCHED_CERT_PEM = """-----BEGIN CERTIFICATE-----
 MIIBkTCB+wIJANkE+TTJt1RdMA0GCSqGSIb3DQEBCwUAMBMxETAPBgNVBAMMCG90

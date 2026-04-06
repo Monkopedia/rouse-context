@@ -100,9 +100,8 @@ dependencies {
     implementation(project(":work"))
     implementation(libs.workmanager)
 
-    // Ktor (mTLS WebSocket client for tunnel)
-    implementation(libs.ktor.client.cio)
-    implementation(libs.ktor.client.websockets)
+    // OkHttp (mTLS WebSocket client for tunnel — JSSE properly presents client certs)
+    implementation(libs.okhttp)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

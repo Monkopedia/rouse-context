@@ -41,7 +41,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
 
             assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
@@ -90,7 +90,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
             client.connect("ws://localhost:$port/tunnel")
 
             val sessionReceived = CompletableDeferred<MuxStream>()
@@ -149,7 +149,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
             client.connect("ws://localhost:$port/tunnel")
 
             val sessionReceived = CompletableDeferred<MuxStream>()
@@ -205,7 +205,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
 
             val errorReceived = CompletableDeferred<TunnelError>()
             val errorJob =
@@ -246,7 +246,7 @@ class TunnelClientImplTest {
 
     @Test
     fun `connection failure emits error on SharedFlow`() = runBlocking {
-        val client = TunnelClientImpl(this)
+        val client = TunnelClientImpl(this, KtorWebSocketFactory())
 
         val errorReceived = CompletableDeferred<TunnelError>()
         val errorJob =

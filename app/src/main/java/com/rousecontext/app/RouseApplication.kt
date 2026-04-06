@@ -51,8 +51,10 @@ class RouseApplication : Application() {
 
     private fun scheduleSecurityChecks() {
         val request = PeriodicWorkRequestBuilder<SecurityCheckWorker>(
-            4, TimeUnit.HOURS,
-            1, TimeUnit.HOURS
+            4,
+            TimeUnit.HOURS,
+            1,
+            TimeUnit.HOURS
         ).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "security-check",
