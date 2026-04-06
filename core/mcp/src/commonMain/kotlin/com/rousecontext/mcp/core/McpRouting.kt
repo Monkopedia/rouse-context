@@ -6,6 +6,8 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.request.contentType
+import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
@@ -50,11 +52,12 @@ private data class IntegrationServer(
  * - `/{integration}/token` -- Token exchange (no auth, checks device_code)
  * - `/{integration}/mcp` -- MCP Streamable HTTP (Bearer auth required)
  */
-@Suppress("LongMethod")
+@Suppress("LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 fun Application.configureMcpRouting(
     registry: ProviderRegistry,
     tokenStore: TokenStore,
     deviceCodeManager: DeviceCodeManager,
+    authorizationCodeManager: AuthorizationCodeManager = AuthorizationCodeManager(tokenStore),
     hostname: String,
     @Suppress("UNUSED_PARAMETER")
     auditListener: AuditListener? = null,
@@ -157,13 +160,34 @@ fun Application.configureMcpRouting(
                     buildJsonObject {
                         put("client_id", clientId)
                         put("client_name", clientName)
-                        put("grant_types", kotlinx.serialization.json.JsonArray(
-                            listOf(
-                                kotlinx.serialization.json.JsonPrimitive(
-                                    "urn:ietf:params:oauth:grant-type:device_code"
+                        put(
+                            "redirect_uris",
+                            kotlinx.serialization.json.JsonArray(
+                                (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
+                                    ?.toList() ?: emptyList()
+                            )
+                        )
+                        put(
+                            "grant_types",
+                            kotlinx.serialization.json.JsonArray(
+                                listOf(
+                                    kotlinx.serialization.json.JsonPrimitive(
+                                        "authorization_code"
+                                    ),
+                                    kotlinx.serialization.json.JsonPrimitive(
+                                        "urn:ietf:params:oauth:grant-type:device_code"
+                                    )
                                 )
                             )
-                        ))
+                        )
+                        put(
+                            "response_types",
+                            kotlinx.serialization.json.JsonArray(
+                                listOf(
+                                    kotlinx.serialization.json.JsonPrimitive("code")
+                                )
+                            )
+                        )
                         put("token_endpoint_auth_method", "none")
                     }
                 )
@@ -192,7 +216,76 @@ fun Application.configureMcpRouting(
                 )
             }
 
-            // Token exchange -- no auth required (validates device_code)
+            // Authorization code flow -- returns HTML page with display code
+            get("/authorize") {
+                val integration = call.parameters["integration"] ?: return@get
+                if (registry.providerForPath(integration) == null) {
+                    call.respond(HttpStatusCode.NotFound)
+                    return@get
+                }
+
+                val responseType = call.request.queryParameters["response_type"]
+                val clientId = call.request.queryParameters["client_id"]
+                val codeChallenge = call.request.queryParameters["code_challenge"]
+                val codeChallengeMethod = call.request.queryParameters["code_challenge_method"]
+                val redirectUri = call.request.queryParameters["redirect_uri"]
+                val state = call.request.queryParameters["state"]
+
+                val validRequest = responseType == "code" && codeChallengeMethod == "S256"
+                val allParamsPresent = clientId != null && codeChallenge != null &&
+                    redirectUri != null && state != null
+                if (!validRequest || !allParamsPresent) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
+
+                // Non-null guaranteed by allParamsPresent check above
+                val request = authorizationCodeManager.createRequest(
+                    clientId = clientId!!,
+                    codeChallenge = codeChallenge!!,
+                    codeChallengeMethod = codeChallengeMethod!!,
+                    redirectUri = redirectUri!!,
+                    state = state!!,
+                    integration = integration
+                )
+
+                val html = buildAuthorizePage(
+                    displayCode = request.displayCode,
+                    requestId = request.requestId,
+                    redirectUri = redirectUri,
+                    hostname = hostname,
+                    integration = integration
+                )
+                call.respondText(html, ContentType.Text.Html)
+            }
+
+            // Authorization status polling -- JSON endpoint for JS on the HTML page
+            get("/authorize/status") {
+                val requestId = call.request.queryParameters["request_id"]
+                if (requestId == null) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
+
+                val status = authorizationCodeManager.getStatus(requestId)
+                val json = when (status) {
+                    is AuthorizationRequestStatus.Pending ->
+                        buildJsonObject { put("status", "pending") }
+                    is AuthorizationRequestStatus.Approved ->
+                        buildJsonObject {
+                            put("status", "approved")
+                            put("code", status.code)
+                            put("state", status.state)
+                        }
+                    is AuthorizationRequestStatus.Denied ->
+                        buildJsonObject { put("status", "denied") }
+                    is AuthorizationRequestStatus.Expired ->
+                        buildJsonObject { put("status", "expired") }
+                }
+                call.respond(json)
+            }
+
+            // Token exchange -- handles both authorization_code and device_code
             post("/token") {
                 val integration = call.parameters["integration"] ?: return@post
                 if (registry.providerForPath(integration) == null) {
@@ -200,20 +293,52 @@ fun Application.configureMcpRouting(
                     return@post
                 }
 
-                val body = try {
-                    mcpJson.parseToJsonElement(call.receiveText()).jsonObject
-                } catch (_: Exception) {
+                val params = parseTokenRequestParams(call)
+                if (params == null) {
                     call.respond(HttpStatusCode.BadRequest)
                     return@post
                 }
 
-                val deviceCode = body["device_code"]?.jsonPrimitive?.content
-                if (deviceCode == null) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
-                }
+                val grantType = params["grant_type"]
 
-                respondToDeviceCodePoll(call, deviceCodeManager, deviceCode)
+                when (grantType) {
+                    "authorization_code" -> {
+                        val code = params["code"]
+                        val codeVerifier = params["code_verifier"]
+                        if (code == null || codeVerifier == null) {
+                            call.respond(HttpStatusCode.BadRequest)
+                            return@post
+                        }
+                        val token = authorizationCodeManager.exchangeCode(code, codeVerifier)
+                        if (token != null) {
+                            call.respond(
+                                buildJsonObject {
+                                    put("access_token", token)
+                                    put("token_type", "Bearer")
+                                }
+                            )
+                        } else {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                buildJsonObject { put("error", "invalid_grant") }
+                            )
+                        }
+                    }
+                    "urn:ietf:params:oauth:grant-type:device_code" -> {
+                        val deviceCode = params["device_code"]
+                        if (deviceCode == null) {
+                            call.respond(HttpStatusCode.BadRequest)
+                            return@post
+                        }
+                        respondToDeviceCodePoll(call, deviceCodeManager, deviceCode)
+                    }
+                    else -> {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            buildJsonObject { put("error", "unsupported_grant_type") }
+                        )
+                    }
+                }
             }
 
             // MCP Streamable HTTP -- Bearer auth required
@@ -347,6 +472,147 @@ internal suspend fun dispatchJsonRpc(transport: HttpTransport, requestBody: Stri
             jsonRpcError(JsonNull, -32603, e.message ?: "Internal error")
         )
     }
+}
+
+/**
+ * Parses token request parameters from either form-encoded or JSON body.
+ * Returns a simple map of parameter names to values, or null on parse failure.
+ */
+private suspend fun parseTokenRequestParams(
+    call: io.ktor.server.routing.RoutingCall
+): Map<String, String?>? {
+    return try {
+        if (call.request.contentType().match(ContentType.Application.FormUrlEncoded)) {
+            val params = call.receiveParameters()
+            params.names().associateWith { params[it] }
+        } else {
+            val body = mcpJson.parseToJsonElement(call.receiveText()).jsonObject
+            body.mapValues { (_, v) ->
+                if (v is JsonNull) null else v.jsonPrimitive.content
+            }
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+/**
+ * Builds the HTML page for the authorization code flow.
+ * Shows the display code and polls for approval status via JavaScript.
+ */
+@Suppress("LongMethod")
+private fun buildAuthorizePage(
+    displayCode: String,
+    requestId: String,
+    redirectUri: String,
+    hostname: String,
+    integration: String
+): String {
+    val statusUrl = "https://$hostname/$integration/authorize/status?request_id=$requestId"
+    return """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Rouse Context - Authorize</title>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                                 sans-serif;
+                    background: #f5f5f5;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    color: #333;
+                }
+                .card {
+                    background: white;
+                    border-radius: 12px;
+                    padding: 48px;
+                    box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+                    text-align: center;
+                    max-width: 420px;
+                    width: 90%;
+                }
+                .logo { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+                .code {
+                    font-size: 36px;
+                    font-weight: 700;
+                    font-family: 'SF Mono', 'Fira Code', monospace;
+                    letter-spacing: 4px;
+                    margin: 24px 0;
+                    padding: 16px;
+                    background: #f0f0f0;
+                    border-radius: 8px;
+                }
+                .instruction {
+                    color: #666;
+                    margin-bottom: 24px;
+                    line-height: 1.5;
+                }
+                .spinner {
+                    width: 32px; height: 32px;
+                    border: 3px solid #e0e0e0;
+                    border-top-color: #333;
+                    border-radius: 50%;
+                    animation: spin 0.8s linear infinite;
+                    margin: 16px auto;
+                }
+                @keyframes spin { to { transform: rotate(360deg); } }
+                #status { margin-top: 16px; color: #666; }
+                .error { color: #c00; }
+                .success { color: #080; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="logo">Rouse Context</div>
+                <p class="instruction">Approve this request on your device</p>
+                <div class="code">$displayCode</div>
+                <p class="instruction">
+                    Check your phone for a notification with this code
+                </p>
+                <div class="spinner" id="spinner"></div>
+                <div id="status">Waiting for approval...</div>
+            </div>
+            <script>
+                var statusUrl = '$statusUrl';
+                var redirectBase = '${redirectUri.replace("'", "\\'")}';
+                var poll = setInterval(async function() {
+                    try {
+                        var resp = await fetch(statusUrl);
+                        var data = await resp.json();
+                        if (data.status === 'approved') {
+                            clearInterval(poll);
+                            document.getElementById('spinner').style.display = 'none';
+                            document.getElementById('status').className = 'success';
+                            document.getElementById('status').textContent = 'Approved! Redirecting...';
+                            var redirect = new URL(redirectBase);
+                            redirect.searchParams.set('code', data.code);
+                            redirect.searchParams.set('state', data.state);
+                            window.location.href = redirect.toString();
+                        } else if (data.status === 'denied') {
+                            clearInterval(poll);
+                            document.getElementById('spinner').style.display = 'none';
+                            document.getElementById('status').className = 'error';
+                            document.getElementById('status').textContent = 'Request denied';
+                        } else if (data.status === 'expired') {
+                            clearInterval(poll);
+                            document.getElementById('spinner').style.display = 'none';
+                            document.getElementById('status').className = 'error';
+                            document.getElementById('status').textContent = 'Request expired';
+                        }
+                    } catch (e) {
+                        // Ignore transient fetch errors
+                    }
+                }, 3000);
+            </script>
+        </body>
+        </html>
+    """.trimIndent()
 }
 
 private fun jsonRpcError(

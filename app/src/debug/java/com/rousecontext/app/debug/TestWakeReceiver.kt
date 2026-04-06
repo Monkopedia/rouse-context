@@ -36,6 +36,21 @@ class TestWakeReceiver : BroadcastReceiver() {
                     Log.w(TAG, "approve type requires user_code extra")
                 }
             }
+            "approve_auth" -> {
+                val displayCode = intent.getStringExtra("display_code")
+                if (displayCode != null) {
+                    val session = org.koin.java.KoinJavaComponent.getKoin()
+                        .get<com.rousecontext.mcp.core.McpSession>()
+                    val approved = session.authorizationCodeManager.approve(displayCode)
+                    if (approved) {
+                        Log.i(TAG, "Approved auth code request: $displayCode")
+                    } else {
+                        Log.w(TAG, "No pending auth request for code: $displayCode")
+                    }
+                } else {
+                    Log.w(TAG, "approve_auth type requires display_code extra")
+                }
+            }
         }
     }
 

@@ -30,6 +30,8 @@ class McpSession(
     private val registry: ProviderRegistry,
     private val tokenStore: TokenStore,
     val deviceCodeManager: DeviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
+    val authorizationCodeManager: AuthorizationCodeManager =
+        AuthorizationCodeManager(tokenStore = tokenStore),
     private val auditListener: AuditListener? = null,
     private val hostname: String = "localhost",
     private val serverName: String = "rouse-context",
@@ -59,6 +61,7 @@ class McpSession(
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
+                authorizationCodeManager = authorizationCodeManager,
                 hostname = hostname,
                 auditListener = auditListener,
                 serverName = serverName,

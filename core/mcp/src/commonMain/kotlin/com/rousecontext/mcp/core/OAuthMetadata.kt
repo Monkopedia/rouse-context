@@ -11,6 +11,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class OAuthMetadata(
     val issuer: String,
+    @SerialName("authorization_endpoint")
+    val authorizationEndpoint: String,
     @SerialName("device_authorization_endpoint")
     val deviceAuthorizationEndpoint: String,
     @SerialName("token_endpoint")
@@ -32,11 +34,15 @@ fun buildOAuthMetadata(hostname: String, integrationPath: String): OAuthMetadata
     val baseUrl = "https://$hostname/$integrationPath"
     return OAuthMetadata(
         issuer = baseUrl,
+        authorizationEndpoint = "$baseUrl/authorize",
         deviceAuthorizationEndpoint = "$baseUrl/device/authorize",
         tokenEndpoint = "$baseUrl/token",
         registrationEndpoint = "$baseUrl/register",
-        grantTypesSupported = listOf("urn:ietf:params:oauth:grant-type:device_code"),
-        responseTypesSupported = emptyList(),
-        codeChallengeMethodsSupported = emptyList()
+        grantTypesSupported = listOf(
+            "authorization_code",
+            "urn:ietf:params:oauth:grant-type:device_code"
+        ),
+        responseTypesSupported = listOf("code"),
+        codeChallengeMethodsSupported = listOf("S256")
     )
 }
