@@ -126,6 +126,7 @@ async fn main() {
     // Seed a test device so integration tests can connect via mTLS without
     // needing to call POST /register (which requires Firebase auth).
     mem_store.seed_test_device("test-device");
+    mem_store.seed_test_device("main-board");
     let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(mem_store);
     info!("Using in-memory Firestore (data lost on restart)");
     let acme: Arc<dyn rouse_relay::acme::AcmeClient> = build_acme_client(&config);
