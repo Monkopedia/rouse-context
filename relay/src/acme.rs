@@ -6,10 +6,12 @@
 
 use async_trait::async_trait;
 use base64::Engine;
+use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::TokioAsyncResolver;
 use p256::ecdsa::{signature::Signer, SigningKey};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Let's Encrypt production directory URL.
 pub const LETS_ENCRYPT_DIRECTORY: &str = "https://acme-v02.api.letsencrypt.org/directory";
@@ -78,6 +80,9 @@ struct AcmeChallenge {
     url: String,
     token: String,
     status: String,
+    /// Error detail from ACME server when challenge fails.
+    #[serde(default)]
+    error: Option<serde_json::Value>,
 }
 
 /// Real ACME client that performs DNS-01 challenges via Cloudflare.
@@ -88,6 +93,8 @@ pub struct RealAcmeClient {
     cf_api_token: String,
     cf_zone_id: String,
     base_domain: String,
+    dns_propagation_timeout_secs: u64,
+    dns_poll_interval_secs: u64,
 }
 
 impl RealAcmeClient {
@@ -103,6 +110,18 @@ impl RealAcmeClient {
         cf_zone_id: String,
         base_domain: String,
     ) -> Self {
+        Self::with_dns_settings(directory_url, cf_api_token, cf_zone_id, base_domain, 60, 5)
+    }
+
+    /// Create a new ACME client with explicit DNS propagation settings.
+    pub fn with_dns_settings(
+        directory_url: String,
+        cf_api_token: String,
+        cf_zone_id: String,
+        base_domain: String,
+        dns_propagation_timeout_secs: u64,
+        dns_poll_interval_secs: u64,
+    ) -> Self {
         // Generate a fresh ECDSA P-256 account key for ACME.
         // A fresh key per relay instance is fine -- Let's Encrypt will create
         // a new account automatically on first use. Account keys are not tied
@@ -117,6 +136,8 @@ impl RealAcmeClient {
             cf_api_token,
             cf_zone_id,
             base_domain,
+            dns_propagation_timeout_secs,
+            dns_poll_interval_secs,
         }
     }
 
@@ -351,6 +372,13 @@ impl RealAcmeClient {
             self.cf_zone_id
         );
 
+        info!(
+            cf_url = %url,
+            txt_name = %name,
+            txt_value = %value,
+            "Creating DNS TXT record via Cloudflare API"
+        );
+
         let resp = self
             .http
             .post(&url)
@@ -371,9 +399,23 @@ impl RealAcmeClient {
             .await
             .map_err(|e| AcmeError::Http(format!("Cloudflare DNS parse: {e}")))?;
 
+        info!(
+            status = %status,
+            success = %body["success"],
+            errors = %body["errors"],
+            "Cloudflare API response for TXT record creation"
+        );
+
         if !status.is_success() {
             return Err(AcmeError::ChallengeFailed(format!(
                 "Cloudflare DNS TXT create failed ({status}): {body}"
+            )));
+        }
+
+        if body["success"].as_bool() != Some(true) {
+            return Err(AcmeError::ChallengeFailed(format!(
+                "Cloudflare DNS TXT create returned success=false: errors={}, messages={}",
+                body["errors"], body["messages"]
             )));
         }
 
@@ -384,8 +426,93 @@ impl RealAcmeClient {
             })?
             .to_string();
 
-        debug!(record_id = %record_id, name = %name, "DNS TXT record created");
+        info!(
+            record_id = %record_id,
+            txt_name = %name,
+            txt_value = %value,
+            "DNS TXT record created successfully"
+        );
         Ok(record_id)
+    }
+
+    /// Verify DNS TXT record propagation by querying public DNS resolvers.
+    ///
+    /// Polls until the expected value appears in TXT records for `name`, or
+    /// until the timeout is reached. Returns Ok(()) if the record is found,
+    /// or Err if the timeout expires.
+    async fn verify_dns_propagation(
+        &self,
+        name: &str,
+        expected_value: &str,
+    ) -> Result<(), AcmeError> {
+        let timeout = std::time::Duration::from_secs(self.dns_propagation_timeout_secs);
+        let poll_interval = std::time::Duration::from_secs(self.dns_poll_interval_secs);
+        let start = std::time::Instant::now();
+
+        // Use Google and Cloudflare public DNS to avoid local caching issues
+        let resolver = TokioAsyncResolver::tokio(ResolverConfig::google(), {
+            let mut opts = ResolverOpts::default();
+            // Disable the resolver cache so each poll does a fresh lookup
+            opts.cache_size = 0;
+            opts
+        });
+
+        info!(
+            txt_name = %name,
+            expected_value = %expected_value,
+            timeout_secs = self.dns_propagation_timeout_secs,
+            "Waiting for DNS TXT record propagation"
+        );
+
+        loop {
+            match resolver.txt_lookup(name).await {
+                Ok(lookup) => {
+                    let records: Vec<String> = lookup.iter().map(|txt| txt.to_string()).collect();
+                    debug!(
+                        txt_name = %name,
+                        found_records = ?records,
+                        "DNS TXT lookup result"
+                    );
+                    if records.iter().any(|r| r == expected_value) {
+                        let elapsed = start.elapsed();
+                        info!(
+                            txt_name = %name,
+                            elapsed_secs = elapsed.as_secs(),
+                            "DNS TXT record verified via public DNS"
+                        );
+                        return Ok(());
+                    }
+                    debug!(
+                        txt_name = %name,
+                        expected = %expected_value,
+                        found = ?records,
+                        "TXT record not yet matching, will retry"
+                    );
+                }
+                Err(e) => {
+                    debug!(
+                        txt_name = %name,
+                        error = %e,
+                        "DNS TXT lookup failed (may not be propagated yet)"
+                    );
+                }
+            }
+
+            if start.elapsed() >= timeout {
+                warn!(
+                    txt_name = %name,
+                    expected_value = %expected_value,
+                    timeout_secs = self.dns_propagation_timeout_secs,
+                    "DNS TXT propagation verification timed out"
+                );
+                return Err(AcmeError::ChallengeFailed(format!(
+                    "DNS TXT record for {name} did not propagate within {}s",
+                    self.dns_propagation_timeout_secs
+                )));
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 
     /// Delete a DNS TXT record via Cloudflare API.
@@ -517,16 +644,36 @@ impl AcmeClient for RealAcmeClient {
         let key_auth = format!("{}.{thumbprint}", dns_challenge.token);
         let dns_value = base64url(&Sha256::digest(key_auth.as_bytes()));
 
+        info!(
+            token = %dns_challenge.token,
+            thumbprint = %thumbprint,
+            dns_value = %dns_value,
+            "Computed DNS-01 challenge response"
+        );
+
         // 6. Set DNS TXT record via Cloudflare
         let txt_name = format!("_acme-challenge.{fqdn}");
+        info!(
+            txt_name = %txt_name,
+            txt_value = %dns_value,
+            "Setting DNS TXT record for ACME challenge"
+        );
         let record_id = self.set_dns_txt(&txt_name, &dns_value).await?;
 
-        // Allow DNS propagation
-        debug!("Waiting for DNS propagation...");
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        // 7. Verify DNS propagation by polling public DNS resolvers
+        if let Err(e) = self.verify_dns_propagation(&txt_name, &dns_value).await {
+            // Clean up before returning
+            self.delete_dns_txt(&record_id).await;
+            return Err(e);
+        }
 
-        // 7. Respond to challenge
+        // 8. Respond to challenge (tell ACME server we are ready)
         let challenge_result = async {
+            info!(
+                challenge_url = %dns_challenge.url,
+                "Notifying ACME server that DNS challenge is ready"
+            );
+
             let (resp, new_nonce) = self
                 .acme_post(&dns_challenge.url, &nonce, "{}", Some(&kid))
                 .await?;
@@ -535,20 +682,40 @@ impl AcmeClient for RealAcmeClient {
             let status = resp.status();
             if !status.is_success() {
                 let body = resp.text().await.unwrap_or_default();
+                error!(
+                    status = %status,
+                    body = %body,
+                    "ACME challenge response failed"
+                );
                 return Err(AcmeError::ChallengeFailed(format!(
                     "challenge response failed ({status}): {body}"
                 )));
             }
 
-            debug!("Challenge response accepted, polling authorization...");
+            info!("Challenge response accepted, polling authorization...");
 
-            // 8. Poll authorization until valid
+            // 9. Poll authorization until valid
             let (auth, new_nonce): (AcmeAuthorization, String) = self
                 .poll_status(&order.authorizations[0], &kid, nonce, 30)
                 .await?;
             nonce = new_nonce;
 
             if auth.status != "valid" {
+                // Log the challenge details for debugging
+                for c in &auth.challenges {
+                    let error_detail = c
+                        .error
+                        .as_ref()
+                        .map(|e| e.to_string())
+                        .unwrap_or_else(|| "none".to_string());
+                    error!(
+                        challenge_type = %c.challenge_type,
+                        challenge_status = %c.status,
+                        challenge_url = %c.url,
+                        error = %error_detail,
+                        "Challenge detail in failed authorization"
+                    );
+                }
                 return Err(AcmeError::ChallengeFailed(format!(
                     "authorization status: {}",
                     auth.status
@@ -557,7 +724,7 @@ impl AcmeClient for RealAcmeClient {
 
             info!("Authorization valid, finalizing order...");
 
-            // 9. Finalize order with CSR
+            // 10. Finalize order with CSR
             let csr_b64 = base64url(csr_der);
             let finalize_payload = serde_json::json!({"csr": csr_b64}).to_string();
 
@@ -574,7 +741,7 @@ impl AcmeClient for RealAcmeClient {
                 )));
             }
 
-            // 10. Poll order until certificate URL is available
+            // 11. Poll order until certificate URL is available
             let (final_order, new_nonce): (AcmeOrder, String) =
                 self.poll_status(&order_url, &kid, nonce, 30).await?;
             nonce = new_nonce;
@@ -586,7 +753,7 @@ impl AcmeClient for RealAcmeClient {
                 ))
             })?;
 
-            // 11. Download certificate
+            // 12. Download certificate
             let (resp, _) = self.acme_post(&cert_url, &nonce, "", Some(&kid)).await?;
 
             let status = resp.status();

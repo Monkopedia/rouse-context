@@ -14,6 +14,13 @@ service_account_path = "/etc/relay/firebase-sa.json"
 zone_id = "your-cloudflare-zone-id"
 api_token_env = "CF_API_TOKEN"
 
+[acme]
+# Use staging for development/testing to avoid rate limits (50 certs/week on production)
+directory_url = "https://acme-staging-v02.api.letsencrypt.org/directory"
+# directory_url = "https://acme-v02.api.letsencrypt.org/directory"  # production
+dns_propagation_timeout_secs = 60  # max wait for TXT record to propagate
+dns_poll_interval_secs = 5         # how often to check DNS during propagation
+
 [limits]
 max_streams_per_device = 8
 wake_rate_limit = 6  # per minute per subdomain

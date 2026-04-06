@@ -32,6 +32,7 @@ futures-util = "0.3"
 async-trait = "0.1"
 dashmap = "6"
 x509-parser = "0.16"
+hickory-resolver = { version = "0.24", features = ["tokio-runtime"] }
 
 [dev-dependencies]
 tempfile = "3"

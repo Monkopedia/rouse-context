@@ -388,22 +388,29 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         .unwrap_or(&config.server.relay_hostname)
         .to_string();
 
-    // Use staging in development, production by default.
-    let directory_url = std::env::var("ACME_DIRECTORY_URL")
-        .unwrap_or_else(|_| rouse_relay::acme::LETS_ENCRYPT_DIRECTORY.to_string());
+    // Resolve ACME directory URL: config file > env var > Let's Encrypt production
+    let directory_url = if !config.acme.directory_url.is_empty() {
+        config.acme.directory_url.clone()
+    } else {
+        rouse_relay::acme::LETS_ENCRYPT_DIRECTORY.to_string()
+    };
 
     info!(
         zone_id = %cf.zone_id,
         base_domain = %base_domain,
         directory_url = %directory_url,
+        dns_propagation_timeout_secs = config.acme.dns_propagation_timeout_secs,
+        dns_poll_interval_secs = config.acme.dns_poll_interval_secs,
         "Wiring real ACME client with Cloudflare DNS-01"
     );
 
-    Arc::new(rouse_relay::acme::RealAcmeClient::new(
+    Arc::new(rouse_relay::acme::RealAcmeClient::with_dns_settings(
         directory_url,
         api_token,
         cf.zone_id.clone(),
         base_domain,
+        config.acme.dns_propagation_timeout_secs,
+        config.acme.dns_poll_interval_secs,
     ))
 }
 
