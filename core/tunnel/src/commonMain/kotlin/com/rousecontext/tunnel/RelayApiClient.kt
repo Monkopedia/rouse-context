@@ -47,28 +47,26 @@ class RelayApiClient(
      * The CSR must have CN={subdomain}.rousecontext.com.
      * Returns server cert (ACME/LE), client cert (relay CA), and relay CA cert.
      */
-    suspend fun registerCerts(
-        csrPem: String,
-        firebaseToken: String
-    ): RelayApiResult<CertResponse> = executeRequest {
-        httpClient.post("$baseUrl/register/certs") {
-            contentType(ContentType.Application.Json)
-            val csrBase64 = csrPem
-                .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
-                .replace("-----END CERTIFICATE REQUEST-----", "")
-                .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
-                .replace("-----END NEW CERTIFICATE REQUEST-----", "")
-                .replace("\n", "")
-                .replace("\r", "")
-                .trim()
-            setBody(
-                CertRequest(
-                    firebaseToken = firebaseToken,
-                    csr = csrBase64
+    suspend fun registerCerts(csrPem: String, firebaseToken: String): RelayApiResult<CertResponse> =
+        executeRequest {
+            httpClient.post("$baseUrl/register/certs") {
+                contentType(ContentType.Application.Json)
+                val csrBase64 = csrPem
+                    .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
+                    .replace("-----END CERTIFICATE REQUEST-----", "")
+                    .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
+                    .replace("-----END NEW CERTIFICATE REQUEST-----", "")
+                    .replace("\n", "")
+                    .replace("\r", "")
+                    .trim()
+                setBody(
+                    CertRequest(
+                        firebaseToken = firebaseToken,
+                        csr = csrBase64
+                    )
                 )
-            )
+            }
         }
-    }
 
     /**
      * Renew a device certificate using mTLS (valid cert) authentication.

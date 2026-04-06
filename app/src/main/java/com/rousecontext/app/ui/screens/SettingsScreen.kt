@@ -130,11 +130,11 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Connection section
             SectionHeader("Connection")
-            Card(modifier = Modifier.fillMaxWidth()) {
+            SettingsSectionCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     SettingsDropdown(
                         label = "Idle timeout",
@@ -173,7 +173,7 @@ fun SettingsScreen(
 
             // Notifications section
             SectionHeader("Notifications")
-            Card(modifier = Modifier.fillMaxWidth()) {
+            SettingsSectionCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     SettingsDropdown(
                         label = "After session",
@@ -188,7 +188,7 @@ fun SettingsScreen(
 
             // Security section
             SectionHeader("Security")
-            Card(modifier = Modifier.fillMaxWidth()) {
+            SettingsSectionCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -270,7 +270,7 @@ fun SettingsScreen(
 
             // About section
             SectionHeader("About")
-            Card(modifier = Modifier.fillMaxWidth()) {
+            SettingsSectionCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         "Version ${state.versionName}",
@@ -437,12 +437,24 @@ private fun formatTimeAgo(epochMillis: Long): String {
 }
 
 @Composable
+private fun SettingsSectionCard(content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        content()
+    }
+}
+
+@Composable
 private fun SectionHeader(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(vertical = 8.dp)
+        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
     )
 }
 

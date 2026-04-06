@@ -139,14 +139,17 @@ fun MainDashboardScreen(
             // Cert banner (most urgent — show first)
             state.certBanner?.let { banner ->
                 item {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     CertBannerCard(banner, onRetryRenewal)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
 
             // Connection status
             item {
+                if (state.certBanner == null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
                 ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -194,15 +197,22 @@ fun MainDashboardScreen(
                 }
             }
 
-            // Recent activity (only shown when there are entries)
-            if (state.recentActivity.isNotEmpty()) {
+            // Recent activity
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Recent Activity",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (state.recentActivity.isEmpty()) {
                 item {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(
-                        text = "Recent Activity",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    EmptyRecentActivityCard()
+                }
+            } else {
+                item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column {
                             state.recentActivity.forEachIndexed { index, entry ->
@@ -504,6 +514,32 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit, on
                     modifier = Modifier.size(18.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyRecentActivityCard() {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = Icons.Default.History,
+                contentDescription = null,
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "No recent activity",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }

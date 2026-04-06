@@ -113,7 +113,7 @@ fun AuditHistoryScreen(
                 .padding(horizontal = 16.dp)
         ) {
             // Filters
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -152,7 +152,7 @@ fun AuditHistoryScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "No audit entries yet",
+                        text = "No tool calls recorded yet",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -173,7 +173,7 @@ fun AuditHistoryScreen(
                                 text = group.dateLabel,
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
                             )
                         }
                         item {

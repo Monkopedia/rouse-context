@@ -63,6 +63,7 @@ fun AddIntegrationPickerScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(integrations) { integration ->
                     Card(
