@@ -48,8 +48,8 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
 
-/** Idle timeout before disconnecting the tunnel (5 minutes). */
-private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
+/** Idle timeout before disconnecting the tunnel (30 minutes for testing). */
+private const val IDLE_TIMEOUT_MS = 30 * 60 * 1000L
 
 /**
  * Root Koin module that wires all app dependencies.

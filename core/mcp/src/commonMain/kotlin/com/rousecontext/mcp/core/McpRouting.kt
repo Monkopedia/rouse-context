@@ -147,49 +147,55 @@ fun Application.configureMcpRouting(
                 }
 
                 val body = try {
-                    mcpJson.parseToJsonElement(call.receiveText()).jsonObject
-                } catch (_: Exception) {
-                    call.respond(HttpStatusCode.BadRequest)
+                    val text = kotlinx.coroutines.withTimeout(5000) {
+                        call.receiveText()
+                    }
+                    mcpJson.parseToJsonElement(text).jsonObject
+                } catch (e: Exception) {
+                    println("McpRouting: /register body read failed: ${e::class.simpleName}: ${e.message}")
+                    call.respondText("{}", ContentType.Application.Json, HttpStatusCode.BadRequest)
                     return@post
                 }
 
                 val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
                 val clientId = java.util.UUID.randomUUID().toString()
-                call.respond(
-                    HttpStatusCode.Created,
-                    buildJsonObject {
-                        put("client_id", clientId)
-                        put("client_name", clientName)
-                        put(
-                            "redirect_uris",
-                            kotlinx.serialization.json.JsonArray(
-                                (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
-                                    ?.toList() ?: emptyList()
-                            )
+                val response = buildJsonObject {
+                    put("client_id", clientId)
+                    put("client_name", clientName)
+                    put(
+                        "redirect_uris",
+                        kotlinx.serialization.json.JsonArray(
+                            (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
+                                ?.toList() ?: emptyList()
                         )
-                        put(
-                            "grant_types",
-                            kotlinx.serialization.json.JsonArray(
-                                listOf(
-                                    kotlinx.serialization.json.JsonPrimitive(
-                                        "authorization_code"
-                                    ),
-                                    kotlinx.serialization.json.JsonPrimitive(
-                                        "urn:ietf:params:oauth:grant-type:device_code"
-                                    )
+                    )
+                    put(
+                        "grant_types",
+                        kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                kotlinx.serialization.json.JsonPrimitive(
+                                    "authorization_code"
+                                ),
+                                kotlinx.serialization.json.JsonPrimitive(
+                                    "urn:ietf:params:oauth:grant-type:device_code"
                                 )
                             )
                         )
-                        put(
-                            "response_types",
-                            kotlinx.serialization.json.JsonArray(
-                                listOf(
-                                    kotlinx.serialization.json.JsonPrimitive("code")
-                                )
+                    )
+                    put(
+                        "response_types",
+                        kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                kotlinx.serialization.json.JsonPrimitive("code")
                             )
                         )
-                        put("token_endpoint_auth_method", "none")
-                    }
+                    )
+                    put("token_endpoint_auth_method", "none")
+                }
+                call.respondText(
+                    response.toString(),
+                    ContentType.Application.Json,
+                    HttpStatusCode.Created
                 )
             }
 
@@ -375,8 +381,23 @@ fun Application.configureMcpRouting(
 
                 // Parse and dispatch JSON-RPC request through SDK transport
                 val requestBody = call.receiveText()
-                val responseJson = dispatchJsonRpc(integrationServer.transport, requestBody)
-                call.respondText(responseJson, ContentType.Application.Json)
+
+                // JSON-RPC notifications have no "id" field and expect no response
+                val parsed = try {
+                    mcpJson.parseToJsonElement(requestBody).jsonObject
+                } catch (_: Exception) {
+                    null
+                }
+                val isNotification = parsed != null && !parsed.containsKey("id")
+
+                if (isNotification) {
+                    // Fire-and-forget: dispatch to SDK but return 202 immediately
+                    dispatchNotification(integrationServer.transport, requestBody)
+                    call.respond(HttpStatusCode.Accepted)
+                } else {
+                    val responseJson = dispatchJsonRpc(integrationServer.transport, requestBody)
+                    call.respondText(responseJson, ContentType.Application.Json)
+                }
             }
         }
     }
@@ -453,6 +474,15 @@ private suspend fun createIntegrationServer(
  * Dispatches a raw JSON-RPC request string through the SDK Server via HttpTransport.
  * Returns the JSON-RPC response string.
  */
+internal suspend fun dispatchNotification(transport: HttpTransport, requestBody: String) {
+    val message = try {
+        mcpJson.decodeFromString(JSONRPCMessage.serializer(), requestBody)
+    } catch (_: Exception) {
+        return
+    }
+    transport.handleNotification(message)
+}
+
 internal suspend fun dispatchJsonRpc(transport: HttpTransport, requestBody: String): String {
     val message = try {
         mcpJson.decodeFromString(JSONRPCMessage.serializer(), requestBody)

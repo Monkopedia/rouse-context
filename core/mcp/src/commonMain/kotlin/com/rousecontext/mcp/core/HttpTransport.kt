@@ -66,4 +66,13 @@ internal class HttpTransport : Transport {
 
         return deferred.await()
     }
+
+    /**
+     * Handles an incoming JSON-RPC notification (no response expected).
+     * Feeds the message to the SDK Server without waiting for a response.
+     */
+    suspend fun handleNotification(notification: JSONRPCMessage) {
+        val handler = messageHandler ?: return
+        handler(notification)
+    }
 }

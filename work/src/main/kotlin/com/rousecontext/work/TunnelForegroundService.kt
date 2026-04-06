@@ -52,6 +52,18 @@ class TunnelForegroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         lifecycleScope.launch {
+            if (tunnelClient.state.value == TunnelState.CONNECTING) {
+                Log.i(TAG, "Already connecting, skipping")
+                return@launch
+            }
+            if (tunnelClient.state.value == TunnelState.CONNECTED) {
+                Log.i(TAG, "Already connected, disconnecting first to refresh")
+                try {
+                    tunnelClient.disconnect()
+                } catch (_: Exception) {
+                    // Best-effort
+                }
+            }
             try {
                 tunnelClient.connect(relayUrl)
             } catch (e: Exception) {

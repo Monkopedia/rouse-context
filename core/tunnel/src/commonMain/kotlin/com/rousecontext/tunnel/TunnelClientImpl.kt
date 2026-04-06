@@ -48,7 +48,11 @@ class TunnelClientImpl(
                     override fun onBinaryMessage(data: ByteArray) {
                         val muxFrame = MuxCodec.decode(data)
                         scope.launch {
-                            demux.handleFrame(muxFrame)
+                            try {
+                                demux.handleFrame(muxFrame)
+                            } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
+                                // WebSocket frame arrived after disconnect, ignore
+                            }
                         }
                     }
 

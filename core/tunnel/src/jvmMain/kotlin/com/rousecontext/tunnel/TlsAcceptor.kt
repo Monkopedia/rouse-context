@@ -248,14 +248,19 @@ internal class TlsInputStream(
         // Need to decrypt more data
         appIn.clear()
         while (true) {
-            val tlsData =
-                try {
-                    kotlinx.coroutines.runBlocking { stream.read() }
-                } catch (_: Exception) {
-                    return -1
-                }
-            netIn = ensureCapacity(netIn, tlsData.size)
-            netIn.put(tlsData)
+            // Only read from the stream if netIn has no leftover data.
+            // Multiple TLS records may arrive in a single mux DATA frame,
+            // so netIn may still have data from a previous unwrap.
+            if (netIn.position() == 0) {
+                val tlsData =
+                    try {
+                        kotlinx.coroutines.runBlocking { stream.read() }
+                    } catch (_: Exception) {
+                        return -1
+                    }
+                netIn = ensureCapacity(netIn, tlsData.size)
+                netIn.put(tlsData)
+            }
             netIn.flip()
 
             val result = engine.unwrap(netIn, appIn)
