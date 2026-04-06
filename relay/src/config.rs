@@ -20,6 +20,7 @@ pub struct RelayConfig {
     pub firebase: FirebaseConfig,
     pub cloudflare: CloudflareConfig,
     pub limits: LimitsConfig,
+    pub acme: AcmeConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -60,6 +61,27 @@ pub struct LimitsConfig {
     pub wake_rate_limit: u32,
     pub subdomain_rotation_cooldown_days: Option<u32>,
     pub fcm_wakeup_timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct AcmeConfig {
+    /// ACME directory URL. Use the staging URL for development/testing.
+    pub directory_url: String,
+    /// Maximum seconds to wait for DNS TXT record propagation before giving up.
+    pub dns_propagation_timeout_secs: u64,
+    /// Interval in seconds between DNS propagation checks.
+    pub dns_poll_interval_secs: u64,
+}
+
+impl Default for AcmeConfig {
+    fn default() -> Self {
+        Self {
+            directory_url: String::new(), // empty means use ACME_DIRECTORY_URL env or LE production
+            dns_propagation_timeout_secs: 60,
+            dns_poll_interval_secs: 5,
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -125,6 +147,9 @@ impl RelayConfig {
         }
         if let Ok(val) = std::env::var("RELAY_CF_ZONE_ID") {
             self.cloudflare.zone_id = val;
+        }
+        if let Ok(val) = std::env::var("ACME_DIRECTORY_URL") {
+            self.acme.directory_url = val;
         }
     }
 }
