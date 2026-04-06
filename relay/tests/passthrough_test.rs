@@ -369,3 +369,398 @@ async fn cold_client_fcm_then_device_connects() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].0, "fcm-cold");
 }
+
+// ---------------------------------------------------------------------------
+// Cold wake integration tests: resolve + splice end-to-end
+// ---------------------------------------------------------------------------
+
+/// Helper to create a device record with sensible defaults.
+fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
+    rouse_relay::firestore::DeviceRecord {
+        fcm_token: fcm_token.to_string(),
+        firebase_uid: "uid".to_string(),
+        public_key: "key".to_string(),
+        cert_expires: SystemTime::now() + Duration::from_secs(86400),
+        registered_at: SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+    }
+}
+
+/// Helper to create a TCP socket pair via a loopback listener.
+/// Returns (server_stream, client_stream).
+async fn tcp_pair() -> (tokio::net::TcpStream, tokio::net::TcpStream) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let client_task =
+        tokio::spawn(async move { tokio::net::TcpStream::connect(addr).await.unwrap() });
+    let (server, _) = listener.accept().await.unwrap();
+    let client = client_task.await.unwrap();
+    (server, client)
+}
+
+/// Simulate a device waking up after a delay: creates MuxSession, registers in
+/// both SessionRegistry and RelayState, and spawns a task to handle stream-open
+/// requests. Returns the frame_rx for inspecting outgoing frames.
+fn spawn_delayed_device(
+    relay_state: Arc<RelayState>,
+    registry: Arc<SessionRegistry>,
+    subdomain: &str,
+    max_streams: u32,
+    delay: Duration,
+) -> mpsc::Receiver<Frame> {
+    let sub = subdomain.to_string();
+    let mut session = MuxSession::new(sub.clone(), max_streams);
+    let frame_rx = session.take_frame_rx().unwrap();
+
+    let rs = relay_state;
+    let reg = registry;
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
+        // Insert into registry BEFORE register_mux_connection so that
+        // when subscribe_connect fires, the session is already available.
+        reg.insert(&sub, open_tx);
+        rs.register_mux_connection(&sub);
+        while let Some(req) = open_rx.recv().await {
+            let result = session
+                .open_stream()
+                .map(|stream| (session.handle(), stream));
+            let _ = req.reply.send(result);
+        }
+    });
+
+    frame_rx
+}
+
+/// Test 1: Cold wake with ClientHello buffering and full data round-trip.
+///
+/// Validates the complete cold-wake path: resolve_device_stream sends FCM and
+/// waits for the device, then splice_stream forwards the buffered ClientHello
+/// as the first DATA frame. Device responses flow back to the client socket.
+///
+/// This test uses resolve_device_stream for the wake/open phase, then manually
+/// creates splice channels (like the bidirectional_data_splice test) so we can
+/// inject "device" responses into the stream_rx channel.
+#[tokio::test]
+async fn cold_wake_full_data_roundtrip() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("wake-dev", make_device_record("fcm-wake")));
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_secs(5),
+    };
+
+    // Device wakes after 50ms
+    let mut frame_rx = spawn_delayed_device(
+        relay_state.clone(),
+        registry.clone(),
+        "wake-dev",
+        8,
+        Duration::from_millis(50),
+    );
+
+    // Phase 1: resolve (waits for FCM + device connect)
+    let sni = "wake-dev.rousecontext.com";
+    let resolved = resolve_device_stream(&ctx, "wake-dev", sni).await.unwrap();
+    assert_eq!(resolved.stream_id, 1);
+
+    // Verify OPEN frame was sent with correct SNI
+    let open_frame = frame_rx.recv().await.unwrap();
+    assert_eq!(open_frame.frame_type, FrameType::Open);
+    assert_eq!(open_frame.stream_id, 1);
+    assert_eq!(
+        String::from_utf8(open_frame.payload).unwrap(),
+        "wake-dev.rousecontext.com"
+    );
+
+    // Phase 2: splice with manually-managed stream channel for device responses.
+    // We use the MuxHandle from resolve (to send frames to device) but create
+    // our own stream_tx/stream_rx pair so we can inject device->client data.
+    let (stream_tx, stream_rx) = mpsc::channel::<Frame>(64);
+
+    let (server_stream, mut client_stream) = tcp_pair().await;
+    let client_hello = b"fake-tls-client-hello-bytes";
+    let mux_handle = resolved.handle.clone();
+    let stream_id = resolved.stream_id;
+
+    let splice_handle = tokio::spawn(async move {
+        splice_stream(server_stream, client_hello, stream_id, &mux_handle, stream_rx).await
+    });
+
+    // Verify ClientHello arrives as first DATA frame on the mux
+    let data_frame = frame_rx.recv().await.unwrap();
+    assert_eq!(data_frame.frame_type, FrameType::Data);
+    assert_eq!(data_frame.stream_id, 1);
+    assert_eq!(data_frame.payload, b"fake-tls-client-hello-bytes");
+
+    // Simulate device sending response back through the stream channel
+    stream_tx
+        .send(Frame {
+            frame_type: FrameType::Data,
+            stream_id: 1,
+            payload: b"server-hello-response".to_vec(),
+        })
+        .await
+        .unwrap();
+
+    // Verify response arrives on the client TCP socket
+    let mut buf = vec![0u8; 1024];
+    let n = client_stream.read(&mut buf).await.unwrap();
+    assert_eq!(&buf[..n], b"server-hello-response");
+
+    // Client writes more data
+    client_stream.write_all(b"more-client-data").await.unwrap();
+
+    let data_frame = frame_rx.recv().await.unwrap();
+    assert_eq!(data_frame.frame_type, FrameType::Data);
+    assert_eq!(data_frame.payload, b"more-client-data");
+
+    // Device sends CLOSE to end the session
+    stream_tx
+        .send(Frame {
+            frame_type: FrameType::Close,
+            stream_id: 1,
+            payload: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+    // Splice should complete cleanly
+    let result = splice_handle.await.unwrap();
+    assert!(result.is_ok());
+
+    // Verify FCM was sent exactly once with high priority
+    let sent = fcm.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "fcm-wake");
+    assert!(sent[0].2); // high_priority = true
+}
+
+/// Test 2: Multiple AI clients wake the same device concurrently.
+///
+/// Two clients connect to the same subdomain while the device is offline.
+/// The device wakes once (one FCM). Both clients should get independent streams
+/// with distinct stream IDs.
+#[tokio::test]
+async fn multiple_clients_wake_same_device() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("multi-dev", make_device_record("fcm-multi")));
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = Arc::new(PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_secs(5),
+    });
+
+    // Device wakes after 100ms
+    let mut frame_rx = spawn_delayed_device(
+        relay_state.clone(),
+        registry.clone(),
+        "multi-dev",
+        8,
+        Duration::from_millis(100),
+    );
+
+    // Launch two concurrent resolve calls
+    let ctx1 = ctx.clone();
+    let resolve1 = tokio::spawn(async move {
+        resolve_device_stream(&ctx1, "multi-dev", "multi-dev.rousecontext.com").await
+    });
+
+    let ctx2 = ctx.clone();
+    let resolve2 = tokio::spawn(async move {
+        resolve_device_stream(&ctx2, "multi-dev", "multi-dev.rousecontext.com").await
+    });
+
+    let r1 = resolve1.await.unwrap().unwrap();
+    let r2 = resolve2.await.unwrap().unwrap();
+
+    // Both should succeed with different stream IDs
+    assert_ne!(r1.stream_id, r2.stream_id);
+    // Stream IDs should be 1 and 2 (in some order)
+    let mut ids = vec![r1.stream_id, r2.stream_id];
+    ids.sort();
+    assert_eq!(ids, vec![1, 2]);
+
+    // Verify OPEN frames were sent for both streams
+    let f1 = frame_rx.recv().await.unwrap();
+    let f2 = frame_rx.recv().await.unwrap();
+    assert_eq!(f1.frame_type, FrameType::Open);
+    assert_eq!(f2.frame_type, FrameType::Open);
+    let mut open_ids = vec![f1.stream_id, f2.stream_id];
+    open_ids.sort();
+    assert_eq!(open_ids, vec![1, 2]);
+
+    // FCM should have been sent (at least once, possibly twice since both
+    // clients fire independently before the device connects). The key invariant
+    // is that both streams opened successfully.
+    let sent = fcm.sent.lock().unwrap();
+    assert!(!sent.is_empty());
+    // All FCM messages should target the same token
+    for msg in sent.iter() {
+        assert_eq!(msg.0, "fcm-multi");
+    }
+}
+
+/// Test 3: Device connects after FCM but has exhausted max_streams (0).
+///
+/// The device wakes and registers, but with max_streams=0 so no stream can be
+/// opened. The client should get StreamRefused.
+#[tokio::test]
+async fn cold_wake_stream_refused_max_streams_zero() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let firestore = Arc::new(
+        MockFirestore::new().with_device("full-dev", make_device_record("fcm-full")),
+    );
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_secs(5),
+    };
+
+    // Device wakes with max_streams=0
+    let _frame_rx = spawn_delayed_device(
+        relay_state.clone(),
+        registry.clone(),
+        "full-dev",
+        0, // no streams allowed
+        Duration::from_millis(50),
+    );
+
+    let result =
+        resolve_device_stream(&ctx, "full-dev", "full-dev.rousecontext.com").await;
+
+    assert!(
+        matches!(result, Err(PassthroughError::StreamRefused)),
+        "Expected StreamRefused"
+    );
+
+    // FCM should still have been sent (device was offline)
+    let sent = fcm.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, "fcm-full");
+}
+
+/// Test 4: ClientHello bytes are preserved exactly through the wake delay.
+///
+/// Generates a realistic-size byte buffer (517 bytes, typical TLS ClientHello
+/// size), goes through the cold wake path, and verifies the exact bytes arrive
+/// on the mux as the first DATA frame with no truncation or corruption.
+#[tokio::test]
+async fn client_hello_preserved_through_wake_delay() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let firestore = Arc::new(
+        MockFirestore::new().with_device("exact-dev", make_device_record("fcm-exact")),
+    );
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_secs(5),
+    };
+
+    // Generate a realistic-looking ClientHello (517 bytes with TLS record header)
+    let mut client_hello = vec![0u8; 517];
+    // TLS record header: ContentType=Handshake(0x16), Version=TLS1.0(0x0301)
+    client_hello[0] = 0x16;
+    client_hello[1] = 0x03;
+    client_hello[2] = 0x01;
+    // Length of handshake message (517 - 5 = 512)
+    client_hello[3] = 0x02;
+    client_hello[4] = 0x00;
+    // Handshake type: ClientHello(0x01)
+    client_hello[5] = 0x01;
+    // Fill the rest with a recognizable pattern
+    for (i, byte) in client_hello.iter_mut().enumerate().skip(6) {
+        *byte = (i % 256) as u8;
+    }
+
+    // Device wakes after 80ms
+    let mut frame_rx = spawn_delayed_device(
+        relay_state.clone(),
+        registry.clone(),
+        "exact-dev",
+        8,
+        Duration::from_millis(80),
+    );
+
+    // Resolve through the cold wake path
+    let resolved = resolve_device_stream(&ctx, "exact-dev", "exact-dev.rousecontext.com")
+        .await
+        .unwrap();
+
+    // Skip the OPEN frame
+    let open_frame = frame_rx.recv().await.unwrap();
+    assert_eq!(open_frame.frame_type, FrameType::Open);
+
+    // Now splice with the ClientHello bytes
+    let (stream_tx, stream_rx) = mpsc::channel::<Frame>(64);
+    let (server_stream, _client_stream) = tcp_pair().await;
+    let mux_handle = resolved.handle.clone();
+    let stream_id = resolved.stream_id;
+    let client_hello_clone = client_hello.clone();
+
+    let splice_handle = tokio::spawn(async move {
+        splice_stream(
+            server_stream,
+            &client_hello_clone,
+            stream_id,
+            &mux_handle,
+            stream_rx,
+        )
+        .await
+    });
+
+    // Verify the exact ClientHello bytes arrive as the first DATA frame
+    let data_frame = frame_rx.recv().await.unwrap();
+    assert_eq!(data_frame.frame_type, FrameType::Data);
+    assert_eq!(data_frame.stream_id, resolved.stream_id);
+    assert_eq!(data_frame.payload.len(), 517, "ClientHello length mismatch");
+    assert_eq!(
+        data_frame.payload, client_hello,
+        "ClientHello bytes were corrupted through the wake delay"
+    );
+
+    // Clean up: send CLOSE to end splice
+    stream_tx
+        .send(Frame {
+            frame_type: FrameType::Close,
+            stream_id: resolved.stream_id,
+            payload: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+    let result = splice_handle.await.unwrap();
+    assert!(result.is_ok());
+}
