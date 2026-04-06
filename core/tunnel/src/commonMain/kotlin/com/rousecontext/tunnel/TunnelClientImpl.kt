@@ -1,21 +1,12 @@
 package com.rousecontext.tunnel
 
-import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.WebSockets
-import io.ktor.client.plugins.websocket.webSocketSession
-import io.ktor.websocket.Frame
-import io.ktor.websocket.WebSocketSession
-import io.ktor.websocket.close
-import io.ktor.websocket.readBytes
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -24,12 +15,11 @@ import kotlinx.coroutines.launch
  */
 class TunnelClientImpl(
     private val scope: CoroutineScope,
-    private val httpClient: HttpClient = defaultHttpClient()
+    private val webSocketFactory: WebSocketFactory
 ) : TunnelClient {
     private val stateMachine = ConnectionStateMachine()
     private var muxDemux: MuxDemux? = null
-    private var session: WebSocketSession? = null
-    private var receiveJob: Job? = null
+    private var wsHandle: WebSocketHandle? = null
 
     private val _errors = MutableSharedFlow<TunnelError>(extraBufferCapacity = 16)
 
@@ -41,34 +31,59 @@ class TunnelClientImpl(
     override suspend fun connect(url: String) {
         stateMachine.transition(TunnelState.CONNECTING)
         try {
-            val wsSession = httpClient.webSocketSession(url)
             val demux = MuxDemux()
-            demux.onOutgoingFrame = { frame ->
-                wsSession.send(Frame.Binary(true, MuxCodec.encode(frame)))
-            }
-            muxDemux = demux
-            session = wsSession
+            val opened = CompletableDeferred<Unit>()
 
-            receiveJob = scope.launch {
-                try {
-                    for (frame in wsSession.incoming) {
-                        if (frame is Frame.Binary) {
-                            val muxFrame = MuxCodec.decode(frame.readBytes())
+            val handle = webSocketFactory.connect(
+                url,
+                object : WebSocketListener {
+                    override fun onOpen() {
+                        opened.complete(Unit)
+                    }
+
+                    override fun onBinaryMessage(data: ByteArray) {
+                        val muxFrame = MuxCodec.decode(data)
+                        scope.launch {
                             demux.handleFrame(muxFrame)
                         }
                     }
-                    // WebSocket closed normally
-                    handleDisconnect(TunnelError.WebSocketClosed("WebSocket closed by remote"))
-                } catch (e: Exception) {
-                    if (isActive) {
-                        handleDisconnect(
-                            TunnelError.ConnectionFailed("WebSocket error", e)
-                        )
+
+                    override fun onClosing(code: Int, reason: String) {
+                        scope.launch {
+                            handleDisconnect(
+                                TunnelError.WebSocketClosed(
+                                    "WebSocket closed by remote: $code $reason"
+                                )
+                            )
+                        }
+                    }
+
+                    override fun onFailure(error: Throwable) {
+                        opened.completeExceptionally(error)
+                        scope.launch {
+                            handleDisconnect(
+                                TunnelError.ConnectionFailed("WebSocket error", error)
+                            )
+                        }
                     }
                 }
+            )
+
+            // Wait for the WebSocket handshake to complete
+            opened.await()
+
+            demux.onOutgoingFrame = { frame ->
+                handle.sendBinary(MuxCodec.encode(frame))
             }
 
+            muxDemux = demux
+            wsHandle = handle
+
             stateMachine.transition(TunnelState.CONNECTED)
+        } catch (e: TunnelError) {
+            stateMachine.transition(TunnelState.DISCONNECTED)
+            _errors.emit(e)
+            throw e
         } catch (e: Exception) {
             stateMachine.transition(TunnelState.DISCONNECTED)
             val error = TunnelError.ConnectionFailed("Failed to connect: ${e.message}", e)
@@ -80,8 +95,7 @@ class TunnelClientImpl(
     override suspend fun disconnect() {
         try {
             muxDemux?.closeAll()
-            session?.close()
-            receiveJob?.cancelAndJoin()
+            wsHandle?.close()
         } finally {
             cleanup()
             if (stateMachine.state.value != TunnelState.DISCONNECTED) {
@@ -99,14 +113,7 @@ class TunnelClientImpl(
     }
 
     private fun cleanup() {
-        session = null
+        wsHandle = null
         muxDemux = null
-        receiveJob = null
-    }
-
-    companion object {
-        fun defaultHttpClient(): HttpClient = HttpClient {
-            install(WebSockets)
-        }
     }
 }

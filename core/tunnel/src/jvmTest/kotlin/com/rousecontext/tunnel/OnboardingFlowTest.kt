@@ -45,6 +45,7 @@ class OnboardingFlowTest {
                 body = RegisterResponse(
                     subdomain = "abc123.rousecontext.com",
                     cert = MockRelayServer.MOCK_CERT_PEM,
+                    privateKey = MockRelayServer.MOCK_PRIVATE_KEY_PEM,
                     relayHost = "relay.rousecontext.com"
                 )
             )

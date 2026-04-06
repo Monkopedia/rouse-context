@@ -42,7 +42,7 @@ class WebSocketMuxTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
 
             client.connect("ws://localhost:$port/tunnel")
 
@@ -78,7 +78,7 @@ class WebSocketMuxTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
             client.connect("ws://localhost:$port/tunnel")
 
             val sessionReceived = CompletableDeferred<MuxStream>()
@@ -149,7 +149,7 @@ class WebSocketMuxTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this)
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
             client.connect("ws://localhost:$port/tunnel")
 
             val sessions = mutableListOf<MuxStream>()
