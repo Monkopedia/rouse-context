@@ -2,11 +2,14 @@ package com.rousecontext.tunnel
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -20,12 +23,13 @@ class TunnelClientImpl(
     private val stateMachine = ConnectionStateMachine()
     private var muxDemux: MuxDemux? = null
     private var wsHandle: WebSocketHandle? = null
+    private var forwardJob: Job? = null
 
+    private val _incomingSessions = Channel<MuxStream>(Channel.BUFFERED)
     private val _errors = MutableSharedFlow<TunnelError>(extraBufferCapacity = 16)
 
     override val state: StateFlow<TunnelState> = stateMachine.state
-    override val incomingSessions: Flow<MuxStream>
-        get() = muxDemux?.incomingStreams ?: MutableSharedFlow()
+    override val incomingSessions: Flow<MuxStream> = _incomingSessions.receiveAsFlow()
     override val errors: SharedFlow<TunnelError> = _errors.asSharedFlow()
 
     override suspend fun connect(url: String) {
@@ -78,6 +82,11 @@ class TunnelClientImpl(
 
             muxDemux = demux
             wsHandle = handle
+            forwardJob = scope.launch {
+                demux.incomingStreams.collect { stream ->
+                    _incomingSessions.send(stream)
+                }
+            }
 
             stateMachine.transition(TunnelState.CONNECTED)
         } catch (e: TunnelError) {
@@ -113,6 +122,8 @@ class TunnelClientImpl(
     }
 
     private fun cleanup() {
+        forwardJob?.cancel()
+        forwardJob = null
         wsHandle = null
         muxDemux = null
     }
