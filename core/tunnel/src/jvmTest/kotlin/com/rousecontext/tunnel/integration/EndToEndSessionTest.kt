@@ -1,10 +1,12 @@
 package com.rousecontext.tunnel.integration
 
-import com.rousecontext.tunnel.ChannelMuxStream
 import com.rousecontext.tunnel.MuxCodec
 import com.rousecontext.tunnel.MuxErrorCode
 import com.rousecontext.tunnel.MuxFrame
+import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TlsAcceptor
+import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.tunnel.TunnelState
 import java.io.File
 import java.net.URI
 import java.net.http.HttpClient
@@ -17,19 +19,13 @@ import java.util.concurrent.CompletionStage
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.net.ssl.KeyManagerFactory
-import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
-import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManagerFactory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
-import kotlin.test.fail
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -41,9 +37,13 @@ import org.junit.Before
 /**
  * End-to-end session tests using the real Rust relay binary.
  *
- * Pattern: start relay, connect as "device" via mux WebSocket (mTLS),
- * connect as "AI client" via raw TLS to the device subdomain, and verify
- * data flows through the relay's SNI-based passthrough.
+ * Scenarios 5-7 exercise the production [TunnelClientImpl] code path:
+ * the device connects via [MtlsWebSocketFactory], and incoming sessions
+ * arrive through [TunnelClientImpl.incomingSessions].
+ *
+ * Later scenarios (8+) test relay-level behavior (disconnect propagation,
+ * max streams, error frames) using raw WebSocket where needed to inject
+ * specific mux frames.
  *
  * These tests are skipped if the relay binary has not been built.
  * Build it with: cd relay && cargo build
@@ -53,23 +53,23 @@ class EndToEndSessionTest {
 
     companion object {
         private const val RELAY_HOSTNAME = "localhost"
-        private const val RELAY_STARTUP_TIMEOUT_MS = 10_000L
         private const val WS_TIMEOUT_SECS = 10L
-        private const val STORE_PASS = "changeit"
         private const val DEVICE_SUBDOMAIN = "test-device"
     }
 
-    private lateinit var relayBinary: File
     private lateinit var tempDir: File
-    private lateinit var caCert: X509Certificate
-    private lateinit var deviceKeyStore: KeyStore
-    private lateinit var deviceCert: X509Certificate
-    private var relayProcess: Process? = null
+    private lateinit var ca: TestCertificateAuthority
+    private lateinit var relayManager: TestRelayManager
     private var relayPort: Int = 0
+
+    // Convenience aliases from the CA
+    private val caCert: X509Certificate get() = ca.caCert
+    private val deviceKeyStore: KeyStore get() = ca.deviceKeyStore
+    private val deviceCert: X509Certificate get() = ca.deviceCert
 
     @Before
     fun setUp() {
-        relayBinary = findRelayBinary()
+        val relayBinary = findRelayBinary()
         assumeTrue(
             "Relay binary not found. Build with: cd relay && cargo build",
             relayBinary.exists() && relayBinary.canExecute()
@@ -79,297 +79,236 @@ class EndToEndSessionTest {
         tempDir.delete()
         tempDir.mkdirs()
 
-        generateCertificates()
+        ca = TestCertificateAuthority(tempDir, RELAY_HOSTNAME, DEVICE_SUBDOMAIN)
+        ca.generate()
+
+        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
         relayPort = findFreePort()
-        writeRelayConfig(relayPort)
-        relayProcess = startRelay(relayPort)
+        relayManager.start(relayPort)
     }
 
     @After
     fun tearDown() {
-        relayProcess?.let {
-            it.destroyForcibly()
-            it.waitFor(5, TimeUnit.SECONDS)
-        }
+        relayManager.stop()
         if (::tempDir.isInitialized && tempDir.exists()) {
             tempDir.deleteRecursively()
         }
     }
 
     // =========================================================================
-    // Scenario 5: Cold path — full TLS tunnel without FCM
+    // Scenario 5: Cold path -- full TLS tunnel via TunnelClientImpl
     // =========================================================================
 
     /**
-     * Client connects via TLS with device subdomain SNI. Relay sends OPEN
-     * to device mux. Device receives ClientHello bytes, does TLS accept on
-     * the mux stream. Plaintext data flows bidirectionally through the tunnel.
+     * Client connects via TLS with device subdomain SNI. The device uses
+     * [TunnelClientImpl] to receive sessions from [incomingSessions], then
+     * does TLS accept on the mux stream. Plaintext data flows bidirectionally.
      */
     @Test
     fun `scenario 5 - cold path full TLS tunnel`() = runBlocking {
-        // 1. Device connects via mTLS WebSocket
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        // 2. Start receiving mux frames from relay on device side
-        val deviceFrames = deviceWs.listener.binaryMessages
-        val openReceived = CompletableDeferred<MuxFrame.Open>()
-
-        // Device-side frame pump: wait for OPEN + DATA (ClientHello)
-        val deviceStreamData = Channel<ByteArray>(Channel.BUFFERED)
-        val deviceStreamId = CompletableDeferred<UInt>()
-
-        launch(Dispatchers.IO) {
-            var gotOpen = false
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceFrames, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                when {
-                    frame is MuxFrame.Open && !gotOpen -> {
-                        gotOpen = true
-                        deviceStreamId.complete(frame.streamId)
-                        openReceived.complete(frame)
-                    }
-                    frame is MuxFrame.Data -> {
-                        deviceStreamData.send(frame.payload)
-                    }
-                    frame is MuxFrame.Close -> {
-                        deviceStreamData.close()
-                        break
-                    }
+        try {
+            // Collect the first incoming session
+            val sessionReceived = CompletableDeferred<MuxStream>()
+            val collectJob = launch {
+                tunnelClient.incomingSessions.collect { stream ->
+                    sessionReceived.complete(stream)
                 }
             }
-        }
 
-        // 3. AI client connects with device subdomain SNI
-        // This triggers the relay to look up the device session and send OPEN
-        val clientSocket = CompletableDeferred<SSLSocket>()
-        launch(Dispatchers.IO) {
-            val socket = connectAiClient()
-            clientSocket.complete(socket)
-        }
-
-        // 4. Device receives OPEN frame from relay
-        val openFrame = withTimeout(10_000) { openReceived.await() }
-        val streamId = openFrame.streamId
-
-        // 5. Build a MuxStream that sends DATA frames back through the WS
-        val serverToClient = Channel<ByteArray>(Channel.BUFFERED)
-
-        // Pump deviceStreamData into serverToClient for TLS accept
-        launch(Dispatchers.IO) {
-            for (data in deviceStreamData) {
-                serverToClient.send(data)
+            // AI client connects with device subdomain SNI (starts TLS handshake)
+            val clientSocket = CompletableDeferred<SSLSocket>()
+            launch(Dispatchers.IO) {
+                val socket = connectAiClient()
+                clientSocket.complete(socket)
             }
-            serverToClient.close()
-        }
 
-        val clientToServer = Channel<ByteArray>(Channel.BUFFERED)
-        val deviceMuxStream = ChannelMuxStream(
-            streamIdValue = streamId,
-            readChannel = serverToClient,
-            writeChannel = clientToServer
-        )
+            // Device receives the session via TunnelClientImpl
+            val muxStream = withTimeout(10_000) { sessionReceived.await() }
+            assertTrue(muxStream.id > 0u, "Should get a valid stream ID")
 
-        // Forward clientToServer data as mux DATA frames back to relay
-        launch(Dispatchers.IO) {
-            for (data in clientToServer) {
-                val frame = MuxCodec.encode(MuxFrame.Data(streamId, data))
-                deviceWs.ws.sendBinary(ByteBuffer.wrap(frame), true)
-                    .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
+            // Device does TLS accept over the mux stream
+            val deviceSslContext = TestSslContexts.buildDeviceServer(deviceKeyStore)
+            val acceptor = TlsAcceptor.create(deviceSslContext)
+
+            val tlsSession = CompletableDeferred<TlsAcceptor.TlsSession>()
+            launch(Dispatchers.IO) {
+                val session = acceptor.accept(muxStream)
+                tlsSession.complete(session)
             }
+
+            // Wait for both sides to complete handshake
+            val aiSocket = withTimeout(10_000) { clientSocket.await() }
+            val session = withTimeout(10_000) { tlsSession.await() }
+
+            // Bidirectional plaintext data flow
+            // Client -> Device
+            aiSocket.outputStream.write("hello from AI client".toByteArray())
+            aiSocket.outputStream.flush()
+
+            val buf = ByteArray(4096)
+            val n = session.input.read(buf, 0, buf.size)
+            assertTrue(n > 0, "Should read plaintext from AI client")
+            assertEquals("hello from AI client", String(buf, 0, n))
+
+            // Device -> Client
+            session.output.write("hello from device".toByteArray())
+            session.output.flush()
+
+            val buf2 = ByteArray(4096)
+            val n2 = aiSocket.inputStream.read(buf2, 0, buf2.size)
+            assertTrue(n2 > 0, "Should read plaintext from device")
+            assertEquals("hello from device", String(buf2, 0, n2))
+
+            // Cleanup
+            aiSocket.close()
+            collectJob.cancel()
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
         }
-
-        // 6. Device does TLS accept over the mux stream
-        val deviceSslContext = buildDeviceServerSslContext()
-        val acceptor = TlsAcceptor.create(deviceSslContext)
-
-        val tlsSession = CompletableDeferred<TlsAcceptor.TlsSession>()
-        launch(Dispatchers.IO) {
-            val session = acceptor.accept(deviceMuxStream)
-            tlsSession.complete(session)
-        }
-
-        // Wait for client TLS socket to connect and handshake
-        val aiSocket = withTimeout(10_000) { clientSocket.await() }
-        val session = withTimeout(10_000) { tlsSession.await() }
-
-        // 7. Bidirectional plaintext data flow
-        // Client -> Device
-        val clientOut = aiSocket.outputStream
-        clientOut.write("hello from AI client".toByteArray())
-        clientOut.flush()
-
-        val buf = ByteArray(4096)
-        val n = session.input.read(buf, 0, buf.size)
-        assertTrue(n > 0, "Should read plaintext from AI client")
-        assertEquals("hello from AI client", String(buf, 0, n))
-
-        // Device -> Client
-        session.output.write("hello from device".toByteArray())
-        session.output.flush()
-
-        val buf2 = ByteArray(4096)
-        val n2 = aiSocket.inputStream.read(buf2, 0, buf2.size)
-        assertTrue(n2 > 0, "Should read plaintext from device")
-        assertEquals("hello from device", String(buf2, 0, n2))
-
-        // Cleanup
-        aiSocket.close()
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
-        coroutineContext.cancelChildren()
     }
 
     // =========================================================================
-    // Scenario 6: Warm path — device already connected
+    // Scenario 6: Warm path -- device already connected via TunnelClientImpl
     // =========================================================================
 
     /**
-     * Device already connected via mux. Client connects and gets an instant
-     * OPEN with no delay.
+     * Device already connected via TunnelClientImpl. Client connects and gets
+     * an instant OPEN with no delay.
      */
     @Test
     fun `scenario 6 - warm path instant OPEN`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        // Device is already connected. Now connect AI client.
-        val startTime = System.currentTimeMillis()
-
-        val openReceived = CompletableDeferred<MuxFrame.Open>()
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs.listener.binaryMessages, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                if (frame is MuxFrame.Open) {
-                    openReceived.complete(frame)
-                    break
+        try {
+            val sessionReceived = CompletableDeferred<MuxStream>()
+            val collectJob = launch {
+                tunnelClient.incomingSessions.collect { stream ->
+                    sessionReceived.complete(stream)
                 }
             }
+
+            // Device is already connected. Now connect AI client.
+            val startTime = System.currentTimeMillis()
+
+            // AI client connects via raw TCP with synthetic ClientHello
+            val rawSocket = connectRawAiClient()
+
+            val muxStream = withTimeout(10_000) { sessionReceived.await() }
+            val elapsed = System.currentTimeMillis() - startTime
+
+            assertTrue(muxStream.id > 0u, "Should get a valid stream ID")
+            // Warm path should be sub-second (no FCM wakeup needed)
+            assertTrue(
+                elapsed < 3_000,
+                "Session should arrive quickly (warm path), took ${elapsed}ms"
+            )
+
+            rawSocket.close()
+            collectJob.cancel()
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
         }
-
-        // AI client connects via raw TCP with synthetic ClientHello
-        val rawSocket = connectRawAiClient()
-
-        val openFrame = withTimeout(10_000) { openReceived.await() }
-        val elapsed = System.currentTimeMillis() - startTime
-
-        assertTrue(openFrame.streamId > 0u, "Should get a valid stream ID")
-        // Warm path should be sub-second (no FCM wakeup needed)
-        assertTrue(elapsed < 3_000, "OPEN should arrive quickly (warm path), took ${elapsed}ms")
-
-        rawSocket.close()
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
-        coroutineContext.cancelChildren()
     }
 
     // =========================================================================
-    // Scenario 7: Concurrent clients
+    // Scenario 7: Concurrent clients via TunnelClientImpl
     // =========================================================================
 
     /**
      * Two AI clients connect to the same device subdomain. Device receives
-     * two OPEN frames with different stream IDs.
+     * two sessions via [TunnelClientImpl.incomingSessions] with different
+     * stream IDs.
      */
     @Test
     fun `scenario 7 - concurrent clients get different stream IDs`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        val openFrames = CopyOnWriteArrayList<MuxFrame.Open>()
-        val twoOpens = CompletableDeferred<Unit>()
-
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs.listener.binaryMessages, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                if (frame is MuxFrame.Open) {
-                    openFrames.add(frame)
-                    if (openFrames.size >= 2) {
-                        twoOpens.complete(Unit)
+        try {
+            val sessions = CopyOnWriteArrayList<MuxStream>()
+            val twoSessions = CompletableDeferred<Unit>()
+            val collectJob = launch {
+                tunnelClient.incomingSessions.collect { stream ->
+                    sessions.add(stream)
+                    if (sessions.size >= 2) {
+                        twoSessions.complete(Unit)
                     }
                 }
             }
+
+            // Connect two AI clients via raw TCP
+            val rawSocket1 = connectRawAiClient()
+            val rawSocket2 = connectRawAiClient()
+
+            withTimeout(10_000) { twoSessions.await() }
+
+            assertEquals(2, sessions.size, "Should receive two sessions")
+            val ids = sessions.map { it.id }.toSet()
+            assertEquals(2, ids.size, "Stream IDs should be different: $ids")
+
+            rawSocket1.close()
+            rawSocket2.close()
+            collectJob.cancel()
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
         }
-
-        // Connect two AI clients via raw TCP
-        val rawSocket1 = connectRawAiClient()
-        val rawSocket2 = connectRawAiClient()
-
-        withTimeout(10_000) { twoOpens.await() }
-
-        assertEquals(2, openFrames.size, "Should receive two OPEN frames")
-        val ids = openFrames.map { it.streamId }.toSet()
-        assertEquals(2, ids.size, "Stream IDs should be different: $ids")
-
-        rawSocket1.close()
-        rawSocket2.close()
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
-        coroutineContext.cancelChildren()
     }
 
     // =========================================================================
-    // Scenario 8: Client disconnects mid-session
+    // Scenario 8: Client disconnects mid-session (via TunnelClientImpl)
     // =========================================================================
 
     /**
-     * Client closes TCP during active data flow. Relay sends CLOSE to
-     * device mux for that stream.
+     * Client closes TCP during active session. Device should see the stream
+     * close via the MuxStream lifecycle.
      */
     @Test
     fun `scenario 8 - client disconnect sends CLOSE to device`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        val openReceived = CompletableDeferred<MuxFrame.Open>()
-        val closeReceived = CompletableDeferred<MuxFrame.Close>()
-
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs.listener.binaryMessages, 15_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                when (frame) {
-                    is MuxFrame.Open -> openReceived.complete(frame)
-                    is MuxFrame.Close -> closeReceived.complete(frame)
-                    else -> {} // DATA frames (ClientHello) expected too
+        try {
+            val sessionReceived = CompletableDeferred<MuxStream>()
+            val collectJob = launch {
+                tunnelClient.incomingSessions.collect { stream ->
+                    sessionReceived.complete(stream)
                 }
             }
+
+            // AI client connects via raw TCP
+            val rawSocket = connectRawAiClient()
+
+            val muxStream = withTimeout(10_000) { sessionReceived.await() }
+
+            // Close the raw socket abruptly
+            rawSocket.close()
+
+            // The stream should close. It may first deliver DATA frames (the
+            // ClientHello bytes), then eventually throw on read when the relay
+            // sends CLOSE. Drain until we see the closure.
+            val streamClosed = CompletableDeferred<Boolean>()
+            launch(Dispatchers.IO) {
+                try {
+                    // Drain any pending DATA frames, then CLOSE causes exception
+                    while (true) {
+                        muxStream.read()
+                    }
+                } catch (_: Exception) {
+                    streamClosed.complete(true)
+                }
+            }
+
+            val closed = withTimeout(15_000) { streamClosed.await() }
+            assertTrue(closed, "MuxStream should close after client disconnect")
+
+            collectJob.cancel()
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
         }
-
-        // AI client connects via raw TCP
-        val rawSocket = connectRawAiClient()
-
-        val openFrame = withTimeout(10_000) { openReceived.await() }
-
-        // Close the raw socket abruptly
-        rawSocket.close()
-
-        // Device should receive CLOSE for that stream
-        val closeFrame = withTimeout(10_000) { closeReceived.await() }
-        assertEquals(
-            openFrame.streamId,
-            closeFrame.streamId,
-            "CLOSE should be for the same stream ID as OPEN"
-        )
-
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
-        coroutineContext.cancelChildren()
     }
 
     // =========================================================================
@@ -382,32 +321,23 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 9 - device disconnect drops client TCP`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        val openReceived = CompletableDeferred<MuxFrame.Open>()
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs.listener.binaryMessages, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                if (frame is MuxFrame.Open) {
-                    openReceived.complete(frame)
-                    break
-                }
+        val sessionReceived = CompletableDeferred<MuxStream>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessionReceived.complete(stream)
             }
         }
 
         // AI client connects via raw TCP
         val rawSocket = connectRawAiClient()
 
-        withTimeout(10_000) { openReceived.await() }
+        withTimeout(10_000) { sessionReceived.await() }
 
-        // Device closes WebSocket
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "device leaving")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
+        // Device disconnects
+        tunnelClient.disconnect()
+        collectJob.cancel()
 
         // Client should detect the connection drop
         val disconnected = CompletableDeferred<Boolean>()
@@ -415,7 +345,6 @@ class EndToEndSessionTest {
             try {
                 val buf = ByteArray(1024)
                 rawSocket.soTimeout = 10_000
-                // Read should return -1 or throw when relay closes the TCP
                 val n = rawSocket.inputStream.read(buf)
                 disconnected.complete(n == -1)
             } catch (_: Exception) {
@@ -431,7 +360,7 @@ class EndToEndSessionTest {
     }
 
     // =========================================================================
-    // Scenario 10: Max streams exceeded
+    // Scenario 10: Max streams exceeded (via TunnelClientImpl)
     // =========================================================================
 
     /**
@@ -440,59 +369,46 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 10 - max streams exceeded`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        val openCount = CompletableDeferred<Int>()
-        val allFrames = CopyOnWriteArrayList<MuxFrame>()
-
-        launch(Dispatchers.IO) {
-            var opens = 0
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs.listener.binaryMessages, 15_000)
-                } catch (_: Exception) {
-                    openCount.complete(opens)
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                allFrames.add(frame)
-                if (frame is MuxFrame.Open) {
-                    opens++
-                    if (opens >= 8) {
+        try {
+            val sessions = CopyOnWriteArrayList<MuxStream>()
+            val enoughSessions = CompletableDeferred<Int>()
+            val collectJob = launch {
+                tunnelClient.incomingSessions.collect { stream ->
+                    sessions.add(stream)
+                    if (sessions.size >= 8) {
                         // Give the 9th a moment to be processed
                         delay(2_000)
-                        openCount.complete(opens)
-                        break
+                        enoughSessions.complete(sessions.size)
                     }
                 }
             }
-        }
 
-        // Open 9 AI client connections via raw TCP
-        val sockets = CopyOnWriteArrayList<java.net.Socket>()
-        for (i in 1..9) {
-            try {
-                sockets.add(connectRawAiClient())
-            } catch (_: Exception) {
-                // Some connections may be refused
+            // Open 9 AI client connections via raw TCP
+            val sockets = CopyOnWriteArrayList<java.net.Socket>()
+            for (ignored in 1..9) {
+                try {
+                    sockets.add(connectRawAiClient())
+                } catch (_: Exception) {
+                    // Some connections may be refused
+                }
             }
+
+            val count = withTimeout(20_000) { enoughSessions.await() }
+            // Device should receive at most 8 sessions (max_streams_per_device = 8)
+            assertTrue(count <= 8, "Should receive at most 8 sessions, got $count")
+
+            sockets.forEach { runCatching { it.close() } }
+            collectJob.cancel()
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
         }
-
-        val opens = withTimeout(20_000) { openCount.await() }
-        // Device should receive at most 8 OPEN frames (max_streams_per_device = 8)
-        assertTrue(
-            opens <= 8,
-            "Should receive at most 8 OPEN frames, got $opens"
-        )
-
-        sockets.forEach { runCatching { it.close() } }
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
-        coroutineContext.cancelChildren()
     }
 
     // =========================================================================
-    // Scenario 14: FCM timeout (simulated) — no device registered
+    // Scenario 14: FCM timeout (simulated) -- no device registered
     // =========================================================================
 
     /**
@@ -506,7 +422,7 @@ class EndToEndSessionTest {
         val rejected = CompletableDeferred<Boolean>()
         launch(Dispatchers.IO) {
             try {
-                val factory = buildAiClientSslSocketFactory()
+                val factory = TestSslContexts.buildAiClientSocketFactory(caCert, deviceCert)
                 val socket = factory.createSocket(
                     "127.0.0.1",
                     relayPort
@@ -518,7 +434,7 @@ class EndToEndSessionTest {
                 )
                 socket.sslParameters = params
                 socket.startHandshake()
-                // If we get here, try to read — should fail
+                // If we get here, try to read -- should fail
                 val n = socket.inputStream.read(ByteArray(1))
                 rejected.complete(n == -1)
                 socket.close()
@@ -533,16 +449,20 @@ class EndToEndSessionTest {
     }
 
     // =========================================================================
-    // Scenario 15: Device sends ERROR(STREAM_REFUSED)
+    // Scenario 15: Device sends ERROR(STREAM_REFUSED) -- raw WS needed
     // =========================================================================
 
     /**
      * Device receives OPEN, sends back ERROR(STREAM_REFUSED).
      * Relay should close the AI client's TCP connection.
+     *
+     * This test uses raw WebSocket because it needs to inject an ERROR frame
+     * that TunnelClientImpl would not normally send.
      */
+    @Suppress("LoopWithTooManyJumpStatements")
     @Test
     fun `scenario 15 - device STREAM_REFUSED closes client`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val deviceWs = connectDeviceMuxRaw()
 
         val openReceived = CompletableDeferred<MuxFrame.Open>()
         launch(Dispatchers.IO) {
@@ -598,16 +518,19 @@ class EndToEndSessionTest {
     }
 
     // =========================================================================
-    // Scenario 16: Device sends DATA for unknown stream_id
+    // Scenario 16: Device sends DATA for unknown stream_id -- raw WS needed
     // =========================================================================
 
     /**
      * Device sends DATA with a stream_id the relay does not know about.
      * Relay should ignore or send ERROR back. At minimum, should not crash.
+     *
+     * This test uses raw WebSocket to inject an invalid frame.
      */
+    @Suppress("LoopWithTooManyJumpStatements")
     @Test
     fun `scenario 16 - DATA for unknown stream_id does not crash relay`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val deviceWs = connectDeviceMuxRaw()
 
         // Send DATA for a non-existent stream
         val bogusData = MuxCodec.encode(
@@ -648,7 +571,7 @@ class EndToEndSessionTest {
     }
 
     // =========================================================================
-    // Scenario 17: Mux WebSocket drops — all client TCPs close
+    // Scenario 17: Mux WebSocket drops -- all client TCPs close
     // =========================================================================
 
     /**
@@ -657,23 +580,15 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 17 - mux drop closes all client connections`() = runBlocking {
-        val deviceWs = connectDeviceMux()
+        val tunnelClient = connectTunnelClient()
 
-        val opensReceived = CompletableDeferred<Int>()
-        var openCount = 0
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs.listener.binaryMessages, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                if (frame is MuxFrame.Open) {
-                    openCount++
-                    if (openCount >= 2) {
-                        opensReceived.complete(openCount)
-                    }
+        val sessions = CopyOnWriteArrayList<MuxStream>()
+        val twoSessions = CompletableDeferred<Unit>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessions.add(stream)
+                if (sessions.size >= 2) {
+                    twoSessions.complete(Unit)
                 }
             }
         }
@@ -683,11 +598,11 @@ class EndToEndSessionTest {
         val rawSocket2 = connectRawAiClient()
         val rawSockets = listOf(rawSocket1, rawSocket2)
 
-        withTimeout(10_000) { opensReceived.await() }
+        withTimeout(10_000) { twoSessions.await() }
 
-        // Device abruptly closes WebSocket
-        deviceWs.ws.sendClose(WebSocket.NORMAL_CLOSURE, "device crash")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
+        // Device disconnects abruptly
+        tunnelClient.disconnect()
+        collectJob.cancel()
 
         // All client sockets should detect the drop
         delay(2_000)
@@ -714,82 +629,270 @@ class EndToEndSessionTest {
     }
 
     // =========================================================================
-    // Scenario 18: No mid-stream reconnect
+    // Scenario 18: No mid-stream reconnect (via TunnelClientImpl)
     // =========================================================================
 
     /**
-     * After mux drops, device reconnects on a new WebSocket.
-     * Old stream IDs are gone; clients must reconnect from scratch.
+     * After TunnelClientImpl disconnects, device reconnects on a new
+     * TunnelClientImpl. Old stream IDs are gone; clients must reconnect.
      */
     @Test
     fun `scenario 18 - reconnect gets new stream IDs`() = runBlocking {
         // First connection
-        val deviceWs1 = connectDeviceMux()
+        val tunnelClient1 = connectTunnelClient()
 
-        val firstOpen = CompletableDeferred<MuxFrame.Open>()
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs1.listener.binaryMessages, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                if (frame is MuxFrame.Open) {
-                    firstOpen.complete(frame)
-                    break
-                }
+        val firstSession = CompletableDeferred<MuxStream>()
+        val collectJob1 = launch {
+            tunnelClient1.incomingSessions.collect { stream ->
+                firstSession.complete(stream)
             }
         }
 
         val rawSocket1 = connectRawAiClient()
 
-        val open1 = withTimeout(10_000) { firstOpen.await() }
+        withTimeout(10_000) { firstSession.await() }
         rawSocket1.close()
 
-        // Disconnect device
-        deviceWs1.ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
+        // Disconnect first tunnel client
+        tunnelClient1.disconnect()
+        collectJob1.cancel()
         delay(1_000) // Let relay clean up
 
-        // Reconnect device
-        val deviceWs2 = connectDeviceMux()
+        // Reconnect with a new TunnelClientImpl
+        val tunnelClient2 = connectTunnelClient()
 
-        val secondOpen = CompletableDeferred<MuxFrame.Open>()
-        launch(Dispatchers.IO) {
-            while (true) {
-                val frameBytes = try {
-                    waitForFrame(deviceWs2.listener.binaryMessages, 10_000)
-                } catch (_: Exception) {
-                    break
-                }
-                val frame = MuxCodec.decode(frameBytes)
-                if (frame is MuxFrame.Open) {
-                    secondOpen.complete(frame)
-                    break
-                }
+        val secondSession = CompletableDeferred<MuxStream>()
+        val collectJob2 = launch {
+            tunnelClient2.incomingSessions.collect { stream ->
+                secondSession.complete(stream)
             }
         }
 
         val rawSocket2 = connectRawAiClient()
 
-        val open2 = withTimeout(10_000) { secondOpen.await() }
+        val session2 = withTimeout(10_000) { secondSession.await() }
 
         // New session means stream IDs start over
         // The important thing is both sessions work independently
         assertTrue(
-            open2.streamId > 0u,
+            session2.id > 0u,
             "Second session should assign valid stream IDs"
         )
 
         rawSocket2.close()
-        deviceWs2.ws.sendClose(WebSocket.NORMAL_CLOSURE, "done")
-            .get(WS_TIMEOUT_SECS, TimeUnit.SECONDS)
+        tunnelClient2.disconnect()
+        collectJob2.cancel()
         coroutineContext.cancelChildren()
     }
 
     // =========================================================================
-    // Helper classes and methods
+    // Scenario 19: TLS with split records
+    // =========================================================================
+
+    /**
+     * Full TLS tunnel where data flows in multiple small writes. Verifies
+     * that TLS records split across mux DATA frames are reassembled correctly.
+     */
+    @Test
+    fun `scenario 19 - TLS tunnel handles multiple sequential messages`() = runBlocking {
+        val tunnelClient = connectTunnelClient()
+
+        try {
+            val sessionReceived = CompletableDeferred<MuxStream>()
+            val collectJob = launch {
+                tunnelClient.incomingSessions.collect { stream ->
+                    sessionReceived.complete(stream)
+                }
+            }
+
+            // AI client connects with TLS
+            val clientSocket = CompletableDeferred<SSLSocket>()
+            launch(Dispatchers.IO) {
+                val socket = connectAiClient()
+                clientSocket.complete(socket)
+            }
+
+            val muxStream = withTimeout(10_000) { sessionReceived.await() }
+
+            // TLS accept on device side
+            val deviceSslContext = TestSslContexts.buildDeviceServer(deviceKeyStore)
+            val acceptor = TlsAcceptor.create(deviceSslContext)
+
+            val tlsSession = CompletableDeferred<TlsAcceptor.TlsSession>()
+            launch(Dispatchers.IO) {
+                val session = acceptor.accept(muxStream)
+                tlsSession.complete(session)
+            }
+
+            val aiSocket = withTimeout(10_000) { clientSocket.await() }
+            val session = withTimeout(10_000) { tlsSession.await() }
+
+            // Send multiple messages in sequence
+            val messages = listOf("first", "second", "third", "fourth", "fifth")
+            for (msg in messages) {
+                aiSocket.outputStream.write(msg.toByteArray())
+                aiSocket.outputStream.flush()
+
+                val buf = ByteArray(4096)
+                val n = session.input.read(buf, 0, buf.size)
+                assertTrue(n > 0, "Should read message: $msg")
+                assertEquals(msg, String(buf, 0, n))
+            }
+
+            // And in the other direction
+            for (msg in messages) {
+                session.output.write(msg.toByteArray())
+                session.output.flush()
+
+                val buf = ByteArray(4096)
+                val n = aiSocket.inputStream.read(buf, 0, buf.size)
+                assertTrue(n > 0, "Should read reply: $msg")
+                assertEquals(msg, String(buf, 0, n))
+            }
+
+            aiSocket.close()
+            collectJob.cancel()
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
+        }
+    }
+
+    // =========================================================================
+    // Scenario 20: Session lifecycle -- connect, stream, disconnect, reconnect
+    // =========================================================================
+
+    /**
+     * Full lifecycle: connect TunnelClient, receive a session, exchange data,
+     * disconnect, reconnect, receive another session, exchange data again.
+     */
+    @Suppress("LongMethod")
+    @Test
+    fun `scenario 20 - full session lifecycle with reconnect`() = runBlocking {
+        // Phase 1: connect and exchange data
+        val tunnelClient1 = connectTunnelClient()
+
+        val session1Received = CompletableDeferred<MuxStream>()
+        val collectJob1 = launch {
+            tunnelClient1.incomingSessions.collect { stream ->
+                session1Received.complete(stream)
+            }
+        }
+
+        val clientSocket1 = CompletableDeferred<SSLSocket>()
+        launch(Dispatchers.IO) {
+            clientSocket1.complete(connectAiClient())
+        }
+
+        val muxStream1 = withTimeout(10_000) { session1Received.await() }
+        val deviceSslContext = TestSslContexts.buildDeviceServer(deviceKeyStore)
+        val acceptor1 = TlsAcceptor.create(deviceSslContext)
+
+        val tlsSession1 = CompletableDeferred<TlsAcceptor.TlsSession>()
+        launch(Dispatchers.IO) {
+            tlsSession1.complete(acceptor1.accept(muxStream1))
+        }
+
+        val aiSocket1 = withTimeout(10_000) { clientSocket1.await() }
+        val tls1 = withTimeout(10_000) { tlsSession1.await() }
+
+        // Exchange data
+        aiSocket1.outputStream.write("phase1-request".toByteArray())
+        aiSocket1.outputStream.flush()
+        val buf1 = ByteArray(4096)
+        val n1 = tls1.input.read(buf1, 0, buf1.size)
+        assertEquals("phase1-request", String(buf1, 0, n1))
+
+        tls1.output.write("phase1-response".toByteArray())
+        tls1.output.flush()
+        val buf1r = ByteArray(4096)
+        val n1r = aiSocket1.inputStream.read(buf1r, 0, buf1r.size)
+        assertEquals("phase1-response", String(buf1r, 0, n1r))
+
+        aiSocket1.close()
+        tunnelClient1.disconnect()
+        collectJob1.cancel()
+
+        assertEquals(TunnelState.DISCONNECTED, tunnelClient1.state.value)
+        delay(1_000) // Let relay clean up
+
+        // Phase 2: reconnect and exchange data again
+        val tunnelClient2 = connectTunnelClient()
+        assertEquals(TunnelState.CONNECTED, tunnelClient2.state.value)
+
+        val session2Received = CompletableDeferred<MuxStream>()
+        val collectJob2 = launch {
+            tunnelClient2.incomingSessions.collect { stream ->
+                session2Received.complete(stream)
+            }
+        }
+
+        val clientSocket2 = CompletableDeferred<SSLSocket>()
+        launch(Dispatchers.IO) {
+            clientSocket2.complete(connectAiClient())
+        }
+
+        val muxStream2 = withTimeout(10_000) { session2Received.await() }
+        val acceptor2 = TlsAcceptor.create(deviceSslContext)
+
+        val tlsSession2 = CompletableDeferred<TlsAcceptor.TlsSession>()
+        launch(Dispatchers.IO) {
+            tlsSession2.complete(acceptor2.accept(muxStream2))
+        }
+
+        val aiSocket2 = withTimeout(10_000) { clientSocket2.await() }
+        val tls2 = withTimeout(10_000) { tlsSession2.await() }
+
+        aiSocket2.outputStream.write("phase2-request".toByteArray())
+        aiSocket2.outputStream.flush()
+        val buf2 = ByteArray(4096)
+        val n2 = tls2.input.read(buf2, 0, buf2.size)
+        assertEquals("phase2-request", String(buf2, 0, n2))
+
+        tls2.output.write("phase2-response".toByteArray())
+        tls2.output.flush()
+        val buf2r = ByteArray(4096)
+        val n2r = aiSocket2.inputStream.read(buf2r, 0, buf2r.size)
+        assertEquals("phase2-response", String(buf2r, 0, n2r))
+
+        aiSocket2.close()
+        tunnelClient2.disconnect()
+        collectJob2.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    // Note: scenario 21 (multiple simultaneous TunnelClientImpl connections
+    // with the same device cert) is intentionally omitted. The relay's behavior
+    // when two connections present the same device cert is undefined -- it may
+    // route to either or neither. This is a relay-level concern, not a
+    // TunnelClientImpl concern.
+
+    // =========================================================================
+    // Helper: TunnelClientImpl connection
+    // =========================================================================
+
+    /**
+     * Connect a [TunnelClientImpl] to the relay using [MtlsWebSocketFactory].
+     * This exercises the production code path.
+     */
+    private suspend fun connectTunnelClient(): TunnelClientImpl {
+        val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
+        val wsFactory = MtlsWebSocketFactory(sslContext)
+        val client = TunnelClientImpl(
+            scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO),
+            webSocketFactory = wsFactory
+        )
+        client.connect("wss://$RELAY_HOSTNAME:$relayPort/ws")
+        assertEquals(
+            TunnelState.CONNECTED,
+            client.state.value,
+            "TunnelClient should be CONNECTED after connect()"
+        )
+        return client
+    }
+
+    // =========================================================================
+    // Helper: Raw WebSocket connection (for relay-specific tests)
     // =========================================================================
 
     private data class DeviceConnection(
@@ -833,10 +936,11 @@ class EndToEndSessionTest {
     }
 
     /**
-     * Connect a "device" to the relay via mTLS WebSocket on the relay API endpoint.
+     * Connect a "device" via raw mTLS WebSocket (bypassing TunnelClientImpl).
+     * Used only for scenarios that need to inject specific mux frames.
      */
-    private fun connectDeviceMux(): DeviceConnection {
-        val sslContext = buildMtlsSslContext()
+    private fun connectDeviceMuxRaw(): DeviceConnection {
+        val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val client = HttpClient.newBuilder()
             .sslContext(sslContext)
             .build()
@@ -852,38 +956,34 @@ class EndToEndSessionTest {
         return DeviceConnection(ws, listener)
     }
 
+    // =========================================================================
+    // Helper: AI client connections
+    // =========================================================================
+
     /**
      * Connect an "AI client" to the relay with SNI set to the device subdomain.
-     * Returns an SSLSocket whose TLS will be tunneled through the relay to the device.
-     * The TLS handshake completes end-to-end with the device, so the device must
-     * be doing TLS accept for this to return.
+     * Returns an SSLSocket whose TLS handshake completes through the relay.
      */
     private fun connectAiClient(): SSLSocket {
-        val factory = buildAiClientSslSocketFactory()
+        val factory = TestSslContexts.buildAiClientSocketFactory(caCert, deviceCert)
         val socket = factory.createSocket(
             "127.0.0.1",
             relayPort
         ) as SSLSocket
 
         socket.soTimeout = 10_000
-        // Set SNI to device subdomain so relay routes to device passthrough
         val params = socket.sslParameters
         params.serverNames = listOf(
             javax.net.ssl.SNIHostName("$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME")
         )
         socket.sslParameters = params
-
-        // Start the TLS handshake. This sends the ClientHello to the relay,
-        // which the relay needs to extract SNI for routing. The handshake
-        // completes through the relay to the device's TLS accept.
         socket.startHandshake()
         return socket
     }
 
     /**
-     * Connect an "AI client" via raw TCP, sending a synthetic TLS ClientHello
-     * with the device subdomain as SNI. Use this for tests that need the relay
-     * to route to the device but do not need full TLS handshake completion.
+     * Connect an "AI client" via raw TCP with a synthetic TLS ClientHello.
+     * Use for tests that need relay routing but not full TLS handshake.
      */
     private fun connectRawAiClient(subdomain: String = DEVICE_SUBDOMAIN): java.net.Socket {
         val socket = java.net.Socket("127.0.0.1", relayPort)
@@ -894,139 +994,6 @@ class EndToEndSessionTest {
         socket.outputStream.write(clientHello)
         socket.outputStream.flush()
         return socket
-    }
-
-    /**
-     * Build a minimal synthetic TLS 1.2 ClientHello with an SNI extension.
-     * This is enough for the relay to extract the SNI hostname and route
-     * the connection to the device passthrough path.
-     */
-    @Suppress("MagicNumber")
-    private fun buildSyntheticClientHello(sniHostname: String): ByteArray {
-        val hostBytes = sniHostname.toByteArray(Charsets.US_ASCII)
-
-        // SNI extension: type(0x0000) + length + server_name_list
-        val sniEntry = ByteArray(3 + hostBytes.size) // type(1) + length(2) + name
-        sniEntry[0] = 0x00 // host_name type
-        sniEntry[1] = (hostBytes.size shr 8).toByte()
-        sniEntry[2] = hostBytes.size.toByte()
-        hostBytes.copyInto(sniEntry, 3)
-
-        val sniList = ByteArray(2 + sniEntry.size)
-        sniList[0] = (sniEntry.size shr 8).toByte()
-        sniList[1] = sniEntry.size.toByte()
-        sniEntry.copyInto(sniList, 2)
-
-        val sniExt = ByteArray(4 + sniList.size)
-        sniExt[0] = 0x00 // extension type high byte
-        sniExt[1] = 0x00 // extension type low byte (SNI = 0x0000)
-        sniExt[2] = (sniList.size shr 8).toByte()
-        sniExt[3] = sniList.size.toByte()
-        sniList.copyInto(sniExt, 4)
-
-        val extensions = ByteArray(2 + sniExt.size)
-        extensions[0] = (sniExt.size shr 8).toByte()
-        extensions[1] = sniExt.size.toByte()
-        sniExt.copyInto(extensions, 2)
-
-        // ClientHello body: version(2) + random(32) + session_id_len(1) +
-        // cipher_suites_len(2) + cipher(2) + comp_len(1) + comp(1) + extensions
-        val random = ByteArray(32) { 0x42 }
-        // length = 2 bytes (1 suite), TLS_RSA_WITH_AES_128_CBC_SHA
-        val cipherSuites = byteArrayOf(
-            0x00,
-            0x02,
-            0x00,
-            0x2F
-        )
-        // 1 method: null
-        val compression = byteArrayOf(0x01, 0x00)
-
-        val helloBody = ByteArray(
-            2 + 32 + 1 + cipherSuites.size + compression.size + extensions.size
-        )
-        var pos = 0
-        helloBody[pos++] = 0x03 // TLS 1.2
-        helloBody[pos++] = 0x03.toByte()
-        random.copyInto(helloBody, pos)
-        pos += 32
-        helloBody[pos++] = 0x00 // session_id length = 0
-        cipherSuites.copyInto(helloBody, pos)
-        pos += cipherSuites.size
-        compression.copyInto(helloBody, pos)
-        pos += compression.size
-        extensions.copyInto(helloBody, pos)
-
-        // Handshake header: type(1) + length(3)
-        val handshake = ByteArray(4 + helloBody.size)
-        handshake[0] = 0x01 // ClientHello
-        handshake[1] = (helloBody.size shr 16).toByte()
-        handshake[2] = (helloBody.size shr 8).toByte()
-        handshake[3] = helloBody.size.toByte()
-        helloBody.copyInto(handshake, 4)
-
-        // TLS record header: type(1) + version(2) + length(2)
-        val record = ByteArray(5 + handshake.size)
-        record[0] = 0x16 // Handshake
-        record[1] = 0x03 // TLS 1.0 record version
-        record[2] = 0x01
-        record[3] = (handshake.size shr 8).toByte()
-        record[4] = handshake.size.toByte()
-        handshake.copyInto(record, 5)
-
-        return record
-    }
-
-    /**
-     * Build an SSLSocketFactory for the AI client that trusts the device's cert.
-     * The AI client does TLS with the device (through the relay passthrough).
-     */
-    private fun buildAiClientSslSocketFactory(): SSLSocketFactory {
-        val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
-        trustStore.load(null, null)
-        trustStore.setCertificateEntry("device-ca", caCert)
-        // Also trust the device cert directly for self-signed scenarios
-        trustStore.setCertificateEntry("device", deviceCert)
-
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        tmf.init(trustStore)
-
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(null, tmf.trustManagers, null)
-        return ctx.socketFactory
-    }
-
-    /**
-     * Build SSL context for the device acting as TLS server.
-     * Uses the device's keypair from the keystore.
-     */
-    private fun buildDeviceServerSslContext(): SSLContext {
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        kmf.init(deviceKeyStore, STORE_PASS.toCharArray())
-
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(kmf.keyManagers, null, null)
-        return ctx
-    }
-
-    /**
-     * Build mTLS SSL context for the device WebSocket connection.
-     * The device presents its client cert and trusts the relay's CA.
-     */
-    private fun buildMtlsSslContext(): SSLContext {
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        kmf.init(deviceKeyStore, STORE_PASS.toCharArray())
-
-        val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
-        trustStore.load(null, null)
-        trustStore.setCertificateEntry("ca", caCert)
-
-        val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        tmf.init(trustStore)
-
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(kmf.keyManagers, tmf.trustManagers, null)
-        return ctx
     }
 
     /**
@@ -1044,286 +1011,6 @@ class EndToEndSessionTest {
             }
             Thread.sleep(50)
         }
-        throw Exception("Timed out waiting for frame after ${timeoutMs}ms")
-    }
-
-    // --- Certificate generation ---
-
-    @Suppress("LongMethod")
-    private fun generateCertificates() {
-        val caKs = File(tempDir, "ca.p12")
-        val relayKs = File(tempDir, "relay.p12")
-        val deviceKs = File(tempDir, "device.p12")
-        val caCertFile = File(tempDir, "ca-cert.pem")
-        val csrFile = File(tempDir, "relay.csr")
-        val signedCertFile = File(tempDir, "relay-signed.pem")
-        val deviceCsrFile = File(tempDir, "device.csr")
-        val deviceSignedCertFile = File(tempDir, "device-signed.pem")
-        val relayCertFile = File(tempDir, "relay-cert.pem")
-        val relayKeyFile = File(tempDir, "relay-key.pem")
-        val deviceDomain = "$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
-
-        // --- CA ---
-        keytool(
-            "-genkeypair", "-alias", "ca",
-            "-keyalg", "RSA", "-keysize", "2048",
-            "-sigalg", "SHA256withRSA",
-            "-dname", "CN=Test CA",
-            "-ext", "bc:c",
-            "-validity", "365",
-            "-storetype", "PKCS12",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-keypass", STORE_PASS
-        )
-        keytool(
-            "-exportcert", "-alias", "ca",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-rfc",
-            "-file", caCertFile.absolutePath
-        )
-
-        // --- Relay server cert (for mTLS WebSocket) ---
-        keytool(
-            "-genkeypair", "-alias", "relay",
-            "-keyalg", "RSA", "-keysize", "2048",
-            "-sigalg", "SHA256withRSA",
-            "-dname", "CN=$RELAY_HOSTNAME",
-            "-validity", "365",
-            "-storetype", "PKCS12",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-keypass", STORE_PASS
-        )
-        keytool(
-            "-certreq", "-alias", "relay",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", csrFile.absolutePath
-        )
-        keytool(
-            "-gencert", "-alias", "ca",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-infile", csrFile.absolutePath,
-            "-outfile", signedCertFile.absolutePath,
-            "-ext", "san=dns:$RELAY_HOSTNAME",
-            "-rfc",
-            "-validity", "365"
-        )
-        keytool(
-            "-importcert", "-alias", "ca",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", caCertFile.absolutePath,
-            "-noprompt"
-        )
-        keytool(
-            "-importcert", "-alias", "relay",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", signedCertFile.absolutePath
-        )
-
-        relayCertFile.writeText(signedCertFile.readText())
-        extractPrivateKey(relayKs, relayKeyFile)
-
-        // --- Device client cert (CN = device subdomain) ---
-        keytool(
-            "-genkeypair", "-alias", "device",
-            "-keyalg", "RSA", "-keysize", "2048",
-            "-sigalg", "SHA256withRSA",
-            "-dname", "CN=$deviceDomain",
-            "-validity", "365",
-            "-storetype", "PKCS12",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-keypass", STORE_PASS
-        )
-        keytool(
-            "-certreq", "-alias", "device",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", deviceCsrFile.absolutePath
-        )
-        keytool(
-            "-gencert", "-alias", "ca",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-infile", deviceCsrFile.absolutePath,
-            "-outfile", deviceSignedCertFile.absolutePath,
-            "-ext", "san=dns:$deviceDomain",
-            "-rfc",
-            "-validity", "365"
-        )
-        keytool(
-            "-importcert", "-alias", "ca",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", caCertFile.absolutePath,
-            "-noprompt"
-        )
-        keytool(
-            "-importcert", "-alias", "device",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", deviceSignedCertFile.absolutePath
-        )
-
-        // Load for use in tests
-        val caStore = KeyStore.getInstance("PKCS12")
-        caKs.inputStream().use { caStore.load(it, STORE_PASS.toCharArray()) }
-        caCert = caStore.getCertificate("ca") as X509Certificate
-
-        deviceKeyStore = KeyStore.getInstance("PKCS12")
-        deviceKs.inputStream().use {
-            deviceKeyStore.load(it, STORE_PASS.toCharArray())
-        }
-        deviceCert = deviceKeyStore.getCertificate("device") as X509Certificate
-    }
-
-    private fun extractPrivateKey(keystoreFile: File, keyFile: File) {
-        for (args in listOf(
-            listOf(
-                "openssl", "pkcs12",
-                "-in", keystoreFile.absolutePath,
-                "-nocerts", "-nodes",
-                "-passin", "pass:$STORE_PASS",
-                "-legacy"
-            ),
-            listOf(
-                "openssl",
-                "pkcs12",
-                "-in",
-                keystoreFile.absolutePath,
-                "-nocerts",
-                "-nodes",
-                "-passin",
-                "pass:$STORE_PASS"
-            )
-        )) {
-            val proc = ProcessBuilder(args)
-                .redirectErrorStream(true)
-                .start()
-            val output = proc.inputStream.bufferedReader().readText()
-            proc.waitFor()
-
-            val keyStart = output.indexOf("-----BEGIN PRIVATE KEY-----")
-            val keyEndMarker = "-----END PRIVATE KEY-----"
-            val keyEnd = output.indexOf(keyEndMarker)
-            if (keyStart >= 0 && keyEnd > keyStart) {
-                keyFile.writeText(
-                    output.substring(keyStart, keyEnd + keyEndMarker.length) + "\n"
-                )
-                return
-            }
-        }
-        fail("Failed to extract private key from ${keystoreFile.name}")
-    }
-
-    private fun keytool(vararg args: String) {
-        val process = ProcessBuilder("keytool", *args)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().readText()
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            fail("keytool failed (exit $exitCode): $output\nArgs: ${args.toList()}")
-        }
-    }
-
-    // --- Relay config and process management ---
-
-    private fun writeRelayConfig(port: Int) {
-        val config = """
-            [server]
-            bind_addr = "127.0.0.1:$port"
-            relay_hostname = "$RELAY_HOSTNAME"
-
-            [tls]
-            cert_path = "${tempDir.absolutePath}/relay-cert.pem"
-            key_path = "${tempDir.absolutePath}/relay-key.pem"
-            ca_cert_path = "${tempDir.absolutePath}/ca-cert.pem"
-
-            [limits]
-            max_streams_per_device = 8
-            wake_rate_limit = 60
-            fcm_wakeup_timeout_secs = 5
-        """.trimIndent()
-
-        File(tempDir, "relay.toml").writeText(config)
-    }
-
-    private fun startRelay(port: Int): Process {
-        val configPath = File(tempDir, "relay.toml").absolutePath
-        val pb = ProcessBuilder(relayBinary.absolutePath, configPath)
-            .redirectErrorStream(true)
-        pb.environment()["RUST_LOG"] = "debug"
-
-        val process = pb.start()
-        val deadline = System.currentTimeMillis() + RELAY_STARTUP_TIMEOUT_MS
-
-        val outputCapture = StringBuilder()
-        val readerThread = Thread {
-            try {
-                process.inputStream.bufferedReader().forEachLine { line ->
-                    synchronized(outputCapture) { outputCapture.appendLine(line) }
-                }
-            } catch (_: Exception) {
-                // Process killed
-            }
-        }
-        readerThread.isDaemon = true
-        readerThread.start()
-
-        var started = false
-        while (System.currentTimeMillis() < deadline) {
-            if (!process.isAlive) {
-                val output = synchronized(outputCapture) { outputCapture.toString() }
-                fail("Relay process died during startup. Output:\n$output")
-            }
-            try {
-                java.net.Socket("127.0.0.1", port).use { started = true }
-                break
-            } catch (_: Exception) {
-                Thread.sleep(100)
-            }
-        }
-
-        if (!started) {
-            process.destroyForcibly()
-            val output = synchronized(outputCapture) { outputCapture.toString() }
-            fail("Relay did not start within ${RELAY_STARTUP_TIMEOUT_MS}ms. Output:\n$output")
-        }
-
-        Thread.sleep(200)
-        return process
-    }
-
-    // --- Utility ---
-
-    private fun findFreePort(): Int {
-        val socket = java.net.ServerSocket(0)
-        val port = socket.localPort
-        socket.close()
-        return port
-    }
-
-    private fun findRelayBinary(): File {
-        val repoRoot = System.getProperty("repo.root")
-        if (repoRoot != null) {
-            val candidate = File(repoRoot, "relay/target/debug/rouse-relay")
-            if (candidate.exists() && candidate.canExecute()) return candidate
-        }
-
-        var dir = File(System.getProperty("user.dir"))
-        while (dir.parentFile != null) {
-            val candidate = File(dir, "relay/target/debug/rouse-relay")
-            if (candidate.exists() && candidate.canExecute()) return candidate
-            dir = dir.parentFile
-        }
-
-        return File("/nonexistent/rouse-relay")
+        error("Timed out waiting for frame after ${timeoutMs}ms")
     }
 }

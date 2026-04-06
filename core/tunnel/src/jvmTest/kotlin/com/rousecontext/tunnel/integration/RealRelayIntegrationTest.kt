@@ -13,12 +13,8 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.KeyManagerFactory
-import javax.net.ssl.SSLContext
-import javax.net.ssl.TrustManagerFactory
 import kotlin.test.Test
 import kotlin.test.assertTrue
-import kotlin.test.fail
 import org.junit.After
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -34,20 +30,20 @@ class RealRelayIntegrationTest {
 
     companion object {
         private const val RELAY_HOSTNAME = "localhost"
-        private const val RELAY_STARTUP_TIMEOUT_MS = 10_000L
         private const val WS_TIMEOUT_SECS = 10L
-        private const val STORE_PASS = "changeit"
     }
 
-    private lateinit var relayBinary: File
     private lateinit var tempDir: File
-    private lateinit var caCert: X509Certificate
-    private lateinit var deviceKeyStore: KeyStore
-    private var relayProcess: Process? = null
+    private lateinit var ca: TestCertificateAuthority
+    private lateinit var relayManager: TestRelayManager
+
+    // Convenience aliases
+    private val caCert: X509Certificate get() = ca.caCert
+    private val deviceKeyStore: KeyStore get() = ca.deviceKeyStore
 
     @Before
     fun setUp() {
-        relayBinary = findRelayBinary()
+        val relayBinary = findRelayBinary()
         assumeTrue(
             "Relay binary not found. Build with: cd relay && cargo build",
             relayBinary.exists() && relayBinary.canExecute()
@@ -57,15 +53,19 @@ class RealRelayIntegrationTest {
         tempDir.delete()
         tempDir.mkdirs()
 
-        generateCertificatesWithKeytool()
+        ca = TestCertificateAuthority(
+            tempDir,
+            RELAY_HOSTNAME,
+            "test-device"
+        )
+        ca.generate()
+
+        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
     }
 
     @After
     fun tearDown() {
-        relayProcess?.let {
-            it.destroyForcibly()
-            it.waitFor(5, TimeUnit.SECONDS)
-        }
+        relayManager.stop()
         if (::tempDir.isInitialized && tempDir.exists()) {
             tempDir.deleteRecursively()
         }
@@ -77,10 +77,9 @@ class RealRelayIntegrationTest {
     @Test
     fun `connect with valid mTLS cert establishes WebSocket session`() {
         val port = findFreePort()
-        writeRelayConfig(port)
-        relayProcess = startRelay(port)
+        relayManager.start(port)
 
-        val sslContext = buildMtlsSslContext()
+        val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val client = HttpClient.newBuilder()
             .sslContext(sslContext)
             .build()
@@ -123,10 +122,9 @@ class RealRelayIntegrationTest {
     @Test
     fun `OPEN DATA CLOSE frame sequence processes without error`() {
         val port = findFreePort()
-        writeRelayConfig(port)
-        relayProcess = startRelay(port)
+        relayManager.start(port)
 
-        val sslContext = buildMtlsSslContext()
+        val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val client = HttpClient.newBuilder()
             .sslContext(sslContext)
             .build()
@@ -174,10 +172,9 @@ class RealRelayIntegrationTest {
     @Test
     fun `connect without client cert is rejected`() {
         val port = findFreePort()
-        writeRelayConfig(port)
-        relayProcess = startRelay(port)
+        relayManager.start(port)
 
-        val sslContext = buildNoCertSslContext()
+        val sslContext = TestSslContexts.buildNoCert(caCert)
         val client = HttpClient.newBuilder()
             .sslContext(sslContext)
             .build()
@@ -200,10 +197,9 @@ class RealRelayIntegrationTest {
     @Test
     fun `multiple concurrent WebSocket connections are independent`() {
         val port = findFreePort()
-        writeRelayConfig(port)
-        relayProcess = startRelay(port)
+        relayManager.start(port)
 
-        val sslContext = buildMtlsSslContext()
+        val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
 
         val client1 = HttpClient.newBuilder().sslContext(sslContext).build()
         val client2 = HttpClient.newBuilder().sslContext(sslContext).build()
@@ -292,326 +288,5 @@ class RealRelayIntegrationTest {
         override fun onError(webSocket: WebSocket, error: Throwable) {
             errors.add(error)
         }
-    }
-
-    // --- Certificate generation ---
-
-    @Suppress("LongMethod")
-    private fun generateCertificatesWithKeytool() {
-        val caKs = File(tempDir, "ca.p12")
-        val relayKs = File(tempDir, "relay.p12")
-        val deviceKs = File(tempDir, "device.p12")
-        val caCertFile = File(tempDir, "ca-cert.pem")
-        val csrFile = File(tempDir, "relay.csr")
-        val signedCertFile = File(tempDir, "relay-signed.pem")
-        val deviceCsrFile = File(tempDir, "device.csr")
-        val deviceSignedCertFile = File(tempDir, "device-signed.pem")
-        val relayCertFile = File(tempDir, "relay-cert.pem")
-        val relayKeyFile = File(tempDir, "relay-key.pem")
-        val deviceDomain = "test-device.$RELAY_HOSTNAME"
-
-        // --- CA ---
-        keytool(
-            "-genkeypair", "-alias", "ca",
-            "-keyalg", "RSA", "-keysize", "2048",
-            "-sigalg", "SHA256withRSA",
-            "-dname", "CN=Test CA",
-            "-ext", "bc:c",
-            "-validity", "365",
-            "-storetype", "PKCS12",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-keypass", STORE_PASS
-        )
-        keytool(
-            "-exportcert", "-alias", "ca",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-rfc",
-            "-file", caCertFile.absolutePath
-        )
-
-        // --- Relay server cert ---
-        keytool(
-            "-genkeypair", "-alias", "relay",
-            "-keyalg", "RSA", "-keysize", "2048",
-            "-sigalg", "SHA256withRSA",
-            "-dname", "CN=$RELAY_HOSTNAME",
-            "-validity", "365",
-            "-storetype", "PKCS12",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-keypass", STORE_PASS
-        )
-        keytool(
-            "-certreq", "-alias", "relay",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", csrFile.absolutePath
-        )
-        keytool(
-            "-gencert", "-alias", "ca",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-infile", csrFile.absolutePath,
-            "-outfile", signedCertFile.absolutePath,
-            "-ext", "san=dns:$RELAY_HOSTNAME",
-            "-rfc",
-            "-validity", "365"
-        )
-        keytool(
-            "-importcert", "-alias", "ca",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", caCertFile.absolutePath,
-            "-noprompt"
-        )
-        keytool(
-            "-importcert", "-alias", "relay",
-            "-keystore", relayKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", signedCertFile.absolutePath
-        )
-
-        // Export relay cert (just the signed cert, not the full chain)
-        relayCertFile.writeText(signedCertFile.readText())
-
-        // Export relay private key via openssl
-        extractPrivateKey(relayKs, relayKeyFile)
-
-        // --- Device client cert ---
-        keytool(
-            "-genkeypair", "-alias", "device",
-            "-keyalg", "RSA", "-keysize", "2048",
-            "-sigalg", "SHA256withRSA",
-            "-dname", "CN=$deviceDomain",
-            "-validity", "365",
-            "-storetype", "PKCS12",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-keypass", STORE_PASS
-        )
-        keytool(
-            "-certreq", "-alias", "device",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", deviceCsrFile.absolutePath
-        )
-        keytool(
-            "-gencert", "-alias", "ca",
-            "-keystore", caKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-infile", deviceCsrFile.absolutePath,
-            "-outfile", deviceSignedCertFile.absolutePath,
-            "-ext", "san=dns:$deviceDomain",
-            "-rfc",
-            "-validity", "365"
-        )
-        keytool(
-            "-importcert", "-alias", "ca",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", caCertFile.absolutePath,
-            "-noprompt"
-        )
-        keytool(
-            "-importcert", "-alias", "device",
-            "-keystore", deviceKs.absolutePath,
-            "-storepass", STORE_PASS,
-            "-file", deviceSignedCertFile.absolutePath
-        )
-
-        // Load for use in tests
-        val caStore = KeyStore.getInstance("PKCS12")
-        caKs.inputStream().use { caStore.load(it, STORE_PASS.toCharArray()) }
-        caCert = caStore.getCertificate("ca") as X509Certificate
-
-        deviceKeyStore = KeyStore.getInstance("PKCS12")
-        deviceKs.inputStream().use {
-            deviceKeyStore.load(it, STORE_PASS.toCharArray())
-        }
-    }
-
-    private fun extractPrivateKey(keystoreFile: File, keyFile: File) {
-        // Try with -legacy first (OpenSSL 3.x), fall back without
-        for (args in listOf(
-            listOf(
-                "openssl", "pkcs12",
-                "-in", keystoreFile.absolutePath,
-                "-nocerts", "-nodes",
-                "-passin", "pass:$STORE_PASS",
-                "-legacy"
-            ),
-            listOf(
-                "openssl",
-                "pkcs12",
-                "-in",
-                keystoreFile.absolutePath,
-                "-nocerts",
-                "-nodes",
-                "-passin",
-                "pass:$STORE_PASS"
-            )
-        )) {
-            val proc = ProcessBuilder(args)
-                .redirectErrorStream(true)
-                .start()
-            val output = proc.inputStream.bufferedReader().readText()
-            proc.waitFor()
-
-            val keyStart = output.indexOf("-----BEGIN PRIVATE KEY-----")
-            val keyEndMarker = "-----END PRIVATE KEY-----"
-            val keyEnd = output.indexOf(keyEndMarker)
-            if (keyStart >= 0 && keyEnd > keyStart) {
-                keyFile.writeText(
-                    output.substring(keyStart, keyEnd + keyEndMarker.length) + "\n"
-                )
-                return
-            }
-        }
-        fail("Failed to extract private key from ${keystoreFile.name}")
-    }
-
-    private fun keytool(vararg args: String) {
-        val process = ProcessBuilder("keytool", *args)
-            .redirectErrorStream(true)
-            .start()
-        val output = process.inputStream.bufferedReader().readText()
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            fail("keytool failed (exit $exitCode): $output\nArgs: ${args.toList()}")
-        }
-    }
-
-    // --- Relay config and process management ---
-
-    private fun writeRelayConfig(port: Int) {
-        val config = """
-            [server]
-            bind_addr = "127.0.0.1:$port"
-            relay_hostname = "$RELAY_HOSTNAME"
-
-            [tls]
-            cert_path = "${tempDir.absolutePath}/relay-cert.pem"
-            key_path = "${tempDir.absolutePath}/relay-key.pem"
-            ca_cert_path = "${tempDir.absolutePath}/ca-cert.pem"
-
-            [limits]
-            max_streams_per_device = 8
-            wake_rate_limit = 60
-        """.trimIndent()
-
-        File(tempDir, "relay.toml").writeText(config)
-    }
-
-    private fun startRelay(port: Int): Process {
-        val configPath = File(tempDir, "relay.toml").absolutePath
-        val pb = ProcessBuilder(relayBinary.absolutePath, configPath)
-            .redirectErrorStream(true)
-        pb.environment()["RUST_LOG"] = "info"
-
-        val process = pb.start()
-        val deadline = System.currentTimeMillis() + RELAY_STARTUP_TIMEOUT_MS
-
-        val outputCapture = StringBuilder()
-        val readerThread = Thread {
-            try {
-                process.inputStream.bufferedReader().forEachLine { line ->
-                    synchronized(outputCapture) { outputCapture.appendLine(line) }
-                }
-            } catch (_: Exception) {
-                // Process killed
-            }
-        }
-        readerThread.isDaemon = true
-        readerThread.start()
-
-        var started = false
-        while (System.currentTimeMillis() < deadline) {
-            if (!process.isAlive) {
-                val output = synchronized(outputCapture) { outputCapture.toString() }
-                fail(
-                    "Relay process died during startup. Output:\n$output"
-                )
-            }
-            try {
-                java.net.Socket("127.0.0.1", port).use { started = true }
-                break
-            } catch (_: Exception) {
-                Thread.sleep(100)
-            }
-        }
-
-        if (!started) {
-            process.destroyForcibly()
-            val output = synchronized(outputCapture) { outputCapture.toString() }
-            fail(
-                "Relay did not start within ${RELAY_STARTUP_TIMEOUT_MS}ms. Output:\n$output"
-            )
-        }
-
-        Thread.sleep(200)
-        return process
-    }
-
-    // --- SSL context ---
-
-    private fun buildMtlsSslContext(): SSLContext {
-        val kmf = KeyManagerFactory.getInstance(
-            KeyManagerFactory.getDefaultAlgorithm()
-        )
-        kmf.init(deviceKeyStore, STORE_PASS.toCharArray())
-
-        val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
-        trustStore.load(null, null)
-        trustStore.setCertificateEntry("ca", caCert)
-        val tmf = TrustManagerFactory.getInstance(
-            TrustManagerFactory.getDefaultAlgorithm()
-        )
-        tmf.init(trustStore)
-
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(kmf.keyManagers, tmf.trustManagers, null)
-        return ctx
-    }
-
-    private fun buildNoCertSslContext(): SSLContext {
-        val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
-        trustStore.load(null, null)
-        trustStore.setCertificateEntry("ca", caCert)
-        val tmf = TrustManagerFactory.getInstance(
-            TrustManagerFactory.getDefaultAlgorithm()
-        )
-        tmf.init(trustStore)
-
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(null, tmf.trustManagers, null)
-        return ctx
-    }
-
-    // --- Utility ---
-
-    private fun findFreePort(): Int {
-        val socket = java.net.ServerSocket(0)
-        val port = socket.localPort
-        socket.close()
-        return port
-    }
-
-    private fun findRelayBinary(): File {
-        val repoRoot = System.getProperty("repo.root")
-        if (repoRoot != null) {
-            val candidate = File(repoRoot, "relay/target/debug/rouse-relay")
-            if (candidate.exists() && candidate.canExecute()) return candidate
-        }
-
-        var dir = File(System.getProperty("user.dir"))
-        while (dir.parentFile != null) {
-            val candidate = File(dir, "relay/target/debug/rouse-relay")
-            if (candidate.exists() && candidate.canExecute()) return candidate
-            dir = dir.parentFile
-        }
-
-        return File("/nonexistent/rouse-relay")
     }
 }
