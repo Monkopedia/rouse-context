@@ -128,6 +128,11 @@ class RelayApiClient(
                     }
                 )
             }
+            install(io.ktor.client.plugins.HttpTimeout) {
+                requestTimeoutMillis = 120_000
+                connectTimeoutMillis = 30_000
+                socketTimeoutMillis = 120_000
+            }
         }
     }
 }
