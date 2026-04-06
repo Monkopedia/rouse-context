@@ -14,6 +14,7 @@ import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
+import com.rousecontext.tunnel.CertificateStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -33,16 +34,25 @@ class MainDashboardViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
+    private val certificateStore: CertificateStore,
     private val authorizationCodeManager: AuthorizationCodeManager? = null
 ) : ViewModel() {
 
     private val connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     private val refreshTrigger = MutableStateFlow(0)
+    private val isOnboarded = MutableStateFlow(true)
+
+    init {
+        viewModelScope.launch {
+            isOnboarded.value = certificateStore.getSubdomain() != null
+        }
+    }
 
     val state: StateFlow<DashboardState> = combine(
         connectionStatus,
-        refreshTrigger
-    ) { connection, _ ->
+        refreshTrigger,
+        isOnboarded
+    ) { connection, _, onboarded ->
         val items = integrations.mapNotNull { integration ->
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(integration.id),
@@ -94,7 +104,8 @@ class MainDashboardViewModel(
             integrations = items,
             recentActivity = recent,
             hasMoreIntegrationsToAdd = hasMoreToAdd,
-            pendingAuthRequestCount = pendingAuthCount
+            pendingAuthRequestCount = pendingAuthCount,
+            isOnboarded = onboarded
         )
     }.stateIn(
         scope = viewModelScope,
@@ -104,6 +115,7 @@ class MainDashboardViewModel(
 
     fun refresh() {
         viewModelScope.launch {
+            isOnboarded.value = certificateStore.getSubdomain() != null
             refreshTrigger.value++
         }
     }

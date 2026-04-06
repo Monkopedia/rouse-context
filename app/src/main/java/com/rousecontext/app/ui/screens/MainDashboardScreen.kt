@@ -88,7 +88,8 @@ data class DashboardState(
     val recentActivity: List<AuditEntry> = emptyList(),
     val certBanner: CertBanner? = null,
     val hasMoreIntegrationsToAdd: Boolean = true,
-    val pendingAuthRequestCount: Int = 0
+    val pendingAuthRequestCount: Int = 0,
+    val isOnboarded: Boolean = true
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,6 +103,7 @@ fun MainDashboardScreen(
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
     onPendingAuthRequests: () -> Unit = {},
+    onSetUp: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -139,6 +141,14 @@ fun MainDashboardScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp)
         ) {
+            // Setup banner for un-onboarded devices
+            if (!state.isOnboarded) {
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    SetupBannerCard(onSetUp)
+                }
+            }
+
             // Cert banner (most urgent — show first)
             state.certBanner?.let { banner ->
                 item {
@@ -449,6 +459,46 @@ private fun OnboardingStep(label: String, done: Boolean, active: Boolean = false
 }
 
 @Composable
+private fun SetupBannerCard(onSetUp: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                Icons.Default.Build,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Set up your device",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    "Connect to the relay to start serving AI clients.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(onClick = onSetUp) {
+                    Text("Set Up")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -650,6 +700,14 @@ private fun PendingAuthBanner(count: Int, onClick: () -> Unit) {
 }
 
 // --- Previews ---
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun DashboardNotOnboardedPreview() {
+    RouseContextTheme(darkTheme = true) {
+        MainDashboardScreen(state = DashboardState(isOnboarded = false))
+    }
+}
 
 @Preview(showBackground = true, showSystemUi = true)
 @Composable

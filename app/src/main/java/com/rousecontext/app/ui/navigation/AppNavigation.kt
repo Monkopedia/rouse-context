@@ -71,22 +71,12 @@ object Routes {
 @Suppress("CyclomaticComplexMethod")
 @Composable
 fun AppNavigation(navController: NavHostController = rememberNavController()) {
-    val onboardingViewModel: OnboardingViewModel = koinViewModel()
-    val onboardingState by onboardingViewModel.state.collectAsState()
-
-    // Wait until the initial check completes before rendering navigation
-    if (onboardingState is OnboardingState.Checking) return
-
-    val startDestination = when (onboardingState) {
-        is OnboardingState.Onboarded -> Routes.HOME
-        else -> Routes.WELCOME
-    }
-
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = Routes.HOME
     ) {
         composable(Routes.WELCOME) {
+            val onboardingViewModel: OnboardingViewModel = koinViewModel()
             WelcomeScreen(
                 onGetStarted = {
                     onboardingViewModel.startOnboarding()
@@ -98,13 +88,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         }
 
         composable(Routes.ONBOARDING) {
+            val onboardingViewModel: OnboardingViewModel = koinViewModel()
             val state by onboardingViewModel.state.collectAsState()
 
-            // Navigate to dashboard on success
+            // Navigate back to dashboard on success
             LaunchedEffect(state) {
                 if (state is OnboardingState.Onboarded) {
                     navController.navigate(Routes.HOME) {
-                        popUpTo(Routes.ONBOARDING) { inclusive = true }
+                        popUpTo(Routes.HOME) { inclusive = true }
                     }
                 }
             }
@@ -113,11 +104,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 is OnboardingState.InProgress -> {
                     SettingUpScreen(
                         state = SettingUpState(SettingUpVariant.FirstTime),
-                        onCancel = {
-                            navController.navigate(Routes.WELCOME) {
-                                popUpTo(Routes.ONBOARDING) { inclusive = true }
-                            }
-                        }
+                        onCancel = { navController.popBackStack() }
                     )
                 }
                 is OnboardingState.RateLimited -> {
@@ -126,11 +113,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                         state = SettingUpState(
                             SettingUpVariant.RateLimited(rateLimited.retryDate)
                         ),
-                        onCancel = {
-                            navController.navigate(Routes.WELCOME) {
-                                popUpTo(Routes.ONBOARDING) { inclusive = true }
-                            }
-                        }
+                        onCancel = { navController.popBackStack() }
                     )
                 }
                 is OnboardingState.Failed -> {
@@ -138,22 +121,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                     OnboardingErrorScreen(
                         message = failed.message,
                         onRetry = { onboardingViewModel.retry() },
-                        onBack = {
-                            navController.navigate(Routes.WELCOME) {
-                                popUpTo(Routes.ONBOARDING) { inclusive = true }
-                            }
-                        }
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 else -> {
                     // Checking, NotOnboarded, Onboarded handled by LaunchedEffect above
                     SettingUpScreen(
                         state = SettingUpState(SettingUpVariant.FirstTime),
-                        onCancel = {
-                            navController.navigate(Routes.WELCOME) {
-                                popUpTo(Routes.ONBOARDING) { inclusive = true }
-                            }
-                        }
+                        onCancel = { navController.popBackStack() }
                     )
                 }
             }
@@ -162,6 +137,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         composable(Routes.HOME) {
             val viewModel: MainDashboardViewModel = koinViewModel()
             val state by viewModel.state.collectAsState()
+
+            // Refresh when returning to dashboard (e.g. after onboarding)
+            LaunchedEffect(
+                navController.currentBackStackEntry?.lifecycle?.currentState
+            ) {
+                viewModel.refresh()
+            }
+
             MainDashboardScreen(
                 state = state,
                 selectedTab = 0,
@@ -170,6 +153,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onAddClient = { navController.navigate(Routes.ADD_CLIENT) },
                 onViewAllActivity = { navController.navigate(Routes.AUDIT) },
                 onPendingAuthRequests = { navController.navigate(Routes.AUTH_APPROVAL) },
+                onSetUp = { navController.navigate(Routes.WELCOME) },
                 onTabSelected = { tab ->
                     when (tab) {
                         1 -> navController.navigate(Routes.AUDIT)
