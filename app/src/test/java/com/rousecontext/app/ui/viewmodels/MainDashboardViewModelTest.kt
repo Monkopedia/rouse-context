@@ -14,6 +14,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -57,6 +58,7 @@ class MainDashboardViewModelTest {
             every { isUserEnabled("health") } returns true
             every { wasEverEnabled("health") } returns true
             every { observeUserEnabled(any()) } returns flowOf(true)
+            every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
             every { hasTokens("health") } returns true
@@ -64,6 +66,7 @@ class MainDashboardViewModelTest {
         }
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
         }
 
         val vm = MainDashboardViewModel(
@@ -88,6 +91,7 @@ class MainDashboardViewModelTest {
             every { isUserEnabled("health") } returns false
             every { wasEverEnabled("health") } returns false
             every { observeUserEnabled(any()) } returns flowOf(false)
+            every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
             every { hasTokens("health") } returns false
@@ -95,6 +99,7 @@ class MainDashboardViewModelTest {
         }
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
         }
 
         val vm = MainDashboardViewModel(
@@ -127,12 +132,14 @@ class MainDashboardViewModelTest {
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled(any()) } returns false
             every { wasEverEnabled(any()) } returns false
+            every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
             every { hasTokens(any()) } returns false
         }
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns listOf(auditEntry)
+            every { observeRecent(any(), any(), any()) } returns flowOf(listOf(auditEntry))
         }
 
         val vm = MainDashboardViewModel(
@@ -151,13 +158,52 @@ class MainDashboardViewModelTest {
         }
     }
 
+    @Test
+    fun `dashboard updates reactively when integration state changes`() = runTest(testDispatcher) {
+        val stateChanges = MutableSharedFlow<Unit>()
+        var enabled = false
+        val stateStore = mockk<IntegrationStateStore> {
+            every { isUserEnabled("health") } answers { enabled }
+            every { wasEverEnabled("health") } answers { enabled }
+            every { observeChanges() } returns stateChanges
+        }
+        val tokenStore = mockk<TokenStore> {
+            every { hasTokens("health") } answers { enabled }
+        }
+        val auditDao = mockk<AuditDao> {
+            every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
+        }
+
+        val vm = MainDashboardViewModel(
+            integrations = listOf(fakeIntegration()),
+            stateStore = stateStore,
+            tokenStore = tokenStore,
+            auditDao = auditDao
+        )
+
+        vm.state.test {
+            // Initial state: no integrations visible
+            val initial = awaitItem()
+            assertTrue(initial.integrations.isEmpty())
+
+            // Simulate integration state change
+            enabled = true
+            stateChanges.emit(Unit)
+            val updated = awaitItem()
+            assertEquals(1, updated.integrations.size)
+            assertEquals(IntegrationStatus.ACTIVE, updated.integrations[0].status)
+        }
+    }
+
     private fun createViewModel(): MainDashboardViewModel {
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled(any()) } returns false
             every { wasEverEnabled(any()) } returns false
+            every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
             every { hasTokens(any()) } returns false

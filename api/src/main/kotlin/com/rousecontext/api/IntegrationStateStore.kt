@@ -33,4 +33,10 @@ interface IntegrationStateStore {
      * Used to distinguish [IntegrationState.Available] from [IntegrationState.Disabled].
      */
     fun wasEverEnabled(integrationId: String): Boolean
+
+    /**
+     * Emits [Unit] whenever any integration state changes. The ViewModel can
+     * combine this with other flows to reactively rebuild derived state.
+     */
+    fun observeChanges(): Flow<Unit>
 }

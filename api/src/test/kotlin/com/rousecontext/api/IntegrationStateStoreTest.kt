@@ -1,7 +1,9 @@
 package com.rousecontext.api
 
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -104,9 +106,14 @@ private class FakeIntegrationStateStore : IntegrationStateStore {
             everEnabled.add(integrationId)
         }
         flowFor(integrationId).value = enabled
+        changeSignal.value++
     }
 
     override fun observeUserEnabled(integrationId: String) = flowFor(integrationId)
 
     override fun wasEverEnabled(integrationId: String): Boolean = integrationId in everEnabled
+
+    private val changeSignal = MutableStateFlow(0)
+
+    override fun observeChanges(): Flow<Unit> = changeSignal.map { }
 }

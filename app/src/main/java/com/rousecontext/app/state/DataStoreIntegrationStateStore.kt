@@ -57,6 +57,10 @@ class DataStoreIntegrationStateStore(
         }
     }
 
+    override fun observeChanges(): Flow<Unit> {
+        return dataStore.data.map { }
+    }
+
     companion object {
         private fun enabledKey(id: String) = booleanPreferencesKey("enabled_$id")
         private fun everEnabledKey(id: String) = booleanPreferencesKey("ever_enabled_$id")

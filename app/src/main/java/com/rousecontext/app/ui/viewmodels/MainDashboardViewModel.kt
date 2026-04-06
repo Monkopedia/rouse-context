@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -34,25 +35,31 @@ class MainDashboardViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
-    private val certificateStore: CertificateStore,
+    private val certificateStore: CertificateStore? = null,
     private val authorizationCodeManager: AuthorizationCodeManager? = null
 ) : ViewModel() {
 
     private val connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
-    private val refreshTrigger = MutableStateFlow(0)
     private val isOnboarded = MutableStateFlow(true)
 
     init {
         viewModelScope.launch {
-            isOnboarded.value = certificateStore.getSubdomain() != null
+            isOnboarded.value = certificateStore?.getSubdomain() != null
         }
     }
 
+    private val recentAuditFlow = auditDao.observeRecent(
+        startMillis = System.currentTimeMillis() - RECENT_WINDOW_MS,
+        endMillis = Long.MAX_VALUE,
+        limit = RECENT_LIMIT
+    )
+
     val state: StateFlow<DashboardState> = combine(
         connectionStatus,
-        refreshTrigger,
+        stateStore.observeChanges().onStart { emit(Unit) },
+        recentAuditFlow,
         isOnboarded
-    ) { connection, _, onboarded ->
+    ) { connection, _, recentEntries, onboarded ->
         val items = integrations.mapNotNull { integration ->
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(integration.id),
@@ -76,10 +83,7 @@ class MainDashboardViewModel(
             }
         }
 
-        val recent = auditDao.queryByDateRange(
-            startMillis = System.currentTimeMillis() - RECENT_WINDOW_MS,
-            endMillis = System.currentTimeMillis()
-        ).take(RECENT_LIMIT).map { entry ->
+        val recent = recentEntries.map { entry ->
             AuditEntry(
                 time = TIME_FORMAT.format(Date(entry.timestampMillis)),
                 toolName = entry.toolName,
@@ -113,10 +117,13 @@ class MainDashboardViewModel(
         initialValue = DashboardState()
     )
 
+    /**
+     * Manually refreshes onboarding state. Integration and audit data are now
+     * reactive and do not need manual refresh.
+     */
     fun refresh() {
         viewModelScope.launch {
-            isOnboarded.value = certificateStore.getSubdomain() != null
-            refreshTrigger.value++
+            isOnboarded.value = certificateStore?.getSubdomain() != null
         }
     }
 
