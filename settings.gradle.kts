@@ -25,6 +25,7 @@ rootProject.name = "rouse-context"
 include(":app")
 include(":core:tunnel")
 include(":core:mcp")
+include(":core:bridge")
 include(":api")
 include(":health")
 include(":notifications")

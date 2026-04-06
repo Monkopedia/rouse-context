@@ -1,0 +1,60 @@
+package com.rousecontext.bridge
+
+import com.rousecontext.mcp.core.McpServerProvider
+import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.server.Server
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+/**
+ * Test MCP provider that registers an "echo" tool.
+ */
+class EchoProvider : McpServerProvider {
+    override val id = "test"
+    override val displayName = "Test Integration"
+
+    override fun register(server: Server) {
+        server.addTool(
+            name = "echo",
+            description = "Echoes back the input message",
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {
+                    put(
+                        "message",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                        }
+                    )
+                },
+                required = listOf("message")
+            )
+        ) { request ->
+            val message = request.arguments["message"]?.jsonPrimitive?.content ?: "empty"
+            CallToolResult(content = listOf(TextContent(message)))
+        }
+    }
+}
+
+/**
+ * Test MCP provider simulating a health integration with a "get_steps" tool.
+ */
+class HealthProvider : McpServerProvider {
+    override val id = "health"
+    override val displayName = "Health Connect"
+
+    override fun register(server: Server) {
+        server.addTool(
+            name = "get_steps",
+            description = "Returns step count",
+            inputSchema = Tool.Input(
+                properties = buildJsonObject {},
+                required = emptyList()
+            )
+        ) {
+            CallToolResult(content = listOf(TextContent("10000 steps")))
+        }
+    }
+}

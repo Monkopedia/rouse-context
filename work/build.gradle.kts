@@ -25,6 +25,7 @@ android {
 
 dependencies {
     implementation(project(":core:tunnel"))
+    implementation(project(":core:bridge"))
     implementation(project(":notifications"))
 
     implementation(libs.androidx.core.ktx)

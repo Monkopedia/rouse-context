@@ -94,6 +94,7 @@ android {
 dependencies {
     implementation(project(":core:tunnel"))
     implementation(project(":core:mcp"))
+    implementation(project(":core:bridge"))
     implementation(project(":api"))
     implementation(project(":health"))
     implementation(project(":notifications"))
