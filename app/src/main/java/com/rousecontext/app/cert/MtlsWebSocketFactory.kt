@@ -36,6 +36,7 @@ object MtlsWebSocketFactory {
     // Use the CLIENT cert (relay CA, clientAuth) for mTLS to the relay,
     // NOT the server cert (ACME, serverAuth) which is for AI clients.
     private const val CERT_PEM_FILE = "rouse_client_cert.pem"
+    private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
     private const val KEY_PEM_FILE = "rouse_key.pem"
 
     /**
@@ -56,11 +57,18 @@ object MtlsWebSocketFactory {
 
         return if (certAndKey != null) {
             Log.i(TAG, "Creating mTLS-configured OkHttpClient")
-            val (certs, privateKey) = certAndKey
+            val (clientCerts, privateKey, caCert) = certAndKey
+
+            // Build cert chain: leaf first, then issuer (relay CA)
+            val fullChain = if (caCert != null) {
+                clientCerts + caCert
+            } else {
+                clientCerts
+            }
 
             val keyStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
                 load(null, null)
-                setKeyEntry("client", privateKey, charArrayOf(), certs.toTypedArray())
+                setKeyEntry("client", privateKey, charArrayOf(), fullChain.toTypedArray())
             }
 
             val keyManagerFactory = KeyManagerFactory.getInstance(
@@ -69,10 +77,30 @@ object MtlsWebSocketFactory {
                 init(keyStore, charArrayOf())
             }
 
-            val trustManagerFactory = TrustManagerFactory.getInstance(
+            // Trust both system CAs (for Let's Encrypt server cert) and the relay CA
+            // (so the KeyManager can match against the relay's CertificateRequest)
+            val trustStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+                load(null, null)
+                if (caCert != null) {
+                    setCertificateEntry("relay-ca", caCert)
+                }
+            }
+            // Load system CAs into the same trust store
+            val systemTmf = TrustManagerFactory.getInstance(
                 TrustManagerFactory.getDefaultAlgorithm()
             ).apply {
                 init(null as KeyStore?)
+            }
+            val systemTm = systemTmf.trustManagers
+                .first { it is X509TrustManager } as X509TrustManager
+            for ((i, cert) in systemTm.acceptedIssuers.withIndex()) {
+                trustStore.setCertificateEntry("system-ca-$i", cert)
+            }
+
+            val trustManagerFactory = TrustManagerFactory.getInstance(
+                TrustManagerFactory.getDefaultAlgorithm()
+            ).apply {
+                init(trustStore)
             }
 
             val trustManager = trustManagerFactory.trustManagers
@@ -91,12 +119,19 @@ object MtlsWebSocketFactory {
         }
     }
 
-    private fun loadCertAndKey(context: Context): Pair<List<X509Certificate>, PrivateKey>? {
+    private fun loadCertAndKey(
+        context: Context
+    ): Triple<List<X509Certificate>, PrivateKey, X509Certificate?>? {
         val certs = loadCertChain(context)
         val privateKey = loadPrivateKey(context)
         if (certs == null || privateKey == null) return null
-        Log.i(TAG, "Loaded device cert (${certs.size} certs in chain) and private key")
-        return certs to privateKey
+        val caCert = loadRelayCaCert(context)
+        Log.i(
+            TAG,
+            "Loaded device cert (${certs.size} certs in chain) and private key" +
+                if (caCert != null) ", plus relay CA" else ", no relay CA"
+        )
+        return Triple(certs, privateKey, caCert)
     }
 
     private fun loadCertChain(context: Context): List<X509Certificate>? {
@@ -111,6 +146,20 @@ object MtlsWebSocketFactory {
             return null
         }
         return certs
+    }
+
+    private fun loadRelayCaCert(context: Context): X509Certificate? {
+        val caFile = File(context.filesDir, RELAY_CA_PEM_FILE)
+        if (!caFile.exists()) {
+            Log.w(TAG, "No relay CA cert file found at ${caFile.absolutePath}")
+            return null
+        }
+        val certs = parsePemCertificates(caFile.readText())
+        if (certs.isEmpty()) {
+            Log.w(TAG, "Relay CA cert file is empty")
+            return null
+        }
+        return certs.first()
     }
 
     private fun loadPrivateKey(context: Context): PrivateKey? {

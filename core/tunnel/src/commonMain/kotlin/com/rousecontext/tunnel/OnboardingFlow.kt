@@ -63,6 +63,7 @@ class OnboardingFlow(
                     certificateStore.storePrivateKey(csrResult.privateKeyPem)
                     certificateStore.storeCertificate(certResponse.data.serverCert)
                     certificateStore.storeClientCertificate(certResponse.data.clientCert)
+                    certificateStore.storeRelayCaCert(certResponse.data.relayCaCert)
                     certificateStore.storeSubdomain(subdomain)
                     OnboardingResult.Success(subdomain = subdomain)
                 } catch (e: Exception) {
