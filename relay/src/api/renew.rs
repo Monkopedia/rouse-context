@@ -36,8 +36,12 @@ pub struct RenewRequest {
 
 #[derive(Debug, Serialize)]
 pub struct RenewResponse {
-    pub cert: String,
-    pub private_key: String,
+    /// PEM-encoded ACME server certificate (Let's Encrypt, serverAuth).
+    pub server_cert: String,
+    /// PEM-encoded relay CA client certificate (clientAuth).
+    pub client_cert: String,
+    /// PEM-encoded relay CA root certificate.
+    pub relay_ca_cert: String,
 }
 
 pub async fn handle_renew(
@@ -128,8 +132,20 @@ pub async fn handle_renew(
         }
     }
 
-    // Issue certificate via ACME (relay generates keypair + CSR with correct FQDN)
-    let bundle = match state.acme.issue_certificate(&subdomain).await {
+    // Extract public key from CSR for client cert issuance
+    let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {
+        Ok(spki) => spki,
+        Err(e) => {
+            return ApiError::bad_request(format!("Failed to parse CSR: {e}")).into_response()
+        }
+    };
+
+    // Issue ACME server cert using the device's CSR
+    let acme_bundle = match state
+        .acme
+        .issue_certificate(&subdomain, Some(&csr_der))
+        .await
+    {
         Ok(b) => b,
         Err(crate::acme::AcmeError::RateLimited { retry_after_secs }) => {
             return ApiError::acme_rate_limited(
@@ -147,6 +163,28 @@ pub async fn handle_renew(
         }
     };
 
+    // Issue relay CA client cert using the device's public key
+    let device_ca = match &state.device_ca {
+        Some(ca) => ca,
+        None => {
+            return ApiError::internal("Device CA not configured").into_response();
+        }
+    };
+
+    let base_domain = state
+        .config
+        .server
+        .relay_hostname
+        .strip_prefix("relay.")
+        .unwrap_or(&state.config.server.relay_hostname);
+
+    let client_bundle = match device_ca.sign_client_cert(&public_key_der, &subdomain, base_domain) {
+        Ok(b) => b,
+        Err(e) => {
+            return ApiError::internal(format!("Failed to sign client cert: {e}")).into_response()
+        }
+    };
+
     // Update cert_expires and clear renewal_nudge_sent
     if let Ok(mut record) = state.firestore.get_device(&subdomain).await {
         record.cert_expires = SystemTime::now() + Duration::from_secs(90 * 86400);
@@ -157,8 +195,9 @@ pub async fn handle_renew(
     (
         StatusCode::OK,
         Json(RenewResponse {
-            cert: bundle.cert_pem,
-            private_key: bundle.private_key_pem,
+            server_cert: acme_bundle.cert_pem,
+            client_cert: client_bundle.cert_pem,
+            relay_ca_cert: device_ca.ca_cert_pem().to_string(),
         }),
     )
         .into_response()

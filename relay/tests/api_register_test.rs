@@ -1,4 +1,4 @@
-//! Tests for POST /register endpoint.
+//! Tests for POST /register (round 1) and POST /register/certs (round 2).
 
 mod test_helpers;
 
@@ -24,12 +24,8 @@ fn make_app(
     build_router(state)
 }
 
-fn fake_csr() -> String {
-    BASE64.encode(b"fake-csr-bytes")
-}
-
 #[tokio::test]
-async fn register_new_device_returns_subdomain_and_cert() {
+async fn register_new_device_returns_subdomain() {
     let firestore = MockFirestore::new();
     let acme = MockAcme::new("test-cert-chain");
     let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
@@ -43,7 +39,6 @@ async fn register_new_device_returns_subdomain_and_cert() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "firebase_token": "valid-token",
-                "csr": fake_csr(),
                 "fcm_token": "device-fcm-token"
             })
             .to_string(),
@@ -60,11 +55,13 @@ async fn register_new_device_returns_subdomain_and_cert() {
 
     assert!(json["subdomain"].is_string());
     assert!(!json["subdomain"].as_str().unwrap().is_empty());
-    assert_eq!(json["cert"].as_str().unwrap(), "test-cert-chain");
     assert_eq!(
         json["relay_host"].as_str().unwrap(),
         "relay.rousecontext.com"
     );
+    // Round 1 response should NOT contain cert or private_key
+    assert!(json.get("cert").is_none());
+    assert!(json.get("private_key").is_none());
 }
 
 #[tokio::test]
@@ -82,7 +79,6 @@ async fn register_invalid_firebase_token_returns_401() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "firebase_token": "bad-token",
-                "csr": fake_csr(),
                 "fcm_token": "device-fcm-token"
             })
             .to_string(),
@@ -94,7 +90,7 @@ async fn register_invalid_firebase_token_returns_401() {
 }
 
 #[tokio::test]
-async fn register_missing_csr_returns_400() {
+async fn register_missing_fcm_token_returns_400() {
     let firestore = MockFirestore::new();
     let acme = MockAcme::new("test-cert");
     let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
@@ -108,8 +104,7 @@ async fn register_missing_csr_returns_400() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "firebase_token": "valid-token",
-                "csr": "",
-                "fcm_token": "device-fcm-token"
+                "fcm_token": ""
             })
             .to_string(),
         ))
@@ -144,7 +139,6 @@ async fn re_register_without_signature_returns_403() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "firebase_token": "valid-token",
-                "csr": fake_csr(),
                 "fcm_token": "new-fcm-token"
             })
             .to_string(),
@@ -163,7 +157,6 @@ async fn re_register_without_signature_returns_403() {
 
 #[tokio::test]
 async fn force_new_within_cooldown_returns_429() {
-    // Device with last_rotation just now (within 30-day cooldown)
     use p256::ecdsa::SigningKey;
     use p256::pkcs8::EncodePublicKey;
 
@@ -172,12 +165,11 @@ async fn force_new_within_cooldown_returns_429() {
     let pub_key_der = verifying_key.to_public_key_der().unwrap();
     let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
 
-    let csr_bytes = b"fake-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
+    let firebase_token = "valid-token";
 
-    // Sign the CSR bytes
+    // Sign the firebase_token bytes (re-registration signs the token, not a CSR)
     use p256::ecdsa::{signature::Signer, Signature};
-    let signature: Signature = signing_key.sign(csr_bytes);
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
     let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
 
     let existing_record = DeviceRecord {
@@ -191,7 +183,7 @@ async fn force_new_within_cooldown_returns_429() {
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
-    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
+    let auth = MockFirebaseAuth::new().with_token(firebase_token, "uid-123");
 
     let app = make_app(firestore, acme, auth);
 
@@ -201,8 +193,7 @@ async fn force_new_within_cooldown_returns_429() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "firebase_token": "valid-token",
-                "csr": csr_b64,
+                "firebase_token": firebase_token,
                 "fcm_token": "new-fcm-token",
                 "signature": sig_b64,
                 "force_new": true
@@ -232,11 +223,10 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
     let pub_key_der = verifying_key.to_public_key_der().unwrap();
     let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
 
-    let csr_bytes = b"fake-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
+    let firebase_token = "valid-token";
 
     use p256::ecdsa::{signature::Signer, Signature};
-    let signature: Signature = signing_key.sign(csr_bytes);
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
     let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
 
     let existing_record = DeviceRecord {
@@ -250,7 +240,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
     };
     let firestore = MockFirestore::new().with_device("brave-falcon", existing_record);
     let acme = MockAcme::new("new-cert-chain");
-    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
+    let auth = MockFirebaseAuth::new().with_token(firebase_token, "uid-123");
 
     let app = make_app(firestore, acme, auth);
 
@@ -260,8 +250,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "firebase_token": "valid-token",
-                "csr": csr_b64,
+                "firebase_token": firebase_token,
                 "fcm_token": "new-fcm-token",
                 "signature": sig_b64,
                 "force_new": false
@@ -279,7 +268,6 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     // Re-registration should reuse the existing subdomain
     assert_eq!(json["subdomain"].as_str().unwrap(), "brave-falcon");
-    assert_eq!(json["cert"].as_str().unwrap(), "new-cert-chain");
 }
 
 #[tokio::test]
@@ -292,11 +280,10 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
     let pub_key_der = verifying_key.to_public_key_der().unwrap();
     let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
 
-    let csr_bytes = b"fake-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
+    let firebase_token = "valid-token";
 
     use p256::ecdsa::{signature::Signer, Signature};
-    let signature: Signature = signing_key.sign(csr_bytes);
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
     let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
 
     let existing_record = DeviceRecord {
@@ -310,7 +297,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let acme = MockAcme::new("rotated-cert");
-    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
+    let auth = MockFirebaseAuth::new().with_token(firebase_token, "uid-123");
 
     let state = build_test_state(
         firestore.clone(),
@@ -326,8 +313,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "firebase_token": "valid-token",
-                "csr": csr_b64,
+                "firebase_token": firebase_token,
                 "fcm_token": "new-fcm-token",
                 "signature": sig_b64,
                 "force_new": true
@@ -358,33 +344,26 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
 }
 
 #[tokio::test]
-async fn acme_rate_limit_returns_429() {
+async fn register_certs_without_prior_registration_returns_404() {
     let firestore = MockFirestore::new();
-    let acme = MockAcme::rate_limited();
+    let acme = MockAcme::new("test-cert");
     let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
 
     let app = make_app(firestore, acme, auth);
 
     let resp = axum::http::Request::builder()
         .method("POST")
-        .uri("/register")
+        .uri("/register/certs")
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
                 "firebase_token": "valid-token",
-                "csr": fake_csr(),
-                "fcm_token": "device-fcm-token"
+                "csr": BASE64.encode(b"fake-csr")
             })
             .to_string(),
         ))
         .unwrap();
 
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
-    assert_eq!(resp.status(), 429);
-
-    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["error"].as_str().unwrap(), "acme_rate_limited");
+    assert_eq!(resp.status(), 404);
 }

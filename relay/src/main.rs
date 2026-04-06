@@ -57,6 +57,37 @@ async fn main() {
         cfg
     };
 
+    // Load or create the device CA for mTLS client certificates
+    let device_ca = {
+        let ca_cfg = &config.device_ca;
+        let key_path = std::path::PathBuf::from(&ca_cfg.ca_key_path);
+        let cert_path = std::path::PathBuf::from(&ca_cfg.ca_cert_path);
+        match rouse_relay::device_ca::DeviceCa::load_or_create(&key_path, &cert_path) {
+            Ok(ca) => {
+                // Write the CA cert to the TLS ca_cert_path so the mTLS verifier trusts it.
+                // If TLS is configured with a ca_cert_path, overwrite it with our device CA cert.
+                if !config.tls.ca_cert_path.is_empty() {
+                    if let Err(e) = std::fs::write(&config.tls.ca_cert_path, ca.ca_cert_pem()) {
+                        warn!(
+                            path = %config.tls.ca_cert_path,
+                            "Failed to write device CA cert for mTLS verifier: {e}"
+                        );
+                    } else {
+                        info!(
+                            path = %config.tls.ca_cert_path,
+                            "Wrote device CA cert for mTLS verifier"
+                        );
+                    }
+                }
+                Some(ca)
+            }
+            Err(e) => {
+                warn!("Failed to load/create device CA: {e}, client cert issuance will be unavailable");
+                None
+            }
+        }
+    };
+
     // Build TLS config for relay API (with optional mTLS)
     let tls_config = if !config.tls.cert_path.is_empty() {
         match build_relay_tls_config(&config.tls) {
@@ -111,6 +142,7 @@ async fn main() {
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
         config: config.clone(),
+        device_ca,
     });
 
     // Shutdown controller
@@ -588,10 +620,11 @@ impl rouse_relay::acme::AcmeClient for StubAcme {
     async fn issue_certificate(
         &self,
         _subdomain: &str,
+        _csr_der: Option<&[u8]>,
     ) -> Result<rouse_relay::acme::CertificateBundle, rouse_relay::acme::AcmeError> {
         Ok(rouse_relay::acme::CertificateBundle {
             cert_pem: "stub-cert".to_string(),
-            private_key_pem: "stub-key".to_string(),
+            private_key_pem: None,
         })
     }
 }

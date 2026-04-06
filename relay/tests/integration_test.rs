@@ -146,6 +146,7 @@ async fn ws_upgrade_with_device_identity() {
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
         config: rouse_relay::config::RelayConfig::default(),
+        device_ca: None,
     });
 
     // Build router WITH a DeviceIdentity layer to simulate mTLS
@@ -257,6 +258,7 @@ async fn mux_frame_round_trip_through_ws() {
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
         config: rouse_relay::config::RelayConfig::default(),
+        device_ca: None,
     });
 
     let router = api::build_router(app_state).layer(axum::Extension(DeviceIdentity {

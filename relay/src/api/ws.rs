@@ -330,10 +330,11 @@ mod tests {
         async fn issue_certificate(
             &self,
             _s: &str,
+            _csr_der: Option<&[u8]>,
         ) -> Result<crate::acme::CertificateBundle, crate::acme::AcmeError> {
             Ok(crate::acme::CertificateBundle {
                 cert_pem: String::new(),
-                private_key_pem: String::new(),
+                private_key_pem: None,
             })
         }
     }
@@ -367,6 +368,7 @@ mod tests {
                 crate::rate_limit::RateLimitConfig::default(),
             ),
             config: RelayConfig::default(),
+            device_ca: None,
         })
     }
 
