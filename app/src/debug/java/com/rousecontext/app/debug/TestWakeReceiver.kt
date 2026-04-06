@@ -19,10 +19,23 @@ class TestWakeReceiver : BroadcastReceiver() {
         val type = intent.getStringExtra("type")
         Log.d(TAG, "TestWakeReceiver received: type=$type")
 
-        if (type == "wake") {
-            val serviceIntent = Intent(context, TunnelForegroundService::class.java)
-            context.startForegroundService(serviceIntent)
-            Log.i(TAG, "Started TunnelForegroundService via test wake broadcast")
+        when (type) {
+            "wake" -> {
+                val serviceIntent = Intent(context, TunnelForegroundService::class.java)
+                context.startForegroundService(serviceIntent)
+                Log.i(TAG, "Started TunnelForegroundService via test wake broadcast")
+            }
+            "approve" -> {
+                val userCode = intent.getStringExtra("user_code")
+                if (userCode != null) {
+                    val session = org.koin.java.KoinJavaComponent.getKoin()
+                        .get<com.rousecontext.mcp.core.McpSession>()
+                    session.deviceCodeManager.approve(userCode)
+                    Log.i(TAG, "Approved device code: $userCode")
+                } else {
+                    Log.w(TAG, "approve type requires user_code extra")
+                }
+            }
         }
     }
 

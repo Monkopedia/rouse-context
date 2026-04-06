@@ -29,7 +29,7 @@ import kotlinx.coroutines.CompletableDeferred
 class McpSession(
     private val registry: ProviderRegistry,
     private val tokenStore: TokenStore,
-    private val deviceCodeManager: DeviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
+    val deviceCodeManager: DeviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
     private val auditListener: AuditListener? = null,
     private val hostname: String = "localhost",
     private val serverName: String = "rouse-context",

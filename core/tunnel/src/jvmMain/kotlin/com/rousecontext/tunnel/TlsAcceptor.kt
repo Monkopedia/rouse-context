@@ -48,7 +48,7 @@ class TlsAcceptor(
             val netBufferSize = session.packetBufferSize
 
             var appIn = java.nio.ByteBuffer.allocate(appBufferSize)
-            var appOut = java.nio.ByteBuffer.allocate(appBufferSize)
+            val appOut = java.nio.ByteBuffer.allocate(0) // empty: no app data during handshake
             var netIn = java.nio.ByteBuffer.allocate(netBufferSize)
             var netOut = java.nio.ByteBuffer.allocate(netBufferSize)
 
