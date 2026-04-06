@@ -98,6 +98,7 @@ dependencies {
     implementation(project(":health"))
     implementation(project(":notifications"))
     implementation(project(":work"))
+    implementation(libs.workmanager)
 
     // Ktor (mTLS WebSocket client for tunnel)
     implementation(libs.ktor.client.cio)

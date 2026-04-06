@@ -2,8 +2,13 @@ package com.rousecontext.app
 
 import android.app.Application
 import android.util.Log
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.rousecontext.app.di.appModule
 import com.rousecontext.work.FcmTokenRegistrar
+import com.rousecontext.work.SecurityCheckWorker
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,6 +46,19 @@ class RouseApplication : Application() {
         }
 
         registerFcmToken()
+        scheduleSecurityChecks()
+    }
+
+    private fun scheduleSecurityChecks() {
+        val request = PeriodicWorkRequestBuilder<SecurityCheckWorker>(
+            4, TimeUnit.HOURS,
+            1, TimeUnit.HOURS
+        ).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "security-check",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
     }
 
     /**
