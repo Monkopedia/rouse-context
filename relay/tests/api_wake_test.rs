@@ -38,6 +38,7 @@ fn make_app_with_state(
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter,
         config: rouse_relay::config::RelayConfig::default(),
+        device_ca: None,
     });
     build_router(state)
 }
@@ -159,6 +160,7 @@ async fn wake_rate_limit_returns_429() {
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter,
         config: rouse_relay::config::RelayConfig::default(),
+        device_ca: None,
     });
 
     // First two requests should succeed

@@ -1,4 +1,5 @@
-//! POST /register -- Device registration and subdomain rotation.
+//! POST /register -- Device registration (round 1: assign subdomain).
+//! POST /register/certs -- Certificate issuance (round 2: device sends CSR).
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -10,31 +11,55 @@ use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 use p256::pkcs8::DecodePublicKey;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use crate::api::{ApiError, AppState};
 use crate::firestore::DeviceRecord;
 
+/// Round 1: Register a device and receive a subdomain assignment.
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
     pub firebase_token: String,
-    pub csr: String,
     pub fcm_token: String,
     pub signature: Option<String>,
     #[serde(default)]
     pub force_new: bool,
 }
 
+/// Round 1 response: subdomain assigned, device should now generate CSR.
 #[derive(Debug, Serialize)]
 pub struct RegisterResponse {
     pub subdomain: String,
-    pub cert: String,
-    pub private_key: String,
     pub relay_host: String,
 }
 
+/// Round 2: Submit CSR to receive certificates.
+#[derive(Debug, Deserialize)]
+pub struct CertRequest {
+    pub firebase_token: String,
+    /// Base64-encoded DER CSR with correct FQDN (subdomain.rousecontext.com).
+    pub csr: String,
+}
+
+/// Round 2 response: both certificates, no private key.
+#[derive(Debug, Serialize)]
+pub struct CertResponse {
+    pub subdomain: String,
+    /// PEM-encoded ACME server certificate (Let's Encrypt, serverAuth).
+    pub server_cert: String,
+    /// PEM-encoded relay CA client certificate (clientAuth).
+    pub client_cert: String,
+    /// PEM-encoded relay CA root certificate.
+    pub relay_ca_cert: String,
+    pub relay_host: String,
+}
+
+/// Round 1: POST /register
+///
+/// Device sends firebase_token + fcm_token. Relay assigns a subdomain and
+/// stores the device record. The device then generates a keypair + CSR with
+/// the assigned subdomain and calls POST /register/certs.
 pub async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
@@ -43,20 +68,11 @@ pub async fn handle_register(
     if req.firebase_token.is_empty() {
         return ApiError::bad_request("Missing required field: firebase_token").into_response();
     }
-    if req.csr.is_empty() {
-        return ApiError::bad_request("Missing required field: csr").into_response();
-    }
     if req.fcm_token.is_empty() {
         return ApiError::bad_request("Missing required field: fcm_token").into_response();
     }
 
-    // 2. Decode CSR
-    let csr_der = match BASE64.decode(&req.csr) {
-        Ok(bytes) => bytes,
-        Err(_) => return ApiError::bad_request("Invalid Base64 in csr field").into_response(),
-    };
-
-    // 3. Verify Firebase ID token
+    // 2. Verify Firebase ID token
     let claims = match state
         .firebase_auth
         .verify_id_token(&req.firebase_token)
@@ -70,12 +86,7 @@ pub async fn handle_register(
     };
     let uid = claims.uid;
 
-    // 4. Extract public key from CSR (we store the base64-encoded DER SPKI)
-    // For now we just store the CSR's raw bytes as a stand-in; the ACME client
-    // will handle the actual CSR parsing. We extract a fingerprint for storage.
-    let public_key_b64 = extract_public_key_from_csr(&csr_der);
-
-    // 5. Check if UID already has a subdomain
+    // 3. Check if UID already has a subdomain
     let existing = match state.firestore.find_device_by_uid(&uid).await {
         Ok(existing) => existing,
         Err(e) => {
@@ -93,8 +104,12 @@ pub async fn handle_register(
             }
         };
 
-        // Verify signature against stored public key
-        if let Err(e) = verify_signature(&existing_record.public_key, &csr_der, sig_b64) {
+        // Verify signature over the firebase_token bytes
+        if let Err(e) = verify_signature(
+            &existing_record.public_key,
+            req.firebase_token.as_bytes(),
+            sig_b64,
+        ) {
             return ApiError::forbidden(format!("Signature verification failed: {e}"))
                 .into_response();
         }
@@ -137,8 +152,104 @@ pub async fn handle_register(
         state.subdomain_generator.generate()
     };
 
-    // 6. Issue certificate via ACME (relay generates keypair + CSR with correct FQDN)
-    let bundle = match state.acme.issue_certificate(&subdomain).await {
+    // 4. Store device record (public_key will be set in round 2 when CSR arrives)
+    let record = DeviceRecord {
+        fcm_token: req.fcm_token,
+        firebase_uid: uid,
+        public_key: String::new(),            // set in round 2
+        cert_expires: SystemTime::UNIX_EPOCH, // set in round 2
+        registered_at: SystemTime::now(),
+        last_rotation: if req.force_new {
+            Some(SystemTime::now())
+        } else {
+            None
+        },
+        renewal_nudge_sent: None,
+    };
+
+    if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
+        return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
+    }
+
+    // 5. Return subdomain
+    (
+        StatusCode::OK,
+        Json(RegisterResponse {
+            subdomain,
+            relay_host: state.config.server.relay_hostname.clone(),
+        }),
+    )
+        .into_response()
+}
+
+/// Round 2: POST /register/certs
+///
+/// Device sends its CSR (containing its public key with the correct FQDN).
+/// Relay issues an ACME server cert and a relay CA client cert, both using
+/// the device's public key.
+pub async fn handle_register_certs(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CertRequest>,
+) -> Response {
+    // 1. Validate required fields
+    if req.firebase_token.is_empty() {
+        return ApiError::bad_request("Missing required field: firebase_token").into_response();
+    }
+    if req.csr.is_empty() {
+        return ApiError::bad_request("Missing required field: csr").into_response();
+    }
+
+    // 2. Decode CSR
+    let csr_der = match BASE64.decode(&req.csr) {
+        Ok(bytes) => bytes,
+        Err(_) => return ApiError::bad_request("Invalid Base64 in csr field").into_response(),
+    };
+
+    // 3. Verify Firebase ID token
+    let claims = match state
+        .firebase_auth
+        .verify_id_token(&req.firebase_token)
+        .await
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return ApiError::unauthorized(format!("Invalid Firebase ID token: {e}"))
+                .into_response()
+        }
+    };
+    let uid = claims.uid;
+
+    // 4. Look up existing device by UID
+    let (subdomain, _record) = match state.firestore.find_device_by_uid(&uid).await {
+        Ok(Some(pair)) => pair,
+        Ok(None) => {
+            return ApiError::not_found(
+                "No device registered for this UID. Call POST /register first.",
+            )
+            .into_response()
+        }
+        Err(e) => {
+            return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
+        }
+    };
+
+    // 5. Extract public key from CSR
+    let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {
+        Ok(spki) => spki,
+        Err(e) => {
+            return ApiError::bad_request(format!("Failed to parse CSR: {e}")).into_response()
+        }
+    };
+
+    // Store the public key fingerprint for future re-registration verification
+    let public_key_b64 = BASE64.encode(&public_key_der);
+
+    // 6. Issue ACME server cert using the device's CSR
+    let acme_bundle = match state
+        .acme
+        .issue_certificate(&subdomain, Some(&csr_der))
+        .await
+    {
         Ok(b) => b,
         Err(crate::acme::AcmeError::RateLimited { retry_after_secs }) => {
             return ApiError::acme_rate_limited(
@@ -156,60 +267,58 @@ pub async fn handle_register(
         }
     };
 
-    // 7. Store device record
-    let record = DeviceRecord {
-        fcm_token: req.fcm_token,
-        firebase_uid: uid,
-        public_key: public_key_b64,
-        cert_expires: SystemTime::now() + Duration::from_secs(90 * 86400), // ~90 days
-        registered_at: SystemTime::now(),
-        last_rotation: if req.force_new {
-            Some(SystemTime::now())
-        } else {
-            None
-        },
-        renewal_nudge_sent: None,
+    // 7. Issue relay CA client cert using the device's public key
+    let device_ca = match &state.device_ca {
+        Some(ca) => ca,
+        None => {
+            return ApiError::internal("Device CA not configured").into_response();
+        }
     };
+
+    let base_domain = state
+        .config
+        .server
+        .relay_hostname
+        .strip_prefix("relay.")
+        .unwrap_or(&state.config.server.relay_hostname);
+
+    let client_bundle = match device_ca.sign_client_cert(&public_key_der, &subdomain, base_domain) {
+        Ok(b) => b,
+        Err(e) => {
+            return ApiError::internal(format!("Failed to sign client cert: {e}")).into_response()
+        }
+    };
+
+    // 8. Update device record with public key and cert expiry
+    let mut record = _record;
+    record.public_key = public_key_b64;
+    record.cert_expires = SystemTime::now() + Duration::from_secs(90 * 86400);
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
         return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
     }
 
-    // 8. Return response
+    // 9. Return both certs
     (
         StatusCode::OK,
-        Json(RegisterResponse {
+        Json(CertResponse {
             subdomain,
-            cert: bundle.cert_pem,
-            private_key: bundle.private_key_pem,
+            server_cert: acme_bundle.cert_pem,
+            client_cert: client_bundle.cert_pem,
+            relay_ca_cert: device_ca.ca_cert_pem().to_string(),
             relay_host: state.config.server.relay_hostname.clone(),
         }),
     )
         .into_response()
 }
 
-/// Extract a base64-encoded public key representation from CSR DER bytes.
-/// In a full implementation this would parse the PKCS#10 CSR and extract
-/// the SubjectPublicKeyInfo. For now we use a SHA-256 fingerprint of the
-/// CSR as a stand-in that is stable and verifiable.
-fn extract_public_key_from_csr(csr_der: &[u8]) -> String {
-    // Use the SHA-256 hash of the CSR as a stable identifier.
-    // The real implementation would parse the CSR with x509-parser
-    // and extract the SPKI. For the initial build, this gives us
-    // a deterministic, testable value.
-    let mut hasher = Sha256::new();
-    hasher.update(csr_der);
-    let hash = hasher.finalize();
-    BASE64.encode(hash)
-}
-
-/// Verify an ECDSA P-256 signature over the CSR bytes.
+/// Verify an ECDSA P-256 signature over the given data.
 fn verify_signature(
     stored_public_key_b64: &str,
-    csr_der: &[u8],
+    data: &[u8],
     signature_b64: &str,
 ) -> Result<(), String> {
-    let _pub_key_bytes = BASE64
+    let pub_key_bytes = BASE64
         .decode(stored_public_key_b64)
         .map_err(|e| format!("invalid stored public key: {e}"))?;
 
@@ -217,15 +326,13 @@ fn verify_signature(
         .decode(signature_b64)
         .map_err(|e| format!("invalid signature encoding: {e}"))?;
 
-    // For P-256 ECDSA verification, we need the DER-encoded public key
-    // and the DER-encoded signature. The signature is over SHA256(csr_der).
-    let verifying_key = VerifyingKey::from_public_key_der(&_pub_key_bytes)
+    let verifying_key = VerifyingKey::from_public_key_der(&pub_key_bytes)
         .map_err(|e| format!("invalid public key: {e}"))?;
 
     let signature =
         Signature::from_der(&sig_bytes).map_err(|e| format!("invalid signature format: {e}"))?;
 
     verifying_key
-        .verify(csr_der, &signature)
+        .verify(data, &signature)
         .map_err(|e| format!("signature mismatch: {e}"))
 }

@@ -18,13 +18,26 @@ fn make_app(
     acme: MockAcme,
     firebase_auth: MockFirebaseAuth,
 ) -> axum::Router {
-    let state = build_test_state(
+    let state = build_test_state_with_ca(
         firestore,
         Arc::new(MockFcm::new()),
         Arc::new(acme),
         Arc::new(firebase_auth),
     );
     build_router(state)
+}
+
+/// Generate a real PKCS#10 CSR using rcgen, returning base64-encoded DER.
+fn generate_real_csr() -> String {
+    let key_pair = rcgen::KeyPair::generate().unwrap();
+    let mut params =
+        rcgen::CertificateParams::new(vec!["test.rousecontext.com".to_string()]).unwrap();
+    params.distinguished_name = rcgen::DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, "test.rousecontext.com");
+    let csr = params.serialize_request(&key_pair).unwrap();
+    BASE64.encode(csr.der())
 }
 
 /// Create a test keypair and device record.
@@ -47,7 +60,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
 }
 
 #[tokio::test]
-async fn renew_firebase_path_valid_signature_returns_cert() {
+async fn renew_firebase_path_valid_signature_returns_certs() {
     let (signing_key, record) = setup_device();
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
     let acme = MockAcme::new("renewed-cert");
@@ -55,9 +68,9 @@ async fn renew_firebase_path_valid_signature_returns_cert() {
 
     let app = make_app(firestore, acme, auth);
 
-    let csr_bytes = b"renew-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
-    let signature: Signature = signing_key.sign(csr_bytes);
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let signature: Signature = signing_key.sign(&csr_der);
     let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
 
     let resp = axum::http::Request::builder()
@@ -82,7 +95,18 @@ async fn renew_firebase_path_valid_signature_returns_cert() {
         .await
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["cert"].as_str().unwrap(), "renewed-cert");
+    // Server cert comes from mock ACME
+    assert_eq!(json["server_cert"].as_str().unwrap(), "renewed-cert");
+    // Client cert should be present (signed by relay CA)
+    assert!(json["client_cert"]
+        .as_str()
+        .unwrap()
+        .contains("BEGIN CERTIFICATE"));
+    // Relay CA cert should be present
+    assert!(json["relay_ca_cert"]
+        .as_str()
+        .unwrap()
+        .contains("BEGIN CERTIFICATE"));
 }
 
 #[tokio::test]
@@ -94,8 +118,7 @@ async fn renew_invalid_signature_returns_403() {
 
     let app = make_app(firestore, acme, auth);
 
-    let csr_bytes = b"renew-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
+    let csr_b64 = generate_real_csr();
     let bad_sig = BASE64.encode(b"not-a-real-signature");
 
     let resp = axum::http::Request::builder()
@@ -127,9 +150,9 @@ async fn renew_wrong_uid_returns_403() {
 
     let app = make_app(firestore, acme, auth);
 
-    let csr_bytes = b"renew-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
-    let signature: Signature = signing_key.sign(csr_bytes);
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let signature: Signature = signing_key.sign(&csr_der);
     let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
 
     let resp = axum::http::Request::builder()
@@ -165,8 +188,7 @@ async fn renew_device_not_found_returns_404() {
 
     let app = make_app(firestore, acme, auth);
 
-    let csr_bytes = b"renew-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
+    let csr_b64 = generate_real_csr();
 
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -248,9 +270,9 @@ async fn renew_clears_renewal_nudge_sent() {
 
     let app = make_app(firestore.clone(), acme, auth);
 
-    let csr_bytes = b"renew-csr-bytes";
-    let csr_b64 = BASE64.encode(csr_bytes);
-    let signature: Signature = signing_key.sign(csr_bytes);
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let signature: Signature = signing_key.sign(&csr_der);
     let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
 
     let resp = axum::http::Request::builder()

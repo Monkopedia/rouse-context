@@ -1,6 +1,7 @@
 pub mod acme;
 pub mod api;
 pub mod config;
+pub mod device_ca;
 pub mod fcm;
 pub mod firebase_auth;
 pub mod firestore;

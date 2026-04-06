@@ -176,7 +176,7 @@ pub async fn run_maintenance_once(
                     continue;
                 }
 
-                match acme.issue_certificate(subdomain).await {
+                match acme.issue_certificate(subdomain, None).await {
                     Ok(bundle) => {
                         // Notify device with cert_ready FCM
                         let payload = crate::fcm::FcmData {

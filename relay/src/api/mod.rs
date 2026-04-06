@@ -174,12 +174,17 @@ pub struct AppState {
     pub subdomain_generator: crate::subdomain::SubdomainGenerator,
     pub rate_limiter: crate::rate_limit::RateLimiter,
     pub config: crate::config::RelayConfig,
+    pub device_ca: Option<crate::device_ca::DeviceCa>,
 }
 
 /// Build the axum router with all API endpoints.
 pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
     axum::Router::new()
         .route("/register", axum::routing::post(register::handle_register))
+        .route(
+            "/register/certs",
+            axum::routing::post(register::handle_register_certs),
+        )
         .route("/renew", axum::routing::post(renew::handle_renew))
         // /wake disabled — passthrough handles FCM wake implicitly on client connect
         // .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))

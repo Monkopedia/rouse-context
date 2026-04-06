@@ -37,27 +37,34 @@ pub enum AcmeError {
     Http(String),
 }
 
-/// A certificate bundle containing the PEM cert chain and the private key.
+/// A certificate bundle containing the PEM cert chain and optionally the private key.
 ///
-/// The relay generates a fresh keypair for each device subdomain. Both
-/// the cert and private key are returned to the device so it can perform
-/// mTLS with MCP clients.
+/// When the relay generates the keypair (legacy mode), `private_key_pem` contains
+/// the key. When the device provides a CSR with its own public key, `private_key_pem`
+/// is `None` because the device already holds the private key.
 #[derive(Debug, Clone)]
 pub struct CertificateBundle {
     /// PEM-encoded certificate chain (leaf + intermediates).
     pub cert_pem: String,
-    /// PEM-encoded PKCS#8 private key for the certificate.
-    pub private_key_pem: String,
+    /// PEM-encoded PKCS#8 private key for the certificate, if the relay generated it.
+    pub private_key_pem: Option<String>,
 }
 
 #[async_trait]
 pub trait AcmeClient: Send + Sync {
     /// Issue a certificate for the given subdomain via DNS-01 challenge.
     ///
-    /// Generates a fresh keypair and CSR with CN/SAN set to `{subdomain}.{base_domain}`.
-    /// Returns a `CertificateBundle` containing both the signed cert chain and
-    /// the private key so the device can use them for mTLS.
-    async fn issue_certificate(&self, subdomain: &str) -> Result<CertificateBundle, AcmeError>;
+    /// If `csr_der` is `Some`, the provided CSR (containing the device's public key)
+    /// is submitted to the ACME server for finalization. The CSR must have the correct
+    /// FQDN as its subject. No private key is returned in this case.
+    ///
+    /// If `csr_der` is `None`, the relay generates a fresh keypair and CSR internally,
+    /// and returns the private key in the bundle.
+    async fn issue_certificate(
+        &self,
+        subdomain: &str,
+        csr_der: Option<&[u8]>,
+    ) -> Result<CertificateBundle, AcmeError>;
 }
 
 /// ACME directory endpoints, discovered from the directory URL.
@@ -701,28 +708,36 @@ impl RealAcmeClient {
 
 #[async_trait]
 impl AcmeClient for RealAcmeClient {
-    async fn issue_certificate(&self, subdomain: &str) -> Result<CertificateBundle, AcmeError> {
+    async fn issue_certificate(
+        &self,
+        subdomain: &str,
+        device_csr_der: Option<&[u8]>,
+    ) -> Result<CertificateBundle, AcmeError> {
         let fqdn = format!("{subdomain}.{}", self.base_domain);
-        info!(fqdn = %fqdn, "Starting ACME DNS-01 certificate issuance");
+        info!(fqdn = %fqdn, device_csr = device_csr_der.is_some(), "Starting ACME DNS-01 certificate issuance");
 
-        // Generate a fresh keypair and CSR with the correct FQDN.
-        // The private key will be returned to the device for mTLS.
-        let key_pair = rcgen::KeyPair::generate()
-            .map_err(|e| AcmeError::Http(format!("key generation failed: {e}")))?;
-        let private_key_pem = key_pair.serialize_pem();
+        // Either use the device-provided CSR or generate a fresh keypair + CSR.
+        let (csr_der, private_key_pem) = if let Some(csr) = device_csr_der {
+            (csr.to_vec(), None)
+        } else {
+            let key_pair = rcgen::KeyPair::generate()
+                .map_err(|e| AcmeError::Http(format!("key generation failed: {e}")))?;
+            let pem = key_pair.serialize_pem();
 
-        let mut params = rcgen::CertificateParams::new(vec![fqdn.clone()])
-            .map_err(|e| AcmeError::Http(format!("CSR params failed: {e}")))?;
-        params.distinguished_name = rcgen::DistinguishedName::new();
-        params
-            .distinguished_name
-            .push(rcgen::DnType::CommonName, &fqdn);
+            let mut params = rcgen::CertificateParams::new(vec![fqdn.clone()])
+                .map_err(|e| AcmeError::Http(format!("CSR params failed: {e}")))?;
+            params.distinguished_name = rcgen::DistinguishedName::new();
+            params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, &fqdn);
 
-        let csr_der = params
-            .serialize_request(&key_pair)
-            .map_err(|e| AcmeError::Http(format!("CSR generation failed: {e}")))?
-            .der()
-            .to_vec();
+            let csr = params
+                .serialize_request(&key_pair)
+                .map_err(|e| AcmeError::Http(format!("CSR generation failed: {e}")))?
+                .der()
+                .to_vec();
+            (csr, Some(pem))
+        };
 
         // 1. Fetch directory
         let dir = self.get_directory().await?;

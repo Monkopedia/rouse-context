@@ -21,6 +21,7 @@ pub struct RelayConfig {
     pub cloudflare: CloudflareConfig,
     pub limits: LimitsConfig,
     pub acme: AcmeConfig,
+    pub device_ca: DeviceCaConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -85,6 +86,24 @@ impl Default for AcmeConfig {
             dns_propagation_timeout_secs: 60,
             dns_poll_interval_secs: 5,
             account_key_path: "/etc/rouse-relay/acme_account_key.pem".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct DeviceCaConfig {
+    /// Path to the device CA private key (PEM format).
+    pub ca_key_path: String,
+    /// Path to the device CA certificate (PEM format).
+    pub ca_cert_path: String,
+}
+
+impl Default for DeviceCaConfig {
+    fn default() -> Self {
+        Self {
+            ca_key_path: "/etc/rouse-relay/device_ca_key.pem".to_string(),
+            ca_cert_path: "/etc/rouse-relay/device_ca_cert.pem".to_string(),
         }
     }
 }
@@ -158,6 +177,12 @@ impl RelayConfig {
         }
         if let Ok(val) = std::env::var("ACME_ACCOUNT_KEY_PATH") {
             self.acme.account_key_path = val;
+        }
+        if let Ok(val) = std::env::var("DEVICE_CA_KEY_PATH") {
+            self.device_ca.ca_key_path = val;
+        }
+        if let Ok(val) = std::env::var("DEVICE_CA_CERT_PATH") {
+            self.device_ca.ca_cert_path = val;
         }
     }
 }

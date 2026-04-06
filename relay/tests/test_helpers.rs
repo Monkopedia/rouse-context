@@ -204,7 +204,11 @@ impl MockAcme {
 
 #[async_trait]
 impl AcmeClient for MockAcme {
-    async fn issue_certificate(&self, _subdomain: &str) -> Result<CertificateBundle, AcmeError> {
+    async fn issue_certificate(
+        &self,
+        _subdomain: &str,
+        _csr_der: Option<&[u8]>,
+    ) -> Result<CertificateBundle, AcmeError> {
         let fail = {
             let guard = self.should_fail.lock().unwrap();
             guard.as_ref().map(|err| match err {
@@ -220,7 +224,7 @@ impl AcmeClient for MockAcme {
         }
         Ok(CertificateBundle {
             cert_pem: self.cert.lock().unwrap().clone(),
-            private_key_pem: "mock-private-key-pem".to_string(),
+            private_key_pem: None,
         })
     }
 }
@@ -287,5 +291,39 @@ pub fn build_test_state(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
         config: rouse_relay::config::RelayConfig::default(),
+        device_ca: None,
+    })
+}
+
+/// Build test AppState with a DeviceCa included.
+#[allow(dead_code)]
+pub fn build_test_state_with_ca(
+    firestore: Arc<dyn FirestoreClient>,
+    fcm: Arc<dyn FcmClient>,
+    acme: Arc<dyn AcmeClient>,
+    firebase_auth: Arc<dyn FirebaseAuth>,
+) -> Arc<rouse_relay::api::AppState> {
+    let tmp = tempfile::tempdir().expect("create tempdir for test CA");
+    let ca = rouse_relay::device_ca::DeviceCa::load_or_create(
+        &tmp.path().join("ca_key.pem"),
+        &tmp.path().join("ca_cert.pem"),
+    )
+    .expect("create test device CA");
+    // Leak the tempdir so it lives for the test duration
+    std::mem::forget(tmp);
+
+    Arc::new(rouse_relay::api::AppState {
+        relay_state: Arc::new(rouse_relay::state::RelayState::new()),
+        session_registry: Arc::new(rouse_relay::passthrough::SessionRegistry::new()),
+        firestore,
+        fcm,
+        acme,
+        firebase_auth,
+        subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
+        rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        config: rouse_relay::config::RelayConfig::default(),
+        device_ca: Some(ca),
     })
 }
