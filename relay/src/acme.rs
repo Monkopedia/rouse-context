@@ -9,7 +9,9 @@ use base64::Engine;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::TokioAsyncResolver;
 use p256::ecdsa::{signature::Signer, SigningKey};
+use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use sha2::{Digest, Sha256};
+use std::path::Path;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -132,6 +134,31 @@ struct AcmeChallenge {
     validated: Option<String>,
 }
 
+/// Load an ECDSA P-256 account key from a PEM file, or generate a new one and
+/// save it. This ensures the relay reuses the same ACME account across restarts.
+fn load_or_create_account_key(key_path: &Path) -> SigningKey {
+    if key_path.exists() {
+        let pem = std::fs::read_to_string(key_path).expect("failed to read ACME account key file");
+        let key = SigningKey::from_pkcs8_pem(&pem).expect("failed to parse ACME account key PEM");
+        info!(?key_path, "Loaded existing ACME account key");
+        key
+    } else {
+        let key = SigningKey::random(&mut rand::thread_rng());
+        let pem = key
+            .to_pkcs8_pem(p256::pkcs8::LineEnding::LF)
+            .expect("failed to encode ACME account key as PEM");
+
+        // Ensure parent directory exists.
+        if let Some(parent) = key_path.parent() {
+            std::fs::create_dir_all(parent)
+                .expect("failed to create directory for ACME account key");
+        }
+        std::fs::write(key_path, pem.as_bytes()).expect("failed to write ACME account key to disk");
+        info!(?key_path, "Generated and saved new ACME account key");
+        key
+    }
+}
+
 /// Real ACME client that performs DNS-01 challenges via Cloudflare.
 pub struct RealAcmeClient {
     http: reqwest::Client,
@@ -169,12 +196,37 @@ impl RealAcmeClient {
         dns_propagation_timeout_secs: u64,
         dns_poll_interval_secs: u64,
     ) -> Self {
-        // Generate a fresh ECDSA P-256 account key for ACME.
-        // A fresh key per relay instance is fine -- Let's Encrypt will create
-        // a new account automatically on first use. Account keys are not tied
-        // to certificates; they only authenticate the ACME session.
         let account_key = SigningKey::random(&mut rand::thread_rng());
-        info!("Generated fresh ACME account key");
+        info!("Generated fresh ACME account key (no key path configured)");
+
+        Self {
+            http: reqwest::Client::new(),
+            directory_url,
+            account_key,
+            cf_api_token,
+            cf_zone_id,
+            base_domain,
+            dns_propagation_timeout_secs,
+            dns_poll_interval_secs,
+        }
+    }
+
+    /// Create a new ACME client that persists its account key to disk.
+    ///
+    /// If `account_key_path` points to an existing PEM file, the key is loaded
+    /// from it. Otherwise a new ECDSA P-256 key is generated and saved there.
+    /// This keeps the same ACME account across relay restarts, avoiding
+    /// "no such authorization" errors from orphaned pending challenges.
+    pub fn with_persistent_key(
+        directory_url: String,
+        cf_api_token: String,
+        cf_zone_id: String,
+        base_domain: String,
+        dns_propagation_timeout_secs: u64,
+        dns_poll_interval_secs: u64,
+        account_key_path: &Path,
+    ) -> Self {
+        let account_key = load_or_create_account_key(account_key_path);
 
         Self {
             http: reqwest::Client::new(),
@@ -1085,5 +1137,43 @@ mod tests {
         let challenge: AcmeChallenge =
             serde_json::from_str(json).expect("should ignore unknown fields");
         assert_eq!(challenge.challenge_type, "dns-01");
+    }
+
+    #[test]
+    fn account_key_created_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("account_key.pem");
+        assert!(!key_path.exists());
+
+        let key = load_or_create_account_key(&key_path);
+        assert!(key_path.exists());
+
+        // Loading again should produce the same key.
+        let key2 = load_or_create_account_key(&key_path);
+        assert_eq!(key.to_bytes(), key2.to_bytes());
+    }
+
+    #[test]
+    fn account_key_loaded_from_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("account_key.pem");
+
+        // Write a key, then load it back.
+        let original = SigningKey::random(&mut rand::thread_rng());
+        let pem = original.to_pkcs8_pem(p256::pkcs8::LineEnding::LF).unwrap();
+        std::fs::write(&key_path, pem.as_bytes()).unwrap();
+
+        let loaded = load_or_create_account_key(&key_path);
+        assert_eq!(original.to_bytes(), loaded.to_bytes());
+    }
+
+    #[test]
+    fn account_key_creates_parent_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("nested").join("dir").join("key.pem");
+        assert!(!key_path.parent().unwrap().exists());
+
+        let _key = load_or_create_account_key(&key_path);
+        assert!(key_path.exists());
     }
 }
