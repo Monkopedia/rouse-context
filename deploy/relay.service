@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=relay
 Group=relay
-ExecStart=/opt/rouse-relay/rouse-relay --config /etc/rouse-relay/relay.toml
+ExecStart=/opt/rouse-relay/rouse-relay /etc/rouse-relay/relay.toml
 Restart=on-failure
 RestartSec=5
 
@@ -19,7 +19,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/
-ReadWritePaths=/var/log/rouse-relay
+ReadWritePaths=/var/log/rouse-relay /etc/rouse-relay /etc/rouse-relay/tls
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
