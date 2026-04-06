@@ -41,16 +41,12 @@ class FileCertificateStore(
     }
 
     override suspend fun storePrivateKey(pemKey: String) {
-        // No-op on Android: the private key lives in the hardware-backed Keystore.
-        // Ensure the key alias exists for signing operations.
-        ensureKeyPairExists()
+        File(filesDir, KEY_PEM_FILE).writeText(pemKey)
     }
 
     override suspend fun getPrivateKey(): String? {
-        // Android Keystore keys cannot be exported as PEM.
-        // Return the alias as a reference so callers know a key exists.
-        val keyStore = androidKeyStore()
-        return if (keyStore.containsAlias(KEY_ALIAS)) KEY_ALIAS else null
+        val keyFile = File(filesDir, KEY_PEM_FILE)
+        return if (keyFile.exists()) keyFile.readText() else null
     }
 
     override suspend fun getCertChain(): List<ByteArray>? {
@@ -151,6 +147,7 @@ class FileCertificateStore(
 
     companion object {
         private const val CERT_PEM_FILE = "rouse_cert.pem"
+        private const val KEY_PEM_FILE = "rouse_key.pem"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"
         private const val KEY_ALIAS = "rouse_device_key"

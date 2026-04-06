@@ -34,7 +34,7 @@ class OnboardingFlow(
         ) {
             is RelayApiResult.Success -> {
                 try {
-                    certificateStore.storePrivateKey(csrResult.privateKeyPem)
+                    certificateStore.storePrivateKey(response.data.privateKey)
                     certificateStore.storeCertificate(response.data.cert)
                     certificateStore.storeSubdomain(response.data.subdomain)
                     OnboardingResult.Success(subdomain = response.data.subdomain)

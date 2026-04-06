@@ -158,6 +158,7 @@ data class RegisterRequest(
 data class RegisterResponse(
     @SerialName("subdomain") val subdomain: String,
     @SerialName("cert") val cert: String,
+    @SerialName("private_key") val privateKey: String,
     @SerialName("relay_host") val relayHost: String
 )
 

@@ -7,10 +7,11 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.network.tls.CertificateAndKey
 import java.io.File
-import java.security.KeyStore
+import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
 
 /**
  * Creates a Ktor [HttpClient] configured with the device's mTLS client certificate
@@ -22,9 +23,8 @@ import java.security.cert.X509Certificate
 object MtlsHttpClientFactory {
 
     private const val TAG = "MtlsHttpClientFactory"
-    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    private const val KEY_ALIAS = "rouse_device_key"
     private const val CERT_PEM_FILE = "rouse_cert.pem"
+    private const val KEY_PEM_FILE = "rouse_key.pem"
 
     /**
      * Build an [HttpClient] that presents the device client certificate during TLS handshake.
@@ -70,22 +70,43 @@ object MtlsHttpClientFactory {
             return null
         }
 
-        val androidKeyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
-        androidKeyStore.load(null)
-
-        if (!androidKeyStore.containsAlias(KEY_ALIAS)) {
-            Log.w(TAG, "Private key alias '$KEY_ALIAS' not found in Android Keystore")
+        val keyFile = File(context.filesDir, KEY_PEM_FILE)
+        if (!keyFile.exists()) {
+            Log.w(TAG, "No private key file found at ${keyFile.absolutePath}")
             return null
         }
 
-        val privateKey = androidKeyStore.getKey(KEY_ALIAS, null) as? PrivateKey
+        val privateKey = parsePemPrivateKey(keyFile.readText())
         if (privateKey == null) {
-            Log.w(TAG, "Key entry '$KEY_ALIAS' is not a PrivateKey")
+            Log.w(TAG, "Failed to parse private key PEM")
             return null
         }
 
         Log.i(TAG, "Loaded device cert (${certs.size} certs in chain) and private key")
         return CertificateAndKey(certs.toTypedArray(), privateKey)
+    }
+
+    private fun parsePemPrivateKey(pem: String): PrivateKey? {
+        val base64 = pem
+            .replace("-----BEGIN PRIVATE KEY-----", "")
+            .replace("-----END PRIVATE KEY-----", "")
+            .replace("-----BEGIN RSA PRIVATE KEY-----", "")
+            .replace("-----END RSA PRIVATE KEY-----", "")
+            .replace("-----BEGIN EC PRIVATE KEY-----", "")
+            .replace("-----END EC PRIVATE KEY-----", "")
+            .replace("\\s".toRegex(), "")
+        return try {
+            val der = java.util.Base64.getDecoder().decode(base64)
+            val spec = PKCS8EncodedKeySpec(der)
+            try {
+                KeyFactory.getInstance("EC").generatePrivate(spec)
+            } catch (_: Exception) {
+                KeyFactory.getInstance("RSA").generatePrivate(spec)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse private key", e)
+            null
+        }
     }
 
     private fun parsePemCertificates(pem: String): List<X509Certificate> {
