@@ -90,9 +90,12 @@ async fn handle_mux_session(
     // Channel for passthrough code to request new streams
     let (open_stream_tx, mut open_stream_rx) = mpsc::channel::<OpenStreamRequest>(16);
 
-    // Register the session so passthrough can find it
-    relay_state.register_mux_connection(&subdomain);
+    // Register the session so passthrough can find it.
+    // Order matters: insert into registry FIRST so try_open_stream() works,
+    // THEN signal waiters via register_mux_connection(). Otherwise, FCM
+    // waiters wake up but find no session entry and get StreamRefused.
     session_registry.insert(&subdomain, open_stream_tx);
+    relay_state.register_mux_connection(&subdomain);
 
     info!(subdomain = %subdomain, "Mux session registered");
 
@@ -210,6 +213,7 @@ async fn run_session_loop(
                     None => {
                         // Registry dropped, shouldn't normally happen while session is alive
                         debug!(subdomain = %session.subdomain, "Open-stream channel closed");
+                        break;
                     }
                 }
             }
