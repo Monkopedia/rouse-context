@@ -62,6 +62,11 @@ pub struct LimitsConfig {
     pub wake_rate_limit: u32,
     pub subdomain_rotation_cooldown_days: Option<u32>,
     pub fcm_wakeup_timeout_secs: Option<u64>,
+    /// How often to send WebSocket Ping frames to detect stale device connections (seconds).
+    pub ws_ping_interval_secs: u64,
+    /// If no WebSocket message (including Pong) is received within this many seconds,
+    /// consider the device connection dead and tear down the session.
+    pub ws_read_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -133,6 +138,8 @@ impl Default for LimitsConfig {
             wake_rate_limit: 6,
             subdomain_rotation_cooldown_days: Some(30),
             fcm_wakeup_timeout_secs: Some(20),
+            ws_ping_interval_secs: 30,
+            ws_read_timeout_secs: 60,
         }
     }
 }

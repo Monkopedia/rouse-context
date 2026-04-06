@@ -15,6 +15,7 @@ use axum::response::{IntoResponse, Response};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -27,6 +28,19 @@ use crate::passthrough::{OpenStreamRequest, SessionRegistry};
 #[derive(Debug, Clone)]
 pub struct DeviceIdentity {
     pub subdomain: String,
+}
+
+/// Collected session parameters passed into `handle_mux_session` to avoid
+/// exceeding clippy's argument-count limit.
+struct SessionParams {
+    subdomain: String,
+    max_streams: u32,
+    ping_interval: Duration,
+    read_timeout: Duration,
+    relay_state: Arc<crate::state::RelayState>,
+    session_registry: Arc<SessionRegistry>,
+    firestore: Arc<dyn crate::firestore::FirestoreClient>,
+    firestore_has_record: bool,
 }
 
 pub async fn handle_ws(
@@ -59,35 +73,34 @@ pub async fn handle_ws(
         }
     };
 
-    let max_streams = state.config.limits.max_streams_per_device;
-    let relay_state = state.relay_state.clone();
-    let session_registry = state.session_registry.clone();
-    let firestore = state.firestore.clone();
+    let params = SessionParams {
+        subdomain,
+        max_streams: state.config.limits.max_streams_per_device,
+        ping_interval: Duration::from_secs(state.config.limits.ws_ping_interval_secs),
+        read_timeout: Duration::from_secs(state.config.limits.ws_read_timeout_secs),
+        relay_state: state.relay_state.clone(),
+        session_registry: state.session_registry.clone(),
+        firestore: state.firestore.clone(),
+        firestore_has_record,
+    };
 
-    info!(subdomain = %subdomain, "Device WebSocket upgrade accepted");
+    info!(subdomain = %params.subdomain, "Device WebSocket upgrade accepted");
 
-    ws.on_upgrade(move |socket| {
-        handle_mux_session(
-            socket,
-            subdomain,
-            max_streams,
-            relay_state,
-            session_registry,
-            firestore,
-            firestore_has_record,
-        )
-    })
+    ws.on_upgrade(move |socket| handle_mux_session(socket, params))
 }
 
-async fn handle_mux_session(
-    socket: WebSocket,
-    subdomain: String,
-    max_streams: u32,
-    relay_state: Arc<crate::state::RelayState>,
-    session_registry: Arc<SessionRegistry>,
-    firestore: Arc<dyn crate::firestore::FirestoreClient>,
-    firestore_has_record: bool,
-) {
+async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
+    let SessionParams {
+        subdomain,
+        max_streams,
+        ping_interval,
+        read_timeout,
+        relay_state,
+        session_registry,
+        firestore,
+        firestore_has_record,
+    } = params;
+
     // If no Firestore record exists (e.g. after relay restart), auto-create one
     // with a placeholder FCM token. The device will send its real token shortly.
     if !firestore_has_record {
@@ -134,34 +147,53 @@ async fn handle_mux_session(
 
     // Spawn WebSocket read task: reads WS messages, decodes frames, sends to incoming_tx.
     // Text messages are used as a control channel (e.g. FCM token registration).
+    // A read timeout detects stale connections: if no message (including Pong
+    // responses to our periodic Pings) arrives within `read_timeout`, the
+    // connection is considered dead.
     let read_subdomain = subdomain.clone();
     let read_firestore = firestore.clone();
     let read_task = tokio::spawn(async move {
-        while let Some(msg) = ws_receiver.next().await {
-            match msg {
-                Ok(Message::Binary(data)) => match Frame::decode(&data) {
-                    Ok(frame) => {
-                        if incoming_tx.send(frame).await.is_err() {
-                            debug!(subdomain = %read_subdomain, "Incoming channel closed");
-                            break;
+        loop {
+            match tokio::time::timeout(read_timeout, ws_receiver.next()).await {
+                Ok(Some(msg)) => match msg {
+                    Ok(Message::Binary(data)) => match Frame::decode(&data) {
+                        Ok(frame) => {
+                            if incoming_tx.send(frame).await.is_err() {
+                                debug!(subdomain = %read_subdomain, "Incoming channel closed");
+                                break;
+                            }
                         }
+                        Err(e) => {
+                            warn!(subdomain = %read_subdomain, error = %e, "Bad frame from device");
+                        }
+                    },
+                    Ok(Message::Text(text)) => {
+                        handle_control_message(&read_subdomain, &text, &read_firestore).await;
+                    }
+                    Ok(Message::Close(_)) => {
+                        debug!(subdomain = %read_subdomain, "Device sent WS close");
+                        break;
+                    }
+                    Ok(Message::Ping(_) | Message::Pong(_)) => {
+                        // axum handles ping/pong automatically; these still reset our timeout
                     }
                     Err(e) => {
-                        warn!(subdomain = %read_subdomain, error = %e, "Bad frame from device");
+                        debug!(subdomain = %read_subdomain, error = %e, "WebSocket read error");
+                        break;
                     }
                 },
-                Ok(Message::Text(text)) => {
-                    handle_control_message(&read_subdomain, &text, &read_firestore).await;
-                }
-                Ok(Message::Close(_)) => {
-                    debug!(subdomain = %read_subdomain, "Device sent WS close");
+                Ok(None) => {
+                    // Stream ended (WebSocket closed)
+                    debug!(subdomain = %read_subdomain, "WebSocket stream ended");
                     break;
                 }
-                Ok(Message::Ping(_) | Message::Pong(_)) => {
-                    // axum handles ping/pong automatically
-                }
-                Err(e) => {
-                    debug!(subdomain = %read_subdomain, error = %e, "WebSocket read error");
+                Err(_) => {
+                    // Timeout: no message received within the deadline
+                    info!(
+                        subdomain = %read_subdomain,
+                        timeout_secs = read_timeout.as_secs(),
+                        "No WebSocket activity, closing stale connection"
+                    );
                     break;
                 }
             }
@@ -169,15 +201,38 @@ async fn handle_mux_session(
         drop(incoming_tx);
     });
 
-    // Spawn WebSocket write task: reads from frame_rx, encodes, sends to WS
+    // Spawn WebSocket write task: reads from frame_rx, encodes, sends to WS.
+    // Also sends periodic Ping frames so the device's Pong responses keep the
+    // read task's timeout from firing on idle-but-alive connections.
     let write_subdomain = subdomain.clone();
     let write_task = tokio::spawn(async move {
         let mut frame_rx = frame_rx;
-        while let Some(frame) = frame_rx.recv().await {
-            let data = frame.encode();
-            if let Err(e) = ws_sender.send(Message::Binary(data.into())).await {
-                debug!(subdomain = %write_subdomain, error = %e, "WebSocket write error");
-                break;
+        let mut ping_ticker = tokio::time::interval(ping_interval);
+        // The first tick fires immediately; skip it so we don't ping on connect.
+        ping_ticker.tick().await;
+        loop {
+            tokio::select! {
+                frame = frame_rx.recv() => {
+                    match frame {
+                        Some(f) => {
+                            let data = f.encode();
+                            if let Err(e) = ws_sender.send(Message::Binary(data.into())).await {
+                                debug!(subdomain = %write_subdomain, error = %e, "WebSocket write error");
+                                break;
+                            }
+                        }
+                        None => {
+                            // Session closed, no more frames to send
+                            break;
+                        }
+                    }
+                }
+                _ = ping_ticker.tick() => {
+                    if let Err(e) = ws_sender.send(Message::Ping(vec![].into())).await {
+                        debug!(subdomain = %write_subdomain, error = %e, "WebSocket ping error");
+                        break;
+                    }
+                }
             }
         }
     });
