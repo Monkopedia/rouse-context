@@ -30,6 +30,7 @@ import org.koin.core.qualifier.named
 class TunnelForegroundService : LifecycleService() {
 
     private val tunnelClient: TunnelClient by inject()
+    private val sessionHandler: SessionHandler by inject()
     private val wakelockManager: WakelockManager by inject()
     private val idleTimeoutManager: IdleTimeoutManager by inject()
     private val relayUrl: String by inject(named("relayUrl"))
@@ -64,6 +65,21 @@ class TunnelForegroundService : LifecycleService() {
 
         lifecycleScope.launch {
             idleTimeoutManager.observe(tunnelClient.state)
+        }
+
+        lifecycleScope.launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                launch {
+                    Log.i(TAG, "New mux stream ${stream.id}, starting session handler")
+                    try {
+                        sessionHandler.handle(stream)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Session handler failed for stream ${stream.id}", e)
+                    } finally {
+                        Log.i(TAG, "Session ended for stream ${stream.id}")
+                    }
+                }
+            }
         }
 
         lifecycleScope.launch {

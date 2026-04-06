@@ -40,8 +40,18 @@ class McpSession(
     private var engine: io.ktor.server.engine.EmbeddedServer<*, *>? = null
 
     /**
+     * Returns the actual port the HTTP server is listening on.
+     * Only valid after [start] has been called. Returns -1 if not started.
+     */
+    @Volatile
+    var port: Int = -1
+        private set
+
+    /**
      * Starts the embedded HTTP server on the given port.
      * Use port 0 for an OS-assigned ephemeral port.
+     *
+     * Call [resolvePort] after starting to determine the actual listening port.
      */
     fun start(port: Int = 0) {
         val server = embeddedServer(CIO, port = port) {
@@ -57,6 +67,17 @@ class McpSession(
         }
         engine = server
         server.start(wait = false)
+    }
+
+    /**
+     * Resolves the actual port the server is listening on.
+     * Must be called after [start]. This is suspend because Ktor CIO's
+     * `resolvedConnectors()` is a suspend function.
+     */
+    suspend fun resolvePort(): Int {
+        val resolvedPort = engine?.engine?.resolvedConnectors()?.firstOrNull()?.port ?: -1
+        port = resolvedPort
+        return resolvedPort
     }
 
     /**

@@ -135,6 +135,74 @@ class TlsAcceptor(
 
             return TlsAcceptor(sslContext)
         }
+
+        /**
+         * Create a [TlsAcceptor] from PEM-encoded certificate chain and private key.
+         *
+         * @param certPem PEM-encoded certificate chain (may contain multiple certs)
+         * @param keyPem PEM-encoded PKCS#8 private key
+         */
+        fun fromPem(certPem: String, keyPem: String): TlsAcceptor {
+            val certFactory = CertificateFactory.getInstance("X.509")
+            val certs = parsePemCertificates(certFactory, certPem)
+            require(certs.isNotEmpty()) { "No certificates found in PEM" }
+
+            val privateKey = parsePemPrivateKey(keyPem)
+
+            val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
+            keyStore.load(null, null)
+            keyStore.setKeyEntry(
+                "device",
+                privateKey,
+                charArrayOf(),
+                certs.toTypedArray()
+            )
+
+            val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
+            kmf.init(keyStore, charArrayOf())
+
+            val sslContext = SSLContext.getInstance("TLS")
+            sslContext.init(kmf.keyManagers, null, null)
+
+            return TlsAcceptor(sslContext)
+        }
+
+        private fun parsePemCertificates(
+            factory: CertificateFactory,
+            pem: String
+        ): List<X509Certificate> {
+            val regex = Regex(
+                "-----BEGIN CERTIFICATE-----(.+?)-----END CERTIFICATE-----",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            return regex.findAll(pem).map { match ->
+                val base64 = match.groupValues[1].replace("\\s".toRegex(), "")
+                val der = java.util.Base64.getDecoder().decode(base64)
+                factory.generateCertificate(der.inputStream()) as X509Certificate
+            }.toList()
+        }
+
+        private fun parsePemPrivateKey(pem: String): java.security.PrivateKey {
+            // Support PKCS#8 ("PRIVATE KEY") and EC/RSA-specific headers
+            val pattern =
+                "-----BEGIN (?:RSA |EC )?PRIVATE KEY-----" +
+                    "(.+?)" +
+                    "-----END (?:RSA |EC )?PRIVATE KEY-----"
+            val regex = Regex(pattern, RegexOption.DOT_MATCHES_ALL)
+            val match = regex.find(pem)
+                ?: throw IllegalArgumentException("No private key found in PEM")
+            val base64 = match.groupValues[1].replace("\\s".toRegex(), "")
+            val keyBytes = java.util.Base64.getDecoder().decode(base64)
+
+            // Try EC first (our ACME keys are EC P-256), then RSA
+            return try {
+                val keyFactory = KeyFactory.getInstance("EC")
+                keyFactory.generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+            } catch (_: Exception) {
+                val keyFactory = KeyFactory.getInstance("RSA")
+                keyFactory.generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+            }
+        }
     }
 }
 
