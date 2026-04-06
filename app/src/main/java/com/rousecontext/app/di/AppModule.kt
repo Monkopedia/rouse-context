@@ -11,6 +11,7 @@ import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
 import com.rousecontext.app.registry.NotificationIntegration
 import com.rousecontext.app.registry.OutreachIntegration
+import com.rousecontext.app.registry.UsageIntegration
 import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
@@ -97,12 +98,14 @@ val appModule = module {
     single<McpIntegration>(named("notifications")) {
         NotificationIntegration(androidContext(), get())
     }
+    single<McpIntegration>(named("usage")) { UsageIntegration(androidContext()) }
 
     single<List<McpIntegration>> {
         buildList {
             add(get(named("health")))
             add(get(named("outreach")))
             add(get(named("notifications")))
+            add(get(named("usage")))
             getKoin().getOrNull<McpIntegration>(named("test"))?.let { add(it) }
         }
     }

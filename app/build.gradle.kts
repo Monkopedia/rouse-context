@@ -98,6 +98,7 @@ dependencies {
     implementation(project(":api"))
     implementation(project(":health"))
     implementation(project(":outreach"))
+    implementation(project(":usage"))
     implementation(project(":notifications"))
     implementation(project(":work"))
     implementation(libs.workmanager)
