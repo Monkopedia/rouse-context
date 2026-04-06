@@ -42,7 +42,6 @@ fn make_app_with_state(
     build_router(state)
 }
 
-
 #[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_online_device_returns_200_immediately() {
@@ -74,7 +73,6 @@ async fn wake_online_device_returns_200_immediately() {
     // No FCM should have been sent
     assert!(fcm.sent.lock().unwrap().is_empty());
 }
-
 
 #[ignore = "wake endpoint disabled"]
 #[tokio::test]
@@ -116,7 +114,6 @@ async fn wake_offline_device_sends_fcm_and_waits() {
     assert!(sent[0].2); // high priority
 }
 
-
 #[ignore = "wake endpoint disabled"]
 #[tokio::test]
 async fn wake_device_not_found_returns_404() {
@@ -136,7 +133,6 @@ async fn wake_device_not_found_returns_404() {
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
     assert_eq!(resp.status(), 404);
 }
-
 
 #[ignore = "wake endpoint disabled"]
 #[tokio::test]
@@ -195,7 +191,6 @@ async fn wake_rate_limit_returns_429() {
     assert_eq!(json["error"].as_str().unwrap(), "rate_limited");
     assert!(json["retry_after_secs"].is_number());
 }
-
 
 #[ignore = "wake endpoint disabled"]
 #[tokio::test]

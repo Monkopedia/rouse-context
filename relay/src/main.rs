@@ -92,7 +92,7 @@ async fn main() {
 
     // Build external service clients — use real implementations when a service account is available
     let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(StubFirestore);
-    let acme: Arc<dyn rouse_relay::acme::AcmeClient> = Arc::new(StubAcme);
+    let acme: Arc<dyn rouse_relay::acme::AcmeClient> = build_acme_client(&config);
 
     let (fcm, firebase_auth): (
         Arc<dyn rouse_relay::fcm::FcmClient>,
@@ -356,6 +356,55 @@ where
         .map_err(|e| format!("HTTP serve error: {e}"))?;
 
     Ok(())
+}
+
+/// Build the ACME client from config.
+///
+/// When Cloudflare credentials are configured (zone_id + api_token_env pointing to
+/// a set env var), this creates a `RealAcmeClient` that performs DNS-01 challenges
+/// via Cloudflare and issues certs from Let's Encrypt. Falls back to `StubAcme` with
+/// a warning when credentials are missing.
+fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeClient> {
+    let cf = &config.cloudflare;
+
+    if cf.zone_id.is_empty() {
+        info!("No cloudflare.zone_id configured, using stub ACME client");
+        return Arc::new(StubAcme);
+    }
+
+    let api_token = match cf.resolve_api_token() {
+        Ok(token) => token,
+        Err(e) => {
+            warn!("Cloudflare API token not available ({e}), using stub ACME client");
+            return Arc::new(StubAcme);
+        }
+    };
+
+    // Derive the base domain from the relay hostname (e.g. "relay.rousecontext.com" -> "rousecontext.com")
+    let base_domain = config
+        .server
+        .relay_hostname
+        .strip_prefix("relay.")
+        .unwrap_or(&config.server.relay_hostname)
+        .to_string();
+
+    // Use staging in development, production by default.
+    let directory_url = std::env::var("ACME_DIRECTORY_URL")
+        .unwrap_or_else(|_| rouse_relay::acme::LETS_ENCRYPT_DIRECTORY.to_string());
+
+    info!(
+        zone_id = %cf.zone_id,
+        base_domain = %base_domain,
+        directory_url = %directory_url,
+        "Wiring real ACME client with Cloudflare DNS-01"
+    );
+
+    Arc::new(rouse_relay::acme::RealAcmeClient::new(
+        directory_url,
+        api_token,
+        cf.zone_id.clone(),
+        base_domain,
+    ))
 }
 
 /// Build FCM and Firebase Auth clients from config.
