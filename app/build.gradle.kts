@@ -97,6 +97,7 @@ dependencies {
     implementation(project(":core:bridge"))
     implementation(project(":api"))
     implementation(project(":health"))
+    implementation(project(":outreach"))
     implementation(project(":notifications"))
     implementation(project(":work"))
     implementation(libs.workmanager)

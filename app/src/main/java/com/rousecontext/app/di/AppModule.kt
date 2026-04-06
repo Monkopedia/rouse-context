@@ -9,6 +9,7 @@ import com.rousecontext.app.cert.MtlsWebSocketFactory
 import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
+import com.rousecontext.app.registry.OutreachIntegration
 import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
@@ -88,10 +89,12 @@ val appModule = module {
 
     // --- Integrations ---
     single<McpIntegration>(named("health")) { HealthConnectIntegration(androidContext()) }
+    single<McpIntegration>(named("outreach")) { OutreachIntegration(androidContext()) }
 
     single<List<McpIntegration>> {
         buildList {
             add(get(named("health")))
+            add(get(named("outreach")))
             getKoin().getOrNull<McpIntegration>(named("test"))?.let { add(it) }
         }
     }
