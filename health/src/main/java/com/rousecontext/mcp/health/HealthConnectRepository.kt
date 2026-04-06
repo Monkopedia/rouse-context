@@ -1,6 +1,7 @@
 package com.rousecontext.mcp.health
 
 import java.time.Instant
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Abstraction over the Health Connect SDK for reading health data.
@@ -11,52 +12,37 @@ import java.time.Instant
 interface HealthConnectRepository {
 
     /**
-     * Daily step counts within the given time range.
-     * Each entry maps a day (as an ISO date string, e.g. "2026-04-03") to the total steps.
+     * Query records of the given [recordType] within the time range.
+     *
+     * @param recordType one of the names in [RecordTypeRegistry], e.g. "Steps"
+     * @param from start of time range (inclusive)
+     * @param to end of time range (exclusive)
+     * @param limit max records to return, or null for all
+     * @return list of JSON objects, each representing one record with type-specific fields
+     * @throws IllegalArgumentException if [recordType] is not recognized
      */
-    suspend fun getSteps(from: Instant, to: Instant): List<DailySteps>
+    suspend fun queryRecords(
+        recordType: String,
+        from: Instant,
+        to: Instant,
+        limit: Int? = null
+    ): List<JsonObject>
 
     /**
-     * Heart rate samples within the given time range, ordered chronologically.
+     * Check which record types currently have read permission granted.
+     *
+     * @return set of record type names (matching [RecordTypeRegistry] keys) that are permitted
      */
-    suspend fun getHeartRate(from: Instant, to: Instant): List<HeartRateSample>
+    suspend fun getGrantedPermissions(): Set<String>
 
     /**
-     * Sleep sessions (with stages) that overlap the given time range.
+     * Aggregate summary across record types for the given time range.
+     *
+     * Returns a JSON object with keys like "steps_total", "avg_heart_rate",
+     * "sleep_hours", "weight_latest", etc. Only includes types that have
+     * permission and data.
      */
-    suspend fun getSleepSessions(from: Instant, to: Instant): List<SleepSession>
-}
-
-data class DailySteps(
-    val date: String,
-    val count: Long
-)
-
-data class HeartRateSample(
-    val time: Instant,
-    val beatsPerMinute: Long
-)
-
-data class SleepSession(
-    val startTime: Instant,
-    val endTime: Instant,
-    val stages: List<SleepStage>
-)
-
-data class SleepStage(
-    val startTime: Instant,
-    val endTime: Instant,
-    val type: SleepStageType
-)
-
-enum class SleepStageType {
-    AWAKE,
-    LIGHT,
-    DEEP,
-    REM,
-    OUT_OF_BED,
-    SLEEPING,
-    UNKNOWN
+    suspend fun getSummary(from: Instant, to: Instant): JsonObject
 }
 
 /**

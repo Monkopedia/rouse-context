@@ -3,6 +3,7 @@ package com.rousecontext.app.registry
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.app.health.RealHealthConnectRepository
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.health.HealthConnectMcpServer
 
@@ -20,7 +21,9 @@ class HealthConnectIntegration(
     override val displayName = "Health Connect"
     override val description = "Expose step count, heart rate, sleep, HRV, and workout data"
     override val path = "/health"
-    override val provider: McpServerProvider = HealthConnectMcpServer()
+    override val provider: McpServerProvider = HealthConnectMcpServer(
+        repository = RealHealthConnectRepository(context)
+    )
     override val onboardingRoute = "setup"
     override val settingsRoute = "settings"
 

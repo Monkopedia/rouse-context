@@ -1,39 +1,46 @@
 package com.rousecontext.mcp.health
 
 import java.time.Instant
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Test fake for [HealthConnectRepository].
  *
- * Populate [steps], [heartRateSamples], and [sleepSessions] before calling
- * the query methods. Set [shouldThrow] to simulate Health Connect being unavailable.
+ * Populate [records] and [grantedPermissions] before calling query methods.
+ * Set [shouldThrow] to simulate Health Connect being unavailable.
  */
 class FakeHealthConnectRepository : HealthConnectRepository {
 
-    var steps: List<DailySteps> = emptyList()
-    var heartRateSamples: List<HeartRateSample> = emptyList()
-    var sleepSessions: List<SleepSession> = emptyList()
+    /** Map of record type name to list of JSON records. */
+    var records: MutableMap<String, List<JsonObject>> = mutableMapOf()
+
+    /** Set of record type names that have permission granted. */
+    var grantedPermissions: MutableSet<String> = mutableSetOf()
+
+    /** Canned summary response. */
+    var summaryResponse: JsonObject = JsonObject(emptyMap())
 
     /** When non-null, all methods throw this exception. */
     var shouldThrow: Exception? = null
 
-    override suspend fun getSteps(from: Instant, to: Instant): List<DailySteps> {
+    override suspend fun queryRecords(
+        recordType: String,
+        from: Instant,
+        to: Instant,
+        limit: Int?
+    ): List<JsonObject> {
         shouldThrow?.let { throw it }
-        return steps.filter { entry ->
-            // Simple filtering: include all pre-loaded data (caller controls the fixture)
-            true
-        }
+        val all = records[recordType] ?: emptyList()
+        return if (limit != null) all.take(limit) else all
     }
 
-    override suspend fun getHeartRate(from: Instant, to: Instant): List<HeartRateSample> {
+    override suspend fun getGrantedPermissions(): Set<String> {
         shouldThrow?.let { throw it }
-        return heartRateSamples.filter { it.time in from..to }
+        return grantedPermissions.toSet()
     }
 
-    override suspend fun getSleepSessions(from: Instant, to: Instant): List<SleepSession> {
+    override suspend fun getSummary(from: Instant, to: Instant): JsonObject {
         shouldThrow?.let { throw it }
-        return sleepSessions.filter { session ->
-            session.startTime < to && session.endTime > from
-        }
+        return summaryResponse
     }
 }
