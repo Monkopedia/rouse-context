@@ -17,18 +17,29 @@ import java.net.ServerSocket
 import kotlinx.serialization.json.Json
 
 /**
- * Embedded Ktor/Netty server that simulates the relay's /register and /renew endpoints.
- * Configure response behavior per-test via the handler lambdas.
+ * Embedded Ktor/Netty server that simulates the relay's two-round-trip
+ * registration and renewal endpoints.
  */
 class MockRelayServer {
 
-    var registerHandler: (suspend (RegisterRequest) -> MockResponse) = { _ ->
-        MockResponse(
+    var registerHandler: (suspend (RegisterRequest) -> MockRegisterResponse) = { _ ->
+        MockRegisterResponse(
             status = 201,
             body = RegisterResponse(
-                subdomain = "test123.rousecontext.com",
-                cert = MOCK_CERT_PEM,
-                privateKey = MOCK_PRIVATE_KEY_PEM,
+                subdomain = "test123",
+                relayHost = "relay.rousecontext.com"
+            )
+        )
+    }
+
+    var certHandler: (suspend (CertRequest) -> MockCertResponse) = { _ ->
+        MockCertResponse(
+            status = 201,
+            body = CertResponse(
+                subdomain = "test123",
+                serverCert = MOCK_CERT_PEM,
+                clientCert = MOCK_CLIENT_CERT_PEM,
+                relayCaCert = MOCK_RELAY_CA_PEM,
                 relayHost = "relay.rousecontext.com"
             )
         )
@@ -66,6 +77,20 @@ class MockRelayServer {
                     }
                     when (val body = response.body) {
                         is RegisterResponse -> call.respond(
+                            HttpStatusCode.fromValue(response.status),
+                            body
+                        )
+                        else -> call.respond(HttpStatusCode.fromValue(response.status), "")
+                    }
+                }
+                post("/register/certs") {
+                    val request = call.receive<CertRequest>()
+                    val response = certHandler(request)
+                    if (response.retryAfter != null) {
+                        call.response.header("Retry-After", response.retryAfter.toString())
+                    }
+                    when (val body = response.body) {
+                        is CertResponse -> call.respond(
                             HttpStatusCode.fromValue(response.status),
                             body
                         )
@@ -111,6 +136,24 @@ MjYwMTAxMDAwMDAwWjARMQ8wDQYDVQQDDAZ0ZXN0MTIzCAwGdGVzdDEyMwIDAQAB
 MA0GCSqGSIb3DQEBCwUAA0EAhN+z/EvKbL4TiT3FHSGA
 -----END CERTIFICATE-----"""
 
+        const val MOCK_CLIENT_CERT_PEM = """-----BEGIN CERTIFICATE-----
+MIIBkTCB+wIJANkE+TTJt1RdMA0GCSqGSIb3DQEBCwUAMBMxETAPBgNVBAMMCGNs
+aWVudC1jZXJ0MB4XDTIwMDEwMTAwMDAwMFoXDTIxMDEwMTAwMDAwMFowEzERMA8G
+A1UEAwwIY2xpZW50LWNlcnQwXDANBgkqhkiG9w0BAQEFAANLADBIAkEA2QT5NMm3
+VF0wDQYJKoZIhvcNAQELBQAwETEPMA0GA1UEAwwGdGVzdDEyMzAeFw0yNTAxMDEw
+MDAwMDBaFw0yNjAxMDEwMDAwMDBaMBExDzANBgNVBAMMBnRlc3QxMjMIDAZjbGll
+bnQtY2VydAIDAQABMA0GCSqGSIb3DQEBCwUAA0EAhN+z/EvKbL4TiT3FHSGA
+-----END CERTIFICATE-----"""
+
+        const val MOCK_RELAY_CA_PEM = """-----BEGIN CERTIFICATE-----
+MIIBkTCB+wIJANkE+TTJt1RdMA0GCSqGSIb3DQEBCwUAMBIxEDAOBgNVBAMMB3Jl
+bGF5LWNhMB4XDTIwMDEwMTAwMDAwMFoXDTIxMDEwMTAwMDAwMFowEjEQMA4GA1UE
+AwwHcmVsYXktY2EwXDANBgkqhkiG9w0BAQEFAANLADBIAkEA2QT5NMm3VF0wDQYJ
+KoZIhvcNAQELBQAwETEPMA0GA1UEAwwGdGVzdDEyMzAeFw0yNTAxMDEwMDAwMDBa
+Fw0yNjAxMDEwMDAwMDBaMBExDzANBgNVBAMMBnRlc3QxMjMIDAZyZWxheS1jYQID
+AQABMA0GCSqGSIb3DQEBCwUAA0EAhN+z/EvKbL4TiT3FHSGA
+-----END CERTIFICATE-----"""
+
         const val MOCK_PRIVATE_KEY_PEM = """-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDZBPk0ybdUXTAN
 -----END PRIVATE KEY-----"""
@@ -126,9 +169,15 @@ AQABMA0GCSqGSIb3DQEBCwUAA0EAhN+z/EvKbL4TiT3FHSGA
     }
 }
 
-data class MockResponse(
+data class MockRegisterResponse(
     val status: Int = 201,
     val body: RegisterResponse? = null,
+    val retryAfter: Long? = null
+)
+
+data class MockCertResponse(
+    val status: Int = 201,
+    val body: CertResponse? = null,
     val retryAfter: Long? = null
 )
 

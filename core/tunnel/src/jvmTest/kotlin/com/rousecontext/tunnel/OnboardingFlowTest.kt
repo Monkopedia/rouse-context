@@ -38,25 +38,37 @@ class OnboardingFlowTest {
 
     @Test
     fun `full onboarding flow succeeds`(): Unit = runBlocking {
-        mockServer.registerHandler = { request ->
-            assertTrue(request.csr.contains("BEGIN CERTIFICATE REQUEST"))
-            MockResponse(
+        mockServer.registerHandler = { _ ->
+            MockRegisterResponse(
                 status = 201,
                 body = RegisterResponse(
-                    subdomain = "abc123.rousecontext.com",
-                    cert = MockRelayServer.MOCK_CERT_PEM,
-                    privateKey = MockRelayServer.MOCK_PRIVATE_KEY_PEM,
+                    subdomain = "abc123",
+                    relayHost = "relay.rousecontext.com"
+                )
+            )
+        }
+        mockServer.certHandler = { request ->
+            assertTrue(request.csr.isNotBlank())
+            MockCertResponse(
+                status = 201,
+                body = CertResponse(
+                    subdomain = "abc123",
+                    serverCert = MockRelayServer.MOCK_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM,
                     relayHost = "relay.rousecontext.com"
                 )
             )
         }
 
-        val result = flow.execute("abc123.rousecontext.com", FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
 
         assertTrue(result is OnboardingResult.Success)
-        assertEquals("abc123.rousecontext.com", result.subdomain)
+        assertEquals("abc123", result.subdomain)
         assertNotNull(store.getCertificate())
-        assertEquals("abc123.rousecontext.com", store.getSubdomain())
+        assertNotNull(store.getClientCertificate())
+        assertNotNull(store.getRelayCaCert())
+        assertEquals("abc123", store.getSubdomain())
         assertNotNull(store.getPrivateKey())
     }
 
@@ -71,11 +83,7 @@ class OnboardingFlowTest {
             certificateStore = store
         )
 
-        val result = offlineFlow.execute(
-            "test.rousecontext.com",
-            FAKE_FIREBASE_TOKEN,
-            FAKE_FCM_TOKEN
-        )
+        val result = offlineFlow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
 
         assertTrue(result is OnboardingResult.NetworkError)
         assertNull(store.getCertificate())
@@ -84,12 +92,12 @@ class OnboardingFlowTest {
     }
 
     @Test
-    fun `rate limited returns error with retry_after`(): Unit = runBlocking {
+    fun `rate limited on register returns error with retry_after`(): Unit = runBlocking {
         mockServer.registerHandler = { _ ->
-            MockResponse(status = 429, retryAfter = 60)
+            MockRegisterResponse(status = 429, retryAfter = 60)
         }
 
-        val result = flow.execute("test.rousecontext.com", FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
 
         assertTrue(result is OnboardingResult.RateLimited)
         assertEquals(60L, result.retryAfterSeconds)
@@ -97,10 +105,23 @@ class OnboardingFlowTest {
     }
 
     @Test
+    fun `rate limited on cert request returns error`(): Unit = runBlocking {
+        mockServer.certHandler = { _ ->
+            MockCertResponse(status = 429, retryAfter = 30)
+        }
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.RateLimited)
+        assertEquals(30L, result.retryAfterSeconds)
+        assertNull(store.getCertificate())
+    }
+
+    @Test
     fun `partial failure leaves no state`(): Unit = runBlocking {
         store.throwOnStore = RuntimeException("Disk full")
 
-        val result = flow.execute("test.rousecontext.com", FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
 
         assertTrue(result is OnboardingResult.StorageFailed)
         assertNull(store.getCertificate())
@@ -109,12 +130,24 @@ class OnboardingFlowTest {
     }
 
     @Test
-    fun `relay returns server error`(): Unit = runBlocking {
+    fun `relay returns server error on register`(): Unit = runBlocking {
         mockServer.registerHandler = { _ ->
-            MockResponse(status = 500)
+            MockRegisterResponse(status = 500)
         }
 
-        val result = flow.execute("test.rousecontext.com", FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.RelayError)
+        assertEquals(500, result.statusCode)
+    }
+
+    @Test
+    fun `relay returns server error on cert request`(): Unit = runBlocking {
+        mockServer.certHandler = { _ ->
+            MockCertResponse(status = 500)
+        }
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
 
         assertTrue(result is OnboardingResult.RelayError)
         assertEquals(500, result.statusCode)

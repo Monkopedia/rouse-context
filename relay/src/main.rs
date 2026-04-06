@@ -122,7 +122,11 @@ async fn main() {
     let session_registry = Arc::new(SessionRegistry::new());
 
     // Build external service clients — use real implementations when a service account is available
-    let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(InMemoryFirestore::new());
+    let mem_store = InMemoryFirestore::new();
+    // Seed a test device so integration tests can connect via mTLS without
+    // needing to call POST /register (which requires Firebase auth).
+    mem_store.seed_test_device("test-device");
+    let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(mem_store);
     info!("Using in-memory Firestore (data lost on restart)");
     let acme: Arc<dyn rouse_relay::acme::AcmeClient> = build_acme_client(&config);
 
@@ -533,6 +537,24 @@ impl InMemoryFirestore {
             devices: std::sync::Mutex::new(std::collections::HashMap::new()),
             pending_certs: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
+    }
+
+    /// Pre-populate a device record so mTLS WebSocket connections with matching
+    /// client cert CN pass the Firestore registration check.
+    fn seed_test_device(&self, subdomain: &str) {
+        let record = rouse_relay::firestore::DeviceRecord {
+            fcm_token: "test-fcm-token".to_string(),
+            firebase_uid: "test-uid".to_string(),
+            public_key: String::new(),
+            cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400),
+            registered_at: std::time::SystemTime::now(),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+        };
+        self.devices
+            .lock()
+            .unwrap()
+            .insert(subdomain.to_string(), record);
     }
 }
 
