@@ -3,6 +3,7 @@ package com.rousecontext.mcp.core
 import io.modelcontextprotocol.kotlin.sdk.JSONRPCMessage
 import io.modelcontextprotocol.kotlin.sdk.shared.Transport
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeout
 
 /**
  * A Transport implementation for HTTP Streamable MCP.
@@ -53,6 +54,9 @@ internal class HttpTransport : Transport {
      *
      * Must be called from a single thread/coroutine at a time per transport
      * (serialized by the Ktor request handler).
+     *
+     * @throws kotlinx.coroutines.TimeoutCancellationException if the SDK server
+     *   does not respond within [REQUEST_TIMEOUT_MS].
      */
     suspend fun handleRequest(request: JSONRPCMessage): JSONRPCMessage {
         val deferred = CompletableDeferred<JSONRPCMessage>()
@@ -62,9 +66,15 @@ internal class HttpTransport : Transport {
             "Transport not started: no message handler"
         }
 
-        handler(request)
+        try {
+            handler(request)
+        } catch (e: Exception) {
+            deferred.completeExceptionally(e)
+        }
 
-        return deferred.await()
+        return withTimeout(REQUEST_TIMEOUT_MS) {
+            deferred.await()
+        }
     }
 
     /**
@@ -74,5 +84,10 @@ internal class HttpTransport : Transport {
     suspend fun handleNotification(notification: JSONRPCMessage) {
         val handler = messageHandler ?: return
         handler(notification)
+    }
+
+    companion object {
+        /** Timeout for SDK server to produce a response (30 seconds). */
+        const val REQUEST_TIMEOUT_MS = 30_000L
     }
 }

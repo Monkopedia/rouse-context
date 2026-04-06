@@ -390,7 +390,25 @@ fun Application.configureMcpRouting(
                 }
 
                 // Parse and dispatch JSON-RPC request through SDK transport
-                val requestBody = call.receiveText()
+                val requestBody = try {
+                    kotlinx.coroutines.withTimeout(MCP_REQUEST_TIMEOUT_MS) {
+                        call.receiveText()
+                    }
+                } catch (e: Exception) {
+                    println(
+                        "McpRouting: /mcp body read failed: " +
+                            "${e::class.simpleName}: ${e.message}"
+                    )
+                    call.respondText(
+                        mcpJson.encodeToString(
+                            JsonObject.serializer(),
+                            jsonRpcError(JsonNull, -32700, "Request body read timeout")
+                        ),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
 
                 // JSON-RPC notifications have no "id" field and expect no response
                 val parsed = try {
@@ -736,6 +754,9 @@ private fun emitAuditEvent(
         // Audit is best-effort; never fail the request due to audit errors
     }
 }
+
+/** Timeout for reading the MCP request body and dispatching it (30 seconds). */
+private const val MCP_REQUEST_TIMEOUT_MS = 30_000L
 
 private fun jsonRpcError(
     id: kotlinx.serialization.json.JsonElement,

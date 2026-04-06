@@ -28,15 +28,27 @@ class MuxStreamImpl(
     override suspend fun close() {
         if (closed) return
         closed = true
-        sendFrame(MuxFrame.Close(id))
+        try {
+            sendFrame(MuxFrame.Close(id))
+        } catch (_: Exception) {
+            // Best-effort: connection may already be broken
+        }
+        dataChannel.close()
+    }
+
+    /**
+     * Close the stream without sending a CLOSE frame.
+     * Used during error cleanup when the transport is already broken.
+     */
+    internal fun closeQuietly() {
+        closed = true
         dataChannel.close()
     }
 
     override val isClosed: Boolean
         get() = closed
 
-    override suspend fun read(): ByteArray =
-        dataChannel.receive()
+    override suspend fun read(): ByteArray = dataChannel.receive()
 
     /**
      * Called by [MuxDemux] when a DATA frame arrives for this stream.

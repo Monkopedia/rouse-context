@@ -51,7 +51,7 @@ class TunnelClientImpl(
                             try {
                                 demux.handleFrame(muxFrame)
                             } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
-                                // WebSocket frame arrived after disconnect, ignore
+                                println("TunnelClient: frame arrived after disconnect, ignoring")
                             }
                         }
                     }
@@ -110,7 +110,7 @@ class TunnelClientImpl(
             muxDemux?.closeAll()
             wsHandle?.close()
         } finally {
-            cleanup()
+            cleanupRefs()
             if (stateMachine.state.value != TunnelState.DISCONNECTED) {
                 stateMachine.transition(TunnelState.DISCONNECTED)
             }
@@ -118,14 +118,17 @@ class TunnelClientImpl(
     }
 
     private suspend fun handleDisconnect(error: TunnelError) {
+        println("TunnelClient: disconnected: ${error.message}")
         _errors.emit(error)
-        cleanup()
+        // Use quiet cleanup -- transport is already broken, don't try to send CLOSE frames
+        muxDemux?.closeAllQuietly()
+        cleanupRefs()
         if (stateMachine.state.value != TunnelState.DISCONNECTED) {
             stateMachine.transition(TunnelState.DISCONNECTED)
         }
     }
 
-    private fun cleanup() {
+    private fun cleanupRefs() {
         forwardJob?.cancel()
         forwardJob = null
         wsHandle = null

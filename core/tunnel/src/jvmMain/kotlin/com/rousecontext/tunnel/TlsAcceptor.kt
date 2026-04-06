@@ -238,6 +238,7 @@ internal class TlsInputStream(
         return if (n == -1) -1 else buf[0].toInt() and 0xFF
     }
 
+    @Suppress("LoopWithTooManyJumpStatements")
     override fun read(b: ByteArray, off: Int, len: Int): Int {
         if (appIn.hasRemaining()) {
             val toRead = minOf(len, appIn.remaining())
@@ -254,7 +255,11 @@ internal class TlsInputStream(
             if (netIn.position() == 0) {
                 val tlsData =
                     try {
-                        kotlinx.coroutines.runBlocking { stream.read() }
+                        kotlinx.coroutines.runBlocking {
+                            kotlinx.coroutines.withTimeout(READ_TIMEOUT_MS) {
+                                stream.read()
+                            }
+                        }
                     } catch (_: Exception) {
                         return -1
                     }
@@ -283,14 +288,22 @@ internal class TlsInputStream(
                     appIn.clear()
                 }
                 SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+                    // Grow the app buffer and retry unwrap immediately
+                    // (netIn still has the data that caused overflow)
                     val newBuf = java.nio.ByteBuffer.allocate(appIn.capacity() * 2)
                     appIn.flip()
                     newBuf.put(appIn)
                     appIn = newBuf
+                    continue
                 }
                 else -> return -1
             }
         }
+    }
+
+    companion object {
+        /** Timeout for reading from the underlying mux stream (30 seconds). */
+        const val READ_TIMEOUT_MS = 30_000L
     }
 }
 
@@ -316,7 +329,11 @@ internal class TlsOutputStream(
             if (netOut.hasRemaining()) {
                 val data = ByteArray(netOut.remaining())
                 netOut.get(data)
-                kotlinx.coroutines.runBlocking { stream.write(data) }
+                try {
+                    kotlinx.coroutines.runBlocking { stream.write(data) }
+                } catch (e: Exception) {
+                    throw java.io.IOException("TLS write failed: stream closed", e)
+                }
             }
             if (result.status != SSLEngineResult.Status.OK) {
                 throw java.io.IOException("TLS wrap failed: ${result.status}")
