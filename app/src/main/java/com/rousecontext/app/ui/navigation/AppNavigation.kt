@@ -16,6 +16,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.rousecontext.app.ui.screens.AddClientScreen
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditHistoryScreen
 import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
@@ -30,6 +31,7 @@ import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsScreen
 import com.rousecontext.app.ui.screens.WelcomeScreen
+import com.rousecontext.app.ui.viewmodels.AddClientViewModel
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
@@ -48,6 +50,7 @@ object Routes {
     const val HOME = "home"
     const val AUDIT = "audit"
     const val SETTINGS = "settings"
+    const val ADD_CLIENT = "add_client"
     const val ADD_INTEGRATION = "add_integration"
     const val INTEGRATION_MANAGE = "integration/{integrationId}"
     const val INTEGRATION_SETUP = "integration_setup/{integrationId}"
@@ -160,6 +163,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 selectedTab = 0,
                 onAddIntegration = { navController.navigate(Routes.ADD_INTEGRATION) },
                 onIntegrationClick = { id -> navController.navigate(Routes.integrationManage(id)) },
+                onAddClient = { navController.navigate(Routes.ADD_CLIENT) },
                 onViewAllActivity = { navController.navigate(Routes.AUDIT) },
                 onTabSelected = { tab ->
                     when (tab) {
@@ -204,6 +208,22 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                         1 -> navController.navigate(Routes.AUDIT)
                     }
                 }
+            )
+        }
+
+        composable(Routes.ADD_CLIENT) {
+            val viewModel: AddClientViewModel = koinViewModel()
+            val state by viewModel.state.collectAsState()
+            AddClientScreen(
+                state = state,
+                onCopyUrl = { url ->
+                    val clipboard = navController.context
+                        .getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(
+                        android.content.ClipData.newPlainText("MCP URL", url)
+                    )
+                },
+                onBack = { navController.popBackStack() }
             )
         }
 

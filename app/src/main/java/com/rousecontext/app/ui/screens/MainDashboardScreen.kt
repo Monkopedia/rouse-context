@@ -16,7 +16,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
@@ -97,7 +96,7 @@ fun MainDashboardScreen(
     selectedTab: Int = 0,
     onAddIntegration: () -> Unit = {},
     onIntegrationClick: (String) -> Unit = {},
-    onCopyUrl: (String) -> Unit = {},
+    onAddClient: () -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
@@ -188,8 +187,7 @@ fun MainDashboardScreen(
                             state.integrations.forEachIndexed { index, integration ->
                                 IntegrationRow(
                                     integration = integration,
-                                    onClick = { onIntegrationClick(integration.id) },
-                                    onCopy = { onCopyUrl(integration.url) }
+                                    onClick = { onIntegrationClick(integration.id) }
                                 )
                                 if (index < state.integrations.lastIndex) {
                                     HorizontalDivider()
@@ -197,6 +195,8 @@ fun MainDashboardScreen(
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AddClientCard(onAddClient)
                 }
             }
 
@@ -466,7 +466,7 @@ private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
 }
 
 @Composable
-private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit, onCopy: () -> Unit) {
+private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -497,27 +497,17 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit, on
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = when (integration.status) {
-                    IntegrationStatus.ACTIVE -> "Active"
-                    IntegrationStatus.PENDING -> "Pending"
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = when (integration.status) {
-                    IntegrationStatus.ACTIVE -> MaterialTheme.colorScheme.primary
-                    IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
-                }
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            IconButton(onClick = onCopy) {
-                Icon(
-                    Icons.Default.ContentCopy,
-                    contentDescription = "Copy URL",
-                    modifier = Modifier.size(18.dp)
-                )
+        Text(
+            text = when (integration.status) {
+                IntegrationStatus.ACTIVE -> "Active"
+                IntegrationStatus.PENDING -> "Pending"
+            },
+            style = MaterialTheme.typography.labelMedium,
+            color = when (integration.status) {
+                IntegrationStatus.ACTIVE -> MaterialTheme.colorScheme.primary
+                IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
             }
-        }
+        )
     }
 }
 
@@ -573,6 +563,39 @@ private fun ActivityRow(entry: AuditEntry) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+@Composable
+private fun AddClientCard(onAddClient: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onAddClient),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Add Client",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
