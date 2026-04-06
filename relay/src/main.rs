@@ -395,22 +395,26 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         rouse_relay::acme::LETS_ENCRYPT_DIRECTORY.to_string()
     };
 
+    let account_key_path = std::path::PathBuf::from(&config.acme.account_key_path);
+
     info!(
         zone_id = %cf.zone_id,
         base_domain = %base_domain,
         directory_url = %directory_url,
+        account_key_path = %account_key_path.display(),
         dns_propagation_timeout_secs = config.acme.dns_propagation_timeout_secs,
         dns_poll_interval_secs = config.acme.dns_poll_interval_secs,
         "Wiring real ACME client with Cloudflare DNS-01"
     );
 
-    Arc::new(rouse_relay::acme::RealAcmeClient::with_dns_settings(
+    Arc::new(rouse_relay::acme::RealAcmeClient::with_persistent_key(
         directory_url,
         api_token,
         cf.zone_id.clone(),
         base_domain,
         config.acme.dns_propagation_timeout_secs,
         config.acme.dns_poll_interval_secs,
+        &account_key_path,
     ))
 }
 

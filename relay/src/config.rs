@@ -72,6 +72,10 @@ pub struct AcmeConfig {
     pub dns_propagation_timeout_secs: u64,
     /// Interval in seconds between DNS propagation checks.
     pub dns_poll_interval_secs: u64,
+    /// Path to persist the ACME account private key (PEM format).
+    /// If the file exists, the key is loaded from it; otherwise a new key is
+    /// generated and saved here.
+    pub account_key_path: String,
 }
 
 impl Default for AcmeConfig {
@@ -80,6 +84,7 @@ impl Default for AcmeConfig {
             directory_url: String::new(), // empty means use ACME_DIRECTORY_URL env or LE production
             dns_propagation_timeout_secs: 60,
             dns_poll_interval_secs: 5,
+            account_key_path: "/etc/rouse-relay/acme_account_key.pem".to_string(),
         }
     }
 }
@@ -150,6 +155,9 @@ impl RelayConfig {
         }
         if let Ok(val) = std::env::var("ACME_DIRECTORY_URL") {
             self.acme.directory_url = val;
+        }
+        if let Ok(val) = std::env::var("ACME_ACCOUNT_KEY_PATH") {
+            self.acme.account_key_path = val;
         }
     }
 }
