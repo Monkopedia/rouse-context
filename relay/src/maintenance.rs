@@ -176,18 +176,8 @@ pub async fn run_maintenance_once(
                     continue;
                 }
 
-                let csr_bytes = match base64_decode(&cert.csr) {
-                    Some(bytes) => bytes,
-                    None => {
-                        warn!(subdomain, "Invalid base64 CSR in pending cert, removing");
-                        let _ = firestore.delete_pending_cert(subdomain).await;
-                        report.pending_cert_errors += 1;
-                        continue;
-                    }
-                };
-
-                match acme.issue_certificate(subdomain, &csr_bytes).await {
-                    Ok(cert_pem) => {
+                match acme.issue_certificate(subdomain).await {
+                    Ok(bundle) => {
                         // Notify device with cert_ready FCM
                         let payload = crate::fcm::FcmData {
                             message_type: "cert_ready".to_string(),
@@ -198,7 +188,11 @@ pub async fn run_maintenance_once(
                         }
                         // Clean up the pending record
                         let _ = firestore.delete_pending_cert(subdomain).await;
-                        info!(subdomain, cert_len = cert_pem.len(), "Issued pending cert");
+                        info!(
+                            subdomain,
+                            cert_len = bundle.cert_pem.len(),
+                            "Issued pending cert"
+                        );
                         report.pending_certs_processed += 1;
                     }
                     Err(crate::acme::AcmeError::RateLimited { retry_after_secs }) => {
@@ -224,10 +218,4 @@ pub async fn run_maintenance_once(
     info!(?report, "Maintenance pass completed");
 
     report
-}
-
-/// Decode a base64 string, returning None on failure.
-fn base64_decode(input: &str) -> Option<Vec<u8>> {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.decode(input).ok()
 }

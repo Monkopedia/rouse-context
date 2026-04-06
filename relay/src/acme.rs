@@ -35,15 +35,27 @@ pub enum AcmeError {
     Http(String),
 }
 
+/// A certificate bundle containing the PEM cert chain and the private key.
+///
+/// The relay generates a fresh keypair for each device subdomain. Both
+/// the cert and private key are returned to the device so it can perform
+/// mTLS with MCP clients.
+#[derive(Debug, Clone)]
+pub struct CertificateBundle {
+    /// PEM-encoded certificate chain (leaf + intermediates).
+    pub cert_pem: String,
+    /// PEM-encoded PKCS#8 private key for the certificate.
+    pub private_key_pem: String,
+}
+
 #[async_trait]
 pub trait AcmeClient: Send + Sync {
     /// Issue a certificate for the given subdomain via DNS-01 challenge.
     ///
-    /// `csr_der` is the raw DER-encoded CSR bytes.
-    /// Returns the PEM certificate chain (leaf + intermediates) as a string,
-    /// then base64-encoded for the API response.
-    async fn issue_certificate(&self, subdomain: &str, csr_der: &[u8])
-        -> Result<String, AcmeError>;
+    /// Generates a fresh keypair and CSR with CN/SAN set to `{subdomain}.{base_domain}`.
+    /// Returns a `CertificateBundle` containing both the signed cert chain and
+    /// the private key so the device can use them for mTLS.
+    async fn issue_certificate(&self, subdomain: &str) -> Result<CertificateBundle, AcmeError>;
 }
 
 /// ACME directory endpoints, discovered from the directory URL.
@@ -637,13 +649,28 @@ impl RealAcmeClient {
 
 #[async_trait]
 impl AcmeClient for RealAcmeClient {
-    async fn issue_certificate(
-        &self,
-        subdomain: &str,
-        csr_der: &[u8],
-    ) -> Result<String, AcmeError> {
+    async fn issue_certificate(&self, subdomain: &str) -> Result<CertificateBundle, AcmeError> {
         let fqdn = format!("{subdomain}.{}", self.base_domain);
         info!(fqdn = %fqdn, "Starting ACME DNS-01 certificate issuance");
+
+        // Generate a fresh keypair and CSR with the correct FQDN.
+        // The private key will be returned to the device for mTLS.
+        let key_pair = rcgen::KeyPair::generate()
+            .map_err(|e| AcmeError::Http(format!("key generation failed: {e}")))?;
+        let private_key_pem = key_pair.serialize_pem();
+
+        let mut params = rcgen::CertificateParams::new(vec![fqdn.clone()])
+            .map_err(|e| AcmeError::Http(format!("CSR params failed: {e}")))?;
+        params.distinguished_name = rcgen::DistinguishedName::new();
+        params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, &fqdn);
+
+        let csr_der = params
+            .serialize_request(&key_pair)
+            .map_err(|e| AcmeError::Http(format!("CSR generation failed: {e}")))?
+            .der()
+            .to_vec();
 
         // 1. Fetch directory
         let dir = self.get_directory().await?;
@@ -783,8 +810,8 @@ impl AcmeClient for RealAcmeClient {
 
             info!("Authorization valid, finalizing order...");
 
-            // 10. Finalize order with CSR
-            let csr_b64 = base64url(csr_der);
+            // 10. Finalize order with relay-generated CSR
+            let csr_b64 = base64url(&csr_der);
             let finalize_payload = serde_json::json!({"csr": csr_b64}).to_string();
 
             let (resp, new_nonce) = self
@@ -829,7 +856,10 @@ impl AcmeClient for RealAcmeClient {
                 .map_err(|e| AcmeError::Http(format!("read cert body: {e}")))?;
 
             info!(fqdn = %fqdn, cert_len = cert_pem.len(), "Certificate issued");
-            Ok(cert_pem)
+            Ok(CertificateBundle {
+                cert_pem,
+                private_key_pem: private_key_pem.clone(),
+            })
         }
         .await;
 

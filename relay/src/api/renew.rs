@@ -37,6 +37,7 @@ pub struct RenewRequest {
 #[derive(Debug, Serialize)]
 pub struct RenewResponse {
     pub cert: String,
+    pub private_key: String,
 }
 
 pub async fn handle_renew(
@@ -127,9 +128,9 @@ pub async fn handle_renew(
         }
     }
 
-    // Issue certificate via ACME
-    let cert = match state.acme.issue_certificate(&subdomain, &csr_der).await {
-        Ok(c) => c,
+    // Issue certificate via ACME (relay generates keypair + CSR with correct FQDN)
+    let bundle = match state.acme.issue_certificate(&subdomain).await {
+        Ok(b) => b,
         Err(crate::acme::AcmeError::RateLimited { retry_after_secs }) => {
             return ApiError::acme_rate_limited(
                 "Certificate issuance rate limited",
@@ -153,7 +154,14 @@ pub async fn handle_renew(
         let _ = state.firestore.put_device(&subdomain, &record).await;
     }
 
-    (StatusCode::OK, Json(RenewResponse { cert })).into_response()
+    (
+        StatusCode::OK,
+        Json(RenewResponse {
+            cert: bundle.cert_pem,
+            private_key: bundle.private_key_pem,
+        }),
+    )
+        .into_response()
 }
 
 /// Verify an ECDSA P-256 signature over the CSR bytes.

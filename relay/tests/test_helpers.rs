@@ -3,7 +3,7 @@
 #[allow(unused_imports)]
 use async_trait::async_trait;
 #[allow(unused_imports)]
-use rouse_relay::acme::{AcmeClient, AcmeError};
+use rouse_relay::acme::{AcmeClient, AcmeError, CertificateBundle};
 #[allow(unused_imports)]
 use rouse_relay::fcm::{FcmClient, FcmData, FcmError};
 #[allow(unused_imports)]
@@ -204,11 +204,7 @@ impl MockAcme {
 
 #[async_trait]
 impl AcmeClient for MockAcme {
-    async fn issue_certificate(
-        &self,
-        _subdomain: &str,
-        _csr_der: &[u8],
-    ) -> Result<String, AcmeError> {
+    async fn issue_certificate(&self, _subdomain: &str) -> Result<CertificateBundle, AcmeError> {
         let fail = {
             let guard = self.should_fail.lock().unwrap();
             guard.as_ref().map(|err| match err {
@@ -222,7 +218,10 @@ impl AcmeClient for MockAcme {
         if let Some(err) = fail {
             return Err(err);
         }
-        Ok(self.cert.lock().unwrap().clone())
+        Ok(CertificateBundle {
+            cert_pem: self.cert.lock().unwrap().clone(),
+            private_key_pem: "mock-private-key-pem".to_string(),
+        })
     }
 }
 
