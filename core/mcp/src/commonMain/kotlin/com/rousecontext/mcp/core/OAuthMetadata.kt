@@ -15,6 +15,8 @@ data class OAuthMetadata(
     val deviceAuthorizationEndpoint: String,
     @SerialName("token_endpoint")
     val tokenEndpoint: String,
+    @SerialName("registration_endpoint")
+    val registrationEndpoint: String,
     @SerialName("grant_types_supported")
     val grantTypesSupported: List<String>,
     @SerialName("response_types_supported")
@@ -32,6 +34,7 @@ fun buildOAuthMetadata(hostname: String, integrationPath: String): OAuthMetadata
         issuer = baseUrl,
         deviceAuthorizationEndpoint = "$baseUrl/device/authorize",
         tokenEndpoint = "$baseUrl/token",
+        registrationEndpoint = "$baseUrl/register",
         grantTypesSupported = listOf("urn:ietf:params:oauth:grant-type:device_code"),
         responseTypesSupported = emptyList(),
         codeChallengeMethodsSupported = emptyList()

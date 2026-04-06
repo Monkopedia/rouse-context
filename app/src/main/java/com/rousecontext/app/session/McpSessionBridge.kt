@@ -99,6 +99,8 @@ class McpSessionBridge(
                     while (isActive) {
                         val n = plaintextIn.read(buf)
                         if (n == -1) break
+                        val text = String(buf, 0, minOf(n, 200))
+                        Log.i(TAG, "REQ stream=${stream.id} $n bytes: ${text.lines().first()}")
                         socketOut.write(buf, 0, n)
                         socketOut.flush()
                     }
@@ -114,6 +116,8 @@ class McpSessionBridge(
                     while (isActive) {
                         val n = socketIn.read(buf)
                         if (n == -1) break
+                        val text = String(buf, 0, minOf(n, 200))
+                        Log.i(TAG, "RESP stream=${stream.id} $n bytes: ${text.lines().first()}")
                         plaintextOut.write(buf, 0, n)
                         plaintextOut.flush()
                     }

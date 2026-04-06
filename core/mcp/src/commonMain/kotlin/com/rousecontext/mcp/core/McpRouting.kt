@@ -70,6 +70,56 @@ fun Application.configureMcpRouting(
     val serversMutex = Mutex()
 
     routing {
+        // RFC 9728: Protected Resource Metadata for path-based MCP endpoints.
+        // Claude's MCP client discovers OAuth by requesting:
+        //   GET /.well-known/oauth-protected-resource/{integration}/mcp
+        get("/.well-known/oauth-protected-resource/{path...}") {
+            val fullPath = call.parameters.getAll("path")?.joinToString("/") ?: ""
+            // Extract integration name from path (e.g. "test/mcp" -> "test")
+            val integration = fullPath.split("/").firstOrNull() ?: ""
+            if (integration.isBlank() || registry.providerForPath(integration) == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@get
+            }
+            val baseUrl = "https://$hostname/$integration"
+            call.respond(
+                buildJsonObject {
+                    put("resource", "$baseUrl/mcp")
+                    put(
+                        "authorization_servers",
+                        kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                kotlinx.serialization.json.JsonPrimitive(baseUrl)
+                            )
+                        )
+                    )
+                }
+            )
+        }
+
+        // RFC 8414 path-based discovery: given issuer https://host/test,
+        // clients look for metadata at /.well-known/oauth-authorization-server/test
+        get("/.well-known/oauth-authorization-server/{path...}") {
+            val integration = call.parameters.getAll("path")?.firstOrNull() ?: ""
+            if (integration.isBlank() || registry.providerForPath(integration) == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@get
+            }
+            val metadata = buildOAuthMetadata(hostname, integration)
+            call.respond(metadata)
+        }
+
+        // Fallback: root-level OAuth authorization server metadata.
+        get("/.well-known/oauth-authorization-server") {
+            val integration = registry.enabledPaths().firstOrNull()
+            if (integration == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@get
+            }
+            val metadata = buildOAuthMetadata(hostname, integration)
+            call.respond(metadata)
+        }
+
         route("/{integration}") {
             // OAuth metadata -- no auth required
             get("/.well-known/oauth-authorization-server") {
@@ -81,6 +131,42 @@ fun Application.configureMcpRouting(
 
                 val metadata = buildOAuthMetadata(hostname, integration)
                 call.respond(metadata)
+            }
+
+            // RFC 7591 Dynamic Client Registration -- accepts any client and
+            // returns a client_id. We don't enforce client authentication for the
+            // device code flow, so this is a simple pass-through.
+            post("/register") {
+                val integration = call.parameters["integration"] ?: return@post
+                if (registry.providerForPath(integration) == null) {
+                    call.respond(HttpStatusCode.NotFound)
+                    return@post
+                }
+
+                val body = try {
+                    mcpJson.parseToJsonElement(call.receiveText()).jsonObject
+                } catch (_: Exception) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
+
+                val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
+                val clientId = java.util.UUID.randomUUID().toString()
+                call.respond(
+                    HttpStatusCode.Created,
+                    buildJsonObject {
+                        put("client_id", clientId)
+                        put("client_name", clientName)
+                        put("grant_types", kotlinx.serialization.json.JsonArray(
+                            listOf(
+                                kotlinx.serialization.json.JsonPrimitive(
+                                    "urn:ietf:params:oauth:grant-type:device_code"
+                                )
+                            )
+                        ))
+                        put("token_endpoint_auth_method", "none")
+                    }
+                )
             }
 
             // Device code authorize -- no auth required
