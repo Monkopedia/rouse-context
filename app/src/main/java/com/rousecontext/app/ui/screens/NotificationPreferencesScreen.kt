@@ -34,8 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import com.rousecontext.app.ui.theme.TealPrimary
 
 enum class NotificationMode {
     SUMMARY,
@@ -82,7 +82,7 @@ fun NotificationPreferencesScreen(
                 imageVector = Icons.Outlined.Notifications,
                 contentDescription = null,
                 modifier = Modifier.size(40.dp),
-                tint = TealPrimary
+                tint = AmberAccent
             )
 
             Spacer(modifier = Modifier.height(16.dp))

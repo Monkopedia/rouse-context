@@ -54,7 +54,7 @@ import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.OnWarningContainer
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import com.rousecontext.app.ui.theme.TealPrimary
+import com.rousecontext.app.ui.theme.SuccessGreen
 import com.rousecontext.app.ui.theme.WarningContainer
 
 enum class TrustOverallStatus {
@@ -206,7 +206,7 @@ fun SettingsScreen(
                             onClick = onGenerateNewAddress,
                             enabled = state.canRotateAddress,
                             colors = ButtonDefaults.textButtonColors(
-                                contentColor = TealPrimary
+                                contentColor = MaterialTheme.colorScheme.primary
                             )
                         ) {
                             Text("Rotate")
@@ -291,7 +291,7 @@ private const val FINGERPRINT_TRUNCATE_LENGTH = 23
 @Composable
 private fun TrustStatusSection(trustStatus: TrustStatusState) {
     val (statusIcon, statusColor, statusLabel) = when (trustStatus.overallStatus) {
-        TrustOverallStatus.VERIFIED -> Triple(Icons.Default.CheckCircle, TealPrimary, "Verified")
+        TrustOverallStatus.VERIFIED -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
         TrustOverallStatus.WARNING -> Triple(Icons.Default.Warning, AmberAccent, "Warning")
         TrustOverallStatus.ALERT -> Triple(Icons.Default.Error, Color(0xFFFF6B6B), "Alert")
     }
@@ -360,7 +360,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState) {
 @Composable
 private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
     val (icon, color, displayResult) = when (result) {
-        "verified" -> Triple(Icons.Default.CheckCircle, TealPrimary, "Verified")
+        "verified" -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
         "warning" -> Triple(Icons.Default.Warning, AmberAccent, "Unable to verify")
         "alert" -> Triple(Icons.Default.Error, Color(0xFFFF6B6B), "Verification failed")
         else -> Triple(

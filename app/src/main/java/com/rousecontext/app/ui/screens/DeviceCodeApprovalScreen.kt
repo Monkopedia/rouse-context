@@ -35,8 +35,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import com.rousecontext.app.ui.theme.TealPrimary
 
 @Immutable
 data class DeviceCodeApprovalState(
@@ -105,8 +105,8 @@ fun DeviceCodeApprovalScreen(
                 enabled = code.length == state.codeLength && !state.isApproving,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = TealPrimary,
-                    disabledContainerColor = TealPrimary.copy(alpha = 0.25f),
+                    containerColor = AmberAccent,
+                    disabledContainerColor = AmberAccent.copy(alpha = 0.25f),
                     disabledContentColor = Color.White.copy(alpha = 0.5f)
                 )
             ) {
@@ -175,8 +175,8 @@ private fun CodeBox(char: Char?, isNext: Boolean = false) {
             .border(
                 width = 2.dp,
                 color = when {
-                    char != null -> TealPrimary
-                    isNext -> TealPrimary.copy(alpha = 0.5f)
+                    char != null -> AmberAccent
+                    isNext -> AmberAccent.copy(alpha = 0.5f)
                     else -> Color.White.copy(alpha = 0.2f)
                 },
                 shape = RoundedCornerShape(12.dp)
@@ -192,7 +192,7 @@ private fun CodeBox(char: Char?, isNext: Boolean = false) {
             Box(
                 modifier = Modifier
                     .size(width = 2.dp, height = 24.dp)
-                    .background(TealPrimary.copy(alpha = 0.6f))
+                    .background(AmberAccent.copy(alpha = 0.6f))
             )
         }
     }

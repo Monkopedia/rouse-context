@@ -27,7 +27,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import com.rousecontext.app.ui.theme.TealPrimary
 
 sealed interface SettingUpVariant {
     data object FirstTime : SettingUpVariant
@@ -63,8 +62,8 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                 when (state.variant) {
                     is SettingUpVariant.FirstTime, is SettingUpVariant.Refreshing -> {
                         CircularProgressIndicator(
-                            color = TealPrimary,
-                            trackColor = TealPrimary.copy(alpha = 0.35f),
+                            color = AmberAccent,
+                            trackColor = AmberAccent.copy(alpha = 0.35f),
                             modifier = Modifier.size(64.dp),
                             strokeWidth = 5.dp
                         )
