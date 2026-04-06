@@ -11,6 +11,7 @@ import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
+import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import java.text.SimpleDateFormat
@@ -31,7 +32,8 @@ class MainDashboardViewModel(
     private val integrations: List<McpIntegration>,
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
-    private val auditDao: AuditDao
+    private val auditDao: AuditDao,
+    private val authorizationCodeManager: AuthorizationCodeManager? = null
 ) : ViewModel() {
 
     private val connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
@@ -85,11 +87,14 @@ class MainDashboardViewModel(
             derived == IntegrationState.Available || derived == IntegrationState.Disabled
         }
 
+        val pendingAuthCount = authorizationCodeManager?.pendingRequests()?.size ?: 0
+
         DashboardState(
             connectionStatus = connection,
             integrations = items,
             recentActivity = recent,
-            hasMoreIntegrationsToAdd = hasMoreToAdd
+            hasMoreIntegrationsToAdd = hasMoreToAdd,
+            pendingAuthRequestCount = pendingAuthCount
         )
     }.stateIn(
         scope = viewModelScope,

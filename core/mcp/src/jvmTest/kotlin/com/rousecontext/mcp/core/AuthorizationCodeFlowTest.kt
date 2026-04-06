@@ -241,6 +241,43 @@ class AuthorizationCodeFlowTest {
     }
 
     @Test
+    fun `onNewRequest callback is invoked when request is created`() {
+        val manager = createManager()
+        var callbackCode: String? = null
+        var callbackIntegration: String? = null
+        manager.onNewRequest = { code, integration ->
+            callbackCode = code
+            callbackIntegration = integration
+        }
+
+        val request = manager.createRequest(
+            clientId = "test-client",
+            codeChallenge = "challenge",
+            codeChallengeMethod = "S256",
+            redirectUri = "http://localhost/cb",
+            state = "s1",
+            integration = "health"
+        )
+
+        assertEquals(request.displayCode, callbackCode)
+        assertEquals("health", callbackIntegration)
+    }
+
+    @Test
+    fun `onNewRequest is not called when callback is null`() {
+        val manager = createManager()
+        // Should not throw when callback is null
+        manager.createRequest(
+            clientId = "test-client",
+            codeChallenge = "challenge",
+            codeChallengeMethod = "S256",
+            redirectUri = "http://localhost/cb",
+            state = "s1",
+            integration = "health"
+        )
+    }
+
+    @Test
     fun `pendingRequests excludes expired requests`() {
         val clock = FakeClock()
         val manager = createManager(clock = clock)

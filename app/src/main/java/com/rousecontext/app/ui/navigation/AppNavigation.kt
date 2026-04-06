@@ -19,6 +19,8 @@ import androidx.navigation.navArgument
 import com.rousecontext.app.ui.screens.AddClientScreen
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditHistoryScreen
+import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
+import com.rousecontext.app.ui.screens.AuthorizationApprovalScreen
 import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
 import com.rousecontext.app.ui.screens.HealthConnectSetupScreen
 import com.rousecontext.app.ui.screens.IntegrationEnabledScreen
@@ -34,6 +36,7 @@ import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.AddClientViewModel
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
+import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
@@ -57,6 +60,7 @@ object Routes {
     const val HEALTH_CONNECT_SETUP = "health_connect_setup"
     const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
     const val DEVICE_CODE = "device_code/{integrationId}"
+    const val AUTH_APPROVAL = "auth_approval"
 
     fun integrationManage(id: String): String = "integration/$id"
     fun integrationSetup(id: String): String = "integration_setup/$id"
@@ -165,6 +169,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onIntegrationClick = { id -> navController.navigate(Routes.integrationManage(id)) },
                 onAddClient = { navController.navigate(Routes.ADD_CLIENT) },
                 onViewAllActivity = { navController.navigate(Routes.AUDIT) },
+                onPendingAuthRequests = { navController.navigate(Routes.AUTH_APPROVAL) },
                 onTabSelected = { tab ->
                     when (tab) {
                         1 -> navController.navigate(Routes.AUDIT)
@@ -327,6 +332,21 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             DeviceCodeApprovalScreen(
                 state = state,
                 onCodeChanged = viewModel::onCodeChanged,
+                onApprove = viewModel::approve,
+                onDeny = viewModel::deny
+            )
+        }
+
+        composable(Routes.AUTH_APPROVAL) {
+            val viewModel: AuthorizationApprovalViewModel = koinViewModel()
+            val requests by viewModel.pendingRequests.collectAsState()
+            AuthorizationApprovalScreen(
+                pendingRequests = requests.map { req ->
+                    AuthorizationApprovalItem(
+                        displayCode = req.displayCode,
+                        integration = req.integration
+                    )
+                },
                 onApprove = viewModel::approve,
                 onDeny = viewModel::deny
             )

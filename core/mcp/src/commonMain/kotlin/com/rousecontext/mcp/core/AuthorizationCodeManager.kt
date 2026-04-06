@@ -62,6 +62,13 @@ class AuthorizationCodeManager(
     private val clock: Clock = SystemClock
 ) {
 
+    /**
+     * Called when a new authorization request is created.
+     * Parameters are the display code and the integration name.
+     * Set this from the app layer to trigger notifications.
+     */
+    var onNewRequest: ((displayCode: String, integration: String) -> Unit)? = null
+
     private data class PendingRequest(
         val requestId: String,
         val clientId: String,
@@ -126,6 +133,8 @@ class AuthorizationCodeManager(
                 )
             )
         }
+
+        onNewRequest?.invoke(displayCode, integration)
 
         return AuthorizationRequest(
             requestId = requestId,

@@ -12,6 +12,7 @@ object NotificationChannels {
     const val SESSION_CHANNEL_ID = "rouse_session"
     const val ERROR_CHANNEL_ID = "rouse_error"
     const val ALERT_CHANNEL_ID = "rouse_alert"
+    const val AUTH_REQUEST_CHANNEL_ID = "rouse_auth_request"
 
     /**
      * Create all notification channels. Safe to call multiple times;
@@ -48,6 +49,13 @@ object NotificationChannels {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Security-related alerts requiring attention"
+            },
+            NotificationChannel(
+                AUTH_REQUEST_CHANNEL_ID,
+                "Authorization Requests",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Approval requests for new client connections"
             }
         )
 

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.GppGood
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Schedule
@@ -86,7 +87,8 @@ data class DashboardState(
     val integrations: List<IntegrationItem> = emptyList(),
     val recentActivity: List<AuditEntry> = emptyList(),
     val certBanner: CertBanner? = null,
-    val hasMoreIntegrationsToAdd: Boolean = true
+    val hasMoreIntegrationsToAdd: Boolean = true,
+    val pendingAuthRequestCount: Int = 0
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,6 +101,7 @@ fun MainDashboardScreen(
     onAddClient: () -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
+    onPendingAuthRequests: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -142,6 +145,18 @@ fun MainDashboardScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     CertBannerCard(banner, onRetryRenewal)
                     Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // Pending auth requests banner
+            if (state.pendingAuthRequestCount > 0) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    PendingAuthBanner(
+                        count = state.pendingAuthRequestCount,
+                        onClick = onPendingAuthRequests
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
             }
 
@@ -595,6 +610,41 @@ private fun AddClientCard(onAddClient: () -> Unit) {
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
+        }
+    }
+}
+
+@Composable
+private fun PendingAuthBanner(count: Int, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.GppGood,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "$count pending approval${if (count != 1) "s" else ""}",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Tap to review authorization requests",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
     }
 }

@@ -20,6 +20,15 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".receivers.AuthApprovalReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.rousecontext.ACTION_AUTH_APPROVE" />
+                <action android:name="com.rousecontext.ACTION_AUTH_DENY" />
+            </intent-filter>
+        </receiver>
+
         <!-- Required for Health Connect permission request activity result contract -->
         <activity-alias
             android:name="ViewPermissionUsageActivity"
