@@ -12,6 +12,7 @@ import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -33,6 +34,8 @@ import okio.ByteString.Companion.toByteString
 object MtlsWebSocketFactory {
 
     private const val TAG = "MtlsWebSocketFactory"
+    private const val PING_INTERVAL_SECONDS = 15L
+
     // Use the CLIENT cert (relay CA, clientAuth) for mTLS to the relay,
     // NOT the server cert (ACME, serverAuth) which is for AI clients.
     private const val CERT_PEM_FILE = "rouse_client_cert.pem"
@@ -112,10 +115,13 @@ object MtlsWebSocketFactory {
 
             OkHttpClient.Builder()
                 .sslSocketFactory(sslContext.socketFactory, trustManager)
+                .pingInterval(PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
                 .build()
         } else {
             Log.w(TAG, "No device cert available, creating plain OkHttpClient")
-            OkHttpClient()
+            OkHttpClient.Builder()
+                .pingInterval(PING_INTERVAL_SECONDS, TimeUnit.SECONDS)
+                .build()
         }
     }
 

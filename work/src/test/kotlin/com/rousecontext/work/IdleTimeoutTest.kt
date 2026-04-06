@@ -17,7 +17,7 @@ class IdleTimeoutTest {
     private val stateFlow = MutableStateFlow(TunnelState.DISCONNECTED)
 
     @Test
-    fun `CONNECTED for timeout duration triggers disconnect`() = runTest {
+    fun `initial CONNECTED does not start timer without prior ACTIVE`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
@@ -28,9 +28,31 @@ class IdleTimeoutTest {
         val job = launch { manager.observe(stateFlow) }
 
         stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(60_000L)
+
+        assertFalse("Timer should NOT fire on initial CONNECTED", disconnected.isCompleted)
+        job.cancel()
+    }
+
+    @Test
+    fun `timer starts on ACTIVE to CONNECTED transition`() = runTest {
+        val disconnected = CompletableDeferred<Unit>()
+        val manager = IdleTimeoutManager(
+            timeoutMillis = 30_000L,
+            batteryExempt = false,
+            onTimeout = { disconnected.complete(Unit) }
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        advanceTimeBy(5_000L)
+        stateFlow.value = TunnelState.CONNECTED
         advanceTimeBy(30_001L)
 
-        assertTrue("Timeout should have fired", disconnected.isCompleted)
+        assertTrue("Timeout should fire after ACTIVE -> CONNECTED", disconnected.isCompleted)
+        assertTrue("timeoutFired flag should be set", manager.timeoutFired)
         job.cancel()
     }
 
@@ -45,10 +67,13 @@ class IdleTimeoutTest {
 
         val job = launch { manager.observe(stateFlow) }
 
+        // Get into a state where timer can start
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
         stateFlow.value = TunnelState.CONNECTED
         advanceTimeBy(20_000L)
 
-        // Stream arrives before timeout
+        // New stream arrives before timeout
         stateFlow.value = TunnelState.ACTIVE
         advanceTimeBy(15_000L)
 
@@ -68,6 +93,8 @@ class IdleTimeoutTest {
         val job = launch { manager.observe(stateFlow) }
 
         stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        stateFlow.value = TunnelState.CONNECTED
         advanceTimeBy(60_000L)
 
         assertFalse("Timeout should NOT fire when battery exempt", disconnected.isCompleted)
@@ -86,9 +113,6 @@ class IdleTimeoutTest {
         val job = launch { manager.observe(stateFlow) }
 
         stateFlow.value = TunnelState.CONNECTED
-        advanceTimeBy(20_000L)
-
-        // Stream opens and closes
         stateFlow.value = TunnelState.ACTIVE
         advanceTimeBy(5_000L)
         stateFlow.value = TunnelState.CONNECTED
@@ -103,7 +127,7 @@ class IdleTimeoutTest {
     }
 
     @Test
-    fun `DISCONNECTED cancels timer`() = runTest {
+    fun `DISCONNECTED cancels timer and resets hasBeenActive`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
@@ -113,13 +137,20 @@ class IdleTimeoutTest {
 
         val job = launch { manager.observe(stateFlow) }
 
+        // First session: get ACTIVE then disconnect
         stateFlow.value = TunnelState.CONNECTED
-        advanceTimeBy(20_000L)
-
+        stateFlow.value = TunnelState.ACTIVE
         stateFlow.value = TunnelState.DISCONNECTED
-        advanceTimeBy(30_000L)
+        advanceTimeBy(5_000L)
 
-        assertFalse("Timer should not fire after disconnect", disconnected.isCompleted)
+        // Reconnect — should behave like initial connect (no timer)
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(60_000L)
+
+        assertFalse(
+            "Timer should not fire on CONNECTED after DISCONNECTED reset",
+            disconnected.isCompleted
+        )
         job.cancel()
     }
 }

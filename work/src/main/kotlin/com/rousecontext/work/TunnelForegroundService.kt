@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
@@ -11,6 +12,8 @@ import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.createForegroundNotification
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
@@ -35,6 +38,12 @@ class TunnelForegroundService : LifecycleService() {
     private val idleTimeoutManager: IdleTimeoutManager by inject()
     private val relayUrl: String by inject(named("relayUrl"))
 
+    /** Set true when idle timeout fires or user explicitly stops — suppresses reconnect. */
+    @Volatile
+    var intentionalDisconnect = false
+
+    private var reconnectJob: Job? = null
+
     override fun onCreate() {
         super.onCreate()
         NotificationChannels.createAll(this)
@@ -51,64 +60,80 @@ class TunnelForegroundService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
-        lifecycleScope.launch {
-            if (tunnelClient.state.value == TunnelState.CONNECTING) {
-                Log.i(TAG, "Already connecting, skipping")
-                return@launch
-            }
-            if (tunnelClient.state.value == TunnelState.CONNECTED) {
-                Log.i(TAG, "Already connected, disconnecting first to refresh")
-                try {
-                    tunnelClient.disconnect()
-                } catch (_: Exception) {
-                    // Best-effort
-                }
-            }
-            try {
-                tunnelClient.connect(relayUrl)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to connect to relay", e)
-            }
-        }
-
-        lifecycleScope.launch {
-            wakelockManager.observe(tunnelClient.state)
-        }
-
-        lifecycleScope.launch {
-            idleTimeoutManager.observe(tunnelClient.state)
-        }
-
-        lifecycleScope.launch {
-            tunnelClient.incomingSessions.collect { stream ->
-                launch {
-                    Log.i(TAG, "New mux stream ${stream.id}, starting session handler")
-                    try {
-                        sessionHandler.handle(stream)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Session handler failed for stream ${stream.id}", e)
-                    } finally {
-                        Log.i(TAG, "Session ended for stream ${stream.id}")
-                    }
-                }
-            }
-        }
-
-        lifecycleScope.launch {
-            tunnelClient.state.collect { state ->
-                updateNotification(state)
-                if (state == TunnelState.DISCONNECTED) {
-                    Log.i(TAG, "Tunnel disconnected, stopping service")
-                    stopSelf()
-                }
-            }
-        }
+        lifecycleScope.launch { connectToRelay() }
+        lifecycleScope.launch { wakelockManager.observe(tunnelClient.state) }
+        lifecycleScope.launch { idleTimeoutManager.observe(tunnelClient.state) }
+        lifecycleScope.launch { collectIncomingSessions() }
+        lifecycleScope.launch { observeStateChanges() }
 
         return START_NOT_STICKY
     }
 
+    private suspend fun connectToRelay() {
+        if (tunnelClient.state.value == TunnelState.CONNECTING) {
+            Log.i(TAG, "Already connecting, skipping")
+            return
+        }
+        if (tunnelClient.state.value == TunnelState.CONNECTED) {
+            Log.i(TAG, "Already connected, disconnecting first to refresh")
+            try {
+                tunnelClient.disconnect()
+            } catch (_: Exception) {
+                // Best-effort
+            }
+        }
+        try {
+            tunnelClient.connect(relayUrl)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to connect to relay", e)
+        }
+    }
+
+    private suspend fun collectIncomingSessions() {
+        tunnelClient.incomingSessions.collect { stream ->
+            lifecycleScope.launch {
+                Log.i(TAG, "New mux stream ${stream.id}, starting session handler")
+                try {
+                    sessionHandler.handle(stream)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Session handler failed for stream ${stream.id}", e)
+                } finally {
+                    Log.i(TAG, "Session ended for stream ${stream.id}")
+                }
+            }
+        }
+    }
+
+    private suspend fun observeStateChanges() {
+        tunnelClient.state.collect { state ->
+            updateNotification(state)
+            when (state) {
+                TunnelState.CONNECTED -> {
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                }
+                TunnelState.DISCONNECTED -> {
+                    if (idleTimeoutManager.timeoutFired) {
+                        intentionalDisconnect = true
+                    }
+                    if (intentionalDisconnect) {
+                        Log.i(TAG, "Intentional disconnect, stopping service")
+                        stopSelf()
+                    } else {
+                        Log.w(TAG, "Unexpected disconnect, attempting reconnect")
+                        launchReconnect()
+                    }
+                }
+                else -> { /* no action */ }
+            }
+        }
+    }
+
     override fun onDestroy() {
         Log.i(TAG, "TunnelForegroundService destroyed")
+        intentionalDisconnect = true
+        reconnectJob?.cancel()
+        reconnectJob = null
         lifecycleScope.launch {
             tunnelClient.disconnect()
         }
@@ -133,9 +158,40 @@ class TunnelForegroundService : LifecycleService() {
         manager.notify(NOTIFICATION_ID, notification)
     }
 
+    private fun launchReconnect() {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = lifecycleScope.launch {
+            val startTime = SystemClock.elapsedRealtime()
+            var delayMs = INITIAL_RECONNECT_DELAY_MS
+            while (true) {
+                val elapsed = SystemClock.elapsedRealtime() - startTime
+                if (elapsed >= RECONNECT_GIVE_UP_MS) {
+                    Log.w(TAG, "Reconnect attempts exceeded ${RECONNECT_GIVE_UP_MS}ms, giving up")
+                    intentionalDisconnect = true
+                    stopSelf()
+                    return@launch
+                }
+                Log.i(TAG, "Reconnecting in ${delayMs}ms")
+                delay(delayMs)
+                try {
+                    tunnelClient.connect(relayUrl)
+                    Log.i(TAG, "Reconnect succeeded")
+                    return@launch
+                } catch (e: Exception) {
+                    Log.w(TAG, "Reconnect attempt failed", e)
+                }
+                delayMs = (delayMs * 2).coerceAtMost(MAX_RECONNECT_DELAY_MS)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "TunnelForegroundService"
         const val NOTIFICATION_ID = 1
+
+        private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
+        private const val MAX_RECONNECT_DELAY_MS = 30_000L
+        private const val RECONNECT_GIVE_UP_MS = 5 * 60 * 1000L
 
         fun createWakeLock(service: TunnelForegroundService): WakeLockHandle {
             val pm = service.getSystemService(PowerManager::class.java)
