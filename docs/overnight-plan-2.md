@@ -36,6 +36,22 @@ Run screenshot-based review after each change.
 
 **2i. Add Client flow** — Remove URL from top of dashboard. Add "Add Client" button at bottom of authorized clients section that shows the connection URL + instructions.
 
+### Phase 2.5: Connection & Protocol Hardening
+
+**2.5a. Auto-reconnect with backoff** — When WebSocket drops, TunnelForegroundService should retry with exponential backoff (1s, 2s, 4s, max 30s) instead of stopping. Only stop on explicit disconnect or user action.
+
+**2.5b. WebSocket keepalive** — Configure OkHttp's `pingInterval(15, SECONDS)` on the mTLS WebSocket client. Relay-side: detect stale connections (no frames in 60s) and clean up session registry.
+
+**2.5c. MuxDemux thread safety** — Replace `mutableMapOf` with `ConcurrentHashMap` for the streams map. Add stream leak protection (force-close after 10 minutes).
+
+**2.5d. Bridge timeout** — Add 30s timeout on bridge copy operations. Graceful cleanup: always send CLOSE frame and close Ktor socket on failure.
+
+**2.5e. Auth cleanup** — Periodic cleanup of expired AuthorizationCodeManager/DeviceCodeManager entries. Rate limiting on /token, /register, /authorize.
+
+**2.5f. Error handling** — Replace silent exception swallowing with structured logging. MCP tool exceptions return proper JSON-RPC error responses.
+
+**2.5g. Integration test refactor** — Refactor EndToEndSessionTest to use TunnelClientImpl + core:bridge SessionHandler instead of manually pumping frames. Extract shared test utilities from duplicated code (~600 lines). Add test for TLS with split records, authorization code PKCE flow, session lifecycle.
+
 ### Phase 3: Integration Enable/Disable & Onboarding
 **3a. Fix integration enable/disable flow** — Add Integration button, Health Connect setup flow, permission request.
 
