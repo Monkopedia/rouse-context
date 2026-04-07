@@ -4,8 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
-import com.rousecontext.app.ui.screens.AddClientScreen
-import com.rousecontext.app.ui.screens.AddClientState
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditDetailScreen
 import com.rousecontext.app.ui.screens.AuditDetailState
@@ -23,7 +21,6 @@ import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
 import com.rousecontext.app.ui.screens.DeviceCodeApprovalState
-import com.rousecontext.app.ui.screens.EndpointItem
 import com.rousecontext.app.ui.screens.HealthConnectSettingsScreen
 import com.rousecontext.app.ui.screens.HealthConnectSettingsState
 import com.rousecontext.app.ui.screens.HealthConnectSetupScreen
@@ -340,26 +337,6 @@ class ScreenScreenshotTest {
     // =========================================================================
     // Auth
     // =========================================================================
-
-    @Test
-    fun addClientDark() = captureDark("19_add_client") {
-        AddClientScreen(state = addClientState())
-    }
-
-    @Test
-    fun addClientLight() = captureLight("19_add_client") {
-        AddClientScreen(state = addClientState())
-    }
-
-    @Test
-    fun addClientMultipleDark() = captureDark("20_add_client_multiple") {
-        AddClientScreen(state = addClientMultipleState())
-    }
-
-    @Test
-    fun addClientMultipleLight() = captureLight("20_add_client_multiple") {
-        AddClientScreen(state = addClientMultipleState())
-    }
 
     @Test
     fun authorizationApprovalEmptyDark() = captureDark("21_authorization_approval_empty") {
@@ -704,13 +681,13 @@ class ScreenScreenshotTest {
             "health",
             "Health Connect",
             "Share step count, heart rate, and sleep data with AI clients",
-            PickerIntegrationState.DISABLED
+            PickerIntegrationState.AVAILABLE
         ),
         PickerIntegration(
             "notifications",
             "Notifications",
             "Let AI clients read your notifications",
-            PickerIntegrationState.UNAVAILABLE
+            PickerIntegrationState.AVAILABLE
         )
     )
 
@@ -723,28 +700,6 @@ class ScreenScreenshotTest {
         authorizedClients = listOf(
             AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
             AuthorizedClient("Cursor", "Apr 3", "just now")
-        )
-    )
-
-    private fun addClientState() = AddClientState(
-        endpoints = listOf(
-            EndpointItem(
-                integrationName = "Health Connect",
-                url = "https://brave-falcon.rousecontext.com/health/mcp"
-            )
-        )
-    )
-
-    private fun addClientMultipleState() = AddClientState(
-        endpoints = listOf(
-            EndpointItem(
-                integrationName = "Health Connect",
-                url = "https://brave-falcon.rousecontext.com/health/mcp"
-            ),
-            EndpointItem(
-                integrationName = "Notifications",
-                url = "https://brave-falcon.rousecontext.com/notifications/mcp"
-            )
         )
     )
 
