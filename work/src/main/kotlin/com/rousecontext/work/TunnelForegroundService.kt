@@ -45,7 +45,7 @@ class TunnelForegroundService : LifecycleService() {
     private val providerRegistry: ProviderRegistry by inject()
     private val relayUrl: String by inject(named("relayUrl"))
 
-    /** Set true when idle timeout fires or user explicitly stops — suppresses reconnect. */
+    /** Set true when idle timeout fires or user explicitly stops - suppresses reconnect. */
     @Volatile
     var intentionalDisconnect = false
 

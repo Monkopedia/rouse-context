@@ -56,7 +56,7 @@ class NotificationCaptureService : NotificationListenerService() {
             try {
                 dao.insert(record)
             } catch (_: Exception) {
-                // Best-effort persistence — don't crash the listener service
+                // Best-effort persistence - don't crash the listener service
             }
         }
     }

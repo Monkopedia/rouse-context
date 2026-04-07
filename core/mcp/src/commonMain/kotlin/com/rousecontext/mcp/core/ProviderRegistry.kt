@@ -6,7 +6,7 @@ package com.rousecontext.mcp.core
  * The app implements this backed by [IntegrationStateStore]. McpSession queries it
  * per-request to resolve path prefixes to providers.
  *
- * Changes (enable/disable) are reflected immediately — no session reconstruction needed.
+ * Changes (enable/disable) are reflected immediately - no session reconstruction needed.
  */
 interface ProviderRegistry {
 

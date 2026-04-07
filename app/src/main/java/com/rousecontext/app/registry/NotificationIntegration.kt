@@ -26,7 +26,7 @@ class NotificationIntegration(
 
     override val id = "notifications"
     override val displayName = "Notifications"
-    override val description = "Expose device notifications — active and searchable history"
+    override val description = "Expose device notifications, both active and searchable history"
     override val path = "/notifications"
     override val onboardingRoute = "setup"
     override val settingsRoute = "settings"

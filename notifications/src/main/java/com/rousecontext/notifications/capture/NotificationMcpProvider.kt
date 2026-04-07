@@ -23,11 +23,11 @@ import kotlinx.serialization.json.put
  * MCP server provider that exposes device notifications as tools.
  *
  * Tools:
- * - `list_active_notifications` — current notifications on the device
- * - `perform_notification_action` — fire an action on a notification
- * - `dismiss_notification` — dismiss a notification
- * - `search_notification_history` — query Room-backed history
- * - `get_notification_stats` — aggregate notification statistics
+ * - `list_active_notifications` - current notifications on the device
+ * - `perform_notification_action` - fire an action on a notification
+ * - `dismiss_notification` - dismiss a notification
+ * - `search_notification_history` - query Room-backed history
+ * - `get_notification_stats` - aggregate notification statistics
  *
  * @param dao Room DAO for notification history queries
  * @param activeNotificationSource callback to retrieve active StatusBarNotifications

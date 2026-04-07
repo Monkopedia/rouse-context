@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.mcp.health.RecordTypeRegistry
 
@@ -39,6 +40,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
         topBar = {
             TopAppBar(
                 title = { Text("Health Connect Setup") },
+                colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

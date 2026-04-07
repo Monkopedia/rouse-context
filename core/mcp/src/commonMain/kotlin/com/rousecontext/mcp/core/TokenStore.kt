@@ -4,7 +4,7 @@ package com.rousecontext.mcp.core
  * Token verification and management, scoped per integration.
  *
  * The app implements this backed by Room. Tokens are opaque strings (32 bytes base64url),
- * stored as hashes. Each token is scoped to a single integration — a token issued for
+ * stored as hashes. Each token is scoped to a single integration - a token issued for
  * `/health` cannot access `/notifications`.
  */
 interface TokenStore {

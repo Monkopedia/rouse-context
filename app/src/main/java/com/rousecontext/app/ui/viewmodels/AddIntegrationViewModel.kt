@@ -39,8 +39,8 @@ class AddIntegrationViewModel(
                 )
                 // Only show integrations that are not already enabled
                 val pickerState = when (derived) {
-                    IntegrationState.Available -> PickerIntegrationState.AVAILABLE
-                    IntegrationState.Disabled -> PickerIntegrationState.DISABLED
+                    IntegrationState.Available,
+                    IntegrationState.Disabled -> PickerIntegrationState.AVAILABLE
                     IntegrationState.Unavailable -> PickerIntegrationState.UNAVAILABLE
                     // Active and Pending integrations are already enabled
                     IntegrationState.Active, IntegrationState.Pending -> return@mapNotNull null

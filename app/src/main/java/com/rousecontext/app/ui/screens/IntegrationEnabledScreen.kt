@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
@@ -50,7 +51,7 @@ fun IntegrationEnabledScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("${state.integrationName} Ready") })
+            TopAppBar(title = { Text("${state.integrationName} Ready") }, colors = appBarColors())
         }
     ) { padding ->
         Surface(
@@ -142,7 +143,7 @@ fun IntegrationEnabledScreen(
                 Spacer(modifier = Modifier.weight(1f))
 
                 TextButton(onClick = onCancel) {
-                    Text("Done")
+                    Text("Finish Later")
                 }
             }
         }

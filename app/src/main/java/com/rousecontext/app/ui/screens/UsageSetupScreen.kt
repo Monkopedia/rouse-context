@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.PrivacyWarningCard
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
 import com.rousecontext.app.ui.viewmodels.UsageSetupState
@@ -45,6 +46,7 @@ fun UsageSetupScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Usage Stats") },
+                colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

@@ -16,9 +16,9 @@ import kotlinx.serialization.json.jsonPrimitive
  * Debug-only MCP server with simple tools for verifying end-to-end connectivity.
  *
  * Tools:
- * - `echo` — returns the input message unchanged
- * - `get_time` — returns device time as ISO-8601
- * - `device_info` — returns device model, Android version, app version
+ * - `echo` - returns the input message unchanged
+ * - `get_time` - returns device time as ISO-8601
+ * - `device_info` - returns device model, Android version, app version
  */
 class TestMcpServer : McpServerProvider {
 

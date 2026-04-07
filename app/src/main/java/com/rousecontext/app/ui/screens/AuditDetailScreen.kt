@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,6 +51,7 @@ fun AuditDetailScreen(state: AuditDetailState = AuditDetailState(), onBack: () -
         topBar = {
             TopAppBar(
                 title = { Text("Audit Detail") },
+                colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

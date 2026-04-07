@@ -33,7 +33,7 @@ interface AuditDao {
     ): List<AuditEntry>
 
     /**
-     * Reactive version — Room re-emits whenever the audit_entries table changes.
+     * Reactive version - Room re-emits whenever the audit_entries table changes.
      * Returns the most recent [limit] entries within the given time window.
      */
     @Query(

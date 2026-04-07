@@ -188,7 +188,7 @@ class OutreachMcpProvider(
 
     private fun buildNotification(title: String, message: String): NotificationCompat.Builder =
         NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
             .setContentTitle(title)
             .setContentText(message)
             .setAutoCancel(true)

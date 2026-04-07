@@ -143,7 +143,7 @@ class IdleTimeoutTest {
         stateFlow.value = TunnelState.DISCONNECTED
         advanceTimeBy(5_000L)
 
-        // Reconnect — should behave like initial connect (no timer)
+        // Reconnect - should behave like initial connect (no timer)
         stateFlow.value = TunnelState.CONNECTED
         advanceTimeBy(60_000L)
 

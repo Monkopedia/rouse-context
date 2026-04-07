@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.viewmodels.OnboardingStep
@@ -49,7 +50,7 @@ data class SettingUpState(
 fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Unit = {}) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Setting Up") })
+            TopAppBar(title = { Text("Setting Up") }, colors = appBarColors())
         }
     ) { padding ->
         Surface(

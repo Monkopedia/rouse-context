@@ -20,7 +20,6 @@ import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
-import com.rousecontext.app.ui.viewmodels.AddClientViewModel
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
@@ -235,7 +234,6 @@ val appModule = module {
             get<McpSession>().authorizationCodeManager
         )
     }
-    viewModel { AddClientViewModel(get(), get(), get(), get()) }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get()) }

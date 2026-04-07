@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.BuildConfig
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 enum class ConnectionStatus { CONNECTED, DISCONNECTED }
@@ -100,7 +101,6 @@ fun MainDashboardScreen(
     selectedTab: Int = 0,
     onAddIntegration: () -> Unit = {},
     onIntegrationClick: (String) -> Unit = {},
-    onAddClient: () -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
     onPendingAuthRequests: () -> Unit = {},
@@ -110,7 +110,8 @@ fun MainDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Rouse Context") }
+                title = { Text("Rouse Context") },
+                colors = appBarColors()
             )
         },
         bottomBar = {
@@ -150,7 +151,7 @@ fun MainDashboardScreen(
                 }
             }
 
-            // Cert banner (most urgent — show first)
+            // Cert banner (most urgent - show first)
             state.certBanner?.let { banner ->
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -221,8 +222,10 @@ fun MainDashboardScreen(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AddClientCard(onAddClient)
+                    if (state.hasMoreIntegrationsToAdd) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        AddIntegrationCard(onAddIntegration)
+                    }
                 }
             }
 
@@ -378,7 +381,7 @@ private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            "Renewal failed \u2014 check your connection.",
+                            "Renewal failed. Check your connection.",
                             style = MaterialTheme.typography.bodySmall
                         )
                         Spacer(modifier = Modifier.height(12.dp))
@@ -633,11 +636,11 @@ private fun ActivityRow(entry: AuditEntry) {
 }
 
 @Composable
-private fun AddClientCard(onAddClient: () -> Unit) {
+private fun AddIntegrationCard(onAddIntegration: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onAddClient),
+            .clickable(onClick = onAddIntegration),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
@@ -657,7 +660,7 @@ private fun AddClientCard(onAddClient: () -> Unit) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Add Client",
+                text = "Add Integration",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )

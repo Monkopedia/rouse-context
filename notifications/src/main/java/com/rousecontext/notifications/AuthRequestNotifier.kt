@@ -79,7 +79,7 @@ class AuthRequestNotifier(
             .setSmallIcon(R.drawable.ic_stat_rouse)
             .setColor(0xFFea4335.toInt())
             .setContentTitle("Approval Required")
-            .setContentText("Code: $displayCode — Tap to approve or deny")
+            .setContentText("Code: $displayCode - Tap to approve or deny")
             .setSubText(integration)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)

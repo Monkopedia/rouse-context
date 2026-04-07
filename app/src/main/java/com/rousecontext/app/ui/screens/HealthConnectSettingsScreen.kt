@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.mcp.health.RecordTypeRegistry
 
@@ -56,6 +57,7 @@ fun HealthConnectSettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Health Connect Settings") },
+                colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

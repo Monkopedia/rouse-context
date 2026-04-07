@@ -10,7 +10,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import com.rousecontext.app.state.ThemeMode
 
-// Brand colors — navy + amber palette
+// Brand colors - navy + amber palette
 val NavyDark = Color(0xFF0A1628) // primary dark, status bar
 val NavyPrimary = Color(0xFF1A2744) // lighter navy for surfaces
 val NavyLight = Color(0xFF2A3A5C) // elevated surfaces, cards on dark
@@ -82,7 +82,8 @@ data class ExtendedColors(
     val warningAccent: Color,
     val alertContainer: Color,
     val alertContent: Color,
-    val codeBoxBorderEmpty: Color
+    val codeBoxBorderEmpty: Color,
+    val topBarContainer: Color
 )
 
 private val DarkExtendedColors = ExtendedColors(
@@ -91,7 +92,8 @@ private val DarkExtendedColors = ExtendedColors(
     warningAccent = AmberAccent,
     alertContainer = AlertContainerDark,
     alertContent = AlertContentDark,
-    codeBoxBorderEmpty = Color.White.copy(alpha = 0.2f)
+    codeBoxBorderEmpty = Color.White.copy(alpha = 0.2f),
+    topBarContainer = NavyDark
 )
 
 private val LightExtendedColors = ExtendedColors(
@@ -100,7 +102,8 @@ private val LightExtendedColors = ExtendedColors(
     warningAccent = AmberDark,
     alertContainer = AlertContainerLight,
     alertContent = AlertContentLight,
-    codeBoxBorderEmpty = CodeBoxBorderEmpty
+    codeBoxBorderEmpty = CodeBoxBorderEmpty,
+    topBarContainer = WarmWhite
 )
 
 val LocalExtendedColors = staticCompositionLocalOf { DarkExtendedColors }

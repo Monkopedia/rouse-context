@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.LocalExtendedColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
@@ -98,7 +99,7 @@ fun SettingsScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Settings") })
+            TopAppBar(title = { Text("Settings") }, colors = appBarColors())
         },
         bottomBar = {
             NavigationBar {

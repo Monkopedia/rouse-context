@@ -43,7 +43,7 @@ class AuthPageGalleryTest {
     private fun waitingHtml(): String {
         // Replace polling script with a no-op so the page stays in its initial
         // "Waiting for approval..." state without firing network requests.
-        return replaceScript(baseHtml(), "<script>/* waiting — no polling */</script>")
+        return replaceScript(baseHtml(), "<script>/* waiting - no polling */</script>")
     }
 
     private fun approvedHtml(): String {
