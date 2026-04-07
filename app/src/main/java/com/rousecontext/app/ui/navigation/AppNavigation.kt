@@ -60,7 +60,6 @@ import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
 import org.koin.androidx.compose.koinViewModel
 
 object Routes {
-    const val WELCOME = "welcome"
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val AUDIT = "audit"
@@ -90,18 +89,6 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         navController = navController,
         startDestination = Routes.HOME
     ) {
-        composable(Routes.WELCOME) {
-            val onboardingViewModel: OnboardingViewModel = koinViewModel()
-            WelcomeScreen(
-                onGetStarted = {
-                    onboardingViewModel.startOnboarding()
-                    navController.navigate(Routes.ONBOARDING) {
-                        popUpTo(Routes.WELCOME) { inclusive = true }
-                    }
-                }
-            )
-        }
-
         composable(Routes.ONBOARDING) {
             val onboardingViewModel: OnboardingViewModel = koinViewModel()
             val state by onboardingViewModel.state.collectAsState()
@@ -116,9 +103,15 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             }
 
             when (state) {
+                is OnboardingState.Checking, is OnboardingState.NotOnboarded -> {
+                    WelcomeScreen(
+                        onGetStarted = { onboardingViewModel.startOnboarding() }
+                    )
+                }
                 is OnboardingState.InProgress -> {
+                    val step = (state as OnboardingState.InProgress).step
                     SettingUpScreen(
-                        state = SettingUpState(SettingUpVariant.FirstTime),
+                        state = SettingUpState(SettingUpVariant.FirstTime(step)),
                         onCancel = { navController.popBackStack() }
                     )
                 }
@@ -139,10 +132,10 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                         onBack = { navController.popBackStack() }
                     )
                 }
-                else -> {
-                    // Checking, NotOnboarded, Onboarded handled by LaunchedEffect above
+                is OnboardingState.Onboarded -> {
+                    // Handled by LaunchedEffect above; show loading briefly
                     SettingUpScreen(
-                        state = SettingUpState(SettingUpVariant.FirstTime),
+                        state = SettingUpState(SettingUpVariant.Refreshing),
                         onCancel = { navController.popBackStack() }
                     )
                 }
@@ -168,7 +161,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onAddClient = { navController.navigate(Routes.ADD_CLIENT) },
                 onViewAllActivity = { navController.navigate(Routes.AUDIT) },
                 onPendingAuthRequests = { navController.navigate(Routes.AUTH_APPROVAL) },
-                onSetUp = { navController.navigate(Routes.WELCOME) },
+                onSetUp = { navController.navigate(Routes.ONBOARDING) },
                 onTabSelected = { tab ->
                     when (tab) {
                         1 -> navController.navigate(Routes.AUDIT)

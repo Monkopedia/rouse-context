@@ -2,12 +2,16 @@ package com.rousecontext.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,16 +31,17 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.app.ui.viewmodels.OnboardingStep
 
 sealed interface SettingUpVariant {
-    data object FirstTime : SettingUpVariant
+    data class FirstTime(val step: OnboardingStep = OnboardingStep.FIREBASE_AUTH) : SettingUpVariant
     data object Refreshing : SettingUpVariant
     data class RateLimited(val expectedDate: String) : SettingUpVariant
 }
 
 @Immutable
 data class SettingUpState(
-    val variant: SettingUpVariant = SettingUpVariant.FirstTime
+    val variant: SettingUpVariant = SettingUpVariant.FirstTime()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,7 +88,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                 Text(
                     text = when (state.variant) {
                         is SettingUpVariant.FirstTime ->
-                            "We're issuing a secure certificate for your device."
+                            "Setting up your device..."
                         is SettingUpVariant.Refreshing ->
                             "Your certificate is being refreshed."
                         is SettingUpVariant.RateLimited ->
@@ -97,8 +102,31 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
 
                 when (state.variant) {
                     is SettingUpVariant.FirstTime -> {
+                        val step = state.variant.step
+                        SetupStepRow(
+                            label = "Authenticating",
+                            done = step > OnboardingStep.FIREBASE_AUTH,
+                            active = step == OnboardingStep.FIREBASE_AUTH
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        SetupStepRow(
+                            label = "Registering with relay",
+                            done = step > OnboardingStep.RELAY_REGISTRATION,
+                            active = step == OnboardingStep.RELAY_REGISTRATION
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        SetupStepRow(
+                            label = "Issuing certificate",
+                            done = false,
+                            active = step == OnboardingStep.CERT_ISSUANCE
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = "This usually takes about 30 seconds.",
+                            text = if (step == OnboardingStep.CERT_ISSUANCE) {
+                                "This may take up to a minute."
+                            } else {
+                                "This usually takes about 30 seconds."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -121,15 +149,6 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "We'll notify you when it's ready.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
                 Spacer(modifier = Modifier.height(32.dp))
 
                 TextButton(onClick = onCancel) {
@@ -145,11 +164,58 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
     }
 }
 
+@Composable
+private fun SetupStepRow(label: String, done: Boolean, active: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        when {
+            done -> Icon(
+                Icons.Default.CheckCircle,
+                contentDescription = "Complete",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            active -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+                color = AmberAccent
+            )
+            else -> Icon(
+                Icons.Default.Circle,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.outline
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (done || active) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        )
+    }
+}
+
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
 fun SettingUpFirstTimePreview() {
     RouseContextTheme(darkTheme = true) {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime))
+        SettingUpScreen(
+            state = SettingUpState(SettingUpVariant.FirstTime(OnboardingStep.FIREBASE_AUTH))
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun SettingUpCertIssuancePreview() {
+    RouseContextTheme(darkTheme = true) {
+        SettingUpScreen(
+            state = SettingUpState(SettingUpVariant.FirstTime(OnboardingStep.CERT_ISSUANCE))
+        )
     }
 }
 

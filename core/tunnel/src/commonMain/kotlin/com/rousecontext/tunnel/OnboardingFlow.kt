@@ -19,10 +19,17 @@ class OnboardingFlow(
     private val certificateStore: CertificateStore
 ) {
 
+    /**
+     * Executes the full onboarding flow.
+     *
+     * @param onRegistered Called after relay registration succeeds and before cert
+     *   issuance begins, so callers can update progress UI.
+     */
     suspend fun execute(
         firebaseToken: String,
         fcmToken: String,
-        baseDomain: String = "rousecontext.com"
+        baseDomain: String = "rousecontext.com",
+        onRegistered: (() -> Unit)? = null
     ): OnboardingResult {
         // Round 1: Register with relay to get subdomain
         val subdomain = when (
@@ -50,6 +57,8 @@ class OnboardingFlow(
         } catch (e: Exception) {
             return OnboardingResult.KeyGenerationFailed(e)
         }
+
+        onRegistered?.invoke()
 
         // Round 2: Submit CSR to get both certs
         return when (

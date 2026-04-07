@@ -232,7 +232,7 @@ class ScreenScreenshotTest {
     // 5. Setting Up - First time
     @Test
     fun settingUpFirstTime() = capture("12_setting_up_first_time") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime))
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime()))
     }
 
     // 5. Setting Up - Refreshing

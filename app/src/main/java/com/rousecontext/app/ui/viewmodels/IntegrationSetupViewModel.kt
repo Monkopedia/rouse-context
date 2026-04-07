@@ -26,7 +26,7 @@ class IntegrationSetupViewModel(
     fun startSetup(id: String) {
         integrationId = id
         stateStore.setUserEnabled(id, true)
-        _state.value = SettingUpState(variant = SettingUpVariant.FirstTime)
+        _state.value = SettingUpState(variant = SettingUpVariant.FirstTime())
         beginProvisioning()
     }
 

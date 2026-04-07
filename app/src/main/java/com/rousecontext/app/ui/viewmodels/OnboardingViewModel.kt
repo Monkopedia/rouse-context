@@ -18,11 +18,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+enum class OnboardingStep {
+    FIREBASE_AUTH,
+    RELAY_REGISTRATION,
+    CERT_ISSUANCE
+}
+
 sealed interface OnboardingState {
     data object Checking : OnboardingState
     data object NotOnboarded : OnboardingState
     data object Onboarded : OnboardingState
-    data object InProgress : OnboardingState
+    data class InProgress(val step: OnboardingStep) : OnboardingState
     data class Failed(val message: String) : OnboardingState
     data class RateLimited(val retryDate: String) : OnboardingState
 }
@@ -55,9 +61,10 @@ class OnboardingViewModel(
     }
 
     fun startOnboarding() {
-        if (_state.value == OnboardingState.InProgress) return
+        val current = _state.value
+        if (current is OnboardingState.InProgress || current is OnboardingState.Onboarded) return
 
-        _state.value = OnboardingState.InProgress
+        _state.value = OnboardingState.InProgress(OnboardingStep.FIREBASE_AUTH)
         viewModelScope.launch {
             // Get Firebase anonymous auth token
             val firebaseToken = try {
@@ -82,7 +89,18 @@ class OnboardingViewModel(
                     20
                 )}..., fcmToken=${fcmToken.take(20)}..."
             )
-            handleResult(onboardingFlow.execute(firebaseToken, fcmToken))
+
+            _state.value = OnboardingState.InProgress(OnboardingStep.RELAY_REGISTRATION)
+            handleResult(
+                onboardingFlow.execute(
+                    firebaseToken = firebaseToken,
+                    fcmToken = fcmToken,
+                    onRegistered = {
+                        _state.value =
+                            OnboardingState.InProgress(OnboardingStep.CERT_ISSUANCE)
+                    }
+                )
+            )
         }
     }
 
