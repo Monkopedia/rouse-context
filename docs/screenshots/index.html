@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rouse Context - Screenshot Gallery</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --text-muted: #a0a0b0;
+    --accent: #e94560;
+    --section-bg: #0f3460;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    color: #fff;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .section {
+    margin-bottom: 3rem;
+  }
+  .section h2 {
+    font-size: 1.3rem;
+    color: var(--accent);
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(700px, 1fr));
+    gap: 1.5rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-body {
+    display: flex;
+    gap: 0;
+  }
+  .card-body .variant {
+    flex: 1;
+    text-align: center;
+    padding: 0.75rem;
+  }
+  .card-body .variant + .variant {
+    border-left: 1px solid var(--border);
+  }
+  .variant-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+  }
+  .variant img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+  }
+  .variant img:hover {
+    transform: scale(1.02);
+  }
+  .stats {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+  }
+  .stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+  /* Lightbox */
+  .lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+  }
+  .lightbox.active { display: flex; }
+  .lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 8px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Rouse Context Screenshot Gallery</h1>
+<p class="subtitle">Every screen rendered in light and dark theme via Roborazzi. Click any image to enlarge.</p>
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-value">41</div>
+    <div class="stat-label">Screen variants</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">82</div>
+    <div class="stat-label">Screenshots (light + dark)</div>
+  </div>
+  <div class="stat">
+    <div class="stat-value">8</div>
+    <div class="stat-label">Categories</div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Onboarding</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Welcome</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/01_welcome_light.png" alt="Welcome - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/01_welcome_dark.png" alt="Welcome - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Setting Up - First Time</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/02_setting_up_first_time_light.png" alt="Setting Up First Time - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/02_setting_up_first_time_dark.png" alt="Setting Up First Time - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Setting Up - Refreshing</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/03_setting_up_refreshing_light.png" alt="Setting Up Refreshing - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/03_setting_up_refreshing_dark.png" alt="Setting Up Refreshing - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Setting Up - Rate Limited</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/04_setting_up_rate_limited_light.png" alt="Setting Up Rate Limited - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/04_setting_up_rate_limited_dark.png" alt="Setting Up Rate Limited - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Onboarding Error</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/05_onboarding_error_light.png" alt="Onboarding Error - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/05_onboarding_error_dark.png" alt="Onboarding Error - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Connection Confirmed</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/06_connection_confirmed_light.png" alt="Connection Confirmed - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/06_connection_confirmed_dark.png" alt="Connection Confirmed - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Dashboard</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Dashboard - Empty</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/07_dashboard_empty_light.png" alt="Dashboard Empty - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/07_dashboard_empty_dark.png" alt="Dashboard Empty - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dashboard - With Integrations</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/08_dashboard_integrations_light.png" alt="Dashboard Integrations - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/08_dashboard_integrations_dark.png" alt="Dashboard Integrations - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dashboard - Cert Renewing</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/09_dashboard_cert_renewing_light.png" alt="Dashboard Cert Renewing - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/09_dashboard_cert_renewing_dark.png" alt="Dashboard Cert Renewing - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dashboard - Cert Expired (Failing)</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/10_dashboard_cert_expired_failing_light.png" alt="Dashboard Cert Expired Failing - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/10_dashboard_cert_expired_failing_dark.png" alt="Dashboard Cert Expired Failing - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dashboard - Cert Expired (Renewing)</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/11_dashboard_cert_expired_renewing_light.png" alt="Dashboard Cert Expired Renewing - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/11_dashboard_cert_expired_renewing_dark.png" alt="Dashboard Cert Expired Renewing - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dashboard - Cert Rate Limited</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/12_dashboard_cert_rate_limited_light.png" alt="Dashboard Cert Rate Limited - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/12_dashboard_cert_rate_limited_dark.png" alt="Dashboard Cert Rate Limited - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Dashboard - Cert Onboarding</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/13_dashboard_cert_onboarding_light.png" alt="Dashboard Cert Onboarding - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/13_dashboard_cert_onboarding_dark.png" alt="Dashboard Cert Onboarding - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Integrations</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Add Integration Picker</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/14_add_integration_picker_light.png" alt="Add Integration Picker - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/14_add_integration_picker_dark.png" alt="Add Integration Picker - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Add Integration Picker - Disabled</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/15_add_integration_picker_disabled_light.png" alt="Add Integration Picker Disabled - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/15_add_integration_picker_disabled_dark.png" alt="Add Integration Picker Disabled - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Integration Enabled</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/16_integration_enabled_light.png" alt="Integration Enabled - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/16_integration_enabled_dark.png" alt="Integration Enabled - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Integration Manage - Active</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/17_integration_manage_active_light.png" alt="Integration Manage Active - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/17_integration_manage_active_dark.png" alt="Integration Manage Active - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Integration Manage - Pending</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/18_integration_manage_pending_light.png" alt="Integration Manage Pending - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/18_integration_manage_pending_dark.png" alt="Integration Manage Pending - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Auth</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Add Client</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/19_add_client_light.png" alt="Add Client - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/19_add_client_dark.png" alt="Add Client - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Add Client - Multiple Endpoints</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/20_add_client_multiple_light.png" alt="Add Client Multiple - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/20_add_client_multiple_dark.png" alt="Add Client Multiple - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Authorization Approval - Empty</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/21_authorization_approval_empty_light.png" alt="Authorization Approval Empty - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/21_authorization_approval_empty_dark.png" alt="Authorization Approval Empty - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Authorization Approval - With Requests</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/22_authorization_approval_requests_light.png" alt="Authorization Approval Requests - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/22_authorization_approval_requests_dark.png" alt="Authorization Approval Requests - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Device Code Approval - Empty</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/23_device_code_approval_empty_light.png" alt="Device Code Approval Empty - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/23_device_code_approval_empty_dark.png" alt="Device Code Approval Empty - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Device Code Approval - Filled</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/24_device_code_approval_filled_light.png" alt="Device Code Approval Filled - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/24_device_code_approval_filled_dark.png" alt="Device Code Approval Filled - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Health Connect</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Health Connect Setup</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/25_health_connect_setup_light.png" alt="Health Connect Setup - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/25_health_connect_setup_dark.png" alt="Health Connect Setup - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Health Connect Settings</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/26_health_connect_settings_light.png" alt="Health Connect Settings - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/26_health_connect_settings_dark.png" alt="Health Connect Settings - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Notification Setup</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Notification Setup</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/27_notification_setup_light.png" alt="Notification Setup - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/27_notification_setup_dark.png" alt="Notification Setup - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Notification Setup - Granted</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/28_notification_setup_granted_light.png" alt="Notification Setup Granted - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/28_notification_setup_granted_dark.png" alt="Notification Setup Granted - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Notification Preferences</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/29_notification_preferences_light.png" alt="Notification Preferences - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/29_notification_preferences_dark.png" alt="Notification Preferences - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Outreach Setup</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Outreach Setup</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/30_outreach_setup_light.png" alt="Outreach Setup - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/30_outreach_setup_dark.png" alt="Outreach Setup - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Outreach Setup - DND Enabled</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/31_outreach_setup_dnd_light.png" alt="Outreach Setup DND - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/31_outreach_setup_dnd_dark.png" alt="Outreach Setup DND - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Usage Setup</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Usage Setup</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/32_usage_setup_light.png" alt="Usage Setup - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/32_usage_setup_dark.png" alt="Usage Setup - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Usage Setup - Granted</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/33_usage_setup_granted_light.png" alt="Usage Setup Granted - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/33_usage_setup_granted_dark.png" alt="Usage Setup Granted - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Audit History</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Audit History - Populated</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/34_audit_history_populated_light.png" alt="Audit History Populated - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/34_audit_history_populated_dark.png" alt="Audit History Populated - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Audit History - Empty</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/35_audit_history_empty_light.png" alt="Audit History Empty - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/35_audit_history_empty_dark.png" alt="Audit History Empty - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Audit History - Filtered</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/36_audit_history_filtered_light.png" alt="Audit History Filtered - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/36_audit_history_filtered_dark.png" alt="Audit History Filtered - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Settings</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="card-header">Settings - Default</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/37_settings_light.png" alt="Settings - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/37_settings_dark.png" alt="Settings - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Settings - No Battery Warning</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/38_settings_no_battery_light.png" alt="Settings No Battery - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/38_settings_no_battery_dark.png" alt="Settings No Battery - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Settings - Trust Verified</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/39_settings_trust_verified_light.png" alt="Settings Trust Verified - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/39_settings_trust_verified_dark.png" alt="Settings Trust Verified - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Settings - Trust Warning</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/40_settings_trust_warning_light.png" alt="Settings Trust Warning - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/40_settings_trust_warning_dark.png" alt="Settings Trust Warning - Dark">
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Settings - Trust Alert</div>
+      <div class="card-body">
+        <div class="variant">
+          <div class="variant-label">Light</div>
+          <img src="../../app/screenshots/41_settings_trust_alert_light.png" alt="Settings Trust Alert - Light">
+        </div>
+        <div class="variant">
+          <div class="variant-label">Dark</div>
+          <img src="../../app/screenshots/41_settings_trust_alert_dark.png" alt="Settings Trust Alert - Dark">
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<script>
+  const lightbox = document.getElementById('lightbox');
+  const lightboxImg = document.getElementById('lightbox-img');
+  document.querySelectorAll('.variant img').forEach(img => {
+    img.addEventListener('click', () => {
+      lightboxImg.src = img.src;
+      lightboxImg.alt = img.alt;
+      lightbox.classList.add('active');
+    });
+  });
+  lightbox.addEventListener('click', () => {
+    lightbox.classList.remove('active');
+  });
+</script>
+
+</body>
+</html>
