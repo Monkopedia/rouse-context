@@ -234,7 +234,7 @@ val appModule = module {
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
-    viewModel { IntegrationManageViewModel(get(), get(), get(), get()) }
+    viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get()) }
     viewModel { SettingsViewModel(get(), get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
