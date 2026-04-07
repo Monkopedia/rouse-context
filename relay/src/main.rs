@@ -178,7 +178,9 @@ async fn main() {
     let fcm_timeout = Duration::from_secs(config.limits.fcm_wakeup_timeout_secs.unwrap_or(20));
 
     // Bot protection: rate limiters for passthrough connections
-    let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(30)));
+    // Throttle must be shorter than fcm_wakeup_timeout so a failed wake
+    // allows a retry on the next client connection.
+    let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(10)));
     let conn_rate_limiter = Arc::new(ConnectionRateLimiter::new(5, Duration::from_secs(60)));
 
     // Accept loop

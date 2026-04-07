@@ -137,7 +137,7 @@ impl Default for LimitsConfig {
             max_streams_per_device: 8,
             wake_rate_limit: 6,
             subdomain_rotation_cooldown_days: Some(30),
-            fcm_wakeup_timeout_secs: Some(20),
+            fcm_wakeup_timeout_secs: Some(30),
             ws_ping_interval_secs: 30,
             ws_read_timeout_secs: 60,
         }
