@@ -75,14 +75,15 @@ fun AddIntegrationPickerScreen(
                             .padding(vertical = 4.dp)
                             .clickable { onSetUp(integration.id) },
                         border = BorderStroke(
-                            1.dp,
-                            MaterialTheme.colorScheme.surfaceVariant
+                            1.5.dp,
+                            MaterialTheme.colorScheme.primary
                         )
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
                                 text = integration.name,
-                                style = MaterialTheme.typography.titleMedium
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
