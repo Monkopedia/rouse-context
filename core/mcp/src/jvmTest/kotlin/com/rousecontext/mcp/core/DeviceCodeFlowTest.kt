@@ -16,8 +16,8 @@ class DeviceCodeFlowTest {
         assertNotNull(response.deviceCode)
         assertNotNull(response.userCode)
         assertTrue(response.deviceCode.isNotEmpty())
-        // User code format: XXXX-XXXX (8 alphanumeric + dash)
-        assertTrue(response.userCode.matches(Regex("[A-Z2-9]{4}-[A-Z2-9]{4}")))
+        // User code format: XXXXXX-XXXXXX (12 alphanumeric + dash, ~61 bits entropy)
+        assertTrue(response.userCode.matches(Regex("[A-Z2-9]{6}-[A-Z2-9]{6}")))
         assertEquals(5, response.interval)
     }
 

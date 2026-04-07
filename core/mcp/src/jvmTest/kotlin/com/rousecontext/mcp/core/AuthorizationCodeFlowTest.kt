@@ -31,8 +31,8 @@ class AuthorizationCodeFlowTest {
         assertNotNull(request.requestId)
         assertTrue(request.requestId.isNotEmpty())
         assertNotNull(request.displayCode)
-        // Display code format: XXXX-XXXX
-        assertTrue(request.displayCode.matches(Regex("[A-Z2-9]{4}-[A-Z2-9]{4}")))
+        // Display code format: XXXXXX-XXXXXX (12 chars total for ~61 bits entropy)
+        assertTrue(request.displayCode.matches(Regex("[A-Z2-9]{6}-[A-Z2-9]{6}")))
         assertEquals("health", request.integration)
     }
 

@@ -1,9 +1,9 @@
 package com.rousecontext.mcp.core
 
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.random.Random
 
 /**
  * Status of an authorization request, returned by [AuthorizationCodeManager.getStatus].
@@ -42,7 +42,7 @@ private const val AUTH_REQUEST_TTL_MS = 10L * 60 * 1000 // 10 minutes
  * Characters allowed in display codes. Excludes 0, O, 1, I, L to avoid ambiguity.
  */
 private const val DISPLAY_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-private const val DISPLAY_CODE_HALF_LENGTH = 4
+private const val DISPLAY_CODE_HALF_LENGTH = 6
 
 /**
  * Manages OAuth 2.1 authorization code flow with PKCE for per-integration auth.
@@ -262,19 +262,22 @@ class AuthorizationCodeManager(
     }
 
     private fun generateDisplayCode(): String {
+        val random = SecureRandom()
         val first = (1..DISPLAY_CODE_HALF_LENGTH)
-            .map { DISPLAY_CODE_CHARS[Random.nextInt(DISPLAY_CODE_CHARS.length)] }
+            .map { DISPLAY_CODE_CHARS[random.nextInt(DISPLAY_CODE_CHARS.length)] }
             .toCharArray()
             .concatToString()
         val second = (1..DISPLAY_CODE_HALF_LENGTH)
-            .map { DISPLAY_CODE_CHARS[Random.nextInt(DISPLAY_CODE_CHARS.length)] }
+            .map { DISPLAY_CODE_CHARS[random.nextInt(DISPLAY_CODE_CHARS.length)] }
             .toCharArray()
             .concatToString()
         return "$first-$second"
     }
 
     private fun generateAuthorizationCode(): String {
-        return Random.nextBytes(32).encodeBase64Url()
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return bytes.encodeBase64Url()
     }
 }
 

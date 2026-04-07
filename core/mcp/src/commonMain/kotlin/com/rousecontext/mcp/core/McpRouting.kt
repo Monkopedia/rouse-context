@@ -65,6 +65,7 @@ fun Application.configureMcpRouting(
     auditListener: AuditListener? = null,
     clock: Clock = SystemClock,
     rateLimiter: RateLimiter? = null,
+    mcpRateLimiter: RateLimiter? = null,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0"
 ) {
@@ -131,6 +132,10 @@ fun Application.configureMcpRouting(
             // OAuth metadata -- no auth required
             get("/.well-known/oauth-authorization-server") {
                 val integration = call.parameters["integration"] ?: return@get
+                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
                     return@get
@@ -145,11 +150,15 @@ fun Application.configureMcpRouting(
             // device code flow, so this is a simple pass-through.
             post("/register") {
                 val integration = call.parameters["integration"] ?: return@post
+                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
                     return@post
                 }
-                if (rateLimiter != null && !rateLimiter.tryAcquire("register")) {
+                if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/register")) {
                     call.respond(HttpStatusCode.TooManyRequests)
                     return@post
                 }
@@ -173,6 +182,33 @@ fun Application.configureMcpRouting(
                 }
 
                 val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
+
+                // Validate redirect_uris: only http/https schemes allowed
+                val rawUris = (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.content }
+                    ?: emptyList()
+                val validUris = rawUris.filter { uri ->
+                    try {
+                        val scheme = java.net.URI(uri).scheme?.lowercase()
+                        scheme == "http" || scheme == "https"
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
+                if (validUris.isEmpty()) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        buildJsonObject {
+                            put("error", "invalid_redirect_uri")
+                            put(
+                                "error_description",
+                                "At least one http or https redirect_uri is required"
+                            )
+                        }
+                    )
+                    return@post
+                }
+
                 val clientId = java.util.UUID.randomUUID().toString()
                 authorizationCodeManager.registerClient(clientId, clientName)
                 val response = buildJsonObject {
@@ -181,8 +217,7 @@ fun Application.configureMcpRouting(
                     put(
                         "redirect_uris",
                         kotlinx.serialization.json.JsonArray(
-                            (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
-                                ?.toList() ?: emptyList()
+                            validUris.map { kotlinx.serialization.json.JsonPrimitive(it) }
                         )
                     )
                     put(
@@ -218,6 +253,10 @@ fun Application.configureMcpRouting(
             // Device code authorize -- no auth required
             post("/device/authorize") {
                 val integration = call.parameters["integration"] ?: return@post
+                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
                     return@post
@@ -241,11 +280,15 @@ fun Application.configureMcpRouting(
             // Authorization code flow -- returns HTML page with display code
             get("/authorize") {
                 val integration = call.parameters["integration"] ?: return@get
+                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
                     return@get
                 }
-                if (rateLimiter != null && !rateLimiter.tryAcquire("authorize")) {
+                if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/authorize")) {
                     call.respond(HttpStatusCode.TooManyRequests)
                     return@get
                 }
@@ -282,6 +325,16 @@ fun Application.configureMcpRouting(
                     hostname = hostname,
                     integration = integration
                 )
+                call.response.headers.append("X-Frame-Options", "DENY")
+                call.response.headers.append(
+                    "Content-Security-Policy",
+                    "frame-ancestors 'none'; default-src 'self'; script-src 'unsafe-inline'"
+                )
+                call.response.headers.append("X-Content-Type-Options", "nosniff")
+                call.response.headers.append(
+                    "Strict-Transport-Security",
+                    "max-age=31536000"
+                )
                 call.respondText(html, ContentType.Text.Html)
             }
 
@@ -314,11 +367,15 @@ fun Application.configureMcpRouting(
             // Token exchange -- handles both authorization_code and device_code
             post("/token") {
                 val integration = call.parameters["integration"] ?: return@post
+                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
                 if (registry.providerForPath(integration) == null) {
                     call.respond(HttpStatusCode.NotFound)
                     return@post
                 }
-                if (rateLimiter != null && !rateLimiter.tryAcquire("token")) {
+                if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/token")) {
                     call.respond(HttpStatusCode.TooManyRequests)
                     return@post
                 }
@@ -374,9 +431,19 @@ fun Application.configureMcpRouting(
             // MCP Streamable HTTP -- Bearer auth required
             post("/mcp") {
                 val integration = call.parameters["integration"] ?: return@post
+                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
                 val provider = registry.providerForPath(integration)
                 if (provider == null) {
                     call.respond(HttpStatusCode.NotFound)
+                    return@post
+                }
+                if (mcpRateLimiter != null &&
+                    !mcpRateLimiter.tryAcquire("$integration/mcp")
+                ) {
+                    call.respond(HttpStatusCode.TooManyRequests)
                     return@post
                 }
 
@@ -771,6 +838,9 @@ private fun emitAuditEvent(
 
 /** Timeout for reading the MCP request body and dispatching it (30 seconds). */
 private const val MCP_REQUEST_TIMEOUT_MS = 30_000L
+
+/** Valid integration name pattern: alphanumeric, hyphens, underscores, 1-64 chars. */
+private val INTEGRATION_NAME_REGEX = Regex("^[a-zA-Z0-9_-]{1,64}$")
 
 private fun jsonRpcError(
     id: kotlinx.serialization.json.JsonElement,

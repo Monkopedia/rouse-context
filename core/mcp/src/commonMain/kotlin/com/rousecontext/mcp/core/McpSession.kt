@@ -34,6 +34,8 @@ class McpSession(
         AuthorizationCodeManager(tokenStore = tokenStore),
     private val auditListener: AuditListener? = null,
     private val hostname: String = "localhost",
+    private val rateLimiter: RateLimiter? = null,
+    private val mcpRateLimiter: RateLimiter? = null,
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0"
 ) {
@@ -64,6 +66,8 @@ class McpSession(
                 authorizationCodeManager = authorizationCodeManager,
                 hostname = hostname,
                 auditListener = auditListener,
+                rateLimiter = rateLimiter,
+                mcpRateLimiter = mcpRateLimiter,
                 serverName = serverName,
                 serverVersion = serverVersion
             )

@@ -1,6 +1,6 @@
 package com.rousecontext.mcp.core
 
-import kotlin.random.Random
+import java.security.SecureRandom
 
 /**
  * Status of a device code poll request.
@@ -37,7 +37,7 @@ private const val DEVICE_CODE_TTL_MS = 10L * 60 * 1000 // 10 minutes
  * Characters allowed in user codes. Excludes 0, O, 1, I, L to avoid ambiguity.
  */
 private const val USER_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-private const val USER_CODE_HALF_LENGTH = 4
+private const val USER_CODE_HALF_LENGTH = 6
 
 /**
  * Manages OAuth 2.1 device authorization grant (RFC 8628) for per-integration auth.
@@ -167,16 +167,19 @@ class DeviceCodeManager(
     }
 
     private fun generateDeviceCode(): String {
-        return Random.nextBytes(32).encodeBase64Url()
+        val bytes = ByteArray(32)
+        SecureRandom().nextBytes(bytes)
+        return bytes.encodeBase64Url()
     }
 
     private fun generateUserCode(): String {
+        val random = SecureRandom()
         val first = (1..USER_CODE_HALF_LENGTH)
-            .map { USER_CODE_CHARS[Random.nextInt(USER_CODE_CHARS.length)] }
+            .map { USER_CODE_CHARS[random.nextInt(USER_CODE_CHARS.length)] }
             .toCharArray()
             .concatToString()
         val second = (1..USER_CODE_HALF_LENGTH)
-            .map { USER_CODE_CHARS[Random.nextInt(USER_CODE_CHARS.length)] }
+            .map { USER_CODE_CHARS[random.nextInt(USER_CODE_CHARS.length)] }
             .toCharArray()
             .concatToString()
         return "$first-$second"
