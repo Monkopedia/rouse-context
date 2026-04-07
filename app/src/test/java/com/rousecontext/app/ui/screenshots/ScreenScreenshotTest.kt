@@ -7,6 +7,8 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.app.ui.screens.AddClientScreen
 import com.rousecontext.app.ui.screens.AddClientState
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
+import com.rousecontext.app.ui.screens.AuditDetailScreen
+import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
@@ -109,12 +111,12 @@ class ScreenScreenshotTest {
 
     @Test
     fun settingUpFirstTimeDark() = captureDark("02_setting_up_first_time") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime))
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime()))
     }
 
     @Test
     fun settingUpFirstTimeLight() = captureLight("02_setting_up_first_time") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime))
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime()))
     }
 
     @Test
@@ -620,6 +622,30 @@ class ScreenScreenshotTest {
     }
 
     // =========================================================================
+    // Audit Detail
+    // =========================================================================
+
+    @Test
+    fun auditDetailLoadingDark() = captureDark("42_audit_detail_loading") {
+        AuditDetailScreen()
+    }
+
+    @Test
+    fun auditDetailLoadingLight() = captureLight("42_audit_detail_loading") {
+        AuditDetailScreen()
+    }
+
+    @Test
+    fun auditDetailPopulatedDark() = captureDark("43_audit_detail_populated") {
+        AuditDetailScreen(state = auditDetailPopulatedState())
+    }
+
+    @Test
+    fun auditDetailPopulatedLight() = captureLight("43_audit_detail_populated") {
+        AuditDetailScreen(state = auditDetailPopulatedState())
+    }
+
+    // =========================================================================
     // Shared state builders
     // =========================================================================
 
@@ -798,6 +824,17 @@ class ScreenScreenshotTest {
                 )
             )
         )
+    )
+
+    private fun auditDetailPopulatedState() = AuditDetailState(
+        toolName = "health/get_steps",
+        provider = "health",
+        // Fixed timestamp for reproducible screenshots
+        timestampMillis = 1_712_400_000_000L,
+        durationMs = 142,
+        argumentsJson = """{"days":7,"metric":"steps"}""",
+        resultJson = """{"total":52340,"average":7477}""",
+        isLoading = false
     )
 
     private fun settingsTrustState(overall: TrustOverallStatus, ctResult: String) = SettingsState(
