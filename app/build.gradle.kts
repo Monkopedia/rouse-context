@@ -107,6 +107,7 @@ dependencies {
     // OkHttp (mTLS WebSocket client for tunnel — JSSE properly presents client certs)
     implementation(libs.okhttp)
 
+    implementation(libs.splashscreen)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity)

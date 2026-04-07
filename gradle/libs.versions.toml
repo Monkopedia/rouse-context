@@ -108,6 +108,7 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.0.1" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
 
 # Lifecycle ViewModel Compose

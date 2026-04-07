@@ -10,13 +10,16 @@ import org.koin.compose.koinInject
 
 /**
  * Top-level composable that applies the app theme and hosts navigation.
+ *
+ * @param startDestination the initial route, determined by [MainActivity] before
+ *   the splash screen is dismissed so there is no flash of the wrong screen.
  */
 @Composable
-fun RouseContextApp() {
+fun RouseContextApp(startDestination: String = Routes.HOME) {
     val themePreference: ThemePreference = koinInject()
     val themeMode by themePreference.themeMode.collectAsState(initial = ThemeMode.AUTO)
 
     RouseContextTheme(themeMode = themeMode) {
-        AppNavigation()
+        AppNavigation(startDestination = startDestination)
     }
 }
