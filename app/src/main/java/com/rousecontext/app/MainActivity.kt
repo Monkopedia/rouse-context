@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.animation.doOnEnd
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.rousecontext.app.ui.navigation.RouseContextApp
 import com.rousecontext.app.ui.navigation.Routes
@@ -59,7 +60,7 @@ class MainActivity : ComponentActivity() {
                     splashScreenView.remove()
                     // Re-apply status bar style after splash removal
                     // The splash theme may have overridden it
-                    val controller = androidx.core.view.WindowCompat
+                    val controller = WindowCompat
                         .getInsetsController(window, window.decorView)
                     controller.isAppearanceLightStatusBars = !isDarkSystem
                 }
