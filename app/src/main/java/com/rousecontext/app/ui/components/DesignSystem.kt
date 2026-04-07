@@ -26,13 +26,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.LocalExtendedColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun appBarColors(): TopAppBarColors = TopAppBarDefaults.topAppBarColors(
-    containerColor = LocalExtendedColors.current.topBarContainer
+    containerColor = LocalExtendedColors.current.topBarContainer,
+    titleContentColor = Color.White,
+    navigationIconContentColor = Color.White,
+    actionIconContentColor = Color.White
 )
 
 @Composable

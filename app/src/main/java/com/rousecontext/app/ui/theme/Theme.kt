@@ -75,12 +75,12 @@ private val LightColorScheme = lightColorScheme(
     onError = Color.White,
     outline = Color(0xFF787470),
     outlineVariant = Color(0xFFCCC8C2),
-    surfaceTint = Color.Transparent,
-    surfaceContainer = Color(0xFFF0EDE8),
-    surfaceContainerLow = Color(0xFFF3F0EB),
-    surfaceContainerHigh = Color(0xFFEBE8E3),
-    surfaceContainerLowest = Color(0xFFFAF8F4),
-    surfaceContainerHighest = Color(0xFFE5E2DD)
+    surfaceTint = Color(0xFF1A4070),
+    surfaceContainer = Color(0xFFECEEF3),
+    surfaceContainerLow = Color(0xFFF0F1F5),
+    surfaceContainerHigh = Color(0xFFE8EAEF),
+    surfaceContainerLowest = Color(0xFFF8F8FA),
+    surfaceContainerHighest = Color(0xFFE2E5EB)
 )
 
 data class ExtendedColors(
@@ -110,7 +110,7 @@ private val LightExtendedColors = ExtendedColors(
     alertContainer = AlertContainerLight,
     alertContent = AlertContentLight,
     codeBoxBorderEmpty = CodeBoxBorderEmpty,
-    topBarContainer = WarmWhite
+    topBarContainer = NavyPrimary
 )
 
 val LocalExtendedColors = staticCompositionLocalOf { DarkExtendedColors }

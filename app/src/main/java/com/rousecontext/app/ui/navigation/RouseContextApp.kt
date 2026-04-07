@@ -37,9 +37,15 @@ fun RouseContextApp(startDestination: String = Routes.HOME) {
             statusBarStyle = if (isDark) {
                 SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
             } else {
-                SystemBarStyle.light(
-                    android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT
+                SystemBarStyle.dark(
+                    android.graphics.Color.parseColor("#0F1A30")
+                )
+            },
+            navigationBarStyle = if (isDark) {
+                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            } else {
+                SystemBarStyle.dark(
+                    android.graphics.Color.parseColor("#0F1A30")
                 )
             }
         )
