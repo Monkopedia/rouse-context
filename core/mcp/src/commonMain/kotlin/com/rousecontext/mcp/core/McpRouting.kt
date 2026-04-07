@@ -716,7 +716,7 @@ private suspend fun parseTokenRequestParams(
  * Shows the display code and polls for approval status via JavaScript.
  */
 @Suppress("LongMethod")
-private fun buildAuthorizePage(
+internal fun buildAuthorizePage(
     displayCode: String,
     requestId: String,
     redirectUri: String,

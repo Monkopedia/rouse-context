@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OAuth Authorization Page - All States</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --text-muted: #a0a0b0;
+    --accent: #e94560;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; color: #fff; }
+  .subtitle { color: var(--text-muted); margin-bottom: 2rem; font-size: 0.95rem; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    gap: 1.5rem;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 0.75rem 1rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .card-body { padding: 0; }
+  .card-body iframe { width: 100%; height: 480px; border: none; }
+</style>
+</head>
+<body>
+
+<h1>OAuth Authorization Page</h1>
+<p class="subtitle">
+  Browser-rendered HTML page shown during the OAuth authorization code flow.
+  Each iframe shows the actual HTML served at GET /{integration}/authorize.
+</p>
+
+<div class="grid">
+    <div class="card">
+      <div class="card-header">Waiting for Approval</div>
+      <div class="card-body">
+        <iframe src="waiting.html"></iframe>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Approved</div>
+      <div class="card-body">
+        <iframe src="approved.html"></iframe>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Denied</div>
+      <div class="card-body">
+        <iframe src="denied.html"></iframe>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Expired</div>
+      <div class="card-body">
+        <iframe src="expired.html"></iframe>
+      </div>
+    </div>
+</div>
+
+</body>
+</html>
