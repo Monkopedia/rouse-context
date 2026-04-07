@@ -65,7 +65,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
 
             Text(
                 text = "Turn your phone into a secure AI context server. " +
-                    "Your data stays on your device \u2014 AI clients connect " +
+                    "Your data stays on your device. AI clients connect " +
                     "through an encrypted tunnel.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
@@ -77,12 +77,14 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
 
             Button(
                 onClick = onGetStarted,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
             ) {
                 Text("Get Started")
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(48.dp))
         }
     }
 }
