@@ -5,6 +5,7 @@ pub mod device_ca;
 pub mod fcm;
 pub mod firebase_auth;
 pub mod firestore;
+pub mod firestore_client;
 pub mod google_auth;
 pub mod maintenance;
 pub mod mux;

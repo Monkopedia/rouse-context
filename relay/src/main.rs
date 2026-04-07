@@ -122,11 +122,8 @@ async fn main() {
     let session_registry = Arc::new(SessionRegistry::new());
 
     // Build external service clients — use real implementations when a service account is available
-    let mem_store = InMemoryFirestore::new();
-    // No seed devices needed -- devices auto-register when they connect via
-    // mTLS WebSocket. The relay CA cert in the client cert is sufficient auth.
-    let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> = Arc::new(mem_store);
-    info!("Using in-memory Firestore (data lost on restart)");
+    let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> =
+        build_firestore_client(&config);
     let acme: Arc<dyn rouse_relay::acme::AcmeClient> = build_acme_client(&config);
 
     let (fcm, firebase_auth): (
@@ -517,6 +514,47 @@ fn build_service_clients(
     );
 
     (fcm, firebase_auth)
+}
+
+/// Build the Firestore client from config.
+///
+/// When `firebase.service_account_path` points to a valid service account JSON
+/// file, this creates a `RealFirestoreClient` that talks to the Firestore REST
+/// API. Falls back to `InMemoryFirestore` when no service account is available.
+fn build_firestore_client(
+    config: &RelayConfig,
+) -> Arc<dyn rouse_relay::firestore::FirestoreClient> {
+    let sa_path = &config.firebase.service_account_path;
+
+    if sa_path.is_empty() || !Path::new(sa_path).exists() {
+        info!("No service account for Firestore, using in-memory store (data lost on restart)");
+        return Arc::new(InMemoryFirestore::new());
+    }
+
+    let sa_key = match rouse_relay::google_auth::ServiceAccountKey::from_file(Path::new(sa_path)) {
+        Ok(key) => key,
+        Err(e) => {
+            warn!(path = %sa_path, "Failed to load service account for Firestore: {e}, falling back to in-memory");
+            return Arc::new(InMemoryFirestore::new());
+        }
+    };
+
+    let project_id = if config.firebase.project_id.is_empty() {
+        sa_key.project_id.clone()
+    } else {
+        config.firebase.project_id.clone()
+    };
+
+    let auth_manager = Arc::new(rouse_relay::google_auth::GoogleAuthManager::new(
+        sa_key,
+        vec![rouse_relay::firestore_client::FIRESTORE_SCOPE.to_string()],
+    ));
+
+    info!(project_id = %project_id, "Using real Firestore REST API client");
+    Arc::new(rouse_relay::firestore_client::RealFirestoreClient::new(
+        &project_id,
+        auth_manager,
+    ))
 }
 
 // --- Stub implementations for external services ---
