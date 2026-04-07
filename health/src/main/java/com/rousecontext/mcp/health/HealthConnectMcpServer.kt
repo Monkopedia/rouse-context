@@ -1,11 +1,11 @@
 package com.rousecontext.mcp.health
 
 import com.rousecontext.mcp.core.McpServerProvider
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -45,7 +45,7 @@ class HealthConnectMcpServer(
             name = "list_record_types",
             description = "Lists all available Health Connect record types " +
                 "with permission status",
-            inputSchema = Tool.Input()
+            inputSchema = ToolSchema()
         ) { _ ->
             val granted = repository.getGrantedPermissions()
             val typesArray = buildJsonArray {
@@ -72,10 +72,10 @@ class HealthConnectMcpServer(
         val validationError = validateQueryArgs(request)
         if (validationError != null) return validationError
 
-        val recordType = request.arguments["record_type"]!!.jsonPrimitive.content
-        val since = parseInstant(request.arguments["since"]!!.jsonPrimitive.content)!!
-        val until = parseUntil(request.arguments["until"]?.jsonPrimitive?.content)!!
-        val limit = request.arguments["limit"]?.jsonPrimitive?.int
+        val recordType = request.params.arguments?.get("record_type")!!.jsonPrimitive.content
+        val since = parseInstant(request.params.arguments?.get("since")!!.jsonPrimitive.content)!!
+        val until = parseUntil(request.params.arguments?.get("until")?.jsonPrimitive?.content)!!
+        val limit = request.params.arguments?.get("limit")?.jsonPrimitive?.int
 
         val records = repository.queryRecords(recordType, since, until, limit)
         val result = buildJsonObject {
@@ -99,7 +99,7 @@ class HealthConnectMcpServer(
     }
 
     private suspend fun handleGetHealthSummary(request: CallToolRequest): CallToolResult {
-        val period = request.arguments["period"]?.jsonPrimitive?.content
+        val period = request.params.arguments?.get("period")?.jsonPrimitive?.content
             ?: return errorResult("Missing period")
 
         val now = Instant.now()
@@ -120,7 +120,7 @@ class HealthConnectMcpServer(
 
     @Suppress("ReturnCount")
     private fun validateQueryArgs(request: CallToolRequest): CallToolResult? {
-        val recordType = request.arguments["record_type"]?.jsonPrimitive?.content
+        val recordType = request.params.arguments?.get("record_type")?.jsonPrimitive?.content
             ?: return errorResult("Missing record_type")
         if (RecordTypeRegistry[recordType] == null) {
             return errorResult(
@@ -128,14 +128,14 @@ class HealthConnectMcpServer(
                     "Use list_record_types to see available types."
             )
         }
-        val sinceStr = request.arguments["since"]?.jsonPrimitive?.content
+        val sinceStr = request.params.arguments?.get("since")?.jsonPrimitive?.content
         if (parseInstant(sinceStr) == null) {
             return errorResult(
                 "Invalid 'since' format. Use ISO 8601 datetime " +
                     "(e.g. 2026-04-01T00:00:00Z) or date (e.g. 2026-04-01)."
             )
         }
-        val untilStr = request.arguments["until"]?.jsonPrimitive?.content
+        val untilStr = request.params.arguments?.get("until")?.jsonPrimitive?.content
         if (untilStr != null && parseInstant(untilStr) == null) {
             return errorResult(
                 "Invalid 'until' format. Use ISO 8601 datetime or date."
@@ -182,7 +182,7 @@ class HealthConnectMcpServer(
                 put("has_permission", granted.contains(info.name))
             }
 
-        private val queryHealthDataSchema = Tool.Input(
+        private val queryHealthDataSchema = ToolSchema(
             properties = buildJsonObject {
                 put(
                     "record_type",
@@ -239,7 +239,7 @@ class HealthConnectMcpServer(
             required = listOf("record_type", "since")
         )
 
-        private val summarySchema = Tool.Input(
+        private val summarySchema = ToolSchema(
             properties = buildJsonObject {
                 put(
                     "period",

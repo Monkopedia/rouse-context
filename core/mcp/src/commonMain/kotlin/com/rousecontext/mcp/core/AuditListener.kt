@@ -1,6 +1,6 @@
 package com.rousecontext.mcp.core
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import kotlinx.serialization.json.JsonElement
 
 /**

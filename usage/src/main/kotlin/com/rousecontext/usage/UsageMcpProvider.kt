@@ -6,11 +6,11 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.PackageManager
 import com.rousecontext.mcp.core.McpServerProvider
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.serialization.json.JsonPrimitive
@@ -348,7 +348,7 @@ internal fun parsePeriod(period: String): Pair<Long, Long>? {
 
 // region Schema builders
 
-private fun summarySchema() = Tool.Input(
+private fun summarySchema() = ToolSchema(
     properties = buildJsonObject {
         put("period", periodProperty())
         put(
@@ -365,7 +365,7 @@ private fun summarySchema() = Tool.Input(
     required = listOf("period")
 )
 
-private fun appUsageSchema() = Tool.Input(
+private fun appUsageSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "package_name",
@@ -382,7 +382,7 @@ private fun appUsageSchema() = Tool.Input(
     required = listOf("package_name", "period")
 )
 
-private fun eventsSchema() = Tool.Input(
+private fun eventsSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "since",
@@ -428,7 +428,7 @@ private fun eventsSchema() = Tool.Input(
     required = listOf("since", "until")
 )
 
-private fun compareSchema() = Tool.Input(
+private fun compareSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "period1",
@@ -527,7 +527,7 @@ private fun jsonResult(json: String): CallToolResult = CallToolResult(
 )
 
 private fun CallToolRequest.stringArg(name: String): String? =
-    arguments[name]?.let { it as? JsonPrimitive }?.content
+    params.arguments?.get(name)?.let { it as? JsonPrimitive }?.content
 
 private fun CallToolRequest.intArg(name: String): Int? = stringArg(name)?.toIntOrNull()
 

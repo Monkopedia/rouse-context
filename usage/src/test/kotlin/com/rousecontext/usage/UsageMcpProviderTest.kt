@@ -9,11 +9,13 @@ import android.content.pm.PackageManager
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -32,7 +34,8 @@ class UsageMcpProviderTest {
     private lateinit var provider: UsageMcpProvider
 
     private val toolHandlers =
-        mutableMapOf<String, suspend (CallToolRequest) -> CallToolResult>()
+        mutableMapOf<String, suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
+    private val fakeConnection: ClientConnection = mockk(relaxed = true)
 
     @Before
     fun setUp() {
@@ -53,12 +56,12 @@ class UsageMcpProviderTest {
         server = mockk(relaxed = true)
 
         val nameSlot = slot<String>()
-        val handlerSlot = slot<suspend (CallToolRequest) -> CallToolResult>()
+        val handlerSlot = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
         every {
             server.addTool(
                 name = capture(nameSlot),
                 description = any(),
-                inputSchema = any<Tool.Input>(),
+                inputSchema = any<ToolSchema>(),
                 handler = capture(handlerSlot)
             )
         } answers {
@@ -96,12 +99,15 @@ class UsageMcpProviderTest {
         setupAppLabel("com.example.app3", "App Three")
 
         val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_usage_summary",
-                arguments = buildJsonObject {
-                    put("period", JsonPrimitive("today"))
-                }
+                params = CallToolRequestParams(
+                    name = "get_usage_summary",
+                    arguments = buildJsonObject {
+                        put("period", JsonPrimitive("today"))
+                    }
+                )
             )
         )
 
@@ -129,13 +135,16 @@ class UsageMcpProviderTest {
         }
 
         val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_usage_summary",
-                arguments = buildJsonObject {
-                    put("period", JsonPrimitive("week"))
-                    put("limit", JsonPrimitive(2))
-                }
+                params = CallToolRequestParams(
+                    name = "get_usage_summary",
+                    arguments = buildJsonObject {
+                        put("period", JsonPrimitive("week"))
+                        put("limit", JsonPrimitive(2))
+                    }
+                )
             )
         )
 
@@ -150,12 +159,15 @@ class UsageMcpProviderTest {
     @Test
     fun `get_usage_summary rejects invalid period`() = runBlocking {
         val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_usage_summary",
-                arguments = buildJsonObject {
-                    put("period", JsonPrimitive("invalid"))
-                }
+                params = CallToolRequestParams(
+                    name = "get_usage_summary",
+                    arguments = buildJsonObject {
+                        put("period", JsonPrimitive("invalid"))
+                    }
+                )
             )
         )
 
@@ -174,13 +186,16 @@ class UsageMcpProviderTest {
         setupAppLabel("com.example.target", "Target App")
 
         val handler = toolHandlers["get_app_usage"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_app_usage",
-                arguments = buildJsonObject {
-                    put("package_name", JsonPrimitive("com.example.target"))
-                    put("period", JsonPrimitive("week"))
-                }
+                params = CallToolRequestParams(
+                    name = "get_app_usage",
+                    arguments = buildJsonObject {
+                        put("package_name", JsonPrimitive("com.example.target"))
+                        put("period", JsonPrimitive("week"))
+                    }
+                )
             )
         )
 
@@ -193,12 +208,15 @@ class UsageMcpProviderTest {
     @Test
     fun `get_app_usage returns error for missing package_name`() = runBlocking {
         val handler = toolHandlers["get_app_usage"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_app_usage",
-                arguments = buildJsonObject {
-                    put("period", JsonPrimitive("today"))
-                }
+                params = CallToolRequestParams(
+                    name = "get_app_usage",
+                    arguments = buildJsonObject {
+                        put("period", JsonPrimitive("today"))
+                    }
+                )
             )
         )
 
@@ -215,13 +233,16 @@ class UsageMcpProviderTest {
         } returns events
 
         val handler = toolHandlers["get_usage_events"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_usage_events",
-                arguments = buildJsonObject {
-                    put("since", JsonPrimitive("today"))
-                    put("until", JsonPrimitive("today"))
-                }
+                params = CallToolRequestParams(
+                    name = "get_usage_events",
+                    arguments = buildJsonObject {
+                        put("since", JsonPrimitive("today"))
+                        put("until", JsonPrimitive("today"))
+                    }
+                )
             )
         )
 
@@ -233,13 +254,16 @@ class UsageMcpProviderTest {
     @Test
     fun `get_usage_events rejects invalid since period`() = runBlocking {
         val handler = toolHandlers["get_usage_events"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "get_usage_events",
-                arguments = buildJsonObject {
-                    put("since", JsonPrimitive("bad"))
-                    put("until", JsonPrimitive("today"))
-                }
+                params = CallToolRequestParams(
+                    name = "get_usage_events",
+                    arguments = buildJsonObject {
+                        put("since", JsonPrimitive("bad"))
+                        put("until", JsonPrimitive("today"))
+                    }
+                )
             )
         )
 
@@ -265,13 +289,16 @@ class UsageMcpProviderTest {
         setupAppLabel("com.example.app1", "App One")
 
         val handler = toolHandlers["compare_usage"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "compare_usage",
-                arguments = buildJsonObject {
-                    put("period1", JsonPrimitive("yesterday"))
-                    put("period2", JsonPrimitive("today"))
-                }
+                params = CallToolRequestParams(
+                    name = "compare_usage",
+                    arguments = buildJsonObject {
+                        put("period1", JsonPrimitive("yesterday"))
+                        put("period2", JsonPrimitive("today"))
+                    }
+                )
             )
         )
 
@@ -283,13 +310,16 @@ class UsageMcpProviderTest {
     @Test
     fun `compare_usage rejects invalid period1`() = runBlocking {
         val handler = toolHandlers["compare_usage"]!!
-        val result = handler(
+        val result = handler.invoke(
+            fakeConnection,
             CallToolRequest(
-                name = "compare_usage",
-                arguments = buildJsonObject {
-                    put("period1", JsonPrimitive("bad"))
-                    put("period2", JsonPrimitive("today"))
-                }
+                params = CallToolRequestParams(
+                    name = "compare_usage",
+                    arguments = buildJsonObject {
+                        put("period1", JsonPrimitive("bad"))
+                        put("period2", JsonPrimitive("today"))
+                    }
+                )
             )
         )
 

@@ -1,13 +1,14 @@
 package com.rousecontext.mcp.health
 
-import io.modelcontextprotocol.kotlin.sdk.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.Implementation
-import io.modelcontextprotocol.kotlin.sdk.ServerCapabilities
-import io.modelcontextprotocol.kotlin.sdk.TextContent
+import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
 import io.modelcontextprotocol.kotlin.sdk.server.RegisteredTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -44,11 +45,7 @@ class HealthConnectMcpServerTest {
         )
         mcpServer.register(server)
 
-        // Extract registered tools via reflection
-        val toolsField = Server::class.java.getDeclaredField("tools")
-        toolsField.isAccessible = true
-        @Suppress("UNCHECKED_CAST")
-        toolHandlers = toolsField.get(server) as Map<String, RegisteredTool>
+        toolHandlers = server.tools
     }
 
     private suspend fun callTool(
@@ -58,8 +55,17 @@ class HealthConnectMcpServerTest {
         val registered = toolHandlers[name]
             ?: throw AssertionError("No handler for tool: $name. Available: ${toolHandlers.keys}")
 
-        val request = CallToolRequest(name = name, arguments = arguments)
-        return registered.handler(request)
+        val request = CallToolRequest(
+            params = io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams(
+                name = name,
+                arguments = arguments
+            )
+        )
+        val noOpConnection = java.lang.reflect.Proxy.newProxyInstance(
+            ClientConnection::class.java.classLoader,
+            arrayOf(ClientConnection::class.java)
+        ) { _, _, _ -> throw UnsupportedOperationException() } as ClientConnection
+        return registered.handler.invoke(noOpConnection, request)
     }
 
     // --- list_record_types ---

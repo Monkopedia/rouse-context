@@ -8,10 +8,10 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -32,7 +32,7 @@ class McpSessionTest {
             server.addTool(
                 name = "echo",
                 description = "Echoes back the input message",
-                inputSchema = Tool.Input(
+                inputSchema = ToolSchema(
                     properties = buildJsonObject {
                         put(
                             "message",
@@ -44,7 +44,8 @@ class McpSessionTest {
                     required = listOf("message")
                 )
             ) { request ->
-                val message = request.arguments["message"]?.jsonPrimitive?.content ?: "empty"
+                val message = request.params.arguments?.get("message")
+                    ?.jsonPrimitive?.content ?: "empty"
                 CallToolResult(content = listOf(TextContent(message)))
             }
         }

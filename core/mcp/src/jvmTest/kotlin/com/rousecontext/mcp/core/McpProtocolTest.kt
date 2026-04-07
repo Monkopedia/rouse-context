@@ -8,12 +8,12 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.ReadResourceResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.TextResourceContents
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.ReadResourceResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.TextResourceContents
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -43,7 +43,7 @@ class McpProtocolTest {
             server.addTool(
                 name = "get_steps",
                 description = "Returns step count",
-                inputSchema = Tool.Input(
+                inputSchema = ToolSchema(
                     properties = buildJsonObject {
                         put(
                             "date",
@@ -55,7 +55,8 @@ class McpProtocolTest {
                     required = listOf("date")
                 )
             ) { request ->
-                val date = request.arguments["date"]?.jsonPrimitive?.content ?: "unknown"
+                val date = request.params.arguments?.get("date")
+                    ?.jsonPrimitive?.content ?: "unknown"
                 CallToolResult(content = listOf(TextContent("Steps on $date: 8500")))
             }
 
@@ -64,7 +65,7 @@ class McpProtocolTest {
                 name = "Health Profile",
                 description = "User health profile summary",
                 mimeType = "application/json"
-            ) {
+            ) { _ ->
                 ReadResourceResult(
                     contents = listOf(
                         TextResourceContents(

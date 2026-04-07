@@ -1,9 +1,9 @@
 package com.rousecontext.bridge
 
 import com.rousecontext.mcp.core.McpServerProvider
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -20,7 +20,7 @@ class EchoProvider : McpServerProvider {
         server.addTool(
             name = "echo",
             description = "Echoes back the input message",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
                         "message",
@@ -32,7 +32,7 @@ class EchoProvider : McpServerProvider {
                 required = listOf("message")
             )
         ) { request ->
-            val message = request.arguments["message"]?.jsonPrimitive?.content ?: "empty"
+            val message = request.params.arguments?.get("message")?.jsonPrimitive?.content ?: "empty"
             CallToolResult(content = listOf(TextContent(message)))
         }
     }
@@ -49,7 +49,7 @@ class HealthProvider : McpServerProvider {
         server.addTool(
             name = "get_steps",
             description = "Returns step count",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {},
                 required = emptyList()
             )

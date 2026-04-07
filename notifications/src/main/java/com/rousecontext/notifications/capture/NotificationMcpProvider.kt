@@ -2,10 +2,10 @@ package com.rousecontext.notifications.capture
 
 import android.service.notification.StatusBarNotification
 import com.rousecontext.mcp.core.McpServerProvider
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -59,7 +59,7 @@ class NotificationMcpProvider(
             name = "list_active_notifications",
             description = "Returns currently posted notifications on the device." +
                 " Excludes notifications from the Rouse Context app itself.",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
                         "filter",
@@ -75,7 +75,7 @@ class NotificationMcpProvider(
                 required = emptyList()
             )
         ) { request ->
-            val filter = request.arguments["filter"]?.jsonPrimitive?.content
+            val filter = request.params.arguments?.get("filter")?.jsonPrimitive?.content
 
             val notifications = activeNotificationSource()
                 .filter { !NotificationCaptureService.isOwnPackage(it.packageName) }
@@ -97,7 +97,7 @@ class NotificationMcpProvider(
             name = "perform_notification_action",
             description = "Executes an action button on an active notification." +
                 " Cannot act on Rouse Context app notifications.",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
                         "notification_key",
@@ -130,14 +130,14 @@ class NotificationMcpProvider(
                 )
             }
 
-            val key = request.arguments["notification_key"]
+            val key = request.params.arguments?.get("notification_key")
                 ?.jsonPrimitive?.content
                 ?: return@addTool CallToolResult(
                     content = listOf(TextContent(ERR_MISSING_KEY)),
                     isError = true
                 )
 
-            val actionIndex = request.arguments["action_index"]
+            val actionIndex = request.params.arguments?.get("action_index")
                 ?.jsonPrimitive?.int
                 ?: return@addTool CallToolResult(
                     content = listOf(TextContent(ERR_MISSING_ACTION)),
@@ -158,7 +158,7 @@ class NotificationMcpProvider(
         server.addTool(
             name = "dismiss_notification",
             description = "Dismisses an active notification by its key.",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
                         "notification_key",
@@ -181,7 +181,7 @@ class NotificationMcpProvider(
                 )
             }
 
-            val key = request.arguments["notification_key"]?.jsonPrimitive?.content
+            val key = request.params.arguments?.get("notification_key")?.jsonPrimitive?.content
                 ?: return@addTool CallToolResult(
                     content = listOf(TextContent("""{"success":false}""")),
                     isError = true
@@ -201,7 +201,7 @@ class NotificationMcpProvider(
                 " Supports text search, package filter, and time range.",
             inputSchema = searchHistorySchema()
         ) { request ->
-            handleSearchHistory(request.arguments)
+            handleSearchHistory(request.params.arguments ?: emptyMap())
         }
     }
 
@@ -233,7 +233,7 @@ class NotificationMcpProvider(
         )
     }
 
-    private fun searchHistorySchema() = Tool.Input(
+    private fun searchHistorySchema() = ToolSchema(
         properties = buildJsonObject {
             put("query", stringProp("Text to search in title and body"))
             put("package", stringProp("Filter by package name"))
@@ -260,7 +260,7 @@ class NotificationMcpProvider(
             name = "get_notification_stats",
             description = "Returns aggregate notification statistics for a time period." +
                 " Includes total count, per-app breakdown, and busiest hour.",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
                         "period",
@@ -276,7 +276,7 @@ class NotificationMcpProvider(
                 required = emptyList()
             )
         ) { request ->
-            val period = request.arguments["period"]?.jsonPrimitive?.content ?: "today"
+            val period = request.params.arguments?.get("period")?.jsonPrimitive?.content ?: "today"
             val (sinceMillis, untilMillis) = periodToRange(period)
 
             val total = dao.countInRange(sinceMillis, untilMillis)

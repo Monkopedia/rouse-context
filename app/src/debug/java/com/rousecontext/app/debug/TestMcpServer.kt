@@ -1,10 +1,10 @@
 package com.rousecontext.app.debug
 
 import com.rousecontext.mcp.core.McpServerProvider
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -36,7 +36,7 @@ class TestMcpServer : McpServerProvider {
             name = "echo",
             description = "Returns the input message unchanged." +
                 " Simplest tool for testing connectivity.",
-            inputSchema = Tool.Input(
+            inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
                         "message",
@@ -49,7 +49,7 @@ class TestMcpServer : McpServerProvider {
                 required = listOf("message")
             )
         ) { request ->
-            val message = request.arguments["message"]?.jsonPrimitive?.content ?: ""
+            val message = request.params.arguments?.get("message")?.jsonPrimitive?.content ?: ""
             CallToolResult(content = listOf(TextContent(message)))
         }
     }

@@ -14,10 +14,10 @@ import com.rousecontext.mcp.core.Clock
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.RateLimiter
 import com.rousecontext.mcp.core.SystemClock
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -80,7 +80,7 @@ class OutreachMcpProvider(
             description = "Launch an installed app on the device by package name",
             inputSchema = launchAppSchema()
         ) { request ->
-            val packageName = request.arguments["package_name"]?.jsonPrimitive?.content
+            val packageName = request.params.arguments?.get("package_name")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing package_name")
 
             val intent = context.packageManager.getLaunchIntentForPackage(packageName)
@@ -89,7 +89,7 @@ class OutreachMcpProvider(
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
             // Add simple string extras only (security: no arbitrary types)
-            request.arguments["extras"]?.jsonObject?.forEach { (key, value) ->
+            request.params.arguments?.get("extras")?.jsonObject?.forEach { (key, value) ->
                 intent.putExtra(key, value.jsonPrimitive.content)
             }
 
@@ -108,7 +108,7 @@ class OutreachMcpProvider(
             description = "Open a URL in the default browser or appropriate app",
             inputSchema = stringParamSchema("url", "URL to open (http or https only)")
         ) { request ->
-            val url = request.arguments["url"]?.jsonPrimitive?.content
+            val url = request.params.arguments?.get("url")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing url")
 
             val uri = Uri.parse(url)
@@ -138,9 +138,9 @@ class OutreachMcpProvider(
             description = "Copy text to the device clipboard",
             inputSchema = clipboardSchema()
         ) { request ->
-            val text = request.arguments["text"]?.jsonPrimitive?.content
+            val text = request.params.arguments?.get("text")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing text")
-            val label = request.arguments["label"]?.jsonPrimitive?.content
+            val label = request.params.arguments?.get("label")?.jsonPrimitive?.content
                 ?: "Copied text"
 
             withContext(Dispatchers.Main) {
@@ -158,9 +158,9 @@ class OutreachMcpProvider(
             description = "Send a notification to the user on the device",
             inputSchema = notificationSchema()
         ) { request ->
-            val title = request.arguments["title"]?.jsonPrimitive?.content
+            val title = request.params.arguments?.get("title")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing title")
-            val message = request.arguments["message"]?.jsonPrimitive?.content
+            val message = request.params.arguments?.get("message")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing message")
 
             if (!notificationRateLimiter.tryAcquire("send_notification")) {
@@ -195,10 +195,10 @@ class OutreachMcpProvider(
 
     private fun addNotificationActions(
         builder: NotificationCompat.Builder,
-        request: io.modelcontextprotocol.kotlin.sdk.CallToolRequest,
+        request: io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest,
         notificationId: Int
     ) {
-        request.arguments["actions"]?.jsonArray
+        request.params.arguments?.get("actions")?.jsonArray
             ?.take(MAX_NOTIFICATION_ACTIONS)
             ?.forEach { actionElement ->
                 val action = actionElement.jsonObject
@@ -227,7 +227,9 @@ class OutreachMcpProvider(
             description = "List installed apps that can be launched",
             inputSchema = optionalStringSchema("filter", "Optional text to filter apps by name")
         ) { request ->
-            val filter = request.arguments["filter"]?.jsonPrimitive?.content?.lowercase()
+            val filter = request.params.arguments?.get(
+                "filter"
+            )?.jsonPrimitive?.content?.lowercase()
             val apps = queryLaunchableApps(filter)
             CallToolResult(
                 content = listOf(TextContent("[${apps.joinToString(",")}]"))
@@ -264,7 +266,7 @@ class OutreachMcpProvider(
         server.addTool(
             name = "get_dnd_state",
             description = "Check Do Not Disturb status",
-            inputSchema = Tool.Input(properties = buildJsonObject {}, required = emptyList())
+            inputSchema = ToolSchema(properties = buildJsonObject {}, required = emptyList())
         ) { _ ->
             val nm = context.getSystemService(NotificationManager::class.java)
             val filter = nm.currentInterruptionFilter
@@ -289,14 +291,14 @@ class OutreachMcpProvider(
     }
 
     private fun handleSetDnd(
-        request: io.modelcontextprotocol.kotlin.sdk.CallToolRequest
+        request: io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
     ): CallToolResult {
-        val enabledStr = request.arguments["enabled"]?.jsonPrimitive?.content
+        val enabledStr = request.params.arguments?.get("enabled")?.jsonPrimitive?.content
         val enabled = enabledStr?.toBooleanStrictOrNull()
             ?: return errorResult(
                 "Missing or invalid 'enabled' (must be true/false)"
             )
-        val mode = request.arguments["mode"]?.jsonPrimitive?.content
+        val mode = request.params.arguments?.get("mode")?.jsonPrimitive?.content
 
         val nm = context.getSystemService(NotificationManager::class.java)
 
@@ -369,7 +371,7 @@ private fun String.escapeJson(): String = replace("\\", "\\\\")
 
 // --- Input schema builders ---
 
-private fun launchAppSchema() = Tool.Input(
+private fun launchAppSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "package_name",
@@ -396,7 +398,7 @@ private fun launchAppSchema() = Tool.Input(
     required = listOf("package_name")
 )
 
-private fun stringParamSchema(name: String, desc: String) = Tool.Input(
+private fun stringParamSchema(name: String, desc: String) = ToolSchema(
     properties = buildJsonObject {
         put(
             name,
@@ -409,7 +411,7 @@ private fun stringParamSchema(name: String, desc: String) = Tool.Input(
     required = listOf(name)
 )
 
-private fun optionalStringSchema(name: String, desc: String) = Tool.Input(
+private fun optionalStringSchema(name: String, desc: String) = ToolSchema(
     properties = buildJsonObject {
         put(
             name,
@@ -422,7 +424,7 @@ private fun optionalStringSchema(name: String, desc: String) = Tool.Input(
     required = emptyList()
 )
 
-private fun clipboardSchema() = Tool.Input(
+private fun clipboardSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "text",
@@ -442,7 +444,7 @@ private fun clipboardSchema() = Tool.Input(
     required = listOf("text")
 )
 
-private fun notificationSchema() = Tool.Input(
+private fun notificationSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "title",
@@ -498,7 +500,7 @@ private fun notificationSchema() = Tool.Input(
     required = listOf("title", "message")
 )
 
-private fun dndSchema() = Tool.Input(
+private fun dndSchema() = ToolSchema(
     properties = buildJsonObject {
         put(
             "enabled",

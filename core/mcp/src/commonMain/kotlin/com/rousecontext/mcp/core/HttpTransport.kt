@@ -1,7 +1,8 @@
 package com.rousecontext.mcp.core
 
-import io.modelcontextprotocol.kotlin.sdk.JSONRPCMessage
 import io.modelcontextprotocol.kotlin.sdk.shared.Transport
+import io.modelcontextprotocol.kotlin.sdk.shared.TransportSendOptions
+import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeout
 
@@ -27,7 +28,7 @@ internal class HttpTransport : Transport {
         // Nothing to do -- messages arrive via handleRequest
     }
 
-    override suspend fun send(message: JSONRPCMessage) {
+    override suspend fun send(message: JSONRPCMessage, options: TransportSendOptions?) {
         // Server is sending a response. Complete the pending deferred.
         currentDeferred?.complete(message)
     }
@@ -36,16 +37,16 @@ internal class HttpTransport : Transport {
         closeHandler?.invoke()
     }
 
-    override fun onClose(handler: () -> Unit) {
-        closeHandler = handler
+    override fun onClose(block: () -> Unit) {
+        closeHandler = block
     }
 
-    override fun onError(handler: (Throwable) -> Unit) {
-        errorHandler = handler
+    override fun onError(block: (Throwable) -> Unit) {
+        errorHandler = block
     }
 
-    override fun onMessage(handler: suspend (JSONRPCMessage) -> Unit) {
-        messageHandler = handler
+    override fun onMessage(block: suspend (JSONRPCMessage) -> Unit) {
+        messageHandler = block
     }
 
     /**
