@@ -25,20 +25,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
 
-        val isDarkSystem = (
-            resources.configuration.uiMode and
-                android.content.res.Configuration.UI_MODE_NIGHT_MASK
-            ) ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        // Navy status bar in both themes = always white icons
         enableEdgeToEdge(
-            statusBarStyle = if (isDarkSystem) {
-                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-            } else {
-                SystemBarStyle.light(
-                    android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT
-                )
-            }
+            statusBarStyle = SystemBarStyle.dark(
+                android.graphics.Color.parseColor("#0F1A30")
+            )
         )
         super.onCreate(savedInstanceState)
 
@@ -60,11 +51,10 @@ class MainActivity : ComponentActivity() {
                 duration = SPLASH_FADE_DURATION_MS
                 doOnEnd {
                     splashScreenView.remove()
-                    // Re-apply status bar style after splash removal
-                    // The splash theme may have overridden it
+                    // Navy bars = always white status bar icons
                     val controller = WindowCompat
                         .getInsetsController(window, window.decorView)
-                    controller.isAppearanceLightStatusBars = !isDarkSystem
+                    controller.isAppearanceLightStatusBars = false
                 }
                 start()
             }

@@ -32,22 +32,16 @@ fun RouseContextApp(startDestination: String = Routes.HOME) {
 
     // Update status bar icons to match theme
     val activity = LocalContext.current as? ComponentActivity
+    // Navy bars in both themes = always white system icons
+    val systemBarColor = if (isDark) {
+        android.graphics.Color.parseColor("#060D18")
+    } else {
+        android.graphics.Color.parseColor("#0F1A30")
+    }
     androidx.compose.runtime.SideEffect {
         activity?.enableEdgeToEdge(
-            statusBarStyle = if (isDark) {
-                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-            } else {
-                SystemBarStyle.dark(
-                    android.graphics.Color.parseColor("#0F1A30")
-                )
-            },
-            navigationBarStyle = if (isDark) {
-                SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-            } else {
-                SystemBarStyle.dark(
-                    android.graphics.Color.parseColor("#0F1A30")
-                )
-            }
+            statusBarStyle = SystemBarStyle.dark(systemBarColor),
+            navigationBarStyle = SystemBarStyle.dark(systemBarColor)
         )
     }
 

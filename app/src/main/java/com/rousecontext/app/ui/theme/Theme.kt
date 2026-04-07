@@ -100,7 +100,7 @@ private val DarkExtendedColors = ExtendedColors(
     alertContainer = AlertContainerDark,
     alertContent = AlertContentDark,
     codeBoxBorderEmpty = Color.White.copy(alpha = 0.2f),
-    topBarContainer = NavyDark
+    topBarContainer = NavyPrimary
 )
 
 private val LightExtendedColors = ExtendedColors(
