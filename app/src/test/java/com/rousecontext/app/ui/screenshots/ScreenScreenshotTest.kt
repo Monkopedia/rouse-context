@@ -196,56 +196,50 @@ class ScreenScreenshotTest {
     }
 
     @Test
-    fun dashboardCertExpiredFailingDark() =
-        captureDark("10_dashboard_cert_expired_failing") {
-            MainDashboardScreen(
-                state = dashboardCertState(CertBanner.Expired(renewalInProgress = false))
-            )
-        }
+    fun dashboardCertExpiredFailingDark() = captureDark("10_dashboard_cert_expired_failing") {
+        MainDashboardScreen(
+            state = dashboardCertState(CertBanner.Expired(renewalInProgress = false))
+        )
+    }
 
     @Test
-    fun dashboardCertExpiredFailingLight() =
-        captureLight("10_dashboard_cert_expired_failing") {
-            MainDashboardScreen(
-                state = dashboardCertState(CertBanner.Expired(renewalInProgress = false))
-            )
-        }
+    fun dashboardCertExpiredFailingLight() = captureLight("10_dashboard_cert_expired_failing") {
+        MainDashboardScreen(
+            state = dashboardCertState(CertBanner.Expired(renewalInProgress = false))
+        )
+    }
 
     @Test
-    fun dashboardCertExpiredRenewingDark() =
-        captureDark("11_dashboard_cert_expired_renewing") {
-            MainDashboardScreen(
-                state = dashboardCertState(CertBanner.Expired(renewalInProgress = true))
-            )
-        }
+    fun dashboardCertExpiredRenewingDark() = captureDark("11_dashboard_cert_expired_renewing") {
+        MainDashboardScreen(
+            state = dashboardCertState(CertBanner.Expired(renewalInProgress = true))
+        )
+    }
 
     @Test
-    fun dashboardCertExpiredRenewingLight() =
-        captureLight("11_dashboard_cert_expired_renewing") {
-            MainDashboardScreen(
-                state = dashboardCertState(CertBanner.Expired(renewalInProgress = true))
-            )
-        }
+    fun dashboardCertExpiredRenewingLight() = captureLight("11_dashboard_cert_expired_renewing") {
+        MainDashboardScreen(
+            state = dashboardCertState(CertBanner.Expired(renewalInProgress = true))
+        )
+    }
 
     @Test
-    fun dashboardCertRateLimitedDark() =
-        captureDark("12_dashboard_cert_rate_limited") {
-            MainDashboardScreen(
-                state = DashboardState(
-                    certBanner = CertBanner.RateLimited(retryDate = "Apr 11")
-                )
+    fun dashboardCertRateLimitedDark() = captureDark("12_dashboard_cert_rate_limited") {
+        MainDashboardScreen(
+            state = DashboardState(
+                certBanner = CertBanner.RateLimited(retryDate = "Apr 11")
             )
-        }
+        )
+    }
 
     @Test
-    fun dashboardCertRateLimitedLight() =
-        captureLight("12_dashboard_cert_rate_limited") {
-            MainDashboardScreen(
-                state = DashboardState(
-                    certBanner = CertBanner.RateLimited(retryDate = "Apr 11")
-                )
+    fun dashboardCertRateLimitedLight() = captureLight("12_dashboard_cert_rate_limited") {
+        MainDashboardScreen(
+            state = DashboardState(
+                certBanner = CertBanner.RateLimited(retryDate = "Apr 11")
             )
-        }
+        )
+    }
 
     @Test
     fun dashboardCertOnboardingDark() = captureDark("13_dashboard_cert_onboarding") {
@@ -288,16 +282,14 @@ class ScreenScreenshotTest {
     }
 
     @Test
-    fun addIntegrationPickerDisabledDark() =
-        captureDark("15_add_integration_picker_disabled") {
-            AddIntegrationPickerScreen(integrations = pickerIntegrationsDisabled())
-        }
+    fun addIntegrationPickerDisabledDark() = captureDark("15_add_integration_picker_disabled") {
+        AddIntegrationPickerScreen(integrations = pickerIntegrationsDisabled())
+    }
 
     @Test
-    fun addIntegrationPickerDisabledLight() =
-        captureLight("15_add_integration_picker_disabled") {
-            AddIntegrationPickerScreen(integrations = pickerIntegrationsDisabled())
-        }
+    fun addIntegrationPickerDisabledLight() = captureLight("15_add_integration_picker_disabled") {
+        AddIntegrationPickerScreen(integrations = pickerIntegrationsDisabled())
+    }
 
     @Test
     fun integrationEnabledDark() = captureDark("16_integration_enabled") {
@@ -368,28 +360,24 @@ class ScreenScreenshotTest {
     }
 
     @Test
-    fun authorizationApprovalEmptyDark() =
-        captureDark("21_authorization_approval_empty") {
-            AuthorizationApprovalScreen()
-        }
+    fun authorizationApprovalEmptyDark() = captureDark("21_authorization_approval_empty") {
+        AuthorizationApprovalScreen()
+    }
 
     @Test
-    fun authorizationApprovalEmptyLight() =
-        captureLight("21_authorization_approval_empty") {
-            AuthorizationApprovalScreen()
-        }
+    fun authorizationApprovalEmptyLight() = captureLight("21_authorization_approval_empty") {
+        AuthorizationApprovalScreen()
+    }
 
     @Test
-    fun authorizationApprovalRequestsDark() =
-        captureDark("22_authorization_approval_requests") {
-            AuthorizationApprovalScreen(pendingRequests = authApprovalRequests())
-        }
+    fun authorizationApprovalRequestsDark() = captureDark("22_authorization_approval_requests") {
+        AuthorizationApprovalScreen(pendingRequests = authApprovalRequests())
+    }
 
     @Test
-    fun authorizationApprovalRequestsLight() =
-        captureLight("22_authorization_approval_requests") {
-            AuthorizationApprovalScreen(pendingRequests = authApprovalRequests())
-        }
+    fun authorizationApprovalRequestsLight() = captureLight("22_authorization_approval_requests") {
+        AuthorizationApprovalScreen(pendingRequests = authApprovalRequests())
+    }
 
     @Test
     fun deviceCodeApprovalEmptyDark() = captureDark("23_device_code_approval_empty") {
@@ -792,10 +780,7 @@ class ScreenScreenshotTest {
         )
     )
 
-    private fun settingsTrustState(
-        overall: TrustOverallStatus,
-        ctResult: String
-    ) = SettingsState(
+    private fun settingsTrustState(overall: TrustOverallStatus, ctResult: String) = SettingsState(
         showBatteryWarning = false,
         batteryOptimizationExempt = true,
         trustStatus = TrustStatusState(
