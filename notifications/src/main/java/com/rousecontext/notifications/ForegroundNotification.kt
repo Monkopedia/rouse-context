@@ -12,6 +12,7 @@ fun createForegroundNotification(context: Context, message: String = "Connected"
         .setContentTitle("Rouse Context")
         .setContentText(message)
         .setSmallIcon(R.drawable.ic_stat_rouse)
+        .setColor(0xFF0a1628.toInt())
         .setOngoing(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()

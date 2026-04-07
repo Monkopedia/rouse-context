@@ -77,6 +77,7 @@ class AuthRequestNotifier(
             NotificationChannels.AUTH_REQUEST_CHANNEL_ID
         )
             .setSmallIcon(R.drawable.ic_stat_rouse)
+            .setColor(0xFFea4335.toInt())
             .setContentTitle("Approval Required")
             .setContentText("Code: $displayCode — Tap to approve or deny")
             .setSubText(integration)
