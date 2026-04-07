@@ -9,6 +9,7 @@ use rouse_relay::api::{self, AppState};
 use rouse_relay::config::RelayConfig;
 use rouse_relay::maintenance::{self, MaintenanceConfig};
 use rouse_relay::passthrough::{self, PassthroughContext, SessionRegistry};
+use rouse_relay::rate_limit::{ConnectionRateLimiter, FcmWakeThrottle};
 use rouse_relay::router::route_connection;
 use rouse_relay::shutdown::ShutdownController;
 use rouse_relay::sni::RouteDecision;
@@ -176,6 +177,10 @@ async fn main() {
         .to_string();
     let fcm_timeout = Duration::from_secs(config.limits.fcm_wakeup_timeout_secs.unwrap_or(20));
 
+    // Bot protection: rate limiters for passthrough connections
+    let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(30)));
+    let conn_rate_limiter = Arc::new(ConnectionRateLimiter::new(5, Duration::from_secs(60)));
+
     // Accept loop
     info!("Accept loop running");
     loop {
@@ -205,6 +210,8 @@ async fn main() {
                     firestore: firestore.clone(),
                     fcm: fcm.clone(),
                     fcm_timeout,
+                    fcm_wake_throttle: fcm_wake_throttle.clone(),
+                    conn_rate_limiter: conn_rate_limiter.clone(),
                 };
 
                 tokio::spawn(async move {
@@ -251,6 +258,8 @@ struct ConnectionContext {
     firestore: Arc<dyn rouse_relay::firestore::FirestoreClient>,
     fcm: Arc<dyn rouse_relay::fcm::FcmClient>,
     fcm_timeout: Duration,
+    fcm_wake_throttle: Arc<FcmWakeThrottle>,
+    conn_rate_limiter: Arc<ConnectionRateLimiter>,
 }
 
 async fn handle_connection(
@@ -288,6 +297,16 @@ async fn handle_connection(
             .await
         }
         RouteDecision::DevicePassthrough { subdomain } => {
+            // Per-IP rate limit: reject scanners before doing any real work
+            if !ctx.conn_rate_limiter.allow(peer_addr.ip(), &subdomain) {
+                debug!(
+                    peer = %peer_addr,
+                    subdomain = %subdomain,
+                    "Connection rate limited (per-IP)"
+                );
+                return Ok(());
+            }
+
             // Read the ClientHello bytes (consume them from the socket)
             let mut client_hello = vec![0u8; n];
             let n_read = stream.read(&mut client_hello).await?;
@@ -303,6 +322,7 @@ async fn handle_connection(
                 fcm: ctx.fcm,
                 relay_hostname: ctx.relay_hostname,
                 fcm_wakeup_timeout: ctx.fcm_timeout,
+                fcm_wake_throttle: ctx.fcm_wake_throttle,
             };
 
             let resolved = passthrough::resolve_device_stream(&pt_ctx, &subdomain, &sni_hostname)

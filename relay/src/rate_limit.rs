@@ -1,9 +1,15 @@
-//! Per-subdomain token bucket rate limiter for `/wake`.
+//! Rate limiters for the relay.
 //!
-//! In-memory state that resets on relay restart. Each subdomain gets its
-//! own bucket: 6 tokens max, refilling at 1 token per 10 seconds.
+//! In-memory state that resets on relay restart.
+//!
+//! - `RateLimiter`: Per-subdomain token bucket for the `/wake` HTTP endpoint.
+//! - `FcmWakeThrottle`: Prevents redundant FCM pushes when a device was already
+//!   woken recently (one wake per subdomain within a cooldown window).
+//! - `ConnectionRateLimiter`: Per-(source IP, subdomain) sliding-window counter
+//!   that rejects scanners hammering the same device from a single IP.
 
 use dashmap::DashMap;
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
 /// Configuration for the token bucket rate limiter.
@@ -81,6 +87,97 @@ impl RateLimiter {
     }
 }
 
+// ---------------------------------------------------------------------------
+// FCM wake throttle: at most one FCM push per subdomain within a cooldown.
+// ---------------------------------------------------------------------------
+
+/// Prevents duplicate FCM wakes when a device was already woken recently.
+///
+/// Each subdomain records the `Instant` of its last FCM wake. A new wake is
+/// only allowed after the cooldown expires.
+pub struct FcmWakeThrottle {
+    cooldown: Duration,
+    last_wake: DashMap<String, Instant>,
+}
+
+impl FcmWakeThrottle {
+    pub fn new(cooldown: Duration) -> Self {
+        Self {
+            cooldown,
+            last_wake: DashMap::new(),
+        }
+    }
+
+    /// Returns `true` if an FCM wake should be sent (cooldown expired or first wake).
+    /// Returns `false` if a wake was already sent within the cooldown window.
+    pub fn should_wake(&self, subdomain: &str) -> bool {
+        self.should_wake_at(subdomain, Instant::now())
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn should_wake_at(&self, subdomain: &str, now: Instant) -> bool {
+        let mut entry = self
+            .last_wake
+            .entry(subdomain.to_string())
+            .or_insert_with(|| now - self.cooldown - Duration::from_secs(1));
+
+        let last = *entry.value();
+        if now.duration_since(last) >= self.cooldown {
+            *entry.value_mut() = now;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-(IP, subdomain) connection rate limiter for passthrough.
+// ---------------------------------------------------------------------------
+
+/// Rejects scanners that open many passthrough connections to the same device
+/// from a single source IP within a short window.
+///
+/// Uses a simple sliding-window counter: if the count exceeds `max_connections`
+/// within `window`, the connection is rejected.
+pub struct ConnectionRateLimiter {
+    max_connections: u32,
+    window: Duration,
+    /// Key: (source_ip, subdomain) -> (count, window_start)
+    counters: DashMap<(IpAddr, String), (u32, Instant)>,
+}
+
+impl ConnectionRateLimiter {
+    pub fn new(max_connections: u32, window: Duration) -> Self {
+        Self {
+            max_connections,
+            window,
+            counters: DashMap::new(),
+        }
+    }
+
+    /// Returns `true` if the connection is allowed, `false` if rate-limited.
+    pub fn allow(&self, ip: IpAddr, subdomain: &str) -> bool {
+        self.allow_at(ip, subdomain, Instant::now())
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn allow_at(&self, ip: IpAddr, subdomain: &str, now: Instant) -> bool {
+        let key = (ip, subdomain.to_string());
+        let mut entry = self.counters.entry(key).or_insert_with(|| (0, now));
+        let (count, window_start) = entry.value_mut();
+
+        // Reset the window if it has expired
+        if now.duration_since(*window_start) >= self.window {
+            *count = 0;
+            *window_start = now;
+        }
+
+        *count += 1;
+        *count <= self.max_connections
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +236,87 @@ mod tests {
         limiter.try_acquire_at("test", now).unwrap();
         let err = limiter.try_acquire_at("test", now).unwrap_err();
         assert_eq!(err, 10);
+    }
+
+    // --- FcmWakeThrottle tests ---
+
+    #[test]
+    fn fcm_throttle_allows_first_wake() {
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        let now = Instant::now();
+        assert!(throttle.should_wake_at("dev1", now));
+    }
+
+    #[test]
+    fn fcm_throttle_blocks_duplicate_within_cooldown() {
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        let now = Instant::now();
+        assert!(throttle.should_wake_at("dev1", now));
+        assert!(!throttle.should_wake_at("dev1", now + Duration::from_secs(10)));
+        assert!(!throttle.should_wake_at("dev1", now + Duration::from_secs(29)));
+    }
+
+    #[test]
+    fn fcm_throttle_allows_after_cooldown() {
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        let now = Instant::now();
+        assert!(throttle.should_wake_at("dev1", now));
+        assert!(throttle.should_wake_at("dev1", now + Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn fcm_throttle_separate_subdomains() {
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        let now = Instant::now();
+        assert!(throttle.should_wake_at("dev1", now));
+        assert!(throttle.should_wake_at("dev2", now));
+        assert!(!throttle.should_wake_at("dev1", now));
+    }
+
+    // --- ConnectionRateLimiter tests ---
+
+    #[test]
+    fn conn_limiter_allows_up_to_max() {
+        let limiter = ConnectionRateLimiter::new(3, Duration::from_secs(60));
+        let ip: IpAddr = "1.2.3.4".parse().unwrap();
+        let now = Instant::now();
+        assert!(limiter.allow_at(ip, "dev1", now));
+        assert!(limiter.allow_at(ip, "dev1", now));
+        assert!(limiter.allow_at(ip, "dev1", now));
+        assert!(!limiter.allow_at(ip, "dev1", now));
+    }
+
+    #[test]
+    fn conn_limiter_resets_after_window() {
+        let limiter = ConnectionRateLimiter::new(2, Duration::from_secs(60));
+        let ip: IpAddr = "1.2.3.4".parse().unwrap();
+        let now = Instant::now();
+        assert!(limiter.allow_at(ip, "dev1", now));
+        assert!(limiter.allow_at(ip, "dev1", now));
+        assert!(!limiter.allow_at(ip, "dev1", now));
+        // After the window expires, counter resets
+        assert!(limiter.allow_at(ip, "dev1", now + Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn conn_limiter_separate_ips() {
+        let limiter = ConnectionRateLimiter::new(1, Duration::from_secs(60));
+        let ip1: IpAddr = "1.2.3.4".parse().unwrap();
+        let ip2: IpAddr = "5.6.7.8".parse().unwrap();
+        let now = Instant::now();
+        assert!(limiter.allow_at(ip1, "dev1", now));
+        assert!(limiter.allow_at(ip2, "dev1", now));
+        assert!(!limiter.allow_at(ip1, "dev1", now));
+        assert!(!limiter.allow_at(ip2, "dev1", now));
+    }
+
+    #[test]
+    fn conn_limiter_separate_subdomains() {
+        let limiter = ConnectionRateLimiter::new(1, Duration::from_secs(60));
+        let ip: IpAddr = "1.2.3.4".parse().unwrap();
+        let now = Instant::now();
+        assert!(limiter.allow_at(ip, "dev1", now));
+        assert!(limiter.allow_at(ip, "dev2", now));
+        assert!(!limiter.allow_at(ip, "dev1", now));
     }
 }

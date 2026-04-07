@@ -16,6 +16,7 @@ use rouse_relay::passthrough::{
     resolve_device_stream, splice_stream, OpenStreamRequest, PassthroughContext, PassthroughError,
     SessionRegistry,
 };
+use rouse_relay::rate_limit::FcmWakeThrottle;
 use rouse_relay::state::RelayState;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -67,6 +68,7 @@ fn make_ctx(
         fcm,
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     }
 }
 
@@ -249,6 +251,7 @@ async fn fcm_sent_when_device_offline() {
         fcm: fcm.clone(),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_millis(200),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
     // Device is NOT online, so FCM should be sent.
@@ -289,6 +292,7 @@ async fn fcm_timeout_returns_error() {
         fcm,
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_millis(50),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
     let result = resolve_device_stream(&ctx, "test-sub", "test-sub.rousecontext.com").await;
@@ -337,6 +341,7 @@ async fn cold_client_fcm_then_device_connects() {
         fcm: fcm.clone(),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
     // Simulate the device connecting after a short delay
@@ -458,6 +463,7 @@ async fn cold_wake_full_data_roundtrip() {
         fcm: fcm.clone(),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
     // Device wakes after 50ms
@@ -574,6 +580,7 @@ async fn multiple_clients_wake_same_device() {
         fcm: fcm.clone(),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     });
 
     // Device wakes after 100ms
@@ -646,6 +653,7 @@ async fn cold_wake_stream_refused_max_streams_zero() {
         fcm: fcm.clone(),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
     // Device wakes with max_streams=0
@@ -691,6 +699,7 @@ async fn client_hello_preserved_through_wake_delay() {
         fcm: fcm.clone(),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
     // Generate a realistic-looking ClientHello (517 bytes with TLS record header)

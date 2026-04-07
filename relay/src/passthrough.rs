@@ -15,6 +15,7 @@ use crate::fcm::{self, FcmClient};
 use crate::firestore::FirestoreClient;
 use crate::mux::frame::{Frame, FrameType};
 use crate::mux::lifecycle::{MuxHandle, StreamHandle};
+use crate::rate_limit::FcmWakeThrottle;
 use crate::state::RelayState;
 use dashmap::DashMap;
 use std::sync::atomic::Ordering;
@@ -128,6 +129,7 @@ pub struct PassthroughContext {
     pub fcm: Arc<dyn FcmClient>,
     pub relay_hostname: String,
     pub fcm_wakeup_timeout: Duration,
+    pub fcm_wake_throttle: Arc<FcmWakeThrottle>,
 }
 
 /// Result of resolving a mux handle for a device, potentially after FCM wakeup.
@@ -156,21 +158,28 @@ pub async fn resolve_device_stream(
         });
     }
 
-    // Device offline -- look up FCM token and send wake
-    let device = ctx
-        .firestore
-        .get_device(subdomain)
-        .await
-        .map_err(|e| match e {
-            crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
-            other => PassthroughError::FirestoreFailed(other.to_string()),
-        })?;
+    // Device offline -- check FCM wake throttle before sending.
+    // If throttled, we still wait for the device (FCM was already sent recently).
+    // This lets multiple concurrent clients share a single FCM wake.
+    if ctx.fcm_wake_throttle.should_wake(subdomain) {
+        // Look up FCM token and send wake
+        let device = ctx
+            .firestore
+            .get_device(subdomain)
+            .await
+            .map_err(|e| match e {
+                crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
+                other => PassthroughError::FirestoreFailed(other.to_string()),
+            })?;
 
-    let payload = fcm::wake_payload();
-    ctx.fcm
-        .send_data_message(&device.fcm_token, &payload, true)
-        .await
-        .map_err(|e| PassthroughError::FcmFailed(e.to_string()))?;
+        let payload = fcm::wake_payload();
+        ctx.fcm
+            .send_data_message(&device.fcm_token, &payload, true)
+            .await
+            .map_err(|e| PassthroughError::FcmFailed(e.to_string()))?;
+    } else {
+        debug!(subdomain, "FCM wake throttled, waiting for existing wake");
+    }
 
     // Wait for device to connect
     ctx.relay_state
