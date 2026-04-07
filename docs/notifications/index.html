@@ -771,6 +771,82 @@
   <div class="variation-note">Title, body, and action labels are all provided by the AI client. Actions open URLs (http/https only). Max 3 action buttons. Rate limited to 10 per minute.</div>
 </div>
 
+<!-- ====== ROBORAZZI SCREENSHOTS ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #607d8b;"></div>
+    <span class="channel-name">Roborazzi Screenshots</span>
+    <span class="channel-importance">GENERATED</span>
+  </div>
+  <div class="channel-desc">
+    Compose-rendered screenshots of real Android Notification objects, captured via Roborazzi.
+    Regenerate with: <code>./gradlew :notifications:testDebugUnitTest --tests "*.NotificationScreenshotTest"</code>
+  </div>
+
+  <style>
+    .screenshot-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+    .screenshot-pair { display: flex; gap: 8px; margin-bottom: 16px; }
+    .screenshot-pair img { border-radius: 12px; border: 1px solid var(--card-border); max-width: 180px; height: auto; }
+    .screenshot-label { font-size: 11px; color: var(--text-tertiary); text-align: center; margin-top: 2px; }
+    .screenshot-section { margin-top: 16px; }
+    .screenshot-section-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+  </style>
+
+  <div class="screenshot-section">
+    <div class="screenshot-section-title">Foreground Service</div>
+    <div class="screenshot-grid">
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/01_foreground_connecting_light.png" alt=""><img src="../../notifications/screenshots/01_foreground_connecting_dark.png" alt=""></div><div class="screenshot-label">Connecting</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/02_foreground_connected_light.png" alt=""><img src="../../notifications/screenshots/02_foreground_connected_dark.png" alt=""></div><div class="screenshot-label">Connected</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/03_foreground_active_session_light.png" alt=""><img src="../../notifications/screenshots/03_foreground_active_session_dark.png" alt=""></div><div class="screenshot-label">Active Session</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/04_foreground_disconnecting_light.png" alt=""><img src="../../notifications/screenshots/04_foreground_disconnecting_dark.png" alt=""></div><div class="screenshot-label">Disconnecting</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/05_foreground_disconnected_light.png" alt=""><img src="../../notifications/screenshots/05_foreground_disconnected_dark.png" alt=""></div><div class="screenshot-label">Disconnected</div></div>
+    </div>
+  </div>
+
+  <div class="screenshot-section">
+    <div class="screenshot-section-title">Authorization Requests</div>
+    <div class="screenshot-grid">
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/06_auth_request_light.png" alt=""><img src="../../notifications/screenshots/06_auth_request_dark.png" alt=""></div><div class="screenshot-label">Auth Request</div></div>
+    </div>
+  </div>
+
+  <div class="screenshot-section">
+    <div class="screenshot-section-title">Session Activity</div>
+    <div class="screenshot-grid">
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/07_session_complete_light.png" alt=""><img src="../../notifications/screenshots/07_session_complete_dark.png" alt=""></div><div class="screenshot-label">Session Complete</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/08_session_tool_call_light.png" alt=""><img src="../../notifications/screenshots/08_session_tool_call_dark.png" alt=""></div><div class="screenshot-label">Tool Call</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/09_session_warning_light.png" alt=""><img src="../../notifications/screenshots/09_session_warning_dark.png" alt=""></div><div class="screenshot-label">Warning</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/10_session_info_light.png" alt=""><img src="../../notifications/screenshots/10_session_info_dark.png" alt=""></div><div class="screenshot-label">Info</div></div>
+    </div>
+  </div>
+
+  <div class="screenshot-section">
+    <div class="screenshot-section-title">Errors</div>
+    <div class="screenshot-grid">
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/11_error_connection_light.png" alt=""><img src="../../notifications/screenshots/11_error_connection_dark.png" alt=""></div><div class="screenshot-label">Connection Error</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/12_error_stream_light.png" alt=""><img src="../../notifications/screenshots/12_error_stream_dark.png" alt=""></div><div class="screenshot-label">Stream Error</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/13_error_cert_expired_light.png" alt=""><img src="../../notifications/screenshots/13_error_cert_expired_dark.png" alt=""></div><div class="screenshot-label">Cert Expired</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/14_error_cert_renewal_failed_light.png" alt=""><img src="../../notifications/screenshots/14_error_cert_renewal_failed_dark.png" alt=""></div><div class="screenshot-label">Cert Renewal Failed</div></div>
+    </div>
+  </div>
+
+  <div class="screenshot-section">
+    <div class="screenshot-section-title">Security Alerts</div>
+    <div class="screenshot-grid">
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/15_alert_self_cert_light.png" alt=""><img src="../../notifications/screenshots/15_alert_self_cert_dark.png" alt=""></div><div class="screenshot-label">Self-Cert Alert</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/16_alert_ct_log_light.png" alt=""><img src="../../notifications/screenshots/16_alert_ct_log_dark.png" alt=""></div><div class="screenshot-label">CT Log Alert</div></div>
+    </div>
+  </div>
+
+  <div class="screenshot-section">
+    <div class="screenshot-section-title">Outreach</div>
+    <div class="screenshot-grid">
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/17_outreach_basic_light.png" alt=""><img src="../../notifications/screenshots/17_outreach_basic_dark.png" alt=""></div><div class="screenshot-label">Basic</div></div>
+      <div><div class="screenshot-pair"><img src="../../notifications/screenshots/18_outreach_with_actions_light.png" alt=""><img src="../../notifications/screenshots/18_outreach_with_actions_dark.png" alt=""></div><div class="screenshot-label">With Actions</div></div>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <script>
