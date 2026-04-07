@@ -60,6 +60,16 @@ class TunnelForegroundService : LifecycleService() {
             notification,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
         )
+
+        // Launch observer coroutines exactly once. These collect StateFlows and
+        // SharedFlows, so they run for the lifetime of the service. Launching them
+        // in onStartCommand caused duplicates on every wake broadcast, leading to
+        // conflicting reconnect attempts and spurious disconnects.
+        lifecycleScope.launch { wakelockManager.observe(tunnelClient.state) }
+        lifecycleScope.launch { idleTimeoutManager.observe(tunnelClient.state) }
+        lifecycleScope.launch { collectIncomingSessions() }
+        lifecycleScope.launch { observeStateChanges() }
+
         Log.i(TAG, "TunnelForegroundService created")
     }
 
@@ -73,10 +83,6 @@ class TunnelForegroundService : LifecycleService() {
         }
 
         lifecycleScope.launch { connectToRelay() }
-        lifecycleScope.launch { wakelockManager.observe(tunnelClient.state) }
-        lifecycleScope.launch { idleTimeoutManager.observe(tunnelClient.state) }
-        lifecycleScope.launch { collectIncomingSessions() }
-        lifecycleScope.launch { observeStateChanges() }
 
         return START_NOT_STICKY
     }
@@ -88,12 +94,18 @@ class TunnelForegroundService : LifecycleService() {
         }
         if (tunnelClient.state.value == TunnelState.CONNECTED) {
             Log.i(TAG, "Already connected, disconnecting first to refresh")
+            // Mark intentional so the state observer doesn't trigger reconnect
+            // during the brief DISCONNECTED window before we call connect() below.
+            intentionalDisconnect = true
             try {
                 tunnelClient.disconnect()
             } catch (_: Exception) {
                 // Best-effort
             }
         }
+        // Clear the flag before connecting so future unexpected disconnects
+        // will be handled normally.
+        intentionalDisconnect = false
         try {
             tunnelClient.connect(relayUrl)
             sendFcmToken()
