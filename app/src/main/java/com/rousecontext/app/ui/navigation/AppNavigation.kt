@@ -1,7 +1,10 @@
 package com.rousecontext.app.ui.navigation
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -10,6 +13,9 @@ import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -27,11 +33,14 @@ import com.rousecontext.app.ui.screens.IntegrationEnabledScreen
 import com.rousecontext.app.ui.screens.IntegrationEnabledState
 import com.rousecontext.app.ui.screens.IntegrationManageScreen
 import com.rousecontext.app.ui.screens.MainDashboardScreen
+import com.rousecontext.app.ui.screens.NotificationSetupScreen
 import com.rousecontext.app.ui.screens.OnboardingErrorScreen
+import com.rousecontext.app.ui.screens.OutreachSetupScreen
 import com.rousecontext.app.ui.screens.SettingUpScreen
 import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsScreen
+import com.rousecontext.app.ui.screens.UsageSetupScreen
 import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.AddClientViewModel
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
@@ -42,9 +51,12 @@ import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
+import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.OnboardingState
 import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
+import com.rousecontext.app.ui.viewmodels.OutreachSetupViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
+import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
 import org.koin.androidx.compose.koinViewModel
 
 object Routes {
@@ -58,6 +70,9 @@ object Routes {
     const val INTEGRATION_MANAGE = "integration/{integrationId}"
     const val INTEGRATION_SETUP = "integration_setup/{integrationId}"
     const val HEALTH_CONNECT_SETUP = "health_connect_setup"
+    const val NOTIFICATION_SETUP = "notification_setup"
+    const val OUTREACH_SETUP = "outreach_setup"
+    const val USAGE_SETUP = "usage_setup"
     const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
     const val DEVICE_CODE = "device_code/{integrationId}"
     const val AUTH_APPROVAL = "auth_approval"
@@ -222,10 +237,17 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             AddIntegrationPickerScreen(
                 integrations = integrations,
                 onSetUp = { id ->
-                    if (id == HealthConnectSetupViewModel.HEALTH_INTEGRATION_ID) {
-                        navController.navigate(Routes.HEALTH_CONNECT_SETUP)
-                    } else {
-                        navController.navigate(Routes.integrationSetup(id))
+                    when (id) {
+                        HealthConnectSetupViewModel.HEALTH_INTEGRATION_ID ->
+                            navController.navigate(Routes.HEALTH_CONNECT_SETUP)
+                        NotificationSetupViewModel.INTEGRATION_ID ->
+                            navController.navigate(Routes.NOTIFICATION_SETUP)
+                        OutreachSetupViewModel.INTEGRATION_ID ->
+                            navController.navigate(Routes.OUTREACH_SETUP)
+                        UsageSetupViewModel.INTEGRATION_ID ->
+                            navController.navigate(Routes.USAGE_SETUP)
+                        else ->
+                            navController.navigate(Routes.integrationSetup(id))
                     }
                 },
                 onCancel = { navController.popBackStack() }
@@ -286,6 +308,113 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             )
         }
 
+        composable(Routes.NOTIFICATION_SETUP) {
+            val viewModel: NotificationSetupViewModel = koinViewModel()
+            val state by viewModel.state.collectAsState()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            val lifecycle = lifecycleOwner.lifecycle
+            DisposableEffect(lifecycle) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        viewModel.refreshPermission()
+                    }
+                }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
+            NotificationSetupScreen(
+                state = state,
+                onGrantAccess = {
+                    val intent = Intent(
+                        Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
+                    )
+                    navController.context.startActivity(intent)
+                },
+                onRetentionChanged = viewModel::setRetentionDays,
+                onAllowActionsChanged = viewModel::setAllowActions,
+                onEnable = {
+                    if (viewModel.enable()) {
+                        navController.navigate(
+                            Routes.integrationEnabled(NotificationSetupViewModel.INTEGRATION_ID)
+                        ) {
+                            popUpTo(Routes.ADD_INTEGRATION) { inclusive = true }
+                        }
+                    }
+                },
+                onCancel = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.OUTREACH_SETUP) {
+            val viewModel: OutreachSetupViewModel = koinViewModel()
+            val state by viewModel.state.collectAsState()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            val lifecycle = lifecycleOwner.lifecycle
+            DisposableEffect(lifecycle) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        viewModel.refreshPermission()
+                    }
+                }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
+            OutreachSetupScreen(
+                state = state,
+                onDndToggled = viewModel::setDndToggled,
+                onGrantDnd = {
+                    val intent = Intent(
+                        Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS
+                    )
+                    navController.context.startActivity(intent)
+                },
+                onEnable = {
+                    viewModel.enable()
+                    navController.navigate(
+                        Routes.integrationEnabled(OutreachSetupViewModel.INTEGRATION_ID)
+                    ) {
+                        popUpTo(Routes.ADD_INTEGRATION) { inclusive = true }
+                    }
+                },
+                onCancel = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.USAGE_SETUP) {
+            val viewModel: UsageSetupViewModel = koinViewModel()
+            val state by viewModel.state.collectAsState()
+            val lifecycleOwner = LocalLifecycleOwner.current
+            val lifecycle = lifecycleOwner.lifecycle
+            DisposableEffect(lifecycle) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        viewModel.refreshPermission()
+                    }
+                }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
+            UsageSetupScreen(
+                state = state,
+                onGrantAccess = {
+                    val intent = Intent(
+                        Settings.ACTION_USAGE_ACCESS_SETTINGS
+                    )
+                    navController.context.startActivity(intent)
+                },
+                onEnable = {
+                    if (viewModel.enable()) {
+                        navController.navigate(
+                            Routes.integrationEnabled(UsageSetupViewModel.INTEGRATION_ID)
+                        ) {
+                            popUpTo(Routes.ADD_INTEGRATION) { inclusive = true }
+                        }
+                    }
+                },
+                onCancel = { navController.popBackStack() }
+            )
+        }
+
         composable(
             route = Routes.INTEGRATION_ENABLED,
             arguments = listOf(navArgument("integrationId") { type = NavType.StringType })
@@ -296,6 +425,9 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 state = IntegrationEnabledState(
                     integrationName = when (integrationId) {
                         HealthConnectSetupViewModel.HEALTH_INTEGRATION_ID -> "Health Connect"
+                        NotificationSetupViewModel.INTEGRATION_ID -> "Notifications"
+                        OutreachSetupViewModel.INTEGRATION_ID -> "Outreach"
+                        UsageSetupViewModel.INTEGRATION_ID -> "Usage Stats"
                         else -> integrationId
                     }
                 ),
