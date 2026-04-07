@@ -20,6 +20,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import org.koin.compose.koinInject
 import androidx.navigation.navArgument
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditDetailScreen
@@ -146,6 +147,20 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
         composable(Routes.HOME) {
             val viewModel: MainDashboardViewModel = koinViewModel()
             val state by viewModel.state.collectAsState()
+            val certStore: com.rousecontext.tunnel.CertificateStore = org.koin.compose.koinInject()
+
+            // First launch: redirect to onboarding if no subdomain
+            var checkedFirstLaunch by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                if (!checkedFirstLaunch) {
+                    checkedFirstLaunch = true
+                    if (certStore.getSubdomain() == null) {
+                        navController.navigate(Routes.ONBOARDING) {
+                            launchSingleTop = true
+                        }
+                    }
+                }
+            }
 
             // Refresh when returning to dashboard (e.g. after onboarding)
             LaunchedEffect(
