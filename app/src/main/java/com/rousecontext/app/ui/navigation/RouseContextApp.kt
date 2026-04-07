@@ -33,7 +33,7 @@ fun RouseContextApp(startDestination: String = Routes.HOME) {
 
     // Update status bar icons to match theme
     val activity = LocalContext.current as? ComponentActivity
-    LaunchedEffect(isDark) {
+    androidx.compose.runtime.SideEffect {
         activity?.enableEdgeToEdge(
             statusBarStyle = if (isDark) {
                 SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
