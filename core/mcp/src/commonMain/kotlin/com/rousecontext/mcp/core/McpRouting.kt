@@ -360,7 +360,10 @@ fun Application.configureMcpRouting(
                 call.response.headers.append("X-Frame-Options", "DENY")
                 call.response.headers.append(
                     "Content-Security-Policy",
-                    "frame-ancestors 'none'; default-src 'self'; script-src 'unsafe-inline'"
+                    "frame-ancestors 'none'; default-src 'self'; " +
+                        "script-src 'unsafe-inline'; " +
+                        "style-src 'unsafe-inline'; " +
+                        "img-src 'self' data:"
                 )
                 call.response.headers.append("X-Content-Type-Options", "nosniff")
                 call.response.headers.append(
