@@ -43,6 +43,7 @@ import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
+import com.rousecontext.notifications.capture.FieldEncryptor
 import com.rousecontext.notifications.capture.NotificationDatabase
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.CsrGenerator
@@ -78,6 +79,9 @@ val appModule = module {
     single { NotificationDatabase.create(androidContext()) }
     single { get<NotificationDatabase>().notificationDao() }
 
+    // --- Field encryption ---
+    single { FieldEncryptor(androidContext()) }
+
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
 
@@ -105,7 +109,7 @@ val appModule = module {
     single<McpIntegration>(named("health")) { HealthConnectIntegration(androidContext()) }
     single<McpIntegration>(named("outreach")) { OutreachIntegration(androidContext()) }
     single<McpIntegration>(named("notifications")) {
-        NotificationIntegration(androidContext(), get())
+        NotificationIntegration(androidContext(), get(), get())
     }
     single<McpIntegration>(named("usage")) { UsageIntegration(androidContext()) }
 
@@ -131,7 +135,8 @@ val appModule = module {
     single<AuditListener> {
         RoomAuditListener(
             dao = get(),
-            scope = get(named("appScope"))
+            scope = get(named("appScope")),
+            fieldEncryptor = get()
         )
     }
 

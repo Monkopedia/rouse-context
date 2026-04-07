@@ -38,7 +38,8 @@ class NotificationMcpProvider(
     private val dao: NotificationDao,
     private val activeNotificationSource: () -> Array<StatusBarNotification>,
     private val actionPerformer: (key: String, actionIndex: Int) -> Boolean,
-    private val notificationDismisser: (key: String) -> Boolean
+    private val notificationDismisser: (key: String) -> Boolean,
+    private val fieldEncryptor: FieldEncryptor? = null
 ) : McpServerProvider {
 
     override val id = "notifications"
@@ -321,8 +322,10 @@ class NotificationMcpProvider(
     private fun recordToJson(record: NotificationRecord) = buildJsonObject {
         put("id", JsonPrimitive(record.id))
         put("package", JsonPrimitive(record.packageName))
-        put("title", JsonPrimitive(record.title ?: ""))
-        put("text", JsonPrimitive(record.text ?: ""))
+        val title = fieldEncryptor?.decrypt(record.title) ?: record.title
+        val text = fieldEncryptor?.decrypt(record.text) ?: record.text
+        put("title", JsonPrimitive(title ?: ""))
+        put("text", JsonPrimitive(text ?: ""))
         put("time", JsonPrimitive(record.postedAt))
         put("removed_at", JsonPrimitive(record.removedAt ?: 0L))
         put("category", JsonPrimitive(record.category ?: ""))

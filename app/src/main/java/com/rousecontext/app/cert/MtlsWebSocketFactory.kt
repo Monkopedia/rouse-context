@@ -13,6 +13,9 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.concurrent.TimeUnit
+import javax.crypto.Cipher
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -174,12 +177,62 @@ object MtlsWebSocketFactory {
             Log.w(TAG, "No private key file found at ${keyFile.absolutePath}")
             return null
         }
-        val key = parsePemPrivateKey(keyFile.readText())
+        val pem = decryptKeyFile(keyFile)
+        if (pem == null) {
+            Log.w(TAG, "Failed to decrypt or read private key file")
+            return null
+        }
+        val key = parsePemPrivateKey(pem)
         if (key == null) {
             Log.w(TAG, "Failed to parse private key PEM")
         }
         return key
     }
+
+    /**
+     * Attempts to decrypt the key file using the Keystore-derived AES key.
+     * Falls back to reading as plaintext PEM for backward compatibility.
+     */
+    private fun decryptKeyFile(keyFile: File): String? {
+        val data = keyFile.readBytes()
+        if (data.isEmpty()) return null
+        // Try encrypted format first: [ivLen(1 byte)][iv][ciphertext]
+        return try {
+            val ivLen = data[0].toInt() and 0xFF
+            if (ivLen > 0 && ivLen < data.size && data.size > 1 + ivLen) {
+                val iv = data.copyOfRange(1, 1 + ivLen)
+                val ciphertext = data.copyOfRange(1 + ivLen, data.size)
+                val encryptionKey = getEncryptionKey() ?: return readAsPlaintext(data)
+                val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+                cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    encryptionKey,
+                    GCMParameterSpec(GCM_TAG_LENGTH, iv)
+                )
+                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+            } else {
+                readAsPlaintext(data)
+            }
+        } catch (_: Exception) {
+            readAsPlaintext(data)
+        }
+    }
+
+    private fun readAsPlaintext(data: ByteArray): String? {
+        val text = String(data, Charsets.UTF_8)
+        return if (text.contains("BEGIN") && text.contains("PRIVATE KEY")) text else null
+    }
+
+    private fun getEncryptionKey(): SecretKey? {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
+        keyStore.load(null)
+        return keyStore.getKey(ENCRYPTION_KEY_ALIAS, null) as? SecretKey
+    }
+
+    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    private const val ENCRYPTION_KEY_ALIAS = "rouse_key_encryption_key"
+    private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
+    private const val GCM_TAG_LENGTH = 128
 
     private fun parsePemPrivateKey(pem: String): PrivateKey? {
         val base64 = pem

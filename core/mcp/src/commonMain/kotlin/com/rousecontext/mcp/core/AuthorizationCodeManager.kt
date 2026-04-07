@@ -39,6 +39,14 @@ data class PendingAuthRequest(
 private const val AUTH_REQUEST_TTL_MS = 10L * 60 * 1000 // 10 minutes
 
 /**
+ * RFC 7636 PKCE format constraints.
+ * code_challenge: 43-128 chars, base64url charset (A-Z, a-z, 0-9, -, _)
+ * code_verifier: 43-128 chars, unreserved charset (A-Z, a-z, 0-9, -, ., _, ~)
+ */
+private val CODE_CHALLENGE_REGEX = Regex("^[A-Za-z0-9_-]{43,128}$")
+private val CODE_VERIFIER_REGEX = Regex("^[A-Za-z0-9_.~-]{43,128}$")
+
+/**
  * Characters allowed in display codes. Excludes 0, O, 1, I, L to avoid ambiguity.
  */
 private const val DISPLAY_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -91,19 +99,46 @@ class AuthorizationCodeManager(
      */
     private val clientNames = ConcurrentHashMap<String, String>()
 
+    /**
+     * Maps client_id to registered redirect_uris, populated during /register.
+     * Only redirect URIs registered here are allowed in /authorize requests.
+     */
+    private val clientRedirectUris = ConcurrentHashMap<String, Set<String>>()
+
     private val requests = mutableListOf<PendingRequest>()
 
     /**
-     * Registers a client_id to client_name mapping, called during /register.
+     * Registers a client_id with its name and redirect URIs, called during /register.
      * The name is later used as the display label when issuing tokens.
+     * Only http and https redirect URIs are accepted.
+     *
+     * @throws IllegalArgumentException if any redirect_uri has an invalid scheme.
      */
-    fun registerClient(clientId: String, clientName: String) {
+    fun registerClient(
+        clientId: String,
+        clientName: String,
+        redirectUris: List<String> = emptyList()
+    ) {
+        for (uri in redirectUris) {
+            val scheme = try {
+                java.net.URI(uri).scheme?.lowercase()
+            } catch (_: Exception) {
+                null
+            }
+            require(scheme == "http" || scheme == "https") {
+                "redirect_uri must use http or https scheme: $uri"
+            }
+        }
         clientNames[clientId] = clientName
+        clientRedirectUris[clientId] = redirectUris.toSet()
     }
 
     /**
      * Creates a pending authorization request.
      * Returns the request ID and display code for the HTML page.
+     *
+     * @throws IllegalArgumentException if the code_challenge format is invalid per RFC 7636,
+     *         or if the redirect_uri is not registered for this client.
      */
     fun createRequest(
         clientId: String,
@@ -113,6 +148,15 @@ class AuthorizationCodeManager(
         state: String,
         integration: String
     ): AuthorizationRequest {
+        require(CODE_CHALLENGE_REGEX.matches(codeChallenge)) {
+            "code_challenge must be 43-128 characters, base64url charset only"
+        }
+
+        val registeredUris = clientRedirectUris[clientId]
+        require(registeredUris != null && redirectUri in registeredUris) {
+            "redirect_uri not registered for this client"
+        }
+
         val requestId = java.util.UUID.randomUUID().toString()
         val displayCode = generateDisplayCode()
         val now = clock.currentTimeMillis()
@@ -216,6 +260,8 @@ class AuthorizationCodeManager(
      * The authorization code is single-use and is consumed by this call.
      */
     fun exchangeCode(authCode: String, codeVerifier: String): String? {
+        if (!CODE_VERIFIER_REGEX.matches(codeVerifier)) return null
+
         synchronized(this) {
             val request = requests.find {
                 it.authorizationCode == authCode && it.approved == true

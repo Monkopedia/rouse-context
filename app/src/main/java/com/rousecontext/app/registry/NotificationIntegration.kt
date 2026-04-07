@@ -6,6 +6,7 @@ import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.mcp.core.McpServerProvider
+import com.rousecontext.notifications.capture.FieldEncryptor
 import com.rousecontext.notifications.capture.NotificationCaptureService
 import com.rousecontext.notifications.capture.NotificationDao
 import com.rousecontext.notifications.capture.NotificationMcpProvider
@@ -18,7 +19,8 @@ import com.rousecontext.notifications.capture.NotificationMcpProvider
  */
 class NotificationIntegration(
     private val context: Context,
-    dao: NotificationDao
+    dao: NotificationDao,
+    fieldEncryptor: FieldEncryptor? = null
 ) : McpIntegration {
 
     override val id = "notifications"
@@ -32,7 +34,8 @@ class NotificationIntegration(
         dao = dao,
         activeNotificationSource = ::getActiveNotifications,
         actionPerformer = ::performAction,
-        notificationDismisser = ::dismissNotification
+        notificationDismisser = ::dismissNotification,
+        fieldEncryptor = fieldEncryptor
     )
 
     override suspend fun isAvailable(): Boolean = true

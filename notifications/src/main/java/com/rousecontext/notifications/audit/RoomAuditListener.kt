@@ -2,15 +2,19 @@ package com.rousecontext.notifications.audit
 
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.ToolCallEvent
+import com.rousecontext.notifications.capture.FieldEncryptor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 /**
  * [AuditListener] implementation that persists tool call events to Room.
+ * Sensitive fields (errorMessage) are encrypted at rest when a [FieldEncryptor]
+ * is provided.
  */
 class RoomAuditListener(
     private val dao: AuditDao,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val fieldEncryptor: FieldEncryptor? = null
 ) : AuditListener {
 
     override fun onToolCall(event: ToolCallEvent) {
@@ -23,7 +27,7 @@ class RoomAuditListener(
                     timestampMillis = event.timestamp,
                     durationMillis = event.durationMs,
                     success = true,
-                    errorMessage = null
+                    errorMessage = fieldEncryptor?.encrypt(null)
                 )
             )
         }

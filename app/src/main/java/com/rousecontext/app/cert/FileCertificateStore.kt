@@ -10,6 +10,10 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
  * [CertificateStore] implementation that stores PEM certs in filesDir
@@ -59,12 +63,45 @@ class FileCertificateStore(
     }
 
     override suspend fun storePrivateKey(pemKey: String) {
-        File(filesDir, KEY_PEM_FILE).writeText(pemKey)
+        val encryptionKey = getOrCreateEncryptionKey()
+        val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, encryptionKey)
+        val iv = cipher.iv
+        val ciphertext = cipher.doFinal(pemKey.toByteArray(Charsets.UTF_8))
+        // Write IV length (1 byte), IV, then ciphertext
+        val keyFile = File(filesDir, KEY_PEM_FILE)
+        keyFile.outputStream().use { out ->
+            out.write(iv.size)
+            out.write(iv)
+            out.write(ciphertext)
+        }
     }
 
     override suspend fun getPrivateKey(): String? {
         val keyFile = File(filesDir, KEY_PEM_FILE)
-        return if (keyFile.exists()) keyFile.readText() else null
+        if (!keyFile.exists()) return null
+        return try {
+            val data = keyFile.readBytes()
+            if (data.isEmpty()) return null
+            val ivLen = data[0].toInt() and 0xFF
+            if (data.size < 1 + ivLen) return null
+            val iv = data.copyOfRange(1, 1 + ivLen)
+            val ciphertext = data.copyOfRange(1 + ivLen, data.size)
+            val encryptionKey = getOrCreateEncryptionKey()
+            val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, encryptionKey, GCMParameterSpec(GCM_TAG_LENGTH, iv))
+            String(cipher.doFinal(ciphertext), Charsets.UTF_8)
+        } catch (_: Exception) {
+            // Fall back to reading as plaintext PEM for migration from unencrypted storage
+            val text = keyFile.readText()
+            if (text.contains("BEGIN") && text.contains("PRIVATE KEY")) {
+                // Re-encrypt in place for future reads
+                storePrivateKey(text)
+                text
+            } else {
+                null
+            }
+        }
     }
 
     override suspend fun getCertChain(): List<ByteArray>? {
@@ -122,6 +159,31 @@ class FileCertificateStore(
         if (keyStore.containsAlias(KEY_ALIAS)) {
             keyStore.deleteEntry(KEY_ALIAS)
         }
+        if (keyStore.containsAlias(ENCRYPTION_KEY_ALIAS)) {
+            keyStore.deleteEntry(ENCRYPTION_KEY_ALIAS)
+        }
+    }
+
+    private fun getOrCreateEncryptionKey(): SecretKey {
+        val keyStore = androidKeyStore()
+        val existingKey = keyStore.getKey(ENCRYPTION_KEY_ALIAS, null) as? SecretKey
+        if (existingKey != null) return existingKey
+
+        val spec = KeyGenParameterSpec.Builder(
+            ENCRYPTION_KEY_ALIAS,
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(AES_KEY_SIZE)
+            .build()
+
+        val keyGenerator = KeyGenerator.getInstance(
+            KeyProperties.KEY_ALGORITHM_AES,
+            ANDROID_KEYSTORE
+        )
+        keyGenerator.init(spec)
+        return keyGenerator.generateKey()
     }
 
     private fun ensureKeyPairExists() {
@@ -174,7 +236,11 @@ class FileCertificateStore(
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"
         private const val KEY_ALIAS = "rouse_device_key"
+        private const val ENCRYPTION_KEY_ALIAS = "rouse_key_encryption_key"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
+        private const val GCM_TAG_LENGTH = 128
+        private const val AES_KEY_SIZE = 256
         private const val LINE_LENGTH = 64
         private const val EC_KEY_SIZE = 256
 

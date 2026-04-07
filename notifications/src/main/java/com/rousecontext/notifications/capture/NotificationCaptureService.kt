@@ -25,6 +25,10 @@ class NotificationCaptureService : NotificationListenerService() {
         NotificationDatabase.create(applicationContext).notificationDao()
     }
 
+    private val encryptor: FieldEncryptor by lazy {
+        FieldEncryptor(applicationContext)
+    }
+
     override fun onListenerConnected() {
         instance = this
     }
@@ -41,8 +45,8 @@ class NotificationCaptureService : NotificationListenerService() {
         val extras = sbn.notification.extras
         val record = NotificationRecord(
             packageName = sbn.packageName,
-            title = extras.getCharSequence("android.title")?.toString(),
-            text = extras.getCharSequence("android.text")?.toString(),
+            title = encryptor.encrypt(extras.getCharSequence("android.title")?.toString()),
+            text = encryptor.encrypt(extras.getCharSequence("android.text")?.toString()),
             postedAt = sbn.postTime,
             category = sbn.notification.category,
             ongoing = sbn.isOngoing

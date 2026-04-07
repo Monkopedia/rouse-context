@@ -208,9 +208,22 @@ fun Application.configureMcpRouting(
                     )
                     return@post
                 }
+                val redirectUris = validUris
 
                 val clientId = java.util.UUID.randomUUID().toString()
-                authorizationCodeManager.registerClient(clientId, clientName)
+                try {
+                    authorizationCodeManager.registerClient(clientId, clientName, redirectUris)
+                } catch (e: IllegalArgumentException) {
+                    call.respondText(
+                        buildJsonObject {
+                            put("error", "invalid_redirect_uri")
+                            put("error_description", e.message ?: "Invalid redirect_uri")
+                        }.toString(),
+                        ContentType.Application.Json,
+                        HttpStatusCode.BadRequest
+                    )
+                    return@post
+                }
                 val response = buildJsonObject {
                     put("client_id", clientId)
                     put("client_name", clientName)
@@ -308,15 +321,31 @@ fun Application.configureMcpRouting(
                     return@get
                 }
 
+                // Validate redirect_uri scheme
+                val uriScheme = try {
+                    java.net.URI(redirectUri!!).scheme?.lowercase()
+                } catch (_: Exception) {
+                    null
+                }
+                if (uriScheme != "http" && uriScheme != "https") {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
+
                 // Non-null guaranteed by allParamsPresent check above
-                val request = authorizationCodeManager.createRequest(
-                    clientId = clientId!!,
-                    codeChallenge = codeChallenge!!,
-                    codeChallengeMethod = codeChallengeMethod!!,
-                    redirectUri = redirectUri!!,
-                    state = state!!,
-                    integration = integration
-                )
+                val request = try {
+                    authorizationCodeManager.createRequest(
+                        clientId = clientId!!,
+                        codeChallenge = codeChallenge!!,
+                        codeChallengeMethod = codeChallengeMethod!!,
+                        redirectUri = redirectUri,
+                        state = state!!,
+                        integration = integration
+                    )
+                } catch (_: IllegalArgumentException) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
 
                 val html = buildAuthorizePage(
                     displayCode = request.displayCode,
@@ -731,8 +760,8 @@ private fun buildAuthorizePage(
                 <div id="status">Waiting for approval...</div>
             </div>
             <script>
-                var statusUrl = '$statusUrl';
-                var redirectBase = '${redirectUri.replace("'", "\\'")}';
+                var statusUrl = '${htmlEscapeForJs(statusUrl)}';
+                var redirectBase = '${htmlEscapeForJs(redirectUri)}';
                 var poll = setInterval(async function() {
                     try {
                         var resp = await fetch(statusUrl);
@@ -834,6 +863,27 @@ private fun emitAuditEvent(
     } catch (_: Exception) {
         // Audit is best-effort; never fail the request due to audit errors
     }
+}
+
+/**
+ * HTML-escapes a string for safe embedding inside a JavaScript string literal
+ * within an HTML `<script>` tag. Escapes &, <, >, ", ', /, and backslash.
+ */
+internal fun htmlEscapeForJs(value: String): String {
+    val sb = StringBuilder(value.length)
+    for (ch in value) {
+        when (ch) {
+            '&' -> sb.append("\\x26")
+            '<' -> sb.append("\\x3c")
+            '>' -> sb.append("\\x3e")
+            '"' -> sb.append("\\x22")
+            '\'' -> sb.append("\\x27")
+            '\\' -> sb.append("\\\\")
+            '/' -> sb.append("\\x2f")
+            else -> sb.append(ch)
+        }
+    }
+    return sb.toString()
 }
 
 /** Timeout for reading the MCP request body and dispatching it (30 seconds). */

@@ -6,17 +6,21 @@ import org.junit.Test
 
 class CleanupTest {
 
+    private val validChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
     // -- AuthorizationCodeManager cleanup --
 
     @Test
     fun `createRequest cleans up expired requests`() {
         val clock = FakeClock()
         val manager = AuthorizationCodeManager(clock = clock)
+        manager.registerClient("c1", "Client 1", listOf("http://localhost/cb"))
+        manager.registerClient("c2", "Client 2", listOf("http://localhost/cb"))
 
         // Create a request, then expire it
         manager.createRequest(
             clientId = "c1",
-            codeChallenge = "ch1",
+            codeChallenge = validChallenge,
             codeChallengeMethod = "S256",
             redirectUri = "http://localhost/cb",
             state = "s1",
@@ -28,7 +32,7 @@ class CleanupTest {
         // Creating a new request should clean up the expired one
         manager.createRequest(
             clientId = "c2",
-            codeChallenge = "ch2",
+            codeChallenge = validChallenge,
             codeChallengeMethod = "S256",
             redirectUri = "http://localhost/cb",
             state = "s2",
@@ -45,10 +49,12 @@ class CleanupTest {
     fun `getStatus cleans up expired requests`() {
         val clock = FakeClock()
         val manager = AuthorizationCodeManager(clock = clock)
+        manager.registerClient("c1", "Client 1", listOf("http://localhost/cb"))
+        manager.registerClient("c2", "Client 2", listOf("http://localhost/cb"))
 
         val req1 = manager.createRequest(
             clientId = "c1",
-            codeChallenge = "ch1",
+            codeChallenge = validChallenge,
             codeChallengeMethod = "S256",
             redirectUri = "http://localhost/cb",
             state = "s1",
@@ -56,7 +62,7 @@ class CleanupTest {
         )
         manager.createRequest(
             clientId = "c2",
-            codeChallenge = "ch2",
+            codeChallenge = validChallenge,
             codeChallengeMethod = "S256",
             redirectUri = "http://localhost/cb",
             state = "s2",
