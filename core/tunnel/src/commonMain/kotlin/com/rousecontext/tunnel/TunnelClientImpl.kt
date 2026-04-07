@@ -24,6 +24,8 @@ class TunnelClientImpl(
     private var muxDemux: MuxDemux? = null
     private var wsHandle: WebSocketHandle? = null
     private var forwardJob: Job? = null
+    @Volatile
+    private var activeStreamCount = 0
 
     private val _incomingSessions = Channel<MuxStream>(Channel.BUFFERED)
     private val _errors = MutableSharedFlow<TunnelError>(extraBufferCapacity = 16)
@@ -88,7 +90,25 @@ class TunnelClientImpl(
             wsHandle = handle
             forwardJob = scope.launch {
                 demux.incomingStreams.collect { stream ->
-                    _incomingSessions.send(stream)
+                    synchronized(stateMachine) {
+                        activeStreamCount++
+                        if (activeStreamCount == 1 &&
+                            stateMachine.state.value == TunnelState.CONNECTED
+                        ) {
+                            stateMachine.transition(TunnelState.ACTIVE)
+                        }
+                    }
+                    val wrapped = StreamCloseTracker(stream) {
+                        synchronized(stateMachine) {
+                            activeStreamCount--
+                            if (activeStreamCount == 0 &&
+                                stateMachine.state.value == TunnelState.ACTIVE
+                            ) {
+                                stateMachine.transition(TunnelState.CONNECTED)
+                            }
+                        }
+                    }
+                    _incomingSessions.send(wrapped)
                 }
             }
 
