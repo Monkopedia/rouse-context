@@ -51,11 +51,18 @@ class MainActivity : ComponentActivity() {
             startDestination = if (hasSubdomain) Routes.HOME else Routes.ONBOARDING
         }
 
-        // Animated exit: cross-fade the splash screen out
+        // Animated exit: cross-fade the splash screen out, then fix status bar
         splashScreen.setOnExitAnimationListener { splashScreenView ->
             ObjectAnimator.ofFloat(splashScreenView.view, "alpha", 1f, 0f).apply {
                 duration = SPLASH_FADE_DURATION_MS
-                doOnEnd { splashScreenView.remove() }
+                doOnEnd {
+                    splashScreenView.remove()
+                    // Re-apply status bar style after splash removal
+                    // The splash theme may have overridden it
+                    val controller = androidx.core.view.WindowCompat
+                        .getInsetsController(window, window.decorView)
+                    controller.isAppearanceLightStatusBars = !isDarkSystem
+                }
                 start()
             }
         }
