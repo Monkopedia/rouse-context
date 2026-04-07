@@ -18,7 +18,7 @@ val AmberAccent = Color(0xFFEF9F27) // interactive: buttons, highlights, FABs
 val AmberDark = Color(0xFFBA7517) // darker amber for light-mode secondary
 val SurfaceDark = Color(0xFF0F1C32) // dark mode surface
 val WarmWhite = Color(0xFFFAF8F4) // light mode background
-val SurfaceLight = Color(0xFFF5F6FA) // light mode surface
+val SurfaceLight = Color(0xFFF5F4F0) // light mode surface (warm neutral)
 val WarningContainerDark = Color(0xFF3A2800) // dark warning card background
 val OnWarningContainerDark = Color(0xFFFFE0A0) // dark warning card text
 val WarningContainerLight = Color(0xFFFFF3E0) // light warning card background
@@ -50,13 +50,14 @@ private val DarkColorScheme = darkColorScheme(
     error = Color(0xFFFF6B6B),
     onError = Color.Black,
     outline = Color(0xFF3A4A5A),
-    outlineVariant = Color(0xFF2A3A4A)
+    outlineVariant = Color(0xFF2A3A4A),
+    surfaceTint = Color.Transparent
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = NavyDark,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD0D8E8),
+    primaryContainer = Color(0xFFDDD8D0),
     onPrimaryContainer = NavyDark,
     secondary = AmberDark,
     onSecondary = Color.White,
@@ -68,12 +69,18 @@ private val LightColorScheme = lightColorScheme(
     onBackground = Color(0xFF1A1C1B),
     surface = SurfaceLight,
     onSurface = Color(0xFF1A1C1B),
-    surfaceVariant = Color(0xFFE0E4EE),
-    onSurfaceVariant = Color(0xFF404950),
+    surfaceVariant = Color(0xFFE8E4DE),
+    onSurfaceVariant = Color(0xFF484440),
     error = Color(0xFFBA1A1A),
     onError = Color.White,
-    outline = Color(0xFF6F7580),
-    outlineVariant = Color(0xFFBFC4CE)
+    outline = Color(0xFF787470),
+    outlineVariant = Color(0xFFCCC8C2),
+    surfaceTint = Color.Transparent,
+    surfaceContainer = Color(0xFFF0EDE8),
+    surfaceContainerLow = Color(0xFFF3F0EB),
+    surfaceContainerHigh = Color(0xFFEBE8E3),
+    surfaceContainerLowest = Color(0xFFFAF8F4),
+    surfaceContainerHighest = Color(0xFFE5E2DD)
 )
 
 data class ExtendedColors(

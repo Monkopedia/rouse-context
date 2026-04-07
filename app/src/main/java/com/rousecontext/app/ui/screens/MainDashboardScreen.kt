@@ -114,7 +114,9 @@ fun MainDashboardScreen(
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { onTabSelected(0) },
