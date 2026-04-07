@@ -428,12 +428,14 @@ fun Application.configureMcpRouting(
                             call.respond(HttpStatusCode.BadRequest)
                             return@post
                         }
-                        val token = authorizationCodeManager.exchangeCode(code, codeVerifier)
-                        if (token != null) {
+                        val pair = authorizationCodeManager.exchangeCode(code, codeVerifier)
+                        if (pair != null) {
                             call.respond(
                                 buildJsonObject {
-                                    put("access_token", token)
+                                    put("access_token", pair.accessToken)
                                     put("token_type", "Bearer")
+                                    put("expires_in", pair.expiresIn)
+                                    put("refresh_token", pair.refreshToken)
                                 }
                             )
                         } else {
@@ -450,6 +452,32 @@ fun Application.configureMcpRouting(
                             return@post
                         }
                         respondToDeviceCodePoll(call, deviceCodeManager, deviceCode)
+                    }
+                    "refresh_token" -> {
+                        val refreshTokenValue = params["refresh_token"]
+                        if (refreshTokenValue == null) {
+                            call.respond(HttpStatusCode.BadRequest)
+                            return@post
+                        }
+                        val pair = tokenStore.refreshToken(
+                            integration,
+                            refreshTokenValue
+                        )
+                        if (pair != null) {
+                            call.respond(
+                                buildJsonObject {
+                                    put("access_token", pair.accessToken)
+                                    put("token_type", "Bearer")
+                                    put("expires_in", pair.expiresIn)
+                                    put("refresh_token", pair.refreshToken)
+                                }
+                            )
+                        } else {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                buildJsonObject { put("error", "invalid_grant") }
+                            )
+                        }
                     }
                     else -> {
                         call.respond(
@@ -565,10 +593,13 @@ private suspend fun respondToDeviceCodePoll(
     val result = deviceCodeManager.poll(deviceCode)
     when (result.status) {
         DeviceCodeStatus.APPROVED -> {
+            val pair = result.tokenPair!!
             call.respond(
                 buildJsonObject {
-                    put("access_token", result.accessToken!!)
+                    put("access_token", pair.accessToken)
                     put("token_type", "Bearer")
+                    put("expires_in", pair.expiresIn)
+                    put("refresh_token", pair.refreshToken)
                 }
             )
         }

@@ -107,7 +107,7 @@ class McpProtocolTest {
         registry.register("health", FullProvider())
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "test-client")
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
         return Triple(registry, tokenStore, token)
     }
 
@@ -213,7 +213,7 @@ class McpProtocolTest {
         registry.register("health", emptyResourceProvider)
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "test-client")
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
         application {
@@ -340,8 +340,8 @@ class McpProtocolTest {
         configureTestApp(registry, tokenStore).invoke(this)
 
         // Create two separate client tokens
-        val token1 = tokenStore.createToken("health", "client-1")
-        val token2 = tokenStore.createToken("health", "client-2")
+        val token1 = tokenStore.createTokenPair("health", "client-1").accessToken
+        val token2 = tokenStore.createTokenPair("health", "client-2").accessToken
 
         // Initialize both sessions
         client.initialize(token1)

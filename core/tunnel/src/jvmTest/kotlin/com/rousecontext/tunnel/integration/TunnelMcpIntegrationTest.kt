@@ -306,7 +306,7 @@ class TunnelMcpIntegrationTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("test", "integration-client")
+        val token = tokenStore.createTokenPair("test", "integration-client").accessToken
 
         val handler = createSessionHandler(certStore, registry, tokenStore)
 
@@ -363,7 +363,7 @@ class TunnelMcpIntegrationTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("test", "integration-client")
+        val token = tokenStore.createTokenPair("test", "integration-client").accessToken
 
         val handler = createSessionHandler(certStore, registry, tokenStore)
 
@@ -441,7 +441,7 @@ class TunnelMcpIntegrationTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("test", "integration-client")
+        val token = tokenStore.createTokenPair("test", "integration-client").accessToken
 
         val handler = createSessionHandler(certStore, registry, tokenStore)
 

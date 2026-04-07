@@ -20,11 +20,21 @@ interface TokenDao {
     )
     fun findByHash(integrationId: String, tokenHash: String): TokenEntity?
 
+    @Query(
+        "SELECT * FROM tokens " +
+            "WHERE integrationId = :integrationId " +
+            "AND refreshTokenHash = :refreshTokenHash LIMIT 1"
+    )
+    fun findByRefreshHash(integrationId: String, refreshTokenHash: String): TokenEntity?
+
     @Query("UPDATE tokens SET lastUsedAt = :now WHERE id = :id")
     fun updateLastUsed(id: Long, now: Long)
 
     @Query("DELETE FROM tokens WHERE integrationId = :integrationId AND tokenHash = :tokenHash")
     fun deleteByHash(integrationId: String, tokenHash: String)
+
+    @Query("DELETE FROM tokens WHERE id = :id")
+    fun deleteById(id: Long)
 
     @Query("SELECT * FROM tokens WHERE integrationId = :integrationId ORDER BY createdAt DESC")
     fun listByIntegration(integrationId: String): List<TokenEntity>

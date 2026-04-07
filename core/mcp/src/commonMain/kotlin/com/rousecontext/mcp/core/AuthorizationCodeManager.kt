@@ -255,12 +255,12 @@ class AuthorizationCodeManager(
     }
 
     /**
-     * Exchanges an authorization code for an access token.
+     * Exchanges an authorization code for a token pair (access + refresh).
      * Validates the PKCE code_verifier against the stored code_challenge.
-     * Returns the access token on success, null on failure.
+     * Returns the token pair on success, null on failure.
      * The authorization code is single-use and is consumed by this call.
      */
-    fun exchangeCode(authCode: String, codeVerifier: String): String? {
+    fun exchangeCode(authCode: String, codeVerifier: String): TokenPair? {
         if (!CODE_VERIFIER_REGEX.matches(codeVerifier)) return null
 
         synchronized(this) {
@@ -277,7 +277,11 @@ class AuthorizationCodeManager(
             }
 
             val clientName = clientNames[request.clientId]
-            val token = tokenStore.createToken(request.integration, request.clientId, clientName)
+            val pair = tokenStore.createTokenPair(
+                request.integration,
+                request.clientId,
+                clientName
+            )
             auditListener?.onTokenGranted(
                 TokenGrantEvent(
                     timestamp = clock.currentTimeMillis(),
@@ -287,7 +291,7 @@ class AuthorizationCodeManager(
                     grantType = "authorization_code"
                 )
             )
-            return token
+            return pair
         }
     }
 

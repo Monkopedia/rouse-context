@@ -40,7 +40,8 @@ fun buildOAuthMetadata(hostname: String, integrationPath: String): OAuthMetadata
         registrationEndpoint = "$baseUrl/register",
         grantTypesSupported = listOf(
             "authorization_code",
-            "urn:ietf:params:oauth:grant-type:device_code"
+            "urn:ietf:params:oauth:grant-type:device_code",
+            "refresh_token"
         ),
         responseTypesSupported = listOf("code"),
         codeChallengeMethodsSupported = listOf("S256")

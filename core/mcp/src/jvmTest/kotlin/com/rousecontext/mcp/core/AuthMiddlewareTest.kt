@@ -61,7 +61,7 @@ class AuthMiddlewareTest {
     fun `valid token passes through`() = testApplication {
         val registry = testRegistry("health" to stubProvider("health"))
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "client-1")
+        val token = tokenStore.createTokenPair("health", "client-1").accessToken
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
         application {
@@ -86,7 +86,7 @@ class AuthMiddlewareTest {
     fun `revoked token returns 401`() = testApplication {
         val registry = testRegistry("health" to stubProvider("health"))
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "client-1")
+        val token = tokenStore.createTokenPair("health", "client-1").accessToken
         tokenStore.revokeToken("health", token)
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
@@ -113,7 +113,7 @@ class AuthMiddlewareTest {
         )
         val tokenStore = InMemoryTokenStore()
         // Token for notifications, not health
-        val token = tokenStore.createToken("notifications", "client-1")
+        val token = tokenStore.createTokenPair("notifications", "client-1").accessToken
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
         application {

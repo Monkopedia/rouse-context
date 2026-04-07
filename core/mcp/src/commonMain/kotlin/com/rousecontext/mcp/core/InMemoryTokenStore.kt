@@ -18,24 +18,42 @@ class InMemoryTokenStore(
         val clientName: String?,
         val token: String,
         val createdAt: Long,
+        val expiresAt: Long,
         var lastUsedAt: Long,
         var revoked: Boolean = false
     )
 
+    private data class StoredRefreshToken(
+        val integrationId: String,
+        val clientId: String,
+        val clientName: String?,
+        val refreshToken: String,
+        val createdAt: Long,
+        val expiresAt: Long,
+        var revoked: Boolean = false
+    )
+
     private val tokens = mutableListOf<StoredToken>()
+    private val refreshTokens = mutableListOf<StoredRefreshToken>()
 
     override fun validateToken(integrationId: String, token: String): Boolean {
         synchronized(this) {
             val stored = tokens.find { it.token == token && !it.revoked }
                 ?: return false
             if (stored.integrationId != integrationId) return false
+            if (clock.currentTimeMillis() > stored.expiresAt) return false
             stored.lastUsedAt = clock.currentTimeMillis()
             return true
         }
     }
 
-    override fun createToken(integrationId: String, clientId: String, clientName: String?): String {
-        val token = generateToken()
+    override fun createTokenPair(
+        integrationId: String,
+        clientId: String,
+        clientName: String?
+    ): TokenPair {
+        val accessToken = generateToken()
+        val refreshToken = generateToken()
         val now = clock.currentTimeMillis()
         synchronized(this) {
             tokens.add(
@@ -43,19 +61,49 @@ class InMemoryTokenStore(
                     integrationId = integrationId,
                     clientId = clientId,
                     clientName = clientName,
-                    token = token,
+                    token = accessToken,
                     createdAt = now,
+                    expiresAt = now + ACCESS_TOKEN_TTL_MS,
                     lastUsedAt = now
                 )
             )
+            refreshTokens.add(
+                StoredRefreshToken(
+                    integrationId = integrationId,
+                    clientId = clientId,
+                    clientName = clientName,
+                    refreshToken = refreshToken,
+                    createdAt = now,
+                    expiresAt = now + REFRESH_TOKEN_TTL_MS
+                )
+            )
         }
-        return token
+        return TokenPair(
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            expiresIn = ACCESS_TOKEN_EXPIRES_IN_SECONDS
+        )
     }
 
     override fun revokeToken(integrationId: String, token: String) {
         synchronized(this) {
             tokens.filter { it.integrationId == integrationId && it.token == token }
                 .forEach { it.revoked = true }
+        }
+    }
+
+    override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
+        synchronized(this) {
+            val stored = refreshTokens.find {
+                it.refreshToken == refreshToken && !it.revoked
+            } ?: return null
+            if (stored.integrationId != integrationId) return null
+            if (clock.currentTimeMillis() > stored.expiresAt) return null
+
+            // Rotate: invalidate old refresh token
+            stored.revoked = true
+
+            return createTokenPair(integrationId, stored.clientId, stored.clientName)
         }
     }
 

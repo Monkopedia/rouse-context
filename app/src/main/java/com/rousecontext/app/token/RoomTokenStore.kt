@@ -1,6 +1,10 @@
 package com.rousecontext.app.token
 
+import com.rousecontext.mcp.core.ACCESS_TOKEN_EXPIRES_IN_SECONDS
+import com.rousecontext.mcp.core.ACCESS_TOKEN_TTL_MS
+import com.rousecontext.mcp.core.REFRESH_TOKEN_TTL_MS
 import com.rousecontext.mcp.core.TokenInfo
+import com.rousecontext.mcp.core.TokenPair
 import com.rousecontext.mcp.core.TokenStore
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -19,32 +23,57 @@ class RoomTokenStore(
     override fun validateToken(integrationId: String, token: String): Boolean {
         val hash = hashToken(token)
         val entity = dao.findByHash(integrationId, hash) ?: return false
-        dao.updateLastUsed(entity.id, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        if (now > entity.expiresAt) return false
+        dao.updateLastUsed(entity.id, now)
         return true
     }
 
-    override fun createToken(integrationId: String, clientId: String, clientName: String?): String {
-        val raw = ByteArray(TOKEN_BYTES)
-        SecureRandom().nextBytes(raw)
-        val token = Base64.getUrlEncoder().withoutPadding().encodeToString(raw)
+    override fun createTokenPair(
+        integrationId: String,
+        clientId: String,
+        clientName: String?
+    ): TokenPair {
+        val accessRaw = generateRawToken()
+        val accessToken = Base64.getUrlEncoder().withoutPadding().encodeToString(accessRaw)
+        val refreshRaw = generateRawToken()
+        val refreshToken = Base64.getUrlEncoder().withoutPadding().encodeToString(refreshRaw)
 
         val now = System.currentTimeMillis()
         dao.insert(
             TokenEntity(
                 integrationId = integrationId,
                 clientId = clientId,
-                tokenHash = hashToken(token),
+                tokenHash = hashToken(accessToken),
+                refreshTokenHash = hashToken(refreshToken),
                 label = clientName ?: clientId,
                 createdAt = now,
-                lastUsedAt = now
+                lastUsedAt = now,
+                expiresAt = now + ACCESS_TOKEN_TTL_MS,
+                refreshExpiresAt = now + REFRESH_TOKEN_TTL_MS
             )
         )
 
-        return token
+        return TokenPair(
+            accessToken = accessToken,
+            refreshToken = refreshToken,
+            expiresIn = ACCESS_TOKEN_EXPIRES_IN_SECONDS
+        )
     }
 
     override fun revokeToken(integrationId: String, token: String) {
         dao.deleteByHash(integrationId, hashToken(token))
+    }
+
+    override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
+        val hash = hashToken(refreshToken)
+        val entity = dao.findByRefreshHash(integrationId, hash) ?: return null
+        val now = System.currentTimeMillis()
+        if (now > entity.refreshExpiresAt) return null
+
+        // Rotate: delete the old row, create a new pair
+        dao.deleteById(entity.id)
+        return createTokenPair(integrationId, entity.clientId, entity.label)
     }
 
     override fun listTokens(integrationId: String): List<TokenInfo> {
@@ -61,6 +90,12 @@ class RoomTokenStore(
 
     override fun hasTokens(integrationId: String): Boolean {
         return dao.countByIntegration(integrationId) > 0
+    }
+
+    private fun generateRawToken(): ByteArray {
+        val bytes = ByteArray(TOKEN_BYTES)
+        SecureRandom().nextBytes(bytes)
+        return bytes
     }
 
     companion object {

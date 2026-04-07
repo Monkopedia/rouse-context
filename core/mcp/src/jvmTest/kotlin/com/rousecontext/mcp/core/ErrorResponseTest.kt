@@ -52,7 +52,7 @@ class ErrorResponseTest {
         registry.register("health", provider)
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "test-client")
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
         return Triple(registry, tokenStore, token)
     }
 

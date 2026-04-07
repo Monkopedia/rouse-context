@@ -27,7 +27,7 @@ data class DeviceCodeResponse(
  */
 data class DeviceCodePollResult(
     val status: DeviceCodeStatus,
-    val accessToken: String? = null
+    val tokenPair: TokenPair? = null
 )
 
 private const val DEFAULT_POLL_INTERVAL_SECONDS = 5
@@ -108,7 +108,7 @@ class DeviceCodeManager(
                 null -> DeviceCodePollResult(DeviceCodeStatus.AUTHORIZATION_PENDING)
                 true -> {
                     pendingCodes.remove(pending)
-                    val token = tokenStore.createToken(
+                    val pair = tokenStore.createTokenPair(
                         pending.integrationId,
                         "device-code-client"
                     )
@@ -121,7 +121,7 @@ class DeviceCodeManager(
                             grantType = "device_code"
                         )
                     )
-                    DeviceCodePollResult(DeviceCodeStatus.APPROVED, accessToken = token)
+                    DeviceCodePollResult(DeviceCodeStatus.APPROVED, tokenPair = pair)
                 }
                 false -> {
                     pendingCodes.remove(pending)

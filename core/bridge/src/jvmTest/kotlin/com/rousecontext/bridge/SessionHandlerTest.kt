@@ -37,7 +37,7 @@ class SessionHandlerTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("test", "bridge-test-client")
+        val token = tokenStore.createTokenPair("test", "bridge-test-client").accessToken
 
         val handler = SessionHandler(
             certProvider = certStore,
@@ -86,7 +86,7 @@ class SessionHandlerTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("test", "bridge-test-client")
+        val token = tokenStore.createTokenPair("test", "bridge-test-client").accessToken
 
         val handler = SessionHandler(
             certProvider = certStore,
@@ -155,8 +155,8 @@ class SessionHandlerTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val healthToken = tokenStore.createToken("health", "bridge-test-client")
-        val testToken = tokenStore.createToken("test", "bridge-test-client")
+        val healthToken = tokenStore.createTokenPair("health", "bridge-test-client").accessToken
+        val testToken = tokenStore.createTokenPair("test", "bridge-test-client").accessToken
 
         val handler = SessionHandler(
             certProvider = certStore,

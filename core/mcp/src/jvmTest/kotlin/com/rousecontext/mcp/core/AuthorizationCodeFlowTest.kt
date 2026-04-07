@@ -174,9 +174,9 @@ class AuthorizationCodeFlowTest {
         manager.approve(request.displayCode)
 
         val status = manager.getStatus(request.requestId) as AuthorizationRequestStatus.Approved
-        val token = manager.exchangeCode(status.code, rfcCodeVerifier)
-        assertNotNull(token)
-        assertTrue(tokenStore.validateToken("health", token!!))
+        val pair = manager.exchangeCode(status.code, rfcCodeVerifier)
+        assertNotNull(pair)
+        assertTrue(tokenStore.validateToken("health", pair!!.accessToken))
     }
 
     @Test
@@ -197,8 +197,8 @@ class AuthorizationCodeFlowTest {
         val status = manager.getStatus(request.requestId) as AuthorizationRequestStatus.Approved
         // Valid format (43+ chars, unreserved charset) but wrong verifier
         val wrongVerifier = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        val token = manager.exchangeCode(status.code, wrongVerifier)
-        assertNull(token)
+        val pair = manager.exchangeCode(status.code, wrongVerifier)
+        assertNull(pair)
     }
 
     @Test
@@ -224,12 +224,12 @@ class AuthorizationCodeFlowTest {
         manager.approve(request.displayCode)
 
         val status = manager.getStatus(request.requestId) as AuthorizationRequestStatus.Approved
-        val token1 = manager.exchangeCode(status.code, rfcCodeVerifier)
-        assertNotNull(token1)
+        val pair1 = manager.exchangeCode(status.code, rfcCodeVerifier)
+        assertNotNull(pair1)
 
         // Second exchange attempt should fail
-        val token2 = manager.exchangeCode(status.code, rfcCodeVerifier)
-        assertNull(token2)
+        val pair2 = manager.exchangeCode(status.code, rfcCodeVerifier)
+        assertNull(pair2)
     }
 
     @Test

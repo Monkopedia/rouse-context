@@ -10,24 +10,34 @@ package com.rousecontext.mcp.core
 interface TokenStore {
 
     /**
-     * Validates that [token] is a currently active token for [integrationId].
-     * Returns false for revoked tokens, tokens belonging to other integrations,
-     * or unknown tokens.
+     * Validates that [token] is a currently active, non-expired access token for
+     * [integrationId]. Returns false for revoked tokens, expired tokens, tokens
+     * belonging to other integrations, or unknown tokens.
      */
     fun validateToken(integrationId: String, token: String): Boolean
 
     /**
-     * Creates and returns a new access token for [integrationId], associated with
-     * the given [clientId]. The optional [clientName] is a human-readable label
-     * for display in the authorized clients UI. The returned token is the raw value
-     * the client should use as a Bearer token.
+     * Creates a new access token + refresh token pair for [integrationId], associated
+     * with the given [clientId]. The optional [clientName] is a human-readable label
+     * for display in the authorized clients UI.
      */
-    fun createToken(integrationId: String, clientId: String, clientName: String? = null): String
+    fun createTokenPair(
+        integrationId: String,
+        clientId: String,
+        clientName: String? = null
+    ): TokenPair
 
     /**
-     * Revokes a specific token. No-op if the token does not exist.
+     * Revokes a specific access token. No-op if the token does not exist.
      */
     fun revokeToken(integrationId: String, token: String)
+
+    /**
+     * Exchanges a valid refresh token for a new token pair (access + refresh).
+     * The old refresh token is invalidated (rotation). Returns null if the
+     * refresh token is invalid, expired, or belongs to a different integration.
+     */
+    fun refreshToken(integrationId: String, refreshToken: String): TokenPair?
 
     /**
      * Lists all active tokens for the given integration.
@@ -40,6 +50,24 @@ interface TokenStore {
      */
     fun hasTokens(integrationId: String): Boolean
 }
+
+/**
+ * A token pair returned from [TokenStore.createTokenPair] and [TokenStore.refreshToken].
+ */
+data class TokenPair(
+    val accessToken: String,
+    val refreshToken: String,
+    val expiresIn: Long
+)
+
+/** Access token lifetime: 1 hour. */
+const val ACCESS_TOKEN_TTL_MS: Long = 60L * 60 * 1000
+
+/** Access token lifetime in seconds, for the `expires_in` OAuth response field. */
+const val ACCESS_TOKEN_EXPIRES_IN_SECONDS: Long = 3600L
+
+/** Refresh token lifetime: 30 days. */
+const val REFRESH_TOKEN_TTL_MS: Long = 30L * 24 * 60 * 60 * 1000
 
 /**
  * Metadata about an issued token, for display in the authorized clients UI.

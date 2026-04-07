@@ -44,7 +44,7 @@ class TunnelSessionManagerTest {
         registry.register("test", EchoProvider())
         registry.setEnabled("test", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("test", "manager-test-client")
+        val token = tokenStore.createTokenPair("test", "manager-test-client").accessToken
 
         val fakeTunnel = FakeTunnelClient()
         val handler = SessionHandler(

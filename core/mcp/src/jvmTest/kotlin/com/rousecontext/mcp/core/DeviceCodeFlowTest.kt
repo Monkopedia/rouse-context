@@ -40,8 +40,8 @@ class DeviceCodeFlowTest {
 
         val result = manager.poll(auth.deviceCode)
         assertEquals(DeviceCodeStatus.APPROVED, result.status)
-        assertNotNull(result.accessToken)
-        assertTrue(tokenStore.validateToken("health", result.accessToken!!))
+        assertNotNull(result.tokenPair)
+        assertTrue(tokenStore.validateToken("health", result.tokenPair!!.accessToken))
     }
 
     @Test

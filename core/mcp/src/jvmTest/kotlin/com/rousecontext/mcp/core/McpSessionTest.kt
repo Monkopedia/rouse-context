@@ -62,7 +62,7 @@ class McpSessionTest {
         registry.register("health", provider)
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "test-client")
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
         application {
@@ -102,7 +102,7 @@ class McpSessionTest {
         registry.register("health", provider)
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "test-client")
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
         application {
@@ -149,7 +149,7 @@ class McpSessionTest {
         registry.register("health", provider)
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
-        val token = tokenStore.createToken("health", "test-client")
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
 
         application {
