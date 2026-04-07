@@ -61,6 +61,7 @@ class OutreachMcpProvider(
     }
 
     private fun ensureNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = context.getSystemService(NotificationManager::class.java)
         if (nm.getNotificationChannel(CHANNEL_ID) == null) {
             val channel = NotificationChannel(

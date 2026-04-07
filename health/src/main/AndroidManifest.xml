@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Health Connect requires API 26+ but we support API 24+. All Health Connect
+        usage is guarded by runtime API checks (HealthConnectIntegration.isAvailable()).
+    -->
+    <uses-sdk tools:overrideLibrary="androidx.health.connect.client" />
 
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />

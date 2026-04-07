@@ -2,6 +2,7 @@ package com.rousecontext.work
 
 import android.content.Intent
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -74,7 +75,7 @@ class FcmReceiver : FirebaseMessagingService() {
 
     private fun startTunnelService() {
         val intent = Intent(this, TunnelForegroundService::class.java)
-        startForegroundService(intent)
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun enqueueCertRenewal() {

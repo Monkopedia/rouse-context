@@ -28,7 +28,7 @@ android {
 
     defaultConfig {
         applicationId = "com.rousecontext"
-        minSdk = 29
+        minSdk = 24
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
@@ -63,6 +63,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -146,6 +147,8 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.compose)
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
+
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     // Test
     testImplementation(libs.junit)

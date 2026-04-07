@@ -2,6 +2,7 @@ package com.rousecontext.work
 
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -55,11 +56,15 @@ class TunnelForegroundService : LifecycleService() {
         NotificationChannels.createAll(this)
 
         val notification = createForegroundNotification(this, "Connecting...")
-        startForeground(
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
         // Launch observer coroutines exactly once. These collect StateFlows and
         // SharedFlows, so they run for the lifetime of the service. Launching them

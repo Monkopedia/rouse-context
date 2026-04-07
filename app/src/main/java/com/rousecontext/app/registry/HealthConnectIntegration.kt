@@ -1,6 +1,7 @@
 package com.rousecontext.app.registry
 
 import android.content.Context
+import android.os.Build
 import androidx.health.connect.client.HealthConnectClient
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.health.RealHealthConnectRepository
@@ -12,6 +13,8 @@ import com.rousecontext.mcp.health.HealthConnectMcpServer
  *
  * Checks device availability via the Health Connect SDK and delegates
  * MCP tool/resource registration to [HealthConnectMcpServer].
+ *
+ * Health Connect requires API 28+. On older devices [isAvailable] returns false.
  */
 class HealthConnectIntegration(
     private val context: Context
@@ -28,6 +31,7 @@ class HealthConnectIntegration(
     override val settingsRoute = "settings"
 
     override suspend fun isAvailable(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
         val status = HealthConnectClient.getSdkStatus(context)
         return status == HealthConnectClient.SDK_AVAILABLE
     }

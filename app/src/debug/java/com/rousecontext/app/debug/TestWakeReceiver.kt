@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.rousecontext.work.TunnelForegroundService
 
 /**
@@ -22,7 +23,7 @@ class TestWakeReceiver : BroadcastReceiver() {
         when (type) {
             "wake" -> {
                 val serviceIntent = Intent(context, TunnelForegroundService::class.java)
-                context.startForegroundService(serviceIntent)
+                ContextCompat.startForegroundService(context, serviceIntent)
                 Log.i(TAG, "Started TunnelForegroundService via test wake broadcast")
             }
             "approve" -> {

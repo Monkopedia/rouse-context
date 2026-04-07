@@ -3,6 +3,7 @@ package com.rousecontext.notifications
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
 
 /**
  * Notification channel definitions and setup.
@@ -16,9 +17,11 @@ object NotificationChannels {
 
     /**
      * Create all notification channels. Safe to call multiple times;
-     * existing channels are not modified.
+     * existing channels are not modified. No-op below API 26.
      */
     fun createAll(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
         val manager = context.getSystemService(NotificationManager::class.java)
 
         val channels = listOf(
