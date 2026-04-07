@@ -28,9 +28,9 @@ jobs:
           mkdir -p .signing
           keytool -genkeypair -v \
             -keystore .signing/debug.keystore \
-            -storepass android -keypass android \
+            -storepass rousecontext -keypass rousecontext \
             -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias androiddebugkey \
+            -alias debug \
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: Lint
         run: ./gradlew ktlintCheck
