@@ -5,6 +5,7 @@ import com.rousecontext.mcp.core.ToolCallEvent
 import com.rousecontext.notifications.capture.FieldEncryptor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 /**
  * [AuditListener] implementation that persists tool call events to Room.
@@ -19,6 +20,9 @@ class RoomAuditListener(
 
     override fun onToolCall(event: ToolCallEvent) {
         scope.launch {
+            val argsJson = JsonObject(event.arguments).toString()
+            val resultJson = event.result.content
+                .joinToString("\n") { it.toString() }
             dao.insert(
                 AuditEntry(
                     sessionId = event.sessionId,
@@ -27,7 +31,9 @@ class RoomAuditListener(
                     timestampMillis = event.timestamp,
                     durationMillis = event.durationMs,
                     success = true,
-                    errorMessage = fieldEncryptor?.encrypt(null)
+                    errorMessage = fieldEncryptor?.encrypt(null),
+                    argumentsJson = fieldEncryptor?.encrypt(argsJson) ?: argsJson,
+                    resultJson = fieldEncryptor?.encrypt(resultJson) ?: resultJson
                 )
             )
         }

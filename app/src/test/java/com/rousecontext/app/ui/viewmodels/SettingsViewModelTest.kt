@@ -5,12 +5,15 @@ import app.cash.turbine.test
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.state.ThemeMode
+import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.work.SecurityCheckWorker
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -189,7 +192,10 @@ class SettingsViewModelTest {
                 notificationPermissionGranted = true
             )
         }
-        return SettingsViewModel(provider, securityPrefs)
+        val themePref = mockk<ThemePreference> {
+            every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
+        }
+        return SettingsViewModel(provider, themePref, securityPrefs)
     }
 
     private fun createMockPrefs(

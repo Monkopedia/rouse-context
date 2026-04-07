@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import com.rousecontext.app.state.ThemeMode
 
 // Brand colors — navy + amber palette
 val NavyDark = Color(0xFF0A1628) // primary dark, status bar
@@ -105,9 +106,18 @@ private val LightExtendedColors = ExtendedColors(
 val LocalExtendedColors = staticCompositionLocalOf { DarkExtendedColors }
 
 @Composable
-fun RouseContextTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
-    val extendedColors = if (darkTheme) DarkExtendedColors else LightExtendedColors
+fun RouseContextTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode = ThemeMode.AUTO,
+    content: @Composable () -> Unit
+) {
+    val isDark = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.AUTO -> darkTheme
+    }
+    val colorScheme = if (isDark) DarkColorScheme else LightColorScheme
+    val extendedColors = if (isDark) DarkExtendedColors else LightExtendedColors
 
     CompositionLocalProvider(LocalExtendedColors provides extendedColors) {
         MaterialTheme(

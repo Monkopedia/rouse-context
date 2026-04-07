@@ -1,11 +1,15 @@
 package com.rousecontext.app.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -22,10 +26,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.mcp.health.RecordTypeRegistry
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Unit = {}) {
+    val typesByCategory = RecordTypeRegistry.allTypes
+        .groupBy { it.category }
+        .toSortedMap(compareBy { it.ordinal })
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -43,6 +52,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -55,23 +65,39 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "We'll request access to:",
+                text = "We'll request access to all supported data types:",
                 style = MaterialTheme.typography.titleSmall
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            val permissions = listOf(
-                "Daily step count",
-                "Heart rate readings",
-                "Sleep sessions"
-            )
-            permissions.forEach { permission ->
+            typesByCategory.forEach { (category, types) ->
                 Text(
-                    text = "\u2022 $permission",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    text = category.value.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                 )
+                types.forEach { recordType ->
+                    Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
+                        Text(
+                            text = "\u2022",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = recordType.displayName,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = recordType.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -96,7 +122,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
                 onClick = onGrantAccess,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Grant Health Access")
+                Text("Grant All Health Access")
             }
 
             Spacer(modifier = Modifier.height(8.dp))

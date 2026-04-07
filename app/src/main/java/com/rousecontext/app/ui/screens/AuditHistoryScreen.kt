@@ -2,6 +2,7 @@ package com.rousecontext.app.ui.screens
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,10 +51,15 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 
 @Immutable
 data class AuditHistoryEntry(
+    val id: Long = 0,
     val time: String,
     val toolName: String,
+    val provider: String = "",
     val durationMs: Long,
-    val arguments: String
+    val arguments: String,
+    val timestampMillis: Long = 0L,
+    val argumentsJson: String? = null,
+    val resultJson: String? = null
 )
 
 @Immutable
@@ -78,6 +84,7 @@ fun AuditHistoryScreen(
     onProviderFilterChanged: (String) -> Unit = {},
     onDateFilterChanged: (String) -> Unit = {},
     onClearHistory: () -> Unit = {},
+    onEntryClick: (Long) -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -182,10 +189,12 @@ fun AuditHistoryScreen(
                                 Column {
                                     group.entries.forEachIndexed { index, entry ->
                                         Column(
-                                            modifier = Modifier.padding(
-                                                horizontal = 16.dp,
-                                                vertical = 12.dp
-                                            )
+                                            modifier = Modifier
+                                                .clickable { onEntryClick(entry.id) }
+                                                .padding(
+                                                    horizontal = 16.dp,
+                                                    vertical = 12.dp
+                                                )
                                         ) {
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
@@ -233,6 +242,13 @@ fun AuditHistoryScreen(
                         }
                     }
                 }
+
+                Text(
+                    text = "Audit history is kept until you clear it manually.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp)
+                )
 
                 OutlinedButton(
                     onClick = onClearHistory,
@@ -308,20 +324,35 @@ fun AuditHistoryPopulatedPreview() {
                     AuditHistoryGroup(
                         dateLabel = "Today",
                         entries = listOf(
-                            AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}"),
-                            AuditHistoryEntry("10:31 AM", "health/get_sleep", 89, "{days: 1}"),
                             AuditHistoryEntry(
-                                "10:31 AM",
-                                "health/get_heart_rate",
-                                201,
-                                "{days: 7}"
+                                time = "10:32 AM",
+                                toolName = "health/get_steps",
+                                durationMs = 142,
+                                arguments = "{days: 7}"
+                            ),
+                            AuditHistoryEntry(
+                                time = "10:31 AM",
+                                toolName = "health/get_sleep",
+                                durationMs = 89,
+                                arguments = "{days: 1}"
+                            ),
+                            AuditHistoryEntry(
+                                time = "10:31 AM",
+                                toolName = "health/get_heart_rate",
+                                durationMs = 201,
+                                arguments = "{days: 7}"
                             )
                         )
                     ),
                     AuditHistoryGroup(
                         dateLabel = "Yesterday",
                         entries = listOf(
-                            AuditHistoryEntry("3:15 PM", "health/get_steps", 156, "{days: 30}")
+                            AuditHistoryEntry(
+                                time = "3:15 PM",
+                                toolName = "health/get_steps",
+                                durationMs = 156,
+                                arguments = "{days: 30}"
+                            )
                         )
                     )
                 )
@@ -350,7 +381,12 @@ fun AuditHistoryFilteredPreview() {
                     AuditHistoryGroup(
                         dateLabel = "Today",
                         entries = listOf(
-                            AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}")
+                            AuditHistoryEntry(
+                                time = "10:32 AM",
+                                toolName = "health/get_steps",
+                                durationMs = 142,
+                                arguments = "{days: 7}"
+                            )
                         )
                     )
                 )
@@ -373,8 +409,18 @@ fun AuditHistoryPopulatedLightPreview() {
                     AuditHistoryGroup(
                         dateLabel = "Today",
                         entries = listOf(
-                            AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}"),
-                            AuditHistoryEntry("10:31 AM", "health/get_sleep", 89, "{days: 1}")
+                            AuditHistoryEntry(
+                                time = "10:32 AM",
+                                toolName = "health/get_steps",
+                                durationMs = 142,
+                                arguments = "{days: 7}"
+                            ),
+                            AuditHistoryEntry(
+                                time = "10:31 AM",
+                                toolName = "health/get_sleep",
+                                durationMs = 89,
+                                arguments = "{days: 1}"
+                            )
                         )
                     )
                 )

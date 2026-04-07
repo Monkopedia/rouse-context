@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.state.ThemeMode
+import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.app.ui.screens.TrustStatusState
@@ -12,7 +14,7 @@ import com.rousecontext.work.SecurityCheckWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -22,24 +24,27 @@ import kotlinx.coroutines.launch
  */
 class SettingsViewModel(
     private val notificationSettingsProvider: NotificationSettingsProvider,
+    private val themePreference: ThemePreference,
     private val securityCheckPrefs: SharedPreferences? = null
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
 
-    val state: StateFlow<SettingsState> = refreshTrigger
-        .map {
-            val settings = notificationSettingsProvider.settings
-            SettingsState(
-                postSessionMode = settings.postSessionMode.toDisplayString(),
-                trustStatus = readTrustStatus()
-            )
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-            initialValue = SettingsState()
+    val state: StateFlow<SettingsState> = combine(
+        refreshTrigger,
+        themePreference.themeMode
+    ) { _, themeMode ->
+        val settings = notificationSettingsProvider.settings
+        SettingsState(
+            postSessionMode = settings.postSessionMode.toDisplayString(),
+            themeMode = themeMode.toDisplayString(),
+            trustStatus = readTrustStatus()
         )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+        initialValue = SettingsState()
+    )
 
     fun setIdleTimeout(minutes: Int) {
         // TODO: persist to DataStore when idle timeout DataStore is added
@@ -49,6 +54,17 @@ class SettingsViewModel(
     fun setPostSessionMode(mode: String) {
         // TODO: persist to notification settings DataStore
         refresh()
+    }
+
+    fun setThemeMode(mode: String) {
+        val themeMode = when (mode) {
+            "Light" -> ThemeMode.LIGHT
+            "Dark" -> ThemeMode.DARK
+            else -> ThemeMode.AUTO
+        }
+        viewModelScope.launch {
+            themePreference.setThemeMode(themeMode)
+        }
     }
 
     fun refresh() {
@@ -85,6 +101,12 @@ class SettingsViewModel(
             PostSessionMode.SUMMARY -> "Summary"
             PostSessionMode.EACH_USAGE -> "Each usage"
             PostSessionMode.SUPPRESS -> "Suppress"
+        }
+
+        private fun ThemeMode.toDisplayString(): String = when (this) {
+            ThemeMode.LIGHT -> "Light"
+            ThemeMode.DARK -> "Dark"
+            ThemeMode.AUTO -> "Auto"
         }
 
         internal fun computeOverallStatus(

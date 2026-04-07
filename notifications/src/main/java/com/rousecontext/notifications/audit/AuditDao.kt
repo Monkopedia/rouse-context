@@ -14,6 +14,9 @@ interface AuditDao {
     @Insert
     suspend fun insert(entry: AuditEntry): Long
 
+    @Query("SELECT * FROM audit_entries WHERE id = :id")
+    suspend fun getById(id: Long): AuditEntry?
+
     @Query("SELECT * FROM audit_entries WHERE sessionId = :sessionId ORDER BY timestampMillis ASC")
     suspend fun queryBySession(sessionId: String): List<AuditEntry>
 

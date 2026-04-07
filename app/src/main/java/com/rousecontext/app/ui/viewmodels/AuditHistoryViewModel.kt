@@ -102,10 +102,15 @@ class AuditHistoryViewModel(
                         dateLabel = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")),
                         entries = dayEntries.map { entry ->
                             AuditHistoryEntry(
+                                id = entry.id,
                                 time = TIME_FORMAT.format(Date(entry.timestampMillis)),
                                 toolName = entry.toolName,
+                                provider = entry.provider,
                                 durationMs = entry.durationMillis,
-                                arguments = ""
+                                arguments = entry.argumentsJson ?: "",
+                                timestampMillis = entry.timestampMillis,
+                                argumentsJson = entry.argumentsJson,
+                                resultJson = entry.resultJson
                             )
                         }
                     )

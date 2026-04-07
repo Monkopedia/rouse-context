@@ -76,6 +76,7 @@ data class SettingsState(
     val idleTimeoutDisabled: Boolean = false,
     val batteryOptimizationExempt: Boolean = false,
     val postSessionMode: String = "Summary",
+    val themeMode: String = "Auto",
     val canRotateAddress: Boolean = true,
     val rotationCooldownMessage: String? = null,
     val showBatteryWarning: Boolean = true,
@@ -90,6 +91,7 @@ fun SettingsScreen(
     onIdleTimeoutChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (String) -> Unit = {},
+    onThemeModeChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
@@ -128,6 +130,21 @@ fun SettingsScreen(
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Appearance section
+            SectionHeader("Appearance")
+            SettingsSectionCard {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    SettingsDropdown(
+                        label = "Theme",
+                        selected = state.themeMode,
+                        options = listOf("Light", "Dark", "Auto"),
+                        onSelected = onThemeModeChanged
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Connection section

@@ -8,11 +8,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.health.connect.client.PermissionController
-import androidx.health.connect.client.permission.HealthPermission
-import androidx.health.connect.client.records.HeartRateRecord
-import androidx.health.connect.client.records.SleepSessionRecord
-import androidx.health.connect.client.records.StepsRecord
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -24,6 +23,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.rousecontext.app.ui.screens.AddClientScreen
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
+import com.rousecontext.app.ui.screens.AuditDetailScreen
+import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditHistoryScreen
 import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
 import com.rousecontext.app.ui.screens.AuthorizationApprovalScreen
@@ -76,7 +77,9 @@ object Routes {
     const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
     const val DEVICE_CODE = "device_code/{integrationId}"
     const val AUTH_APPROVAL = "auth_approval"
+    const val AUDIT_DETAIL = "audit_detail/{entryId}"
 
+    fun auditDetail(entryId: Long): String = "audit_detail/$entryId"
     fun integrationManage(id: String): String = "integration/$id"
     fun integrationSetup(id: String): String = "integration_setup/$id"
     fun integrationEnabled(id: String): String = "integration_enabled/$id"
@@ -180,6 +183,9 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onProviderFilterChanged = viewModel::setProviderFilter,
                 onDateFilterChanged = viewModel::setDateFilter,
                 onClearHistory = viewModel::clearHistory,
+                onEntryClick = { entryId ->
+                    navController.navigate(Routes.auditDetail(entryId))
+                },
                 onTabSelected = { tab ->
                     when (tab) {
                         0 -> navController.navigate(Routes.HOME) {
@@ -198,6 +204,7 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 state = state,
                 onIdleTimeoutChanged = viewModel::setIdleTimeout,
                 onPostSessionModeChanged = viewModel::setPostSessionMode,
+                onThemeModeChanged = viewModel::setThemeMode,
                 onTabSelected = { tab ->
                     when (tab) {
                         0 -> navController.navigate(Routes.HOME) {
@@ -495,15 +502,44 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onDeny = viewModel::deny
             )
         }
+
+        composable(
+            route = Routes.AUDIT_DETAIL,
+            arguments = listOf(navArgument("entryId") { type = NavType.LongType })
+        ) { backStackEntry ->
+            val entryId = backStackEntry.arguments?.getLong("entryId") ?: return@composable
+            val auditDao: com.rousecontext.notifications.audit.AuditDao = org.koin.compose
+                .koinInject()
+            var detailState by remember {
+                mutableStateOf(AuditDetailState(isLoading = true))
+            }
+            LaunchedEffect(entryId) {
+                val entry = auditDao.getById(entryId)
+                detailState = if (entry != null) {
+                    AuditDetailState(
+                        toolName = entry.toolName,
+                        provider = entry.provider,
+                        timestampMillis = entry.timestampMillis,
+                        durationMs = entry.durationMillis,
+                        argumentsJson = entry.argumentsJson,
+                        resultJson = entry.resultJson,
+                        isLoading = false
+                    )
+                } else {
+                    AuditDetailState(isLoading = false)
+                }
+            }
+            AuditDetailScreen(
+                state = detailState,
+                onBack = { navController.popBackStack() }
+            )
+        }
     }
 }
 
 /**
  * Health Connect permissions requested during setup.
- * Must match the permissions declared in the health module's AndroidManifest.xml.
+ * Derived from RecordTypeRegistry so every supported record type is included.
  */
-private val HEALTH_CONNECT_PERMISSIONS = setOf(
-    HealthPermission.getReadPermission(StepsRecord::class),
-    HealthPermission.getReadPermission(HeartRateRecord::class),
-    HealthPermission.getReadPermission(SleepSessionRecord::class)
-)
+private val HEALTH_CONNECT_PERMISSIONS: Set<String> =
+    com.rousecontext.mcp.health.RecordTypeRegistry.allPermissions

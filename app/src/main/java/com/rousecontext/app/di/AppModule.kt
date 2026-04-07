@@ -17,6 +17,7 @@ import com.rousecontext.app.registry.UsageIntegration
 import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
+import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.ui.viewmodels.AddClientViewModel
@@ -98,6 +99,9 @@ val appModule = module {
 
     // --- Integration state ---
     single<IntegrationStateStore> { DataStoreIntegrationStateStore(androidContext()) }
+
+    // --- Theme preference ---
+    single { ThemePreference(androidContext()) }
 
     // --- Notification settings ---
     single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(androidContext()) }
@@ -235,7 +239,7 @@ val appModule = module {
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get()) }
-    viewModel { SettingsViewModel(get()) }
+    viewModel { SettingsViewModel(get(), get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel { AuthorizationApprovalViewModel(get<McpSession>().authorizationCodeManager) }
     viewModel { HealthConnectSetupViewModel(get()) }

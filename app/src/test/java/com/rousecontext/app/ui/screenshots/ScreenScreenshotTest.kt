@@ -748,20 +748,35 @@ class ScreenScreenshotTest {
             AuditHistoryGroup(
                 "Today",
                 listOf(
-                    AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}"),
-                    AuditHistoryEntry("10:31 AM", "health/get_sleep", 89, "{days: 1}"),
                     AuditHistoryEntry(
-                        "10:31 AM",
-                        "health/get_heart_rate",
-                        201,
-                        "{days: 7}"
+                        time = "10:32 AM",
+                        toolName = "health/get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "health/get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "health/get_heart_rate",
+                        durationMs = 201,
+                        arguments = "{days: 7}"
                     )
                 )
             ),
             AuditHistoryGroup(
                 "Yesterday",
                 listOf(
-                    AuditHistoryEntry("3:15 PM", "health/get_steps", 156, "{days: 30}")
+                    AuditHistoryEntry(
+                        time = "3:15 PM",
+                        toolName = "health/get_steps",
+                        durationMs = 156,
+                        arguments = "{days: 30}"
+                    )
                 )
             )
         )
@@ -774,7 +789,12 @@ class ScreenScreenshotTest {
             AuditHistoryGroup(
                 "Today",
                 listOf(
-                    AuditHistoryEntry("10:32 AM", "health/get_steps", 142, "{days: 7}")
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "health/get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    )
                 )
             )
         )

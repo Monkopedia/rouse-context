@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.mcp.health.RecordTypeRegistry
 
 @Immutable
 data class HealthPermission(
@@ -148,13 +149,12 @@ fun HealthConnectSettingsPreview() {
     RouseContextTheme(darkTheme = true) {
         HealthConnectSettingsScreen(
             state = HealthConnectSettingsState(
-                permissions = listOf(
-                    HealthPermission("Steps", granted = true),
-                    HealthPermission("Heart rate", granted = true),
-                    HealthPermission("Sleep", granted = true),
-                    HealthPermission("Workout history", granted = false),
-                    HealthPermission("HRV", granted = false)
-                )
+                permissions = RecordTypeRegistry.allTypes.mapIndexed { index, info ->
+                    HealthPermission(
+                        name = info.displayName,
+                        granted = index < 3
+                    )
+                }
             )
         )
     }
