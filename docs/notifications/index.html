@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rouse Context - Notification Catalog</title>
+<style>
+  :root {
+    --bg: #f0f0f0;
+    --shade-bg: #e8e8e8;
+    --card-bg: #ffffff;
+    --card-border: rgba(0,0,0,0.08);
+    --text-primary: #1a1a1a;
+    --text-secondary: #5f6368;
+    --text-tertiary: #80868b;
+    --icon-fg: #ffffff;
+    --action-color: #1a73e8;
+    --accent-green: #34a853;
+    --accent-blue: #4285f4;
+    --accent-red: #ea4335;
+    --accent-orange: #fbbc04;
+    --accent-purple: #9334e6;
+    --divider: rgba(0,0,0,0.08);
+    --badge-bg: rgba(0,0,0,0.06);
+    --badge-text: #5f6368;
+  }
+
+  .dark {
+    --bg: #1a1a1a;
+    --shade-bg: #222222;
+    --card-bg: #2d2d2d;
+    --card-border: rgba(255,255,255,0.08);
+    --text-primary: #e8eaed;
+    --text-secondary: #9aa0a6;
+    --text-tertiary: #80868b;
+    --icon-fg: #ffffff;
+    --action-color: #8ab4f8;
+    --accent-green: #81c995;
+    --accent-blue: #8ab4f8;
+    --accent-red: #f28b82;
+    --accent-orange: #fdd663;
+    --accent-purple: #c58af9;
+    --divider: rgba(255,255,255,0.08);
+    --badge-bg: rgba(255,255,255,0.08);
+    --badge-text: #9aa0a6;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "Roboto", "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text-primary);
+    padding: 0;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  header {
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--divider);
+    padding: 24px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  header h1 {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.2px;
+  }
+
+  header h1 span {
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+
+  .theme-toggle {
+    background: var(--badge-bg);
+    border: 1px solid var(--divider);
+    color: var(--text-secondary);
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.2s;
+  }
+
+  .theme-toggle:hover {
+    background: var(--divider);
+  }
+
+  .container {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
+
+  .channel-group {
+    margin-bottom: 40px;
+  }
+
+  .channel-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    padding: 0 4px;
+  }
+
+  .channel-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .channel-name {
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-tertiary);
+  }
+
+  .channel-importance {
+    font-size: 11px;
+    background: var(--badge-bg);
+    color: var(--badge-text);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 500;
+  }
+
+  .channel-desc {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-bottom: 12px;
+    padding: 0 4px;
+  }
+
+  .notification-card {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 8px;
+    border: 1px solid var(--card-border);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .notification-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .notification-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--icon-fg);
+    flex-shrink: 0;
+    letter-spacing: -0.5px;
+  }
+
+  .app-name {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-weight: 400;
+  }
+
+  .header-sep {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+
+  .timestamp {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+  }
+
+  .notification-title {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+    line-height: 1.3;
+  }
+
+  .notification-body {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 2px;
+  }
+
+  .notification-subtext {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+  }
+
+  .notification-actions {
+    display: flex;
+    gap: 0;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .notification-actions .action {
+    background: none;
+    border: none;
+    color: var(--action-color);
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 6px 12px;
+    border-radius: 16px;
+    cursor: default;
+    font-family: inherit;
+    transition: background 0.15s;
+  }
+
+  .notification-actions .action:first-child {
+    margin-left: -8px;
+  }
+
+  .ongoing-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--badge-bg);
+    color: var(--badge-text);
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  .state-label {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    background: var(--badge-bg);
+    padding: 2px 10px;
+    border-radius: 10px;
+    margin-bottom: 6px;
+  }
+
+  .variation-note {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    padding: 0 4px;
+    margin-bottom: 6px;
+  }
+
+  .source-ref {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    padding: 4px 4px 0;
+    font-family: "Roboto Mono", "SF Mono", "Consolas", monospace;
+    opacity: 0.7;
+  }
+
+  .auto-cancel-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--accent-green);
+    background: rgba(52,168,83,0.1);
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+  }
+
+  .dark .auto-cancel-badge {
+    background: rgba(129,201,149,0.12);
+    color: var(--accent-green);
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rouse Context <span>Notification Catalog</span></h1>
+  <button class="theme-toggle" onclick="toggleTheme()">Dark Mode</button>
+</header>
+
+<div class="container">
+
+<!-- ====== CHANNEL: Foreground Service ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #9e9e9e;"></div>
+    <span class="channel-name">Foreground Service</span>
+    <span class="channel-importance">LOW</span>
+  </div>
+  <div class="channel-desc">Ongoing notification while the MCP server is active. Required by Android for foreground services. Cannot be dismissed.</div>
+
+  <div class="source-ref">TunnelForegroundService.kt / ForegroundNotification.kt</div>
+
+  <!-- State: Connecting -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">State: CONNECTING</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #9e9e9e;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="ongoing-badge">Ongoing</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Rouse Context</div>
+      <div class="notification-body">Connecting...</div>
+    </div>
+  </div>
+
+  <!-- State: Connected -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">State: CONNECTED</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #34a853;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="ongoing-badge">Ongoing</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Rouse Context</div>
+      <div class="notification-body">Connected</div>
+    </div>
+  </div>
+
+  <!-- State: Active session (1 stream) -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">State: ACTIVE (1 stream)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="ongoing-badge">Ongoing</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Rouse Context</div>
+      <div class="notification-body">Connected &bull; 1 active stream</div>
+    </div>
+  </div>
+
+  <!-- State: Active session (3 streams) -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">State: ACTIVE (3 streams)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="ongoing-badge">Ongoing</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Rouse Context</div>
+      <div class="notification-body">Connected &bull; 3 active streams</div>
+    </div>
+  </div>
+
+  <!-- State: Disconnecting -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">State: DISCONNECTING</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #9e9e9e;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="ongoing-badge">Ongoing</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Rouse Context</div>
+      <div class="notification-body">Disconnecting...</div>
+    </div>
+  </div>
+
+  <!-- State: Disconnected -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">State: DISCONNECTED</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #9e9e9e;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="ongoing-badge">Ongoing</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Rouse Context</div>
+      <div class="notification-body">Disconnected</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== CHANNEL: Authorization Requests ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #ea4335;"></div>
+    <span class="channel-name">Authorization Requests</span>
+    <span class="channel-importance">HIGH</span>
+  </div>
+  <div class="channel-desc">Approval requests for new client connections. Shows a user-visible code and approve/deny actions.</div>
+
+  <div class="source-ref">AuthRequestNotifier.kt</div>
+
+  <div style="margin-top: 10px;">
+    <span class="state-label">New auth request</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Approval Required</div>
+      <div class="notification-body">Code: AB3X-9K2F &mdash; Tap to approve or deny</div>
+      <div class="notification-subtext">health-connect</div>
+      <div class="notification-actions">
+        <button class="action">APPROVE</button>
+        <button class="action">DENY</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="variation-note">The display code and integration name vary per request. Sub-text shows the integration name (e.g. "health-connect", "outreach").</div>
+
+  <div style="margin-top: 10px;">
+    <span class="state-label">Different integration</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">2m ago</span>
+      </div>
+      <div class="notification-title">Approval Required</div>
+      <div class="notification-body">Code: XP7M-2N4D &mdash; Tap to approve or deny</div>
+      <div class="notification-subtext">outreach</div>
+      <div class="notification-actions">
+        <button class="action">APPROVE</button>
+        <button class="action">DENY</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== CHANNEL: Session Activity ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #4285f4;"></div>
+    <span class="channel-name">Session Activity</span>
+    <span class="channel-importance">DEFAULT</span>
+  </div>
+  <div class="channel-desc">Session summaries and tool call notifications. Controlled by notification mode (Summary or Every).</div>
+
+  <div class="source-ref">NotificationAdapter.kt / NotificationModel.kt</div>
+
+  <!-- PostSummary: 1 tool call -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Session complete (1 tool call)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Session Complete</div>
+      <div class="notification-body">1 tool call processed</div>
+    </div>
+  </div>
+
+  <!-- PostSummary: multiple tool calls -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Session complete (multiple tool calls)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Session Complete</div>
+      <div class="notification-body">7 tool calls processed</div>
+    </div>
+  </div>
+
+  <!-- PostWarning -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Session ended with no tool calls</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #fbbc04;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Warning</div>
+      <div class="notification-body">Session ended with no tool calls</div>
+    </div>
+  </div>
+
+  <!-- PostToolUsage -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Per-tool-call (mode: Every)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Tool Call</div>
+      <div class="notification-body">read_steps (health-connect)</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 10px;">
+    <span class="state-label">Per-tool-call (different tool)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Tool Call</div>
+      <div class="notification-body">send_notification (outreach)</div>
+    </div>
+  </div>
+
+  <!-- PostInfo: Certificate renewal -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Certificate renewal started</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Info</div>
+      <div class="notification-body">Certificate renewal started</div>
+    </div>
+  </div>
+
+  <!-- PostInfo: Rate limited -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Rate limited</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Info</div>
+      <div class="notification-body">Rate limited. Retry after 5000ms</div>
+    </div>
+  </div>
+
+  <!-- SecurityCheckWorker: Info -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Security check warning</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #4285f4;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Security Check</div>
+      <div class="notification-body">CT log check: Unable to reach CT log server</div>
+    </div>
+    <div class="source-ref">SecurityCheckWorker.kt</div>
+  </div>
+</div>
+
+<!-- ====== CHANNEL: Errors ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #ea4335;"></div>
+    <span class="channel-name">Errors</span>
+    <span class="channel-importance">HIGH</span>
+  </div>
+  <div class="channel-desc">Connection and certificate errors. Posted for connection-level and stream-level failures.</div>
+
+  <div class="source-ref">NotificationAdapter.kt / NotificationModel.kt</div>
+
+  <!-- Connection-level error -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Connection-level error</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Error</div>
+      <div class="notification-body">Connection lost unexpectedly</div>
+    </div>
+  </div>
+
+  <!-- Stream-level error -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Stream-level error</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Error</div>
+      <div class="notification-body">Stream 4: Session handler threw exception</div>
+    </div>
+  </div>
+
+  <!-- Certificate renewal failed -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Certificate renewal failed</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Error</div>
+      <div class="notification-body">Certificate renewal failed: ACME challenge timed out</div>
+    </div>
+  </div>
+
+  <!-- Certificate expired -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Certificate expired</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Error</div>
+      <div class="notification-body">Certificate expired</div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== CHANNEL: Security Alerts ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #ea4335;"></div>
+    <span class="channel-name">Security Alerts</span>
+    <span class="channel-importance">HIGH</span>
+  </div>
+  <div class="channel-desc">Security-related alerts requiring attention. Posted by the notification state machine and SecurityCheckWorker.</div>
+
+  <div class="source-ref">NotificationAdapter.kt / SecurityCheckWorker.kt</div>
+
+  <!-- Generic security alert (state machine) -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Security alert (state machine)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Security Alert</div>
+      <div class="notification-body">Unexpected certificate issuer detected</div>
+    </div>
+  </div>
+
+  <!-- SecurityCheckWorker: Self-cert alert -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Self-cert verification alert</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Security Alert</div>
+      <div class="notification-body">Self-cert verification: Fingerprint mismatch on stored certificate</div>
+    </div>
+    <div class="source-ref">SecurityCheckWorker.kt</div>
+  </div>
+
+  <!-- SecurityCheckWorker: CT log alert -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">CT log monitoring alert</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #ea4335;">RC</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Security Alert</div>
+      <div class="notification-body">CT log check: Unauthorized certificate issued for device subdomain</div>
+    </div>
+    <div class="source-ref">SecurityCheckWorker.kt</div>
+  </div>
+</div>
+
+<!-- ====== CHANNEL: AI Outreach ====== -->
+<div class="channel-group">
+  <div class="channel-header">
+    <div class="channel-dot" style="background: #9334e6;"></div>
+    <span class="channel-name">AI Outreach</span>
+    <span class="channel-importance">DEFAULT</span>
+  </div>
+  <div class="channel-desc">Notifications sent by AI clients via the send_notification MCP tool. Title, body, and actions are all client-provided.</div>
+
+  <div class="source-ref">OutreachMcpProvider.kt</div>
+
+  <!-- Basic notification -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">Basic (title + message only)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #9334e6;">i</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Meeting Reminder</div>
+      <div class="notification-body">Your standup starts in 5 minutes</div>
+    </div>
+  </div>
+
+  <!-- With action buttons -->
+  <div style="margin-top: 10px;">
+    <span class="state-label">With action buttons (max 3)</span>
+    <div class="notification-card">
+      <div class="notification-header">
+        <div class="notification-icon" style="background: #9334e6;">i</div>
+        <span class="app-name">Rouse Context</span>
+        <span class="auto-cancel-badge">Auto-cancel</span>
+        <span class="timestamp">now</span>
+      </div>
+      <div class="notification-title">Daily Summary Ready</div>
+      <div class="notification-body">Your health and activity summary for today is available.</div>
+      <div class="notification-actions">
+        <button class="action">VIEW REPORT</button>
+        <button class="action">DISMISS</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="variation-note">Title, body, and action labels are all provided by the AI client. Actions open URLs (http/https only). Max 3 action buttons. Rate limited to 10 per minute.</div>
+</div>
+
+</div>
+
+<script>
+function toggleTheme() {
+  document.body.classList.toggle("dark");
+  const btn = document.querySelector(".theme-toggle");
+  btn.textContent = document.body.classList.contains("dark") ? "Light Mode" : "Dark Mode";
+}
+</script>
+</body>
+</html>
