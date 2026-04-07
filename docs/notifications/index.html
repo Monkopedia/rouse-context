@@ -165,9 +165,15 @@
     height: 18px;
     border-radius: 4px;
     flex-shrink: 0;
-    background-image: url('icon.png');
+    background-image: url('icon_amber.png');
     background-size: cover;
   }
+  .notification-icon.tint-gray { background-image: url('icon_gray.png'); }
+  .notification-icon.tint-green { background-image: url('icon_green.png'); }
+  .notification-icon.tint-blue { background-image: url('icon_blue.png'); }
+  .notification-icon.tint-red { background-image: url('icon_red.png'); }
+  .notification-icon.tint-orange { background-image: url('icon_orange.png'); }
+  .notification-icon.tint-purple { background-image: url('icon_purple.png'); }
 
   .app-name {
     font-size: 12px;
@@ -316,7 +322,7 @@
     <span class="state-label">State: CONNECTING</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-gray"></div>
         <span class="app-name">Rouse Context</span>
         <span class="ongoing-badge">Ongoing</span>
         <span class="timestamp">now</span>
@@ -331,7 +337,7 @@
     <span class="state-label">State: CONNECTED</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-green"></div>
         <span class="app-name">Rouse Context</span>
         <span class="ongoing-badge">Ongoing</span>
         <span class="timestamp">now</span>
@@ -346,7 +352,7 @@
     <span class="state-label">State: ACTIVE (1 stream)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="ongoing-badge">Ongoing</span>
         <span class="timestamp">now</span>
@@ -361,7 +367,7 @@
     <span class="state-label">State: ACTIVE (3 streams)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="ongoing-badge">Ongoing</span>
         <span class="timestamp">now</span>
@@ -376,7 +382,7 @@
     <span class="state-label">State: DISCONNECTING</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-gray"></div>
         <span class="app-name">Rouse Context</span>
         <span class="ongoing-badge">Ongoing</span>
         <span class="timestamp">now</span>
@@ -391,7 +397,7 @@
     <span class="state-label">State: DISCONNECTED</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-gray"></div>
         <span class="app-name">Rouse Context</span>
         <span class="ongoing-badge">Ongoing</span>
         <span class="timestamp">now</span>
@@ -417,7 +423,7 @@
     <span class="state-label">New auth request</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-red"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -438,7 +444,7 @@
     <span class="state-label">Different integration</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-red"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">2m ago</span>
@@ -470,7 +476,7 @@
     <span class="state-label">Session complete (1 tool call)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -485,7 +491,7 @@
     <span class="state-label">Session complete (multiple tool calls)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -500,7 +506,7 @@
     <span class="state-label">Session ended with no tool calls</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -515,7 +521,7 @@
     <span class="state-label">Per-tool-call (mode: Every)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -529,7 +535,7 @@
     <span class="state-label">Per-tool-call (different tool)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -544,7 +550,7 @@
     <span class="state-label">Certificate renewal started</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -559,7 +565,7 @@
     <span class="state-label">Rate limited</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -574,7 +580,7 @@
     <span class="state-label">Security check warning</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-blue"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -602,7 +608,7 @@
     <span class="state-label">Connection-level error</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-red"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -617,7 +623,7 @@
     <span class="state-label">Stream-level error</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-red"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -632,7 +638,7 @@
     <span class="state-label">Certificate renewal failed</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-red"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -647,7 +653,7 @@
     <span class="state-label">Certificate expired</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-red"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -674,7 +680,7 @@
     <span class="state-label">Security alert (state machine)</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-orange"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -689,7 +695,7 @@
     <span class="state-label">Self-cert verification alert</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-orange"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
@@ -705,7 +711,7 @@
     <span class="state-label">CT log monitoring alert</span>
     <div class="notification-card">
       <div class="notification-header">
-        <div class="notification-icon"></div>
+        <div class="notification-icon tint-orange"></div>
         <span class="app-name">Rouse Context</span>
         <span class="auto-cancel-badge">Auto-cancel</span>
         <span class="timestamp">now</span>
