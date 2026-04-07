@@ -49,6 +49,7 @@ import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
+import com.rousecontext.app.ui.viewmodels.IntegrationSetupState
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
 import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
@@ -271,10 +272,44 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             val viewModel: IntegrationSetupViewModel = koinViewModel()
             LaunchedEffect(integrationId) { viewModel.startSetup(integrationId) }
             val state by viewModel.state.collectAsState()
-            SettingUpScreen(
-                state = state,
-                onCancel = { navController.popBackStack() }
-            )
+            when (state) {
+                is IntegrationSetupState.Complete -> {
+                    LaunchedEffect(Unit) {
+                        navController.navigate(Routes.integrationEnabled(integrationId)) {
+                            popUpTo(Routes.ADD_INTEGRATION) { inclusive = true }
+                        }
+                    }
+                }
+                is IntegrationSetupState.Provisioning -> {
+                    SettingUpScreen(
+                        state = (state as IntegrationSetupState.Provisioning).settingUpState,
+                        onCancel = { navController.popBackStack() }
+                    )
+                }
+                is IntegrationSetupState.Failed -> {
+                    SettingUpScreen(
+                        state = SettingUpState(
+                            variant = SettingUpVariant.RateLimited(
+                                (state as IntegrationSetupState.Failed).message
+                            )
+                        ),
+                        onCancel = { navController.popBackStack() }
+                    )
+                }
+                is IntegrationSetupState.RateLimited -> {
+                    SettingUpScreen(
+                        state = SettingUpState(
+                            variant = SettingUpVariant.RateLimited(
+                                (state as IntegrationSetupState.RateLimited).retryDate
+                            )
+                        ),
+                        onCancel = { navController.popBackStack() }
+                    )
+                }
+                is IntegrationSetupState.Idle -> {
+                    // Waiting for setup to begin
+                }
+            }
         }
 
         composable(Routes.HEALTH_CONNECT_SETUP) {

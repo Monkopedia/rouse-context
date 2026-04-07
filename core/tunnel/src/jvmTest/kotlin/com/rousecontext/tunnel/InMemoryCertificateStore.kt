@@ -63,6 +63,8 @@ class InMemoryCertificateStore : CertificateStore {
 
     override suspend fun clear() {
         certificate = null
+        clientCertificate = null
+        relayCaCert = null
         subdomain = null
         privateKey = null
         storeCallCount = 0

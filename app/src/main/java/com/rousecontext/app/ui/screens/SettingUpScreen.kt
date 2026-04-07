@@ -111,22 +111,12 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                         Spacer(modifier = Modifier.height(6.dp))
                         SetupStepRow(
                             label = "Registering with relay",
-                            done = step > OnboardingStep.RELAY_REGISTRATION,
-                            active = step == OnboardingStep.RELAY_REGISTRATION
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        SetupStepRow(
-                            label = "Issuing certificate",
                             done = false,
-                            active = step == OnboardingStep.CERT_ISSUANCE
+                            active = step == OnboardingStep.RELAY_REGISTRATION
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (step == OnboardingStep.CERT_ISSUANCE) {
-                                "This may take up to a minute."
-                            } else {
-                                "This usually takes about 30 seconds."
-                            },
+                            text = "This usually takes a few seconds.",
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -205,16 +195,6 @@ fun SettingUpFirstTimePreview() {
     RouseContextTheme(darkTheme = true) {
         SettingUpScreen(
             state = SettingUpState(SettingUpVariant.FirstTime(OnboardingStep.FIREBASE_AUTH))
-        )
-    }
-}
-
-@Preview(showBackground = true, showSystemUi = true)
-@Composable
-fun SettingUpCertIssuancePreview() {
-    RouseContextTheme(darkTheme = true) {
-        SettingUpScreen(
-            state = SettingUpState(SettingUpVariant.FirstTime(OnboardingStep.CERT_ISSUANCE))
         )
     }
 }

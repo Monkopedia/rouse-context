@@ -43,6 +43,7 @@ import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.notifications.capture.FieldEncryptor
 import com.rousecontext.notifications.capture.NotificationDatabase
+import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.CsrGenerator
 import com.rousecontext.tunnel.OnboardingFlow
@@ -89,7 +90,8 @@ val appModule = module {
         val httpScheme = if (BuildConfig.RELAY_SCHEME == "wss") "https" else "http"
         RelayApiClient("$httpScheme://${BuildConfig.RELAY_HOST}")
     }
-    single { OnboardingFlow(get(), get(), get()) }
+    single { OnboardingFlow(get<RelayApiClient>(), get<CertificateStore>()) }
+    single { CertProvisioningFlow(get(), get(), get()) }
 
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class
@@ -240,6 +242,6 @@ val appModule = module {
     viewModel { NotificationSetupViewModel(androidContext(), get()) }
     viewModel { OutreachSetupViewModel(androidContext(), get()) }
     viewModel { UsageSetupViewModel(androidContext(), get()) }
-    viewModel { IntegrationSetupViewModel(get()) }
-    viewModel { OnboardingViewModel(get(), get(), get()) }
+    viewModel { IntegrationSetupViewModel(get(), get(), get()) }
+    viewModel { OnboardingViewModel(get(), get()) }
 }

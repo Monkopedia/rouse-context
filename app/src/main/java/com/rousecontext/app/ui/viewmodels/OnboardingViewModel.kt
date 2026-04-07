@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
-import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
@@ -20,8 +19,7 @@ import kotlinx.coroutines.tasks.await
 
 enum class OnboardingStep {
     FIREBASE_AUTH,
-    RELAY_REGISTRATION,
-    CERT_ISSUANCE
+    RELAY_REGISTRATION
 }
 
 sealed interface OnboardingState {
@@ -37,13 +35,13 @@ sealed interface OnboardingState {
  * Determines whether the device is onboarded and drives the onboarding flow.
  *
  * On init, checks [CertificateStore.getSubdomain] to decide the initial route.
- * When the user taps "Get Started", triggers [OnboardingFlow.execute] and
- * updates state as provisioning progresses.
+ * When the user taps "Get Started", triggers [OnboardingFlow.execute] which
+ * registers the device and obtains a subdomain. Certificate provisioning is
+ * deferred to first integration setup.
  */
 class OnboardingViewModel(
     private val certificateStore: CertificateStore,
-    private val onboardingFlow: OnboardingFlow,
-    private val lazyWebSocketFactory: LazyWebSocketFactory
+    private val onboardingFlow: OnboardingFlow
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<OnboardingState>(OnboardingState.Checking)
@@ -94,11 +92,7 @@ class OnboardingViewModel(
             handleResult(
                 onboardingFlow.execute(
                     firebaseToken = firebaseToken,
-                    fcmToken = fcmToken,
-                    onRegistered = {
-                        _state.value =
-                            OnboardingState.InProgress(OnboardingStep.CERT_ISSUANCE)
-                    }
+                    fcmToken = fcmToken
                 )
             )
         }
@@ -107,7 +101,6 @@ class OnboardingViewModel(
     private fun handleResult(result: OnboardingResult) {
         when (result) {
             is OnboardingResult.Success -> {
-                lazyWebSocketFactory.invalidate()
                 _state.value = OnboardingState.Onboarded
             }
             is OnboardingResult.RateLimited -> {
@@ -129,15 +122,9 @@ class OnboardingViewModel(
                     message = "Network error. Check your connection and try again."
                 )
             }
-            is OnboardingResult.KeyGenerationFailed -> {
-                Log.e("Onboarding", "Key generation failed", result.cause)
-                _state.value = OnboardingState.Failed(
-                    message = "Failed to generate device keys."
-                )
-            }
             is OnboardingResult.StorageFailed -> {
                 _state.value = OnboardingState.Failed(
-                    message = "Failed to save certificate."
+                    message = "Failed to save registration."
                 )
             }
         }
@@ -152,7 +139,6 @@ class OnboardingViewModel(
     }
 
     companion object {
-        private const val SUBDOMAIN_LENGTH = 12
         private const val MILLIS_PER_SECOND = 1000L
         private val DATE_FORMAT = SimpleDateFormat("MMM d", Locale.getDefault())
     }
