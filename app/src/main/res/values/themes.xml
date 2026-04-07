@@ -5,8 +5,8 @@
     </style>
 
     <style name="Theme.RouseContext.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">#1A2744</item>
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="windowSplashScreenBackground">#FFFFFF</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
         <item name="windowSplashScreenIconBackgroundColor">#1A2744</item>
         <item name="postSplashScreenTheme">@style/Theme.RouseContext</item>
     </style>
