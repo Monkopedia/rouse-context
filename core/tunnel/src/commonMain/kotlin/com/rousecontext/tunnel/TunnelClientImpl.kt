@@ -24,6 +24,7 @@ class TunnelClientImpl(
     private var muxDemux: MuxDemux? = null
     private var wsHandle: WebSocketHandle? = null
     private var forwardJob: Job? = null
+
     @Volatile
     private var activeStreamCount = 0
 
