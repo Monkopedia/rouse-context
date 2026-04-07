@@ -18,7 +18,8 @@ class OutreachIntegration(
 
     override val id = "outreach"
     override val displayName = "Outreach"
-    override val description = "Let AI launch apps, open links, copy to clipboard, and send notifications"
+    override val description =
+        "Let AI launch apps, open links, copy to clipboard, and send notifications"
     override val path = "/outreach"
     override val onboardingRoute = "setup"
     override val settingsRoute = "settings"

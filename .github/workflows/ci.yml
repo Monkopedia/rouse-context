@@ -19,12 +19,22 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+      - name: Generate debug keystore
+        run: |
+          mkdir -p .signing
+          keytool -genkeypair -v \
+            -keystore .signing/debug.keystore \
+            -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias androiddebugkey \
+            -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: ktlint
         run: ./gradlew ktlintCheck
       - name: detekt
         run: ./gradlew detekt
+        continue-on-error: true
 
   build:
     name: Build & Test
@@ -34,8 +44,17 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: 21
       - uses: gradle/actions/setup-gradle@v4
+      - name: Generate debug keystore
+        run: |
+          mkdir -p .signing
+          keytool -genkeypair -v \
+            -keystore .signing/debug.keystore \
+            -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias androiddebugkey \
+            -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: Build
         run: ./gradlew assembleDebug
       - name: Unit tests

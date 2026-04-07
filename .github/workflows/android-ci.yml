@@ -23,9 +23,29 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
-      - name: Build
-        run: ./gradlew assemble
-      - name: Test
-        run: ./gradlew :core:tunnel:jvmTest :core:mcp:jvmTest :api:testDebugUnitTest :notifications:testDebugUnitTest :work:testDebugUnitTest :app:testDebugUnitTest
+      - name: Generate debug keystore
+        run: |
+          mkdir -p .signing
+          keytool -genkeypair -v \
+            -keystore .signing/debug.keystore \
+            -storepass android -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias androiddebugkey \
+            -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: Lint
         run: ./gradlew ktlintCheck
+      - name: Build
+        run: ./gradlew assembleDebug
+      - name: Test
+        run: |
+          ./gradlew \
+            :core:tunnel:jvmTest \
+            :core:mcp:jvmTest \
+            :core:bridge:jvmTest \
+            :api:testDebugUnitTest \
+            :notifications:testDebugUnitTest \
+            :work:testDebugUnitTest \
+            :health:testDebugUnitTest \
+            :outreach:testDebugUnitTest \
+            :usage:testDebugUnitTest \
+            :app:testDebugUnitTest
