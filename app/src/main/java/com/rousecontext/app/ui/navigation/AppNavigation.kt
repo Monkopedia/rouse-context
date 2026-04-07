@@ -134,7 +134,7 @@ fun AppNavigation(
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route
-    val isTabRoute = currentRoute in TAB_ROUTES
+    val isTabRoute = currentRoute != null && currentRoute in TAB_ROUTES
     val selectedTab = TAB_INDEX[currentRoute] ?: -1
 
     val title = when (currentRoute) {
@@ -685,19 +685,25 @@ fun AppNavigation(
                 val integrationId = backStackEntry.arguments
                     ?.getString("integrationId")
                     ?: return@composable
+                val certStore: com.rousecontext.tunnel.CertificateStore =
+                    org.koin.compose.koinInject()
+                val integrations: List<com.rousecontext.api.McpIntegration> =
+                    org.koin.compose.koinInject()
+                val integration = integrations.find { it.id == integrationId }
+                val subdomain = androidx.compose.runtime.produceState("") {
+                    value = certStore.getSubdomain() ?: "unknown"
+                }.value
+                val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
+                    .removePrefix("relay.")
+                val mcpUrl = if (subdomain.isNotEmpty()) {
+                    "https://$subdomain.$baseDomain${integration?.path ?: "/$integrationId"}/mcp"
+                } else {
+                    ""
+                }
                 IntegrationEnabledScreen(
                     state = IntegrationEnabledState(
-                        integrationName = when (integrationId) {
-                            HealthConnectSetupViewModel
-                                .HEALTH_INTEGRATION_ID -> "Health Connect"
-                            NotificationSetupViewModel
-                                .INTEGRATION_ID -> "Notifications"
-                            OutreachSetupViewModel
-                                .INTEGRATION_ID -> "Outreach"
-                            UsageSetupViewModel
-                                .INTEGRATION_ID -> "Usage Stats"
-                            else -> integrationId
-                        }
+                        integrationName = integration?.displayName ?: integrationId,
+                        url = mcpUrl
                     ),
                     onCancel = {
                         navController.navigate(Routes.HOME) {
