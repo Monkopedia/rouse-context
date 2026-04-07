@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,6 +45,8 @@ fun AddIntegrationPickerScreen(
     onSetUp: (String) -> Unit = {},
     onCancel: () -> Unit = {}
 ) {
+    val available = integrations.filter { it.state == PickerIntegrationState.AVAILABLE }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -66,55 +68,27 @@ fun AddIntegrationPickerScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(integrations) { integration ->
-                    val isUnavailable =
-                        integration.state == PickerIntegrationState.UNAVAILABLE
+                items(available) { integration ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
-                            .then(
-                                if (!isUnavailable) {
-                                    Modifier.clickable { onSetUp(integration.id) }
-                                } else {
-                                    Modifier
-                                }
-                            ),
-                        colors = if (isUnavailable) {
-                            CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
-                                    alpha = 0.5f
-                                )
-                            )
-                        } else {
-                            CardDefaults.cardColors()
-                        }
+                            .clickable { onSetUp(integration.id) },
+                        border = BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.surfaceVariant
+                        )
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(
                                 text = integration.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = if (isUnavailable) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                }
+                                style = MaterialTheme.typography.titleMedium
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = integration.description,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = if (isUnavailable) "Coming soon" else "Set up",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (isUnavailable) {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                } else {
-                                    MaterialTheme.colorScheme.primary
-                                }
                             )
                         }
                     }
@@ -131,39 +105,28 @@ fun AddIntegrationPickerPreview() {
         AddIntegrationPickerScreen(
             integrations = listOf(
                 PickerIntegration(
-                    id = "health",
-                    name = "Health Connect",
-                    description = "Share step count, heart rate, and sleep data with AI clients",
-                    state = PickerIntegrationState.AVAILABLE
-                ),
-                PickerIntegration(
                     id = "notifications",
                     name = "Notifications",
                     description = "Let AI clients read your notifications",
-                    state = PickerIntegrationState.UNAVAILABLE
-                )
-            )
-        )
-    }
-}
-
-@Preview(showBackground = true, showSystemUi = true)
-@Composable
-fun AddIntegrationPickerWithMultiplePreview() {
-    RouseContextTheme(darkTheme = true) {
-        AddIntegrationPickerScreen(
-            integrations = listOf(
+                    state = PickerIntegrationState.AVAILABLE
+                ),
+                PickerIntegration(
+                    id = "outreach",
+                    name = "Outreach",
+                    description = "Let AI clients send messages on your behalf",
+                    state = PickerIntegrationState.AVAILABLE
+                ),
+                PickerIntegration(
+                    id = "usage",
+                    name = "Usage Stats",
+                    description = "Let AI see your app usage patterns and screen time",
+                    state = PickerIntegrationState.AVAILABLE
+                ),
                 PickerIntegration(
                     id = "health",
                     name = "Health Connect",
                     description = "Share step count, heart rate, and sleep data with AI clients",
                     state = PickerIntegrationState.AVAILABLE
-                ),
-                PickerIntegration(
-                    id = "notifications",
-                    name = "Notifications",
-                    description = "Let AI clients read your notifications",
-                    state = PickerIntegrationState.UNAVAILABLE
                 )
             )
         )

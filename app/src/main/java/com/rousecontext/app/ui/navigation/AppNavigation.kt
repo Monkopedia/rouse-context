@@ -161,7 +161,6 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
                 onIntegrationClick = { id -> navController.navigate(Routes.integrationManage(id)) },
                 onViewAllActivity = { navController.navigate(Routes.AUDIT) },
                 onPendingAuthRequests = { navController.navigate(Routes.AUTH_APPROVAL) },
-                onSetUp = { navController.navigate(Routes.ONBOARDING) },
                 onTabSelected = { tab ->
                     when (tab) {
                         1 -> navController.navigate(Routes.AUDIT)

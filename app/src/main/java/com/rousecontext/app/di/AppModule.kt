@@ -118,10 +118,10 @@ val appModule = module {
 
     single<List<McpIntegration>> {
         buildList {
-            add(get(named("health")))
-            add(get(named("outreach")))
             add(get(named("notifications")))
+            add(get(named("outreach")))
             add(get(named("usage")))
+            add(get(named("health")))
             getKoin().getOrNull<McpIntegration>(named("test"))?.let { add(it) }
         }
     }
@@ -226,7 +226,6 @@ val appModule = module {
     // --- ViewModels ---
     viewModel {
         MainDashboardViewModel(
-            get(),
             get(),
             get(),
             get(),

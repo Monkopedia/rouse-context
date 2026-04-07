@@ -14,7 +14,6 @@ import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
-import com.rousecontext.tunnel.CertificateStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -24,7 +23,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 /**
  * Drives the main dashboard screen with connection state, integration list,
@@ -35,18 +33,10 @@ class MainDashboardViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
-    private val certificateStore: CertificateStore? = null,
     private val authorizationCodeManager: AuthorizationCodeManager? = null
 ) : ViewModel() {
 
     private val connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
-    private val isOnboarded = MutableStateFlow(true)
-
-    init {
-        viewModelScope.launch {
-            isOnboarded.value = certificateStore?.getSubdomain() != null
-        }
-    }
 
     private val recentAuditFlow = auditDao.observeRecent(
         startMillis = System.currentTimeMillis() - RECENT_WINDOW_MS,
@@ -57,9 +47,8 @@ class MainDashboardViewModel(
     val state: StateFlow<DashboardState> = combine(
         connectionStatus,
         stateStore.observeChanges().onStart { emit(Unit) },
-        recentAuditFlow,
-        isOnboarded
-    ) { connection, _, recentEntries, onboarded ->
+        recentAuditFlow
+    ) { connection, _, recentEntries ->
         val items = integrations.mapNotNull { integration ->
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(integration.id),
@@ -108,8 +97,7 @@ class MainDashboardViewModel(
             integrations = items,
             recentActivity = recent,
             hasMoreIntegrationsToAdd = hasMoreToAdd,
-            pendingAuthRequestCount = pendingAuthCount,
-            isOnboarded = onboarded
+            pendingAuthRequestCount = pendingAuthCount
         )
     }.stateIn(
         scope = viewModelScope,
@@ -118,13 +106,11 @@ class MainDashboardViewModel(
     )
 
     /**
-     * Manually refreshes onboarding state. Integration and audit data are now
-     * reactive and do not need manual refresh.
+     * Manual refresh hook for data that isn't reactive.
+     * Integration and audit data are reactive and refresh automatically.
      */
     fun refresh() {
-        viewModelScope.launch {
-            isOnboarded.value = certificateStore?.getSubdomain() != null
-        }
+        // Currently a no-op; kept for future non-reactive state.
     }
 
     fun setConnectionStatus(status: ConnectionStatus) {
