@@ -11,7 +11,7 @@ fun createForegroundNotification(context: Context, message: String = "Connected"
     NotificationCompat.Builder(context, NotificationChannels.FOREGROUND_CHANNEL_ID)
         .setContentTitle("Rouse Context")
         .setContentText(message)
-        .setSmallIcon(android.R.drawable.ic_menu_manage)
+        .setSmallIcon(R.drawable.ic_stat_rouse)
         .setOngoing(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()

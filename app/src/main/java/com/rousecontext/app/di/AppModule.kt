@@ -1,10 +1,5 @@
 package com.rousecontext.app.di
 
-import android.app.NotificationManager
-import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
-import androidx.core.app.NotificationCompat
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
@@ -43,7 +38,7 @@ import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
-import com.rousecontext.notifications.NotificationChannels
+import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.notifications.capture.FieldEncryptor
@@ -143,6 +138,19 @@ val appModule = module {
         )
     }
 
+    // --- Auth request notifier ---
+    single {
+        AuthRequestNotifier(
+            context = androidContext(),
+            receiverClass = AuthApprovalReceiver::class.java,
+            approveAction = AuthApprovalReceiver.ACTION_APPROVE,
+            denyAction = AuthApprovalReceiver.ACTION_DENY,
+            activityClass = MainActivity::class.java,
+            extraDisplayCode = AuthApprovalReceiver.EXTRA_DISPLAY_CODE,
+            extraNotificationId = AuthApprovalReceiver.EXTRA_NOTIFICATION_ID
+        )
+    }
+
     // --- MCP session ---
     single {
         val subdomainFile = java.io.File(androidContext().filesDir, "rouse_subdomain.txt")
@@ -153,6 +161,7 @@ val appModule = module {
         }
         val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
         val hostname = subdomain?.let { "$it.$baseDomain" } ?: "localhost"
+        val notifier: AuthRequestNotifier = get()
         McpSession(
             registry = get(),
             tokenStore = get(),
@@ -161,7 +170,7 @@ val appModule = module {
         ).also { session ->
             session.start(port = 0)
             session.authorizationCodeManager.onNewRequest = { displayCode, integration ->
-                postAuthRequestNotification(androidContext(), displayCode, integration)
+                notifier.post(displayCode, integration)
             }
         }
     }
@@ -233,70 +242,4 @@ val appModule = module {
     viewModel { UsageSetupViewModel(androidContext(), get()) }
     viewModel { IntegrationSetupViewModel(get()) }
     viewModel { OnboardingViewModel(get(), get(), get()) }
-}
-
-/** Notification ID offset for auth request notifications. */
-private const val AUTH_NOTIFICATION_BASE_ID = 5000
-
-private var authNotificationCounter = 0
-
-/**
- * Posts a high-priority notification for a new authorization request.
- * Includes Approve and Deny actions that are handled by [AuthApprovalReceiver].
- */
-private fun postAuthRequestNotification(
-    context: Context,
-    displayCode: String,
-    integration: String
-) {
-    val notificationId = AUTH_NOTIFICATION_BASE_ID + authNotificationCounter++
-
-    val contentIntent = PendingIntent.getActivity(
-        context,
-        notificationId,
-        Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        },
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val approveIntent = PendingIntent.getBroadcast(
-        context,
-        notificationId * 2,
-        Intent(context, AuthApprovalReceiver::class.java).apply {
-            action = AuthApprovalReceiver.ACTION_APPROVE
-            putExtra(AuthApprovalReceiver.EXTRA_DISPLAY_CODE, displayCode)
-            putExtra(AuthApprovalReceiver.EXTRA_NOTIFICATION_ID, notificationId)
-        },
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val denyIntent = PendingIntent.getBroadcast(
-        context,
-        notificationId * 2 + 1,
-        Intent(context, AuthApprovalReceiver::class.java).apply {
-            action = AuthApprovalReceiver.ACTION_DENY
-            putExtra(AuthApprovalReceiver.EXTRA_DISPLAY_CODE, displayCode)
-            putExtra(AuthApprovalReceiver.EXTRA_NOTIFICATION_ID, notificationId)
-        },
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
-
-    val notification = NotificationCompat.Builder(
-        context,
-        NotificationChannels.AUTH_REQUEST_CHANNEL_ID
-    )
-        .setSmallIcon(android.R.drawable.ic_dialog_alert)
-        .setContentTitle("Approval Required")
-        .setContentText("Code: $displayCode — Tap to approve or deny")
-        .setSubText(integration)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setAutoCancel(true)
-        .setContentIntent(contentIntent)
-        .addAction(0, "Approve", approveIntent)
-        .addAction(0, "Deny", denyIntent)
-        .build()
-
-    val manager = context.getSystemService(NotificationManager::class.java)
-    manager.notify(notificationId, notification)
 }
