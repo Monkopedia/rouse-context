@@ -30,13 +30,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +51,8 @@ import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
+import com.rousecontext.app.ui.components.navBarContainerColor
+import com.rousecontext.app.ui.components.navBarItemColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 enum class ConnectionStatus { CONNECTED, DISCONNECTED }
@@ -117,39 +116,32 @@ fun MainDashboardScreen(
             )
         },
         bottomBar = {
-                NavigationBar(
-                    containerColor = com.rousecontext.app.ui.theme.LocalExtendedColors
-                        .current.topBarContainer
-                ) {
-                    val itemColors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = com.rousecontext.app.ui.theme.AmberAccent,
-                        selectedTextColor = com.rousecontext.app.ui.theme.AmberAccent,
-                        unselectedIconColor = Color.White.copy(alpha = 0.7f),
-                        unselectedTextColor = Color.White.copy(alpha = 0.7f),
-                        indicatorColor = Color.White.copy(alpha = 0.1f)
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { onTabSelected(0) },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                        label = { Text("Home") },
-                        colors = itemColors
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = { onTabSelected(1) },
-                        icon = { Icon(Icons.Default.History, contentDescription = "Audit") },
-                        label = { Text("Audit") },
-                        colors = itemColors
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { onTabSelected(2) },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings") },
-                        colors = itemColors
-                    )
-                }
+            NavigationBar(
+                containerColor = navBarContainerColor()
+            ) {
+                val itemColors = navBarItemColors()
+                NavigationBarItem(
+                    selected = selectedTab == 0,
+                    onClick = { onTabSelected(0) },
+                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                    label = { Text("Home") },
+                    colors = itemColors
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 1,
+                    onClick = { onTabSelected(1) },
+                    icon = { Icon(Icons.Default.History, contentDescription = "Audit") },
+                    label = { Text("Audit") },
+                    colors = itemColors
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { onTabSelected(2) },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings") },
+                    colors = itemColors
+                )
+            }
         }
     ) { padding ->
         LazyColumn(

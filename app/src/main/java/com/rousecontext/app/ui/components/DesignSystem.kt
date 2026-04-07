@@ -18,17 +18,32 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarItemColors
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.LocalExtendedColors
+
+@Composable
+fun navBarContainerColor(): Color = LocalExtendedColors.current.topBarContainer
+
+@Composable
+fun navBarItemColors(): NavigationBarItemColors = NavigationBarItemDefaults.colors(
+    selectedIconColor = AmberAccent,
+    selectedTextColor = AmberAccent,
+    unselectedIconColor = Color.White.copy(alpha = 0.7f),
+    unselectedTextColor = Color.White.copy(alpha = 0.7f),
+    indicatorColor = Color.White.copy(alpha = 0.1f)
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

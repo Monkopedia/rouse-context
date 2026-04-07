@@ -49,6 +49,8 @@ import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
+import com.rousecontext.app.ui.components.navBarContainerColor
+import com.rousecontext.app.ui.components.navBarItemColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 @Immutable
@@ -94,24 +96,28 @@ fun AuditHistoryScreen(
             TopAppBar(title = { Text("Audit History") }, colors = appBarColors())
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = navBarContainerColor()) {
+                val itemColors = navBarItemColors()
                 NavigationBarItem(
                     selected = false,
                     onClick = { onTabSelected(0) },
                     icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
-                    label = { Text("Home") }
+                    label = { Text("Home") },
+                    colors = itemColors
                 )
                 NavigationBarItem(
                     selected = true,
                     onClick = { onTabSelected(1) },
                     icon = { Icon(Icons.Default.History, contentDescription = "Audit") },
-                    label = { Text("Audit") }
+                    label = { Text("Audit") },
+                    colors = itemColors
                 )
                 NavigationBarItem(
                     selected = false,
                     onClick = { onTabSelected(2) },
                     icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                    label = { Text("Settings") }
+                    label = { Text("Settings") },
+                    colors = itemColors
                 )
             }
         }
