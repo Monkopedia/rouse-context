@@ -44,7 +44,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
                 modifier = Modifier
                     .size(120.dp)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF0A1628))
+                    .background(Color(0xFF1A2744))
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_launcher_foreground),
