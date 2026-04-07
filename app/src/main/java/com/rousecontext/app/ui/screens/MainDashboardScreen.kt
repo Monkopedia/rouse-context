@@ -30,7 +30,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -48,6 +47,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.BuildConfig
+import com.rousecontext.app.ui.components.ListDivider
+import com.rousecontext.app.ui.components.ListRow
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
@@ -174,10 +176,7 @@ fun MainDashboardScreen(
 
             // Integrations header
             item {
-                Text(
-                    text = "Integrations",
-                    style = MaterialTheme.typography.titleMedium
-                )
+                SectionHeader("Integrations")
             }
 
             // Empty state or integration list
@@ -195,7 +194,7 @@ fun MainDashboardScreen(
                                     onClick = { onIntegrationClick(integration.id) }
                                 )
                                 if (index < state.integrations.lastIndex) {
-                                    HorizontalDivider()
+                                    ListDivider()
                                 }
                             }
                         }
@@ -210,11 +209,7 @@ fun MainDashboardScreen(
             // Recent activity
             item {
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Recent Activity",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+                SectionHeader("Recent Activity")
             }
 
             if (state.recentActivity.isEmpty()) {
@@ -228,9 +223,7 @@ fun MainDashboardScreen(
                             state.recentActivity.forEachIndexed { index, entry ->
                                 ActivityRow(entry)
                                 if (index < state.recentActivity.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(horizontal = 16.dp)
-                                    )
+                                    ListDivider()
                                 }
                             }
                         }
@@ -546,13 +539,7 @@ private fun EmptyRecentActivityCard() {
 
 @Composable
 private fun ActivityRow(entry: AuditEntry) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    ListRow {
         Text(
             text = entry.toolName,
             style = MaterialTheme.typography.bodyMedium,

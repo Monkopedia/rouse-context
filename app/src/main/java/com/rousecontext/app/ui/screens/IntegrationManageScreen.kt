@@ -23,7 +23,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.ListDivider
+import com.rousecontext.app.ui.components.ListRow
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
@@ -160,11 +162,7 @@ fun IntegrationManageScreen(
                 }
             } else {
                 item {
-                    Text(
-                        text = "Recent Activity",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    SectionHeader("Recent Activity")
                 }
                 if (state.recentActivity.isEmpty()) {
                     item {
@@ -197,13 +195,7 @@ fun IntegrationManageScreen(
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column {
                                 state.recentActivity.forEachIndexed { index, entry ->
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                    ListRow {
                                         Text(
                                             entry.toolName,
                                             style = MaterialTheme.typography.bodyMedium,
@@ -223,9 +215,7 @@ fun IntegrationManageScreen(
                                         )
                                     }
                                     if (index < state.recentActivity.lastIndex) {
-                                        HorizontalDivider(
-                                            modifier = Modifier.padding(horizontal = 16.dp)
-                                        )
+                                        ListDivider()
                                     }
                                 }
                             }
@@ -246,11 +236,7 @@ fun IntegrationManageScreen(
 
             // Authorized clients
             item {
-                Text(
-                    text = "Authorized Clients",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Spacer(modifier = Modifier.height(8.dp))
+                SectionHeader("Authorized Clients")
             }
 
             if (state.authorizedClients.isEmpty()) {
@@ -296,13 +282,7 @@ fun IntegrationManageScreen(
                     ) {
                         Column {
                             state.authorizedClients.forEachIndexed { index, client ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                ListRow {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             client.name,
@@ -324,9 +304,7 @@ fun IntegrationManageScreen(
                                     }
                                 }
                                 if (index < state.authorizedClients.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(horizontal = 16.dp)
-                                    )
+                                    ListDivider()
                                 }
                             }
                         }

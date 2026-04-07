@@ -2,7 +2,6 @@ package com.rousecontext.app.ui.screens
 
 import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,7 +23,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
@@ -47,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.ListDivider
+import com.rousecontext.app.ui.components.ListRow
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
@@ -178,64 +179,63 @@ fun AuditHistoryScreen(
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     state.groups.forEach { group ->
                         item {
-                            Text(
-                                text = group.dateLabel,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            SectionHeader(group.dateLabel)
                         }
                         item {
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Column {
                                     group.entries.forEachIndexed { index, entry ->
-                                        Column(
-                                            modifier = Modifier
-                                                .clickable { onEntryClick(entry.id) }
-                                                .padding(
-                                                    horizontal = 16.dp,
-                                                    vertical = 12.dp
-                                                )
+                                        ListRow(
+                                            onClick = { onEntryClick(entry.id) }
                                         ) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    entry.toolName,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                Text(
-                                                    entry.time,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme
-                                                        .colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Row {
-                                                Text(
-                                                    "${entry.durationMs}ms",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme
-                                                        .colorScheme.onSurfaceVariant
-                                                )
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Text(
-                                                    entry.arguments,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme
-                                                        .colorScheme.onSurfaceVariant
-                                                )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement =
+                                                    Arrangement.SpaceBetween,
+                                                    verticalAlignment =
+                                                    Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        entry.toolName,
+                                                        style = MaterialTheme
+                                                            .typography.bodyMedium,
+                                                        fontWeight = FontWeight.Medium,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    Text(
+                                                        entry.time,
+                                                        style = MaterialTheme
+                                                            .typography.bodySmall,
+                                                        color = MaterialTheme
+                                                            .colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Row {
+                                                    Text(
+                                                        "${entry.durationMs}ms",
+                                                        style = MaterialTheme
+                                                            .typography.labelSmall,
+                                                        color = MaterialTheme
+                                                            .colorScheme.onSurfaceVariant
+                                                    )
+                                                    Spacer(
+                                                        modifier = Modifier.width(12.dp)
+                                                    )
+                                                    Text(
+                                                        entry.arguments,
+                                                        style = MaterialTheme
+                                                            .typography.labelSmall,
+                                                        color = MaterialTheme
+                                                            .colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                             }
                                         }
                                         if (index < group.entries.lastIndex) {
-                                            HorizontalDivider(
-                                                modifier = Modifier.padding(horizontal = 16.dp)
-                                            )
+                                            ListDivider()
                                         }
                                     }
                                 }

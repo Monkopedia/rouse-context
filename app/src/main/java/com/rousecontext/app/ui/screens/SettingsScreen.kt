@@ -51,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.LocalExtendedColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -471,16 +472,6 @@ private fun SettingsSectionCard(content: @Composable () -> Unit) {
     ) {
         content()
     }
-}
-
-@Composable
-private fun SectionHeader(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
-    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

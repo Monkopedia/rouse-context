@@ -25,8 +25,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
 
-        val isDarkSystem = (resources.configuration.uiMode and
-            android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+        val isDarkSystem = (
+            resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            ) ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
         enableEdgeToEdge(
             statusBarStyle = if (isDarkSystem) {
