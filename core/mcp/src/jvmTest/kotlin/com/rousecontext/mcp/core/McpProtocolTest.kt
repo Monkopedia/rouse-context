@@ -421,7 +421,11 @@ class McpProtocolTest {
         configureTestApp(
             registry,
             tokenStore,
-            auditListener = AuditListener { events.add(it) },
+            auditListener = object : AuditListener {
+                override fun onToolCall(event: ToolCallEvent) {
+                    events.add(event)
+                }
+            },
             clock = clock
         ).invoke(this)
 
@@ -453,7 +457,11 @@ class McpProtocolTest {
         configureTestApp(
             registry,
             tokenStore,
-            auditListener = AuditListener { events.add(it) }
+            auditListener = object : AuditListener {
+                override fun onToolCall(event: ToolCallEvent) {
+                    events.add(event)
+                }
+            }
         ).invoke(this)
 
         client.initialize(token)
@@ -473,7 +481,11 @@ class McpProtocolTest {
         configureTestApp(
             registry,
             tokenStore,
-            auditListener = AuditListener { events.add(it) }
+            auditListener = object : AuditListener {
+                override fun onToolCall(event: ToolCallEvent) {
+                    events.add(event)
+                }
+            }
         ).invoke(this)
 
         client.initialize(token)

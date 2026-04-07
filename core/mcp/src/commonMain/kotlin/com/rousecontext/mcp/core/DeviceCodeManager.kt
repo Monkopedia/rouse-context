@@ -47,7 +47,8 @@ private const val USER_CODE_HALF_LENGTH = 6
  */
 class DeviceCodeManager(
     private val tokenStore: TokenStore = InMemoryTokenStore(),
-    private val clock: Clock = SystemClock
+    private val clock: Clock = SystemClock,
+    private val auditListener: AuditListener? = null
 ) {
 
     private data class PendingCode(
@@ -110,6 +111,15 @@ class DeviceCodeManager(
                     val token = tokenStore.createToken(
                         pending.integrationId,
                         "device-code-client"
+                    )
+                    auditListener?.onTokenGranted(
+                        TokenGrantEvent(
+                            timestamp = clock.currentTimeMillis(),
+                            integration = pending.integrationId,
+                            clientId = "device-code-client",
+                            clientName = null,
+                            grantType = "device_code"
+                        )
                     )
                     DeviceCodePollResult(DeviceCodeStatus.APPROVED, accessToken = token)
                 }

@@ -39,7 +39,8 @@ class NotificationMcpProvider(
     private val activeNotificationSource: () -> Array<StatusBarNotification>,
     private val actionPerformer: (key: String, actionIndex: Int) -> Boolean,
     private val notificationDismisser: (key: String) -> Boolean,
-    private val fieldEncryptor: FieldEncryptor? = null
+    private val fieldEncryptor: FieldEncryptor? = null,
+    private val allowActions: Boolean = true
 ) : McpServerProvider {
 
     override val id = "notifications"
@@ -122,6 +123,13 @@ class NotificationMcpProvider(
                 required = listOf("notification_key", "action_index")
             )
         ) { request ->
+            if (!allowActions) {
+                return@addTool CallToolResult(
+                    content = listOf(TextContent(ERR_ACTIONS_DISABLED)),
+                    isError = true
+                )
+            }
+
             val key = request.arguments["notification_key"]
                 ?.jsonPrimitive?.content
                 ?: return@addTool CallToolResult(
@@ -166,6 +174,13 @@ class NotificationMcpProvider(
                 required = listOf("notification_key")
             )
         ) { request ->
+            if (!allowActions) {
+                return@addTool CallToolResult(
+                    content = listOf(TextContent(ERR_ACTIONS_DISABLED)),
+                    isError = true
+                )
+            }
+
             val key = request.arguments["notification_key"]?.jsonPrimitive?.content
                 ?: return@addTool CallToolResult(
                     content = listOf(TextContent("""{"success":false}""")),
@@ -367,5 +382,7 @@ class NotificationMcpProvider(
             """{"success":false,"message":"Missing notification_key"}"""
         private const val ERR_MISSING_ACTION =
             """{"success":false,"message":"Missing action_index"}"""
+        private const val ERR_ACTIONS_DISABLED =
+            """{"success":false,"message":"Notification actions are disabled by the user."}"""
     }
 }

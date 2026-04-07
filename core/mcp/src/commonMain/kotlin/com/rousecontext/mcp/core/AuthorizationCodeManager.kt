@@ -67,7 +67,8 @@ private const val DISPLAY_CODE_HALF_LENGTH = 6
  */
 class AuthorizationCodeManager(
     private val tokenStore: TokenStore = InMemoryTokenStore(),
-    private val clock: Clock = SystemClock
+    private val clock: Clock = SystemClock,
+    private val auditListener: AuditListener? = null
 ) {
 
     /**
@@ -276,7 +277,17 @@ class AuthorizationCodeManager(
             }
 
             val clientName = clientNames[request.clientId]
-            return tokenStore.createToken(request.integration, request.clientId, clientName)
+            val token = tokenStore.createToken(request.integration, request.clientId, clientName)
+            auditListener?.onTokenGranted(
+                TokenGrantEvent(
+                    timestamp = clock.currentTimeMillis(),
+                    integration = request.integration,
+                    clientId = request.clientId,
+                    clientName = clientName,
+                    grantType = "authorization_code"
+                )
+            )
+            return token
         }
     }
 

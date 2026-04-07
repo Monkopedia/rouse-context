@@ -20,7 +20,8 @@ import com.rousecontext.notifications.capture.NotificationMcpProvider
 class NotificationIntegration(
     private val context: Context,
     dao: NotificationDao,
-    fieldEncryptor: FieldEncryptor? = null
+    fieldEncryptor: FieldEncryptor? = null,
+    allowActions: Boolean = true
 ) : McpIntegration {
 
     override val id = "notifications"
@@ -35,7 +36,8 @@ class NotificationIntegration(
         activeNotificationSource = ::getActiveNotifications,
         actionPerformer = ::performAction,
         notificationDismisser = ::dismissNotification,
-        fieldEncryptor = fieldEncryptor
+        fieldEncryptor = fieldEncryptor,
+        allowActions = allowActions
     )
 
     override suspend fun isAvailable(): Boolean = true

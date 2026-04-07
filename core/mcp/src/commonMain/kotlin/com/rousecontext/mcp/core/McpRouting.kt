@@ -60,9 +60,12 @@ fun Application.configureMcpRouting(
     registry: ProviderRegistry,
     tokenStore: TokenStore,
     deviceCodeManager: DeviceCodeManager,
-    authorizationCodeManager: AuthorizationCodeManager = AuthorizationCodeManager(tokenStore),
-    hostname: String,
     auditListener: AuditListener? = null,
+    authorizationCodeManager: AuthorizationCodeManager = AuthorizationCodeManager(
+        tokenStore,
+        auditListener = auditListener
+    ),
+    hostname: String,
     clock: Clock = SystemClock,
     rateLimiter: RateLimiter? = null,
     mcpRateLimiter: RateLimiter? = null,
@@ -860,8 +863,9 @@ private fun emitAuditEvent(
                 durationMs = endMs - startMs
             )
         )
-    } catch (_: Exception) {
+    } catch (e: Exception) {
         // Audit is best-effort; never fail the request due to audit errors
+        println("Audit: failed to emit event: ${e.message}")
     }
 }
 
