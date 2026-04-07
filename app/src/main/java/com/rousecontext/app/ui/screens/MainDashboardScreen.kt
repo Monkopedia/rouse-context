@@ -96,6 +96,128 @@ data class DashboardState(
     val pendingAuthRequestCount: Int = 0
 )
 
+/**
+ * Content-only dashboard composable used inside the persistent Scaffold
+ * in [com.rousecontext.app.ui.navigation.AppNavigation].
+ */
+@Composable
+fun HomeDashboardContent(
+    state: DashboardState = DashboardState(),
+    onAddIntegration: () -> Unit = {},
+    onIntegrationClick: (String) -> Unit = {},
+    onViewAllActivity: () -> Unit = {},
+    onRetryRenewal: () -> Unit = {},
+    onPendingAuthRequests: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
+        // Cert banner (most urgent - show first)
+        state.certBanner?.let { banner ->
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+                CertBannerCard(banner, onRetryRenewal)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        // Pending auth requests banner
+        if (state.pendingAuthRequestCount > 0) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                PendingAuthBanner(
+                    count = state.pendingAuthRequestCount,
+                    onClick = onPendingAuthRequests
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+
+        // Connection status (debug builds only)
+        if (BuildConfig.DEBUG) {
+            item {
+                if (state.certBanner == null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        // Integrations header
+        item {
+            SectionHeader("Integrations")
+        }
+
+        // Empty state or integration list
+        if (state.integrations.isEmpty()) {
+            item {
+                EmptyIntegrationsCard(onAddIntegration)
+            }
+        } else {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        state.integrations.forEachIndexed { index, integration ->
+                            IntegrationRow(
+                                integration = integration,
+                                onClick = { onIntegrationClick(integration.id) }
+                            )
+                            if (index < state.integrations.lastIndex) {
+                                ListDivider()
+                            }
+                        }
+                    }
+                }
+                if (state.hasMoreIntegrationsToAdd) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AddIntegrationCard(onAddIntegration)
+                }
+            }
+        }
+
+        // Recent activity
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionHeader("Recent Activity")
+        }
+
+        if (state.recentActivity.isEmpty()) {
+            item {
+                EmptyRecentActivityCard()
+            }
+        } else {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column {
+                        state.recentActivity.forEachIndexed { index, entry ->
+                            ActivityRow(entry)
+                            if (index < state.recentActivity.lastIndex) {
+                                ListDivider()
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onViewAllActivity) {
+                        Text("View all")
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Full-screen dashboard with its own Scaffold, used by previews.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainDashboardScreen(
@@ -123,131 +245,42 @@ fun MainDashboardScreen(
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { onTabSelected(0) },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                    icon = {
+                        Icon(Icons.Default.Home, contentDescription = "Home")
+                    },
                     label = { Text("Home") },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { onTabSelected(1) },
-                    icon = { Icon(Icons.Default.History, contentDescription = "Audit") },
+                    icon = {
+                        Icon(Icons.Default.History, contentDescription = "Audit")
+                    },
                     label = { Text("Audit") },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { onTabSelected(2) },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    icon = {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    },
                     label = { Text("Settings") },
                     colors = itemColors
                 )
             }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-        ) {
-            // Cert banner (most urgent - show first)
-            state.certBanner?.let { banner ->
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    CertBannerCard(banner, onRetryRenewal)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
-
-            // Pending auth requests banner
-            if (state.pendingAuthRequestCount > 0) {
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    PendingAuthBanner(
-                        count = state.pendingAuthRequestCount,
-                        onClick = onPendingAuthRequests
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-            }
-
-            // Connection status (debug builds only)
-            if (BuildConfig.DEBUG) {
-                item {
-                    if (state.certBanner == null) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                    ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
-
-            // Integrations header
-            item {
-                SectionHeader("Integrations")
-            }
-
-            // Empty state or integration list
-            if (state.integrations.isEmpty()) {
-                item {
-                    EmptyIntegrationsCard(onAddIntegration)
-                }
-            } else {
-                item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column {
-                            state.integrations.forEachIndexed { index, integration ->
-                                IntegrationRow(
-                                    integration = integration,
-                                    onClick = { onIntegrationClick(integration.id) }
-                                )
-                                if (index < state.integrations.lastIndex) {
-                                    ListDivider()
-                                }
-                            }
-                        }
-                    }
-                    if (state.hasMoreIntegrationsToAdd) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        AddIntegrationCard(onAddIntegration)
-                    }
-                }
-            }
-
-            // Recent activity
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                SectionHeader("Recent Activity")
-            }
-
-            if (state.recentActivity.isEmpty()) {
-                item {
-                    EmptyRecentActivityCard()
-                }
-            } else {
-                item {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column {
-                            state.recentActivity.forEachIndexed { index, entry ->
-                                ActivityRow(entry)
-                                if (index < state.recentActivity.lastIndex) {
-                                    ListDivider()
-                                }
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = onViewAllActivity) {
-                            Text("View all")
-                        }
-                    }
-                }
-            }
-        }
+        HomeDashboardContent(
+            state = state,
+            onAddIntegration = onAddIntegration,
+            onIntegrationClick = onIntegrationClick,
+            onViewAllActivity = onViewAllActivity,
+            onRetryRenewal = onRetryRenewal,
+            onPendingAuthRequests = onPendingAuthRequests,
+            modifier = Modifier.padding(padding)
+        )
     }
 }
 

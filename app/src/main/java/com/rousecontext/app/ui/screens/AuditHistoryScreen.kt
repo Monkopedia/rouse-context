@@ -81,6 +81,176 @@ data class AuditHistoryState(
     val availableDates: List<String> = listOf("Today", "Yesterday", "Last 7 days", "Last 30 days")
 )
 
+/**
+ * Content-only audit history composable used inside the persistent Scaffold
+ * in [com.rousecontext.app.ui.navigation.AppNavigation].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AuditHistoryContent(
+    state: AuditHistoryState = AuditHistoryState(),
+    onProviderFilterChanged: (String) -> Unit = {},
+    onDateFilterChanged: (String) -> Unit = {},
+    onClearHistory: () -> Unit = {},
+    onEntryClick: (Long) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
+        // Filters
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterDropdown(
+                label = "Provider",
+                selected = state.providerFilter,
+                options = state.availableProviders,
+                onSelected = onProviderFilterChanged,
+                modifier = Modifier.weight(1f)
+            )
+            FilterDropdown(
+                label = "Date",
+                selected = state.dateFilter,
+                options = state.availableDates,
+                onSelected = onDateFilterChanged,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (state.groups.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    Icons.Default.History,
+                    contentDescription = null,
+                    modifier = Modifier.size(48.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "No tool calls recorded yet",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Activity will appear here after\nAI clients access your data.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                state.groups.forEach { group ->
+                    item {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        SectionHeader(group.dateLabel)
+                    }
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column {
+                                group.entries.forEachIndexed { index, entry ->
+                                    ListRow(
+                                        onClick = { onEntryClick(entry.id) }
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement =
+                                                Arrangement.SpaceBetween,
+                                                verticalAlignment =
+                                                Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    entry.toolName,
+                                                    style = MaterialTheme
+                                                        .typography.bodyMedium,
+                                                    fontWeight = FontWeight.Medium,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                Text(
+                                                    entry.time,
+                                                    style = MaterialTheme
+                                                        .typography.bodySmall,
+                                                    color = MaterialTheme
+                                                        .colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row {
+                                                Text(
+                                                    "${entry.durationMs}ms",
+                                                    style = MaterialTheme
+                                                        .typography.labelSmall,
+                                                    color = MaterialTheme
+                                                        .colorScheme.onSurfaceVariant
+                                                )
+                                                Spacer(
+                                                    modifier = Modifier.width(12.dp)
+                                                )
+                                                Text(
+                                                    entry.arguments,
+                                                    style = MaterialTheme
+                                                        .typography.labelSmall,
+                                                    color = MaterialTheme
+                                                        .colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (index < group.entries.lastIndex) {
+                                        ListDivider()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = "Audit history is kept until you clear it manually.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+
+            OutlinedButton(
+                onClick = onClearHistory,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                )
+            ) {
+                Text("Clear history")
+            }
+        }
+    }
+}
+
+/**
+ * Full-screen audit history with its own Scaffold, used by previews.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuditHistoryScreen(
@@ -93,7 +263,10 @@ fun AuditHistoryScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Audit History") }, colors = appBarColors())
+            TopAppBar(
+                title = { Text("Audit History") },
+                colors = appBarColors()
+            )
         },
         bottomBar = {
             NavigationBar(containerColor = navBarContainerColor()) {
@@ -101,179 +274,47 @@ fun AuditHistoryScreen(
                 NavigationBarItem(
                     selected = false,
                     onClick = { onTabSelected(0) },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                    icon = {
+                        Icon(Icons.Default.Home, contentDescription = "Home")
+                    },
                     label = { Text("Home") },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = true,
                     onClick = { onTabSelected(1) },
-                    icon = { Icon(Icons.Default.History, contentDescription = "Audit") },
+                    icon = {
+                        Icon(
+                            Icons.Default.History,
+                            contentDescription = "Audit"
+                        )
+                    },
                     label = { Text("Audit") },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = false,
                     onClick = { onTabSelected(2) },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    icon = {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Settings"
+                        )
+                    },
                     label = { Text("Settings") },
                     colors = itemColors
                 )
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-        ) {
-            // Filters
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FilterDropdown(
-                    label = "Provider",
-                    selected = state.providerFilter,
-                    options = state.availableProviders,
-                    onSelected = onProviderFilterChanged,
-                    modifier = Modifier.weight(1f)
-                )
-                FilterDropdown(
-                    label = "Date",
-                    selected = state.dateFilter,
-                    options = state.availableDates,
-                    onSelected = onDateFilterChanged,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (state.groups.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        Icons.Default.History,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "No tool calls recorded yet",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Activity will appear here after\nAI clients access your data.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            } else {
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    state.groups.forEach { group ->
-                        item {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            SectionHeader(group.dateLabel)
-                        }
-                        item {
-                            Card(modifier = Modifier.fillMaxWidth()) {
-                                Column {
-                                    group.entries.forEachIndexed { index, entry ->
-                                        ListRow(
-                                            onClick = { onEntryClick(entry.id) }
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement =
-                                                    Arrangement.SpaceBetween,
-                                                    verticalAlignment =
-                                                    Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        entry.toolName,
-                                                        style = MaterialTheme
-                                                            .typography.bodyMedium,
-                                                        fontWeight = FontWeight.Medium,
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                    Text(
-                                                        entry.time,
-                                                        style = MaterialTheme
-                                                            .typography.bodySmall,
-                                                        color = MaterialTheme
-                                                            .colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Row {
-                                                    Text(
-                                                        "${entry.durationMs}ms",
-                                                        style = MaterialTheme
-                                                            .typography.labelSmall,
-                                                        color = MaterialTheme
-                                                            .colorScheme.onSurfaceVariant
-                                                    )
-                                                    Spacer(
-                                                        modifier = Modifier.width(12.dp)
-                                                    )
-                                                    Text(
-                                                        entry.arguments,
-                                                        style = MaterialTheme
-                                                            .typography.labelSmall,
-                                                        color = MaterialTheme
-                                                            .colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        if (index < group.entries.lastIndex) {
-                                            ListDivider()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Text(
-                    text = "Audit history is kept until you clear it manually.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
-
-                OutlinedButton(
-                    onClick = onClearHistory,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Text("Clear history")
-                }
-            }
-        }
+        AuditHistoryContent(
+            state = state,
+            onProviderFilterChanged = onProviderFilterChanged,
+            onDateFilterChanged = onDateFilterChanged,
+            onClearHistory = onClearHistory,
+            onEntryClick = onEntryClick,
+            modifier = Modifier.padding(padding)
+        )
     }
 }
 

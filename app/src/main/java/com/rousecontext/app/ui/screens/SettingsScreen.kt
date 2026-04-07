@@ -88,6 +88,208 @@ data class SettingsState(
     val trustStatus: TrustStatusState? = null
 )
 
+/**
+ * Content-only settings composable used inside the persistent Scaffold
+ * in [com.rousecontext.app.ui.navigation.AppNavigation].
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsContent(
+    state: SettingsState = SettingsState(),
+    onIdleTimeoutChanged: (Int) -> Unit = {},
+    onDisableTimeoutToggled: (Boolean) -> Unit = {},
+    onPostSessionModeChanged: (String) -> Unit = {},
+    onThemeModeChanged: (String) -> Unit = {},
+    onGenerateNewAddress: () -> Unit = {},
+    onFixBatteryOptimization: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Appearance section
+        SectionHeader("Appearance")
+        SettingsSectionCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                SettingsDropdown(
+                    label = "Theme",
+                    selected = state.themeMode,
+                    options = listOf("Light", "Dark", "Auto"),
+                    onSelected = onThemeModeChanged
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Connection section
+        SectionHeader("Connection")
+        SettingsSectionCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                SettingsDropdown(
+                    label = "Idle timeout",
+                    selected = "${state.idleTimeoutMinutes} min",
+                    options = listOf("2 min", "5 min", "10 min"),
+                    onSelected = { value ->
+                        val minutes = value.replace(" min", "").toIntOrNull() ?: 5
+                        onIdleTimeoutChanged(minutes)
+                    }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Disable timeout", style = MaterialTheme.typography.bodyLarge)
+                        if (!state.batteryOptimizationExempt) {
+                            Text(
+                                "(requires battery exemption)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = state.idleTimeoutDisabled,
+                        onCheckedChange = onDisableTimeoutToggled,
+                        enabled = state.batteryOptimizationExempt
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Audit notifications section
+        SectionHeader("Audit Notifications")
+        SettingsSectionCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Show a notification when AI clients use your tools",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                SettingsDropdown(
+                    label = "After session",
+                    selected = state.postSessionMode,
+                    options = listOf("Summary", "Each usage", "Suppress"),
+                    onSelected = onPostSessionModeChanged
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Security section
+        SectionHeader("Security")
+        SettingsSectionCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Generate new address", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = state.rotationCooldownMessage ?: "(once per 30 days)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(
+                        onClick = onGenerateNewAddress,
+                        enabled = state.canRotateAddress,
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("Rotate")
+                    }
+                }
+            }
+        }
+
+        // Battery warning
+        if (state.showBatteryWarning) {
+            Spacer(modifier = Modifier.height(16.dp))
+            val ext = LocalExtendedColors.current
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = ext.warningContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = ext.warningAccent
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Battery optimization",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = ext.warningAccent
+                        )
+                        Text(
+                            "Disable to ensure reliable wake-ups.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ext.onWarningContainer
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onFixBatteryOptimization,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = ext.warningAccent
+                        ),
+                        border = BorderStroke(1.dp, ext.warningAccent)
+                    ) {
+                        Text("Fix this")
+                    }
+                }
+            }
+        }
+
+        // Trust Status section
+        if (state.trustStatus != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionHeader("Trust Status")
+            TrustStatusSection(state.trustStatus)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // About section
+        SectionHeader("About")
+        SettingsSectionCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    "Version ${state.versionName}",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Text("Apache 2.0 License", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+/**
+ * Full-screen settings with its own Scaffold, used by previews.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -102,7 +304,10 @@ fun SettingsScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Settings") }, colors = appBarColors())
+            TopAppBar(
+                title = { Text("Settings") },
+                colors = appBarColors()
+            )
         },
         bottomBar = {
             NavigationBar(containerColor = navBarContainerColor()) {
@@ -110,209 +315,49 @@ fun SettingsScreen(
                 NavigationBarItem(
                     selected = false,
                     onClick = { onTabSelected(0) },
-                    icon = { Icon(Icons.Default.Home, contentDescription = "Home") },
+                    icon = {
+                        Icon(Icons.Default.Home, contentDescription = "Home")
+                    },
                     label = { Text("Home") },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = false,
                     onClick = { onTabSelected(1) },
-                    icon = { Icon(Icons.Default.History, contentDescription = "Audit") },
+                    icon = {
+                        Icon(
+                            Icons.Default.History,
+                            contentDescription = "Audit"
+                        )
+                    },
                     label = { Text("Audit") },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = true,
                     onClick = { onTabSelected(2) },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    icon = {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Settings"
+                        )
+                    },
                     label = { Text("Settings") },
                     colors = itemColors
                 )
             }
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Appearance section
-            SectionHeader("Appearance")
-            SettingsSectionCard {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    SettingsDropdown(
-                        label = "Theme",
-                        selected = state.themeMode,
-                        options = listOf("Light", "Dark", "Auto"),
-                        onSelected = onThemeModeChanged
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Connection section
-            SectionHeader("Connection")
-            SettingsSectionCard {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    SettingsDropdown(
-                        label = "Idle timeout",
-                        selected = "${state.idleTimeoutMinutes} min",
-                        options = listOf("2 min", "5 min", "10 min"),
-                        onSelected = { value ->
-                            val minutes = value.replace(" min", "").toIntOrNull() ?: 5
-                            onIdleTimeoutChanged(minutes)
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Disable timeout", style = MaterialTheme.typography.bodyLarge)
-                            if (!state.batteryOptimizationExempt) {
-                                Text(
-                                    "(requires battery exemption)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = state.idleTimeoutDisabled,
-                            onCheckedChange = onDisableTimeoutToggled,
-                            enabled = state.batteryOptimizationExempt
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Audit notifications section
-            SectionHeader("Audit Notifications")
-            SettingsSectionCard {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Show a notification when AI clients use your tools",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    SettingsDropdown(
-                        label = "After session",
-                        selected = state.postSessionMode,
-                        options = listOf("Summary", "Each usage", "Suppress"),
-                        onSelected = onPostSessionModeChanged
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Security section
-            SectionHeader("Security")
-            SettingsSectionCard {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Generate new address", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                text = state.rotationCooldownMessage ?: "(once per 30 days)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        TextButton(
-                            onClick = onGenerateNewAddress,
-                            enabled = state.canRotateAddress,
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text("Rotate")
-                        }
-                    }
-                }
-            }
-
-            // Battery warning
-            if (state.showBatteryWarning) {
-                Spacer(modifier = Modifier.height(16.dp))
-                val ext = LocalExtendedColors.current
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = ext.warningContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = ext.warningAccent
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Battery optimization",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = ext.warningAccent
-                            )
-                            Text(
-                                "Disable to ensure reliable wake-ups.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = ext.onWarningContainer
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = onFixBatteryOptimization,
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = ext.warningAccent
-                            ),
-                            border = BorderStroke(1.dp, ext.warningAccent)
-                        ) {
-                            Text("Fix this")
-                        }
-                    }
-                }
-            }
-
-            // Trust Status section
-            if (state.trustStatus != null) {
-                Spacer(modifier = Modifier.height(16.dp))
-                SectionHeader("Trust Status")
-                TrustStatusSection(state.trustStatus)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // About section
-            SectionHeader("About")
-            SettingsSectionCard {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Version ${state.versionName}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                    Text("Apache 2.0 License", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+        SettingsContent(
+            state = state,
+            onIdleTimeoutChanged = onIdleTimeoutChanged,
+            onDisableTimeoutToggled = onDisableTimeoutToggled,
+            onPostSessionModeChanged = onPostSessionModeChanged,
+            onThemeModeChanged = onThemeModeChanged,
+            onGenerateNewAddress = onGenerateNewAddress,
+            onFixBatteryOptimization = onFixBatteryOptimization,
+            modifier = Modifier.padding(padding)
+        )
     }
 }
 
