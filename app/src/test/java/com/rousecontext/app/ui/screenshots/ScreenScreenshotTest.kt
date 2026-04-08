@@ -285,7 +285,7 @@ class ScreenScreenshotTest {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(
                 integrationName = "Health Connect",
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-health.my-device.rousecontext.com/mcp"
             )
         )
     }
@@ -295,7 +295,7 @@ class ScreenScreenshotTest {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(
                 integrationName = "Health Connect",
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-health.my-device.rousecontext.com/mcp"
             )
         )
     }
@@ -315,7 +315,7 @@ class ScreenScreenshotTest {
         IntegrationManageScreen(
             state = IntegrationManageState(
                 status = IntegrationStatus.PENDING,
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-health.my-device.rousecontext.com/mcp"
             )
         )
     }
@@ -325,7 +325,7 @@ class ScreenScreenshotTest {
         IntegrationManageScreen(
             state = IntegrationManageState(
                 status = IntegrationStatus.PENDING,
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-health.my-device.rousecontext.com/mcp"
             )
         )
     }
@@ -630,13 +630,13 @@ class ScreenScreenshotTest {
                 id = "health",
                 name = "Health Connect",
                 status = IntegrationStatus.ACTIVE,
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-health.my-device.rousecontext.com/mcp"
             ),
             IntegrationItem(
                 id = "notifications",
                 name = "Notifications",
                 status = IntegrationStatus.PENDING,
-                url = "https://my-device.rousecontext.com/notifications/mcp"
+                url = "https://swift-notifications.my-device.rousecontext.com/mcp"
             )
         ),
         recentActivity = listOf(
@@ -652,7 +652,7 @@ class ScreenScreenshotTest {
                 "health",
                 "Health Connect",
                 IntegrationStatus.ACTIVE,
-                "https://my-device.rousecontext.com/health/mcp"
+                "https://brave-health.my-device.rousecontext.com/mcp"
             )
         )
     )
@@ -689,7 +689,7 @@ class ScreenScreenshotTest {
 
     private fun integrationManageActiveState() = IntegrationManageState(
         status = IntegrationStatus.ACTIVE,
-        url = "https://my-device.rousecontext.com/health/mcp",
+        url = "https://brave-health.my-device.rousecontext.com/mcp",
         recentActivity = listOf(
             AuditEntry("10:32 AM", "get_steps", 142),
             AuditEntry("10:31 AM", "get_sleep", 89)

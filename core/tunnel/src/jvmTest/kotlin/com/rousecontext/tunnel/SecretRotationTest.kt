@@ -26,49 +26,56 @@ class SecretRotationTest {
     }
 
     @Test
-    fun `rotate secret returns new prefix`(): Unit = runBlocking {
+    fun `rotate secret returns new integration secrets`(): Unit = runBlocking {
         mockServer.rotateSecretHandler = {
             MockRotateSecretResponse(
                 status = 200,
-                body = RotateSecretResponse(secretPrefix = "swift-tiger")
+                body = RotateSecretResponse(
+                    integrationSecrets = mapOf("health" to "swift-health")
+                )
             )
         }
 
         val result = client.rotateSecret()
 
         assertTrue(result is RelayApiResult.Success)
-        assertEquals("swift-tiger", (result as RelayApiResult.Success).data.secretPrefix)
+        assertEquals(
+            mapOf("health" to "swift-health"),
+            (result as RelayApiResult.Success).data.integrationSecrets
+        )
     }
 
     @Test
-    fun `rotate secret stores new prefix in certificate store`(): Unit = runBlocking {
-        store.storeSecretPrefix("old-prefix")
-        assertEquals("old-prefix", store.getSecretPrefix())
+    fun `rotate secret stores new secrets in certificate store`(): Unit = runBlocking {
+        store.storeIntegrationSecrets(mapOf("health" to "old-health"))
+        assertEquals("old-health", store.getSecretForIntegration("health"))
 
         mockServer.rotateSecretHandler = {
             MockRotateSecretResponse(
                 status = 200,
-                body = RotateSecretResponse(secretPrefix = "new-prefix")
+                body = RotateSecretResponse(
+                    integrationSecrets = mapOf("health" to "new-health")
+                )
             )
         }
 
         val result = client.rotateSecret()
         assertTrue(result is RelayApiResult.Success)
-        val newPrefix = (result as RelayApiResult.Success).data.secretPrefix
-        store.storeSecretPrefix(newPrefix)
+        val newSecrets = (result as RelayApiResult.Success).data.integrationSecrets
+        store.storeIntegrationSecrets(newSecrets)
 
-        assertEquals("new-prefix", store.getSecretPrefix())
+        assertEquals("new-health", store.getSecretForIntegration("health"))
     }
 
     @Test
-    fun `certificate store secret prefix persists and clears`(): Unit = runBlocking {
-        assertNull(store.getSecretPrefix())
+    fun `certificate store integration secrets persist and clear`(): Unit = runBlocking {
+        assertNull(store.getIntegrationSecrets())
 
-        store.storeSecretPrefix("brave-falcon")
-        assertEquals("brave-falcon", store.getSecretPrefix())
+        store.storeIntegrationSecrets(mapOf("health" to "brave-health"))
+        assertEquals("brave-health", store.getSecretForIntegration("health"))
 
         store.clear()
-        assertNull(store.getSecretPrefix())
+        assertNull(store.getIntegrationSecrets())
     }
 
     @Test

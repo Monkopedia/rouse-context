@@ -39,7 +39,9 @@ class OnboardingFlow(
 
         return try {
             certificateStore.storeSubdomain(registerData.subdomain)
-            registerData.secretPrefix?.let { certificateStore.storeSecretPrefix(it) }
+            if (registerData.integrationSecrets.isNotEmpty()) {
+                certificateStore.storeIntegrationSecrets(registerData.integrationSecrets)
+            }
             OnboardingResult.Success(subdomain = registerData.subdomain)
         } catch (e: Exception) {
             certificateStore.clear()

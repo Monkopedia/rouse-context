@@ -26,8 +26,7 @@ import org.junit.Test
 
 /**
  * Verifies that [IntegrationManageViewModel] generates MCP endpoint URLs
- * using the real subdomain from [CertificateStore], not placeholders
- * like "<device>" or "brave-falcon".
+ * using the real subdomain from [CertificateStore] and per-integration secrets.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class IntegrationUrlTest {
@@ -45,10 +44,10 @@ class IntegrationUrlTest {
     }
 
     @Test
-    fun `URL uses real subdomain from CertificateStore`() = runTest(testDispatcher) {
+    fun `URL uses real subdomain and integration secret`() = runTest(testDispatcher) {
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "test-sub"
-            coEvery { getSecretPrefix() } returns "brave-falcon"
+            coEvery { getSecretForIntegration("health") } returns "brave-health"
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true
@@ -80,16 +79,16 @@ class IntegrationUrlTest {
                 state.url.contains("test-sub")
             )
             assertTrue(
-                "URL should contain secret prefix brave-falcon, was: ${state.url}",
-                state.url.contains("brave-falcon")
+                "URL should contain integration secret brave-health, was: ${state.url}",
+                state.url.contains("brave-health")
             )
             assertTrue(
-                "URL should have prefix.subdomain format, was: ${state.url}",
-                state.url.contains("brave-falcon.test-sub.")
+                "URL should have secret.subdomain format, was: ${state.url}",
+                state.url.contains("brave-health.test-sub.")
             )
             assertTrue(
-                "URL should end with /health/mcp, was: ${state.url}",
-                state.url.endsWith("/health/mcp")
+                "URL should end with /mcp, was: ${state.url}",
+                state.url.endsWith("/mcp")
             )
             assertFalse(
                 "URL should not contain placeholder <device>, was: ${state.url}",
@@ -99,10 +98,10 @@ class IntegrationUrlTest {
     }
 
     @Test
-    fun `URL includes correct path for different integrations`() = runTest(testDispatcher) {
+    fun `URL includes correct secret for different integrations`() = runTest(testDispatcher) {
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "my-device"
-            coEvery { getSecretPrefix() } returns "swift-tiger"
+            coEvery { getSecretForIntegration("notifications") } returns "swift-notifications"
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("notifications") } returns true
@@ -133,21 +132,21 @@ class IntegrationUrlTest {
             val state = awaitItem()
             assertEquals(IntegrationStatus.ACTIVE, state.status)
             assertTrue(
-                "URL should use secret prefix and subdomain, was: ${state.url}",
-                state.url.startsWith("https://swift-tiger.my-device.")
+                "URL should use integration secret and subdomain, was: ${state.url}",
+                state.url.startsWith("https://swift-notifications.my-device.")
             )
             assertTrue(
-                "URL should end with /notifications/mcp, was: ${state.url}",
-                state.url.endsWith("/notifications/mcp")
+                "URL should end with /mcp, was: ${state.url}",
+                state.url.endsWith("/mcp")
             )
         }
     }
 
     @Test
-    fun `URL uses unknown when subdomain is null`() = runTest(testDispatcher) {
+    fun `URL uses fallback when subdomain is null`() = runTest(testDispatcher) {
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns null
-            coEvery { getSecretPrefix() } returns null
+            coEvery { getSecretForIntegration(any()) } returns null
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true

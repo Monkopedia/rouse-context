@@ -161,30 +161,21 @@ val appModule = module {
     }
 
     // --- MCP session ---
+    // TODO: With per-integration hostnames, each integration needs its own McpSession.
+    // For now, create a single session for the first enabled integration.
     single {
-        val subdomainFile = java.io.File(androidContext().filesDir, "rouse_subdomain.txt")
-        val subdomain = if (subdomainFile.exists()) {
-            subdomainFile.readText().trim()
-        } else {
-            null
-        }
-        val secretPrefixFile = java.io.File(androidContext().filesDir, "rouse_secret_prefix.txt")
-        val secretPrefix = if (secretPrefixFile.exists()) {
-            secretPrefixFile.readText().trim()
-        } else {
-            null
-        }
+        val certStore: CertificateStore = get()
         val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
-        val hostname = subdomain?.let { sub ->
-            val prefix = secretPrefix?.let { "$it." } ?: ""
-            "$prefix$sub.$baseDomain"
-        } ?: "localhost"
         val notifier: AuthRequestNotifier = get()
+        val integrations: List<McpIntegration> = get()
+        // Default to first integration id
+        val defaultIntegration = integrations.firstOrNull()?.id ?: "health"
         McpSession(
             registry = get(),
             tokenStore = get(),
             auditListener = get(),
-            hostname = hostname
+            hostname = "localhost",
+            integration = defaultIntegration
         ).also { session ->
             session.start(port = 0)
             session.authorizationCodeManager.onNewRequest = { displayCode, integration ->

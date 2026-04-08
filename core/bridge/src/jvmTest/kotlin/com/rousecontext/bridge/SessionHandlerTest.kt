@@ -66,7 +66,7 @@ class SessionHandlerTest {
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
         val responseBody = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
         }
 
         val json = mcpJson.parseToJsonElement(responseBody).jsonObject
@@ -113,13 +113,13 @@ class SessionHandlerTest {
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
         withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
         }
 
         // tools/list
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val listResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", listRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", listRequest, token)
         }
         val tools = mcpJson.parseToJsonElement(listResponse).jsonObject["result"]
             ?.jsonObject?.get("tools")?.jsonArray
@@ -133,7 +133,7 @@ class SessionHandlerTest {
             id = 3
         )
         val callResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", callRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", callRequest, token)
         }
         val content = mcpJson.parseToJsonElement(callResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -204,7 +204,7 @@ class SessionHandlerTest {
 
         // Initialize test provider on the same stream
         withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, testToken)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, testToken)
         }
 
         // Call echo tool
@@ -214,7 +214,7 @@ class SessionHandlerTest {
             id = 3
         )
         val echoResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", echoCall, testToken)
+            httpPost(clientIn, clientOut, "/mcp", echoCall, testToken)
         }
         val echoContent = mcpJson.parseToJsonElement(echoResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -264,14 +264,14 @@ class SessionHandlerTest {
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
         val unauthorizedStatus = withTimeout(10_000) {
-            httpPostStatus(clientIn, clientOut, "/test/mcp", initRequest, bearerToken = null)
+            httpPostStatus(clientIn, clientOut, "/mcp", initRequest, bearerToken = null)
         }
         assertEquals(401, unauthorizedStatus)
 
         // Step 2: Start device code flow
         val authorizeBody = """{"client_id":"test-client"}"""
         val authorizeResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/device/authorize", authorizeBody)
+            httpPost(clientIn, clientOut, "/device/authorize", authorizeBody)
         }
         val authorizeJson = mcpJson.parseToJsonElement(authorizeResponse).jsonObject
         val deviceCode = authorizeJson["device_code"]?.jsonPrimitive?.content
@@ -283,7 +283,7 @@ class SessionHandlerTest {
         val grantType = "urn:ietf:params:oauth:grant-type:device_code"
         val pollBody = """{"device_code":"$deviceCode","grant_type":"$grantType"}"""
         val pendingResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/token", pollBody)
+            httpPost(clientIn, clientOut, "/token", pollBody)
         }
         assertTrue(
             pendingResponse.contains("authorization_pending"),
@@ -295,7 +295,7 @@ class SessionHandlerTest {
 
         // Step 5: Poll again should get token
         val approvedResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/token", pollBody)
+            httpPost(clientIn, clientOut, "/token", pollBody)
         }
         val approvedJson = mcpJson.parseToJsonElement(approvedResponse).jsonObject
         val accessToken = approvedJson["access_token"]?.jsonPrimitive?.content
@@ -303,7 +303,7 @@ class SessionHandlerTest {
 
         // Step 6: Use token to make MCP request
         val responseBody = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, accessToken)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, accessToken)
         }
         val result = mcpJson.parseToJsonElement(responseBody).jsonObject["result"]?.jsonObject
         assertTrue(result != null, "Expected result")

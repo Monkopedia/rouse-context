@@ -68,7 +68,7 @@ class DashboardStateFlowTest {
             auditDao = auditDao,
             certStore = mockk {
                 coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
+                coEvery { getIntegrationSecrets() } returns null
             }
         )
 
@@ -110,7 +110,7 @@ class DashboardStateFlowTest {
             auditDao = auditDao,
             certStore = mockk {
                 coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
+                coEvery { getIntegrationSecrets() } returns null
             }
         )
 
@@ -164,7 +164,7 @@ class DashboardStateFlowTest {
             auditDao = auditDao,
             certStore = mockk {
                 coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
+                coEvery { getIntegrationSecrets() } returns null
             }
         )
 
@@ -222,7 +222,7 @@ class DashboardStateFlowTest {
             auditDao = auditDao,
             certStore = mockk {
                 coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
+                coEvery { getIntegrationSecrets() } returns null
             }
         )
 

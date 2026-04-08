@@ -57,11 +57,15 @@ interface CertificateStore {
     /** Retrieve the stored subdomain, or null if not onboarded. */
     suspend fun getSubdomain(): String?
 
-    /** Store the secret prefix (e.g. "brave-falcon") for URL construction. */
-    suspend fun storeSecretPrefix(prefix: String)
+    /** Store per-integration secrets (e.g. {"health": "brave-health"}). */
+    suspend fun storeIntegrationSecrets(secrets: Map<String, String>)
 
-    /** Retrieve the stored secret prefix, or null if not yet assigned. */
-    suspend fun getSecretPrefix(): String?
+    /** Retrieve the stored integration secrets, or null if not yet assigned. */
+    suspend fun getIntegrationSecrets(): Map<String, String>?
+
+    /** Convenience: look up the secret for a single integration. */
+    suspend fun getSecretForIntegration(integration: String): String? =
+        getIntegrationSecrets()?.get(integration)
 
     /** Store a PEM-encoded private key. On Android this is a no-op (key lives in HSM). */
     suspend fun storePrivateKey(pemKey: String)

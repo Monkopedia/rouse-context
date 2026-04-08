@@ -782,20 +782,25 @@ fun AppNavigation(
                             value =
                                 certStore.getSubdomain() ?: "unknown"
                         }.value
-                    val secretPrefix =
+                    val integrationSecret =
                         androidx.compose.runtime
                             .produceState<String?>(null) {
-                                value = certStore.getSecretPrefix()
+                                value = certStore
+                                    .getSecretForIntegration(
+                                        integrationId
+                                    )
                             }.value
                     val baseDomain =
                         com.rousecontext.app.BuildConfig.RELAY_HOST
                             .removePrefix("relay.")
-                    val mcpUrl = if (subdomain.isNotEmpty()) {
+                    val mcpUrl = if (
+                        subdomain.isNotEmpty() &&
+                        integrationSecret != null
+                    ) {
                         buildMcpUrl(
-                            secretPrefix,
+                            integrationSecret,
                             subdomain,
-                            baseDomain,
-                            integration?.path ?: "/$integrationId"
+                            baseDomain
                         )
                     } else {
                         ""

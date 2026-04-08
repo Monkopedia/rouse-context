@@ -33,7 +33,7 @@ class MainDashboardViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private val fakeCertStore = mockk<CertificateStore> {
         coEvery { getSubdomain() } returns "test-device"
-        coEvery { getSecretPrefix() } returns null
+        coEvery { getIntegrationSecrets() } returns null
     }
 
     @Before

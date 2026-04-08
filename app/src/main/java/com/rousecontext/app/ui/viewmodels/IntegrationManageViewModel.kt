@@ -43,7 +43,7 @@ class IntegrationManageViewModel(
             val integration = integrations.find { it.id == id }
                 ?: return@map IntegrationManageState()
             val subdomain = certStore.getSubdomain() ?: "unknown"
-            val secretPrefix = certStore.getSecretPrefix()
+            val integrationSecret = certStore.getSecretForIntegration(id)
             val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
                 .removePrefix("relay.")
 
@@ -81,7 +81,11 @@ class IntegrationManageViewModel(
                 } else {
                     IntegrationStatus.PENDING
                 },
-                url = buildMcpUrl(secretPrefix, subdomain, baseDomain, integration.path),
+                url = if (integrationSecret != null) {
+                    buildMcpUrl(integrationSecret, subdomain, baseDomain)
+                } else {
+                    "https://$subdomain.$baseDomain/mcp"
+                },
                 recentActivity = recent,
                 authorizedClients = clients
             )
