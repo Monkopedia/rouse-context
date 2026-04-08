@@ -324,9 +324,9 @@ class ScreenScreenshotTest {
     fun integrationManagePendingDark() = captureDark("18_integration_manage_pending") {
         IntegrationManageScreen(
             state = IntegrationManageState(
-                    status = IntegrationStatus.PENDING,
-                    url = "https://my-device.rousecontext.com/health/mcp"
-                )
+                status = IntegrationStatus.PENDING,
+                url = "https://my-device.rousecontext.com/health/mcp"
+            )
         )
     }
 
@@ -334,9 +334,9 @@ class ScreenScreenshotTest {
     fun integrationManagePendingLight() = captureLight("18_integration_manage_pending") {
         IntegrationManageScreen(
             state = IntegrationManageState(
-                    status = IntegrationStatus.PENDING,
-                    url = "https://my-device.rousecontext.com/health/mcp"
-                )
+                status = IntegrationStatus.PENDING,
+                url = "https://my-device.rousecontext.com/health/mcp"
+            )
         )
     }
 
