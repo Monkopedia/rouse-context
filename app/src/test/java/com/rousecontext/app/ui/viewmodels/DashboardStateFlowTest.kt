@@ -8,6 +8,7 @@ import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +65,8 @@ class DashboardStateFlowTest {
             integrations = listOf(fakeIntegration("health", "/health")),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
         )
 
         vm.state.test {
@@ -102,7 +104,8 @@ class DashboardStateFlowTest {
             integrations = listOf(fakeIntegration("health", "/health")),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
         )
 
         vm.state.test {
@@ -152,7 +155,8 @@ class DashboardStateFlowTest {
             ),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
         )
 
         vm.state.test {
@@ -206,7 +210,8 @@ class DashboardStateFlowTest {
             integrations = emptyList(),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
         )
 
         vm.state.test {
