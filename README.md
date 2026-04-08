@@ -1,44 +1,92 @@
 # Rouse Context
 
-On-demand MCP (Model Context Protocol) server for Android.
+Your phone has context that AI doesn't — your health data, your notifications, your app usage. Rouse Context makes that context available to AI assistants on demand, without ever syncing your data to the cloud.
 
-## Overview
+It's an Android app that turns your phone into an [MCP](https://modelcontextprotocol.io/) server. AI clients like Claude connect to a URL, your phone wakes up, and a direct encrypted session is established. The AI asks for what it needs, your phone responds, and then it goes back to sleep. Your data never leaves your device except through that live session.
 
-Rouse Context turns your Android device into an MCP server that AI assistants can
-connect to on demand. Sessions are triggered via FCM push notifications — the device
-wakes up, provisions a per-device ACME TLS certificate, and establishes an
-end-to-end encrypted connection through an SNI passthrough relay. No persistent
-cloud sync of user data ever occurs; all context stays on the device until
-explicitly served over a live session.
+> **Status:** Active development. The core e2e flow works — Claude can connect, wake the phone, authorize via OAuth, and call MCP tools. Health Connect, Notifications, Outreach, and Usage Stats integrations are implemented. See `docs/design/` for detailed design documents.
+
+## How It Works
+
+```
+AI Client ──TLS──> Relay (SNI passthrough) ──mux WebSocket (mTLS)──> Your Phone
+```
+
+1. You enable an integration (e.g. Health Connect) and get a URL like `https://brave-falcon.abc123.rousecontext.com/health/mcp`
+2. Add that URL to Claude, Cursor, or any MCP client
+3. When the client connects, the relay wakes your phone via FCM push
+4. Your phone connects back through a mTLS WebSocket, and the relay splices the two TLS streams together
+5. The AI client talks directly to your phone over end-to-end encrypted TLS — the relay never sees the plaintext
+
+Sessions are ephemeral. The phone goes back to sleep when the client disconnects.
+
+## Integrations
+
+| Integration | What it exposes |
+|---|---|
+| **Health Connect** | Step count, heart rate, sleep, HRV, workout history |
+| **Notifications** | Active and historical device notifications |
+| **Outreach** | Send messages, make calls, toggle DND |
+| **Usage Stats** | App usage patterns and screen time |
+
+Each integration is independently enabled and gets its own MCP endpoint with OAuth authorization (PKCE).
 
 ## Architecture
 
+### Android App
+
 | Module | Purpose |
 |---|---|
-| `:app` | Main application shell — UI, session history/audit log, trust notifications, settings |
-| `:tunnel` | FCM wakeup, ACME cert provisioning, SNI passthrough relay client, session lifecycle, wakelock management |
-| `:mcp-core` | Thin abstractions over the MCP Kotlin SDK — defines `McpServerProvider`, the bindable-service contract for MCP servers |
-| `:mcp-health` | Health Connect MCP server implementation |
+| `:app` | Compose UI, Koin DI, navigation, theming |
+| `:core:tunnel` | Mux protocol, WebSocket client, TLS accept, CertificateStore |
+| `:core:mcp` | MCP session routing, HTTP server, OAuth (device code + auth code + PKCE), token management |
+| `:core:bridge` | Bridges tunnel mux streams to MCP sessions via TLS |
+| `:api` | `McpIntegration` interface, `IntegrationStateStore` |
+| `:health` | Health Connect MCP server |
+| `:notifications` | Notification listener, audit persistence (Room) |
+| `:outreach` | Device actions — calls, SMS, DND |
+| `:usage` | App usage stats via UsageStatsManager |
+| `:work` | Foreground service, FCM receiver, WorkManager |
 
-## Key properties
+### Relay Server (`relay/`)
 
-- **FCM-triggered** — no persistent connection; the device is woken only when a
-  session is requested.
-- **E2E encrypted** — TLS terminates on the device via per-device ACME
-  certificates. The relay performs SNI passthrough only and never sees plaintext.
-- **No cloud sync** — user data is read from on-device sources (Health Connect,
-  etc.) and served live. Nothing is persisted in the cloud.
-- **Extensible** — additional MCP servers can be added as new modules implementing
-  `McpServerProvider`, or installed as third-party apps binding to the same
-  service protocol.
+Rust binary on a small VPS. Handles:
+- **TLS passthrough** — routes AI client connections to devices via SNI, never terminates inner TLS
+- **Mux WebSocket** — multiplexes multiple client sessions over one device connection
+- **FCM wakeup** — sends push notifications to wake sleeping devices
+- **ACME certs** — issues wildcard TLS certs per device via Let's Encrypt DNS-01 (Cloudflare API)
+- **Bot protection** — secret URL prefix validated before waking device, plus FCM throttle and IP rate limiting
+
+## Security
+
+- **End-to-end encrypted** — TLS terminates on your phone. The relay does SNI passthrough only.
+- **No cloud sync** — data is read from on-device sources and served live. Nothing stored remotely.
+- **Per-device ACME certs** — wildcard certs via Let's Encrypt, private key in Android Keystore (hardware-backed).
+- **mTLS device auth** — relay authenticates the device by client certificate before allowing connections.
+- **Secret URL prefix** — each device URL includes a rotatable secret (`brave-falcon.abc123.rousecontext.com`). Bots that discover the device subdomain can't wake it without the secret.
+- **OAuth per-client** — each AI client must be authorized via on-device approval before accessing tools.
+- **Audit trail** — every tool invocation is logged locally with arguments, response, and duration.
 
 ## Building
+
+### Android
 
 ```bash
 ./gradlew assembleDebug
 ```
 
-Requires Android SDK with API 35 and JDK 17+.
+Requires Android SDK (API 35) and JDK 17+.
+
+### Relay
+
+```bash
+cd relay
+cargo build --release
+```
+
+## Status
+
+Active development. The core flow works end-to-end: Claude can connect, wake the phone, authorize via OAuth, and call MCP tools. See `docs/design/` for detailed design documents.
 
 ## License
 
