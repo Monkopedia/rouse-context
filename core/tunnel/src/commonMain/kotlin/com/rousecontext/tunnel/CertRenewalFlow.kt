@@ -21,7 +21,7 @@ class CertRenewalFlow(
     /**
      * Renew the device certificate using mTLS authentication (cert still valid).
      */
-    suspend fun renewWithMtls(): RenewalResult {
+    suspend fun renewWithMtls(baseDomain: String = "rousecontext.com"): RenewalResult {
         val currentCert = certificateStore.getCertificate()
             ?: return RenewalResult.NoCertificate
         val subdomain = certificateStore.getSubdomain()
@@ -33,7 +33,7 @@ class CertRenewalFlow(
         }
 
         val csrResult = try {
-            csrGenerator.generate(subdomain)
+            csrGenerator.generate("*.$subdomain.$baseDomain")
         } catch (e: Exception) {
             return RenewalResult.KeyGenerationFailed(e)
         }
@@ -50,12 +50,16 @@ class CertRenewalFlow(
     /**
      * Renew the device certificate using Firebase token + signature (cert expired).
      */
-    suspend fun renewWithFirebase(firebaseToken: String, signature: String): RenewalResult {
+    suspend fun renewWithFirebase(
+        firebaseToken: String,
+        signature: String,
+        baseDomain: String = "rousecontext.com"
+    ): RenewalResult {
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate
 
         val csrResult = try {
-            csrGenerator.generate(subdomain)
+            csrGenerator.generate("*.$subdomain.$baseDomain")
         } catch (e: Exception) {
             return RenewalResult.KeyGenerationFailed(e)
         }

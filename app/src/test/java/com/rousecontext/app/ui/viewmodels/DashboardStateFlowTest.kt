@@ -3,11 +3,13 @@ package com.rousecontext.app.ui.viewmodels
 import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
+import com.rousecontext.tunnel.CertificateStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -66,10 +68,13 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk {
-                coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
-            }
+            urlProvider = McpUrlProvider(
+                mockk<CertificateStore> {
+                    coEvery { getSubdomain() } returns "test-sub"
+                    coEvery { getSecretPrefix() } returns "test-prefix"
+                },
+                "rousecontext.com"
+            )
         )
 
         vm.state.test {
@@ -108,10 +113,13 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk {
-                coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
-            }
+            urlProvider = McpUrlProvider(
+                mockk<CertificateStore> {
+                    coEvery { getSubdomain() } returns "test-sub"
+                    coEvery { getSecretPrefix() } returns "test-prefix"
+                },
+                "rousecontext.com"
+            )
         )
 
         vm.state.test {
@@ -162,10 +170,13 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk {
-                coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
-            }
+            urlProvider = McpUrlProvider(
+                mockk<CertificateStore> {
+                    coEvery { getSubdomain() } returns "test-sub"
+                    coEvery { getSecretPrefix() } returns "test-prefix"
+                },
+                "rousecontext.com"
+            )
         )
 
         vm.state.test {
@@ -220,10 +231,13 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk {
-                coEvery { getSubdomain() } returns "test-sub"
-                coEvery { getSecretPrefix() } returns null
-            }
+            urlProvider = McpUrlProvider(
+                mockk<CertificateStore> {
+                    coEvery { getSubdomain() } returns "test-sub"
+                    coEvery { getSecretPrefix() } returns "test-prefix"
+                },
+                "rousecontext.com"
+            )
         )
 
         vm.state.test {

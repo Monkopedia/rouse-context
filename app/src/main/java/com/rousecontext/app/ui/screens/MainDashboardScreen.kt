@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.GppGood
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Schedule
@@ -44,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.BuildConfig
@@ -85,7 +85,7 @@ sealed interface CertBanner {
     ) : CertBanner
 }
 
-private const val MAX_RECENT_ITEMS = 8
+private const val MAX_RECENT_ITEMS = 3
 
 @Immutable
 data class DashboardState(
@@ -94,8 +94,7 @@ data class DashboardState(
     val integrations: List<IntegrationItem> = emptyList(),
     val recentActivity: List<AuditEntry> = emptyList(),
     val certBanner: CertBanner? = null,
-    val hasMoreIntegrationsToAdd: Boolean = true,
-    val pendingAuthRequestCount: Int = 0
+    val hasMoreIntegrationsToAdd: Boolean = true
 )
 
 /**
@@ -109,7 +108,6 @@ fun HomeDashboardContent(
     onIntegrationClick: (String) -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
-    onPendingAuthRequests: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -123,18 +121,6 @@ fun HomeDashboardContent(
                 Spacer(modifier = Modifier.height(16.dp))
                 CertBannerCard(banner, onRetryRenewal)
                 Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-
-        // Pending auth requests banner
-        if (state.pendingAuthRequestCount > 0) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                PendingAuthBanner(
-                    count = state.pendingAuthRequestCount,
-                    onClick = onPendingAuthRequests
-                )
-                Spacer(modifier = Modifier.height(12.dp))
             }
         }
 
@@ -230,7 +216,6 @@ fun MainDashboardScreen(
     onIntegrationClick: (String) -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
-    onPendingAuthRequests: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -281,7 +266,6 @@ fun MainDashboardScreen(
             onIntegrationClick = onIntegrationClick,
             onViewAllActivity = onViewAllActivity,
             onRetryRenewal = onRetryRenewal,
-            onPendingAuthRequests = onPendingAuthRequests,
             modifier = Modifier.padding(padding)
         )
     }
@@ -596,12 +580,27 @@ private fun ActivityRow(entry: AuditEntry) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = "${entry.durationMs}ms",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        DurationText(entry.durationMs)
     }
+}
+
+fun formatDuration(ms: Long): String = if (ms >= 1000) {
+    "%.1fs".format(ms / 1000.0)
+} else {
+    "${ms}ms"
+}
+
+@Composable
+fun DurationText(durationMs: Long) {
+    Text(
+        text = formatDuration(durationMs),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.width(48.dp),
+        textAlign = TextAlign.End
+    )
 }
 
 @Composable
@@ -637,41 +636,6 @@ private fun AddIntegrationCard(onAddIntegration: () -> Unit) {
     }
 }
 
-@Composable
-private fun PendingAuthBanner(count: Int, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Default.GppGood,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "$count pending approval${if (count != 1) "s" else ""}",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Tap to review authorization requests",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-    }
-}
-
 // --- Previews ---
 
 @Preview(showBackground = true, showSystemUi = true)
@@ -695,18 +659,19 @@ fun DashboardWithIntegrationsPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://my-device.rousecontext.com/health/mcp"
+                        url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
                     ),
                     IntegrationItem(
                         id = "notifications",
                         name = "Notifications",
                         status = IntegrationStatus.PENDING,
-                        url = "https://my-device.rousecontext.com/notifications/mcp"
+                        url = "https://brave-falcon.my-device.rousecontext.com/notifications/mcp"
                     )
                 ),
                 recentActivity = listOf(
                     AuditEntry("10:32 AM", "health/get_steps", 142),
-                    AuditEntry("10:31 AM", "health/get_sleep", 89)
+                    AuditEntry("10:31 AM", "health/get_sleep", 89),
+                    AuditEntry("Apr 7, 3:15 PM", "health/get_heart_rate", 1250)
                 )
             )
         )
@@ -725,7 +690,7 @@ fun DashboardCertExpiredPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://my-device.rousecontext.com/health/mcp"
+                        url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
                     )
                 )
             )
@@ -745,7 +710,7 @@ fun DashboardCertRenewingPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://my-device.rousecontext.com/health/mcp"
+                        url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
                     )
                 )
             )
@@ -810,18 +775,19 @@ fun DashboardWithIntegrationsLightPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://my-device.rousecontext.com/health/mcp"
+                        url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
                     ),
                     IntegrationItem(
                         id = "notifications",
                         name = "Notifications",
                         status = IntegrationStatus.PENDING,
-                        url = "https://my-device.rousecontext.com/notifications/mcp"
+                        url = "https://brave-falcon.my-device.rousecontext.com/notifications/mcp"
                     )
                 ),
                 recentActivity = listOf(
                     AuditEntry("10:32 AM", "health/get_steps", 142),
-                    AuditEntry("10:31 AM", "health/get_sleep", 89)
+                    AuditEntry("10:31 AM", "health/get_sleep", 89),
+                    AuditEntry("Apr 7, 3:15 PM", "health/get_heart_rate", 1250)
                 )
             )
         )

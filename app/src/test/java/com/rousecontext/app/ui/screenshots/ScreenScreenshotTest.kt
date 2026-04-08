@@ -285,7 +285,7 @@ class ScreenScreenshotTest {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(
                 integrationName = "Health Connect",
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
             )
         )
     }
@@ -295,7 +295,7 @@ class ScreenScreenshotTest {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(
                 integrationName = "Health Connect",
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
             )
         )
     }
@@ -311,11 +311,16 @@ class ScreenScreenshotTest {
     }
 
     @Test
+    fun integrationManageManyClientsDark() = captureDark("18a_integration_manage_many_clients") {
+        IntegrationManageScreen(state = integrationManageManyClientsState())
+    }
+
+    @Test
     fun integrationManagePendingDark() = captureDark("18_integration_manage_pending") {
         IntegrationManageScreen(
             state = IntegrationManageState(
                 status = IntegrationStatus.PENDING,
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
             )
         )
     }
@@ -325,7 +330,7 @@ class ScreenScreenshotTest {
         IntegrationManageScreen(
             state = IntegrationManageState(
                 status = IntegrationStatus.PENDING,
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
             )
         )
     }
@@ -630,13 +635,13 @@ class ScreenScreenshotTest {
                 id = "health",
                 name = "Health Connect",
                 status = IntegrationStatus.ACTIVE,
-                url = "https://my-device.rousecontext.com/health/mcp"
+                url = "https://brave-falcon.my-device.rousecontext.com/health/mcp"
             ),
             IntegrationItem(
                 id = "notifications",
                 name = "Notifications",
                 status = IntegrationStatus.PENDING,
-                url = "https://my-device.rousecontext.com/notifications/mcp"
+                url = "https://brave-falcon.my-device.rousecontext.com/notifications/mcp"
             )
         ),
         recentActivity = listOf(
@@ -652,7 +657,7 @@ class ScreenScreenshotTest {
                 "health",
                 "Health Connect",
                 IntegrationStatus.ACTIVE,
-                "https://my-device.rousecontext.com/health/mcp"
+                "https://brave-falcon.my-device.rousecontext.com/health/mcp"
             )
         )
     )
@@ -689,7 +694,7 @@ class ScreenScreenshotTest {
 
     private fun integrationManageActiveState() = IntegrationManageState(
         status = IntegrationStatus.ACTIVE,
-        url = "https://my-device.rousecontext.com/health/mcp",
+        url = "https://brave-falcon.my-device.rousecontext.com/health/mcp",
         recentActivity = listOf(
             AuditEntry("10:32 AM", "get_steps", 142),
             AuditEntry("10:31 AM", "get_sleep", 89)
@@ -697,6 +702,24 @@ class ScreenScreenshotTest {
         authorizedClients = listOf(
             AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
             AuthorizedClient("Cursor", "Apr 3", "just now")
+        )
+    )
+
+    private fun integrationManageManyClientsState() = IntegrationManageState(
+        status = IntegrationStatus.ACTIVE,
+        url = "https://brave-falcon.my-device.rousecontext.com/health/mcp",
+        recentActivity = listOf(
+            AuditEntry("10:32 AM", "get_steps", 142),
+            AuditEntry("10:31 AM", "get_sleep", 89),
+            AuditEntry("10:30 AM", "get_heart_rate", 201)
+        ),
+        authorizedClients = listOf(
+            AuthorizedClient("Claude", "Apr 2", "2 hours ago"),
+            AuthorizedClient("Cursor", "Apr 3", "just now"),
+            AuthorizedClient("Windsurf", "Apr 4", "yesterday"),
+            AuthorizedClient("Cline", "Apr 5", "3 days ago"),
+            AuthorizedClient("Continue", "Apr 6", "5 days ago"),
+            AuthorizedClient("Aider", "Apr 7", "1 week ago")
         )
     )
 

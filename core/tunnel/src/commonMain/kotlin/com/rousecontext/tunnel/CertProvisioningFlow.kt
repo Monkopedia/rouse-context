@@ -37,8 +37,8 @@ class CertProvisioningFlow(
         val subdomain = certificateStore.getSubdomain()
             ?: return CertProvisioningResult.NotOnboarded
 
-        // Generate keypair and CSR with the assigned FQDN
-        val fqdn = "$subdomain.$baseDomain"
+        // Generate keypair and CSR with wildcard FQDN to match ACME order
+        val fqdn = "*.$subdomain.$baseDomain"
         val csrResult = try {
             csrGenerator.generate(fqdn)
         } catch (e: Exception) {

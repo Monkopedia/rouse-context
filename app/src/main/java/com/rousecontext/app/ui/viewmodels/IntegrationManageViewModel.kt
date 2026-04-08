@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
-import com.rousecontext.app.buildMcpUrl
+import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.IntegrationManageState
@@ -31,7 +31,7 @@ class IntegrationManageViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
-    private val certStore: com.rousecontext.tunnel.CertificateStore
+    private val urlProvider: McpUrlProvider
 ) : ViewModel() {
 
     private val integrationId = MutableStateFlow("")
@@ -42,10 +42,6 @@ class IntegrationManageViewModel(
             val id = integrationId.value
             val integration = integrations.find { it.id == id }
                 ?: return@map IntegrationManageState()
-            val subdomain = certStore.getSubdomain() ?: "unknown"
-            val secretPrefix = certStore.getSecretPrefix()
-            val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
-                .removePrefix("relay.")
 
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(id),
@@ -81,7 +77,7 @@ class IntegrationManageViewModel(
                 } else {
                     IntegrationStatus.PENDING
                 },
-                url = buildMcpUrl(secretPrefix, subdomain, baseDomain, integration.path),
+                url = urlProvider.buildUrl(integration.path) ?: "",
                 recentActivity = recent,
                 authorizedClients = clients
             )

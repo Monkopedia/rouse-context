@@ -6,16 +6,14 @@ import com.rousecontext.api.IntegrationState
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
-import com.rousecontext.app.buildMcpUrl
+import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
-import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
-import com.rousecontext.tunnel.CertificateStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -35,8 +33,7 @@ class MainDashboardViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
-    private val certStore: CertificateStore,
-    private val authorizationCodeManager: AuthorizationCodeManager? = null
+    private val urlProvider: McpUrlProvider
 ) : ViewModel() {
 
     private val connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
@@ -52,10 +49,6 @@ class MainDashboardViewModel(
         stateStore.observeChanges().onStart { emit(Unit) },
         recentAuditFlow
     ) { connection, _, recentEntries ->
-        val subdomain = certStore.getSubdomain() ?: "unknown"
-        val secretPrefix = certStore.getSecretPrefix()
-        val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
-            .removePrefix("relay.")
         val items = integrations.mapNotNull { integration ->
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(integration.id),
@@ -72,7 +65,7 @@ class MainDashboardViewModel(
                     } else {
                         IntegrationStatus.PENDING
                     },
-                    url = buildMcpUrl(secretPrefix, subdomain, baseDomain, integration.path)
+                    url = urlProvider.buildUrl(integration.path) ?: ""
                 )
             } else {
                 null
@@ -97,14 +90,11 @@ class MainDashboardViewModel(
             derived != IntegrationState.Active && derived != IntegrationState.Pending
         }
 
-        val pendingAuthCount = authorizationCodeManager?.pendingRequests()?.size ?: 0
-
         DashboardState(
             connectionStatus = connection,
             integrations = items,
             recentActivity = recent,
-            hasMoreIntegrationsToAdd = hasMoreToAdd,
-            pendingAuthRequestCount = pendingAuthCount
+            hasMoreIntegrationsToAdd = hasMoreToAdd
         )
     }.stateIn(
         scope = viewModelScope,

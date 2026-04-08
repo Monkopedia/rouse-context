@@ -139,9 +139,9 @@ fun ListRowWithTrailing(
 }
 
 @Composable
-fun ListDivider(startPadding: Dp = 16.dp) {
+fun ListDivider(padding: Dp = 16.dp) {
     HorizontalDivider(
-        modifier = Modifier.padding(start = startPadding),
+        modifier = Modifier.padding(start = padding, end = padding),
         color = MaterialTheme.colorScheme.outlineVariant
     )
 }

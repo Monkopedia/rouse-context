@@ -6,7 +6,7 @@ import org.junit.Test
 class UrlBuilderTest {
 
     @Test
-    fun `URL includes secret prefix when present`() {
+    fun `URL includes secret prefix`() {
         val url = buildMcpUrl(
             secretPrefix = "brave-falcon",
             subdomain = "abc123",
@@ -14,17 +14,6 @@ class UrlBuilderTest {
             integrationPath = "/health"
         )
         assertEquals("https://brave-falcon.abc123.rousecontext.com/health/mcp", url)
-    }
-
-    @Test
-    fun `URL omits secret prefix when null`() {
-        val url = buildMcpUrl(
-            secretPrefix = null,
-            subdomain = "abc123",
-            baseDomain = "rousecontext.com",
-            integrationPath = "/health"
-        )
-        assertEquals("https://abc123.rousecontext.com/health/mcp", url)
     }
 
     @Test

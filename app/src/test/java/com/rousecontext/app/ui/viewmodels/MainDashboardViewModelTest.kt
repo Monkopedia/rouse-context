@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.viewmodels
 import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.McpServerProvider
@@ -31,10 +32,13 @@ import org.junit.Test
 class MainDashboardViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private val fakeCertStore = mockk<CertificateStore> {
-        coEvery { getSubdomain() } returns "test-device"
-        coEvery { getSecretPrefix() } returns null
-    }
+    private val fakeUrlProvider = McpUrlProvider(
+        mockk<CertificateStore> {
+            coEvery { getSubdomain() } returns "test-device"
+            coEvery { getSecretPrefix() } returns "test-prefix"
+        },
+        "rousecontext.com"
+    )
 
     @Before
     fun setup() {
@@ -79,7 +83,7 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = fakeCertStore
+            urlProvider = fakeUrlProvider
         )
 
         vm.state.test {
@@ -113,7 +117,7 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = fakeCertStore
+            urlProvider = fakeUrlProvider
         )
 
         vm.state.test {
@@ -154,7 +158,7 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = fakeCertStore
+            urlProvider = fakeUrlProvider
         )
 
         vm.state.test {
@@ -187,7 +191,7 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = fakeCertStore
+            urlProvider = fakeUrlProvider
         )
 
         vm.state.test {
@@ -222,7 +226,7 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = fakeCertStore
+            urlProvider = fakeUrlProvider
         )
     }
 

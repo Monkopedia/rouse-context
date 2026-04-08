@@ -4,6 +4,9 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 
 /**
  * Status of an authorization request, returned by [AuthorizationCodeManager.getStatus].
@@ -77,6 +80,11 @@ class AuthorizationCodeManager(
      * Set this from the app layer to trigger notifications.
      */
     var onNewRequest: ((displayCode: String, integration: String) -> Unit)? = null
+
+    private val _newRequestFlow = MutableSharedFlow<PendingAuthRequest>(extraBufferCapacity = 1)
+
+    /** Emits each new auth request as it arrives. Observe from UI to auto-navigate. */
+    val newRequestFlow: SharedFlow<PendingAuthRequest> = _newRequestFlow.asSharedFlow()
 
     private data class PendingRequest(
         val requestId: String,
@@ -180,6 +188,15 @@ class AuthorizationCodeManager(
         }
 
         onNewRequest?.invoke(displayCode, integration)
+        _newRequestFlow.tryEmit(
+            PendingAuthRequest(
+                displayCode = displayCode,
+                integration = integration,
+                clientId = clientId,
+                clientName = clientNames[clientId],
+                createdAt = now
+            )
+        )
 
         return AuthorizationRequest(
             requestId = requestId,

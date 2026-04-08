@@ -10,6 +10,9 @@ import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.app.ui.screens.TrustStatusState
+import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.RelayApiClient
+import com.rousecontext.tunnel.RelayApiResult
 import com.rousecontext.work.SecurityCheckWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,20 +28,28 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(
     private val notificationSettingsProvider: NotificationSettingsProvider,
     private val themePreference: ThemePreference,
+    private val relayApiClient: RelayApiClient,
+    private val certStore: CertificateStore,
     private val securityCheckPrefs: SharedPreferences? = null
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
+    private val _rotateInProgress = MutableStateFlow(false)
+    private val _rotateError = MutableStateFlow<String?>(null)
 
     val state: StateFlow<SettingsState> = combine(
         refreshTrigger,
-        themePreference.themeMode
-    ) { _, themeMode ->
+        themePreference.themeMode,
+        _rotateInProgress,
+        _rotateError
+    ) { _, themeMode, rotating, rotateErr ->
         val settings = notificationSettingsProvider.settings
         SettingsState(
             postSessionMode = settings.postSessionMode.toDisplayString(),
             themeMode = themeMode.toDisplayString(),
-            trustStatus = readTrustStatus()
+            trustStatus = readTrustStatus(),
+            canRotateAddress = !rotating,
+            rotationCooldownMessage = rotateErr
         )
     }.stateIn(
         scope = viewModelScope,
@@ -64,6 +75,28 @@ class SettingsViewModel(
         }
         viewModelScope.launch {
             themePreference.setThemeMode(themeMode)
+        }
+    }
+
+    fun rotateSecret() {
+        viewModelScope.launch {
+            _rotateInProgress.value = true
+            _rotateError.value = null
+            when (val result = relayApiClient.rotateSecret()) {
+                is RelayApiResult.Success -> {
+                    certStore.storeSecretPrefix(result.data.secretPrefix)
+                }
+                is RelayApiResult.RateLimited -> {
+                    _rotateError.value = "Rate limited. Try again later."
+                }
+                is RelayApiResult.Error -> {
+                    _rotateError.value = "Failed: ${result.message}"
+                }
+                is RelayApiResult.NetworkError -> {
+                    _rotateError.value = "Network error"
+                }
+            }
+            _rotateInProgress.value = false
         }
     }
 

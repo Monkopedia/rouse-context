@@ -5,6 +5,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.MainActivity
+import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.health.RealHealthConnectRepository
@@ -85,6 +86,9 @@ val appModule = module {
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
 
+    // --- URL provider ---
+    single { McpUrlProvider(get()) }
+
     // --- Device registration status ---
     single { DeviceRegistrationStatus() }
 
@@ -162,22 +166,9 @@ val appModule = module {
 
     // --- MCP session ---
     single {
-        val subdomainFile = java.io.File(androidContext().filesDir, "rouse_subdomain.txt")
-        val subdomain = if (subdomainFile.exists()) {
-            subdomainFile.readText().trim()
-        } else {
-            null
-        }
-        val secretPrefixFile = java.io.File(androidContext().filesDir, "rouse_secret_prefix.txt")
-        val secretPrefix = if (secretPrefixFile.exists()) {
-            secretPrefixFile.readText().trim()
-        } else {
-            null
-        }
-        val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
-        val hostname = subdomain?.let { sub ->
-            val prefix = secretPrefix?.let { "$it." } ?: ""
-            "$prefix$sub.$baseDomain"
+        val urlProvider: McpUrlProvider = get()
+        val hostname = kotlinx.coroutines.runBlocking {
+            urlProvider.buildHostname()
         } ?: "localhost"
         val notifier: AuthRequestNotifier = get()
         McpSession(
@@ -239,18 +230,17 @@ val appModule = module {
     // --- ViewModels ---
     viewModel {
         MainDashboardViewModel(
-            get(),
-            get(),
-            get(),
-            get(),
-            get(),
-            get<McpSession>().authorizationCodeManager
+            integrations = get(),
+            stateStore = get(),
+            tokenStore = get(),
+            auditDao = get(),
+            urlProvider = get()
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get()) }
-    viewModel { SettingsViewModel(get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel { AuthorizationApprovalViewModel(get<McpSession>().authorizationCodeManager) }
     viewModel { HealthConnectSetupViewModel(get()) }

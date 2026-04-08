@@ -47,7 +47,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.rousecontext.app.buildMcpUrl
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
 import com.rousecontext.app.ui.components.navBarItemColors
@@ -338,9 +337,6 @@ fun AppNavigation(
                         },
                         onViewAllActivity = {
                             navController.navigate(Routes.AUDIT)
-                        },
-                        onPendingAuthRequests = {
-                            navController.navigate(Routes.AUTH_APPROVAL)
                         }
                     )
                 }
@@ -418,7 +414,8 @@ fun AppNavigation(
                         onIdleTimeoutChanged = viewModel::setIdleTimeout,
                         onPostSessionModeChanged =
                         viewModel::setPostSessionMode,
-                        onThemeModeChanged = viewModel::setThemeMode
+                        onThemeModeChanged = viewModel::setThemeMode,
+                        onGenerateNewAddress = viewModel::rotateSecret
                     )
                 }
 
@@ -769,42 +766,35 @@ fun AppNavigation(
                     val integrationId = backStackEntry.arguments
                         ?.getString("integrationId")
                         ?: return@composable
-                    val certStore:
-                        com.rousecontext.tunnel.CertificateStore =
+                    val urlProvider: com.rousecontext.app.McpUrlProvider =
                         org.koin.compose.koinInject()
                     val integrations:
                         List<com.rousecontext.api.McpIntegration> =
                         org.koin.compose.koinInject()
                     val integration =
                         integrations.find { it.id == integrationId }
-                    val subdomain =
+                    val mcpUrl =
                         androidx.compose.runtime.produceState("") {
-                            value =
-                                certStore.getSubdomain() ?: "unknown"
+                            value = urlProvider.buildUrl(
+                                integration?.path ?: "/$integrationId"
+                            ) ?: ""
                         }.value
-                    val secretPrefix =
-                        androidx.compose.runtime
-                            .produceState<String?>(null) {
-                                value = certStore.getSecretPrefix()
-                            }.value
-                    val baseDomain =
-                        com.rousecontext.app.BuildConfig.RELAY_HOST
-                            .removePrefix("relay.")
-                    val mcpUrl = if (subdomain.isNotEmpty()) {
-                        buildMcpUrl(
-                            secretPrefix,
-                            subdomain,
-                            baseDomain,
-                            integration?.path ?: "/$integrationId"
-                        )
-                    } else {
-                        ""
-                    }
                     val integrationName = integration?.displayName
                         ?: integrationId
                     ConfigureNavBar(
                         title = "$integrationName Ready"
                     )
+
+                    // Auto-navigate to approval when a client auth request arrives
+                    val mcpSession: com.rousecontext.mcp.core.McpSession =
+                        org.koin.compose.koinInject()
+                    androidx.compose.runtime.LaunchedEffect(Unit) {
+                        mcpSession.authorizationCodeManager.newRequestFlow
+                            .collect {
+                                navController.navigate(Routes.AUTH_APPROVAL)
+                            }
+                    }
+
                     IntegrationEnabledContent(
                         state = IntegrationEnabledState(
                             integrationName = integrationName,
@@ -850,6 +840,20 @@ fun AppNavigation(
                         koinViewModel()
                     val requests by viewModel.pendingRequests
                         .collectAsState()
+
+                    // When no pending requests remain, go back
+                    val hadRequests = androidx.compose.runtime.remember {
+                        androidx.compose.runtime.mutableStateOf(false)
+                    }
+                    if (requests.isNotEmpty()) {
+                        hadRequests.value = true
+                    }
+                    if (hadRequests.value && requests.isEmpty()) {
+                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                            navController.popBackStack()
+                        }
+                    }
+
                     AuthorizationApprovalScreen(
                         pendingRequests = requests.map { req ->
                             AuthorizationApprovalItem(
