@@ -608,7 +608,7 @@ private fun AddIntegrationCard(onAddIntegration: () -> Unit) {
             .fillMaxWidth()
             .clickable(onClick = onAddIntegration),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
         Row(

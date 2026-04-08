@@ -120,7 +120,7 @@ fun IntegrationManageScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 ) {
                     Row(
@@ -277,7 +277,7 @@ fun IntegrationManageScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                         )
                     ) {
                         Column {

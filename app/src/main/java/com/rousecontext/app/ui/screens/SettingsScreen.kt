@@ -278,7 +278,10 @@ fun SettingsContent(
                     "Version ${state.versionName}",
                     style = MaterialTheme.typography.bodyMedium
                 )
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
                 Text("Apache 2.0 License", style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -403,7 +406,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState) {
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(12.dp))
 
             // Self-check row
@@ -425,7 +428,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState) {
             // Cert fingerprint
             if (trustStatus.certFingerprint.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(12.dp))
                 CertFingerprintRow(trustStatus.certFingerprint)
             }
@@ -518,7 +521,7 @@ private fun SettingsSectionCard(content: @Composable () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
         content()
