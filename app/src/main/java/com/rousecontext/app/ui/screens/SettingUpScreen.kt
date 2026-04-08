@@ -2,16 +2,12 @@ package com.rousecontext.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,17 +28,17 @@ import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import com.rousecontext.app.ui.viewmodels.OnboardingStep
 
 sealed interface SettingUpVariant {
-    data class FirstTime(val step: OnboardingStep = OnboardingStep.FIREBASE_AUTH) : SettingUpVariant
+    /** Shown when integration setup is waiting for background device registration. */
+    data object Registering : SettingUpVariant
     data object Refreshing : SettingUpVariant
     data class RateLimited(val expectedDate: String) : SettingUpVariant
 }
 
 @Immutable
 data class SettingUpState(
-    val variant: SettingUpVariant = SettingUpVariant.FirstTime()
+    val variant: SettingUpVariant = SettingUpVariant.Refreshing
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -66,7 +62,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                 verticalArrangement = Arrangement.Center
             ) {
                 when (state.variant) {
-                    is SettingUpVariant.FirstTime, is SettingUpVariant.Refreshing -> {
+                    is SettingUpVariant.Registering, is SettingUpVariant.Refreshing -> {
                         CircularProgressIndicator(
                             color = AmberAccent,
                             trackColor = AmberAccent.copy(alpha = 0.35f),
@@ -88,8 +84,8 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
 
                 Text(
                     text = when (state.variant) {
-                        is SettingUpVariant.FirstTime ->
-                            "Setting up your device..."
+                        is SettingUpVariant.Registering ->
+                            "Registering your device..."
                         is SettingUpVariant.Refreshing ->
                             "Provisioning your certificate..."
                         is SettingUpVariant.RateLimited ->
@@ -102,20 +98,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                 Spacer(modifier = Modifier.height(16.dp))
 
                 when (state.variant) {
-                    is SettingUpVariant.FirstTime -> {
-                        val step = state.variant.step
-                        SetupStepRow(
-                            label = "Authenticating",
-                            done = step > OnboardingStep.FIREBASE_AUTH,
-                            active = step == OnboardingStep.FIREBASE_AUTH
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        SetupStepRow(
-                            label = "Registering with relay",
-                            done = false,
-                            active = step == OnboardingStep.RELAY_REGISTRATION
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
+                    is SettingUpVariant.Registering -> {
                         Text(
                             text = "This usually takes a few seconds.",
                             style = MaterialTheme.typography.bodyMedium,
@@ -155,47 +138,12 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
     }
 }
 
-@Composable
-private fun SetupStepRow(label: String, done: Boolean, active: Boolean) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        when {
-            done -> Icon(
-                Icons.Default.CheckCircle,
-                contentDescription = "Complete",
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            active -> CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
-                color = AmberAccent
-            )
-            else -> Icon(
-                Icons.Default.Circle,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.outline
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (done || active) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            }
-        )
-    }
-}
-
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
-fun SettingUpFirstTimePreview() {
+fun SettingUpRegisteringPreview() {
     RouseContextTheme(darkTheme = true) {
         SettingUpScreen(
-            state = SettingUpState(SettingUpVariant.FirstTime(OnboardingStep.FIREBASE_AUTH))
+            state = SettingUpState(SettingUpVariant.Registering)
         )
     }
 }

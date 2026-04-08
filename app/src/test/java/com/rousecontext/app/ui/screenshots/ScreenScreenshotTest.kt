@@ -107,13 +107,13 @@ class ScreenScreenshotTest {
     fun welcomeLight() = captureLight("01_welcome") { WelcomeScreen() }
 
     @Test
-    fun settingUpFirstTimeDark() = captureDark("02_setting_up_first_time") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime()))
+    fun settingUpRegisteringDark() = captureDark("02_setting_up_registering") {
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.Registering))
     }
 
     @Test
-    fun settingUpFirstTimeLight() = captureLight("02_setting_up_first_time") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.FirstTime()))
+    fun settingUpRegisteringLight() = captureLight("02_setting_up_registering") {
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.Registering))
     }
 
     @Test

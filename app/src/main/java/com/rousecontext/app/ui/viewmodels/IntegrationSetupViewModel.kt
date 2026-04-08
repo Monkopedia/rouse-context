@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
+import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
@@ -41,7 +42,8 @@ sealed interface IntegrationSetupState {
 class IntegrationSetupViewModel(
     private val stateStore: IntegrationStateStore,
     private val certProvisioningFlow: CertProvisioningFlow,
-    private val lazyWebSocketFactory: LazyWebSocketFactory
+    private val lazyWebSocketFactory: LazyWebSocketFactory,
+    private val registrationStatus: DeviceRegistrationStatus
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<IntegrationSetupState>(IntegrationSetupState.Idle)
@@ -58,8 +60,26 @@ class IntegrationSetupViewModel(
         beginProvisioning()
     }
 
+    /**
+     * If device registration is still in progress (new user who just
+     * tapped "Get Started"), show a registering indicator and wait.
+     */
+    private suspend fun awaitRegistrationIfNeeded() {
+        if (!registrationStatus.complete.value) {
+            _state.value = IntegrationSetupState.Provisioning(
+                SettingUpState(variant = SettingUpVariant.Registering)
+            )
+            registrationStatus.awaitComplete()
+            _state.value = IntegrationSetupState.Provisioning(
+                SettingUpState(variant = SettingUpVariant.Refreshing)
+            )
+        }
+    }
+
     private fun beginProvisioning() {
         viewModelScope.launch {
+            awaitRegistrationIfNeeded()
+
             val firebaseToken = try {
                 val user = FirebaseAuth.getInstance().currentUser
                     ?: return@launch setFailed("Not signed in. Please restart the app.")

@@ -58,7 +58,6 @@ import com.rousecontext.app.ui.screens.IntegrationEnabledScreen
 import com.rousecontext.app.ui.screens.IntegrationEnabledState
 import com.rousecontext.app.ui.screens.IntegrationManageScreen
 import com.rousecontext.app.ui.screens.NotificationSetupScreen
-import com.rousecontext.app.ui.screens.OnboardingErrorScreen
 import com.rousecontext.app.ui.screens.OutreachSetupScreen
 import com.rousecontext.app.ui.screens.SettingUpScreen
 import com.rousecontext.app.ui.screens.SettingUpState
@@ -220,7 +219,7 @@ fun AppNavigation(
                 val onboardingViewModel: OnboardingViewModel = koinViewModel()
                 val state by onboardingViewModel.state.collectAsState()
 
-                // Navigate back to dashboard on success
+                // Navigate to Home as soon as onboarding triggers (immediate)
                 LaunchedEffect(state) {
                     if (state is OnboardingState.Onboarded) {
                         navController.navigate(Routes.HOME) {
@@ -236,39 +235,11 @@ fun AppNavigation(
                             onGetStarted = { onboardingViewModel.startOnboarding() }
                         )
                     }
-                    is OnboardingState.InProgress -> {
-                        val step = (state as OnboardingState.InProgress).step
-                        SettingUpScreen(
-                            state = SettingUpState(
-                                SettingUpVariant.FirstTime(step)
-                            ),
-                            onCancel = { navController.popBackStack() }
-                        )
-                    }
-                    is OnboardingState.RateLimited -> {
-                        val rateLimited = state as OnboardingState.RateLimited
-                        SettingUpScreen(
-                            state = SettingUpState(
-                                SettingUpVariant.RateLimited(
-                                    rateLimited.retryDate
-                                )
-                            ),
-                            onCancel = { navController.popBackStack() }
-                        )
-                    }
+                    is OnboardingState.Onboarded,
+                    is OnboardingState.RateLimited,
                     is OnboardingState.Failed -> {
-                        val failed = state as OnboardingState.Failed
-                        OnboardingErrorScreen(
-                            message = failed.message,
-                            onRetry = { onboardingViewModel.retry() },
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-                    is OnboardingState.Onboarded -> {
-                        SettingUpScreen(
-                            state = SettingUpState(SettingUpVariant.Refreshing),
-                            onCancel = { navController.popBackStack() }
-                        )
+                        // Transient: LaunchedEffect above navigates to Home.
+                        // Show nothing while the navigation is in flight.
                     }
                 }
             }
