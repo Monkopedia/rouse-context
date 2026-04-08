@@ -158,6 +158,10 @@ class TunnelSessionManagerTest {
             _state.value = TunnelState.DISCONNECTED
         }
 
+        override suspend fun sendFcmToken(token: String) {
+            // no-op for tests
+        }
+
         /**
          * Emits a session to the collector. Suspends until a collector is ready,
          * ensuring no race between manager.start() and emitSession().
