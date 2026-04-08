@@ -38,6 +38,54 @@ data class PickerIntegration(
     val state: PickerIntegrationState
 )
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun AddIntegrationPickerContent(
+    integrations: List<PickerIntegration> = emptyList(),
+    onSetUp: (String) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val available = integrations.filter { it.state == PickerIntegrationState.AVAILABLE }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
+        Spacer(modifier = Modifier.height(8.dp))
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(available) { integration ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable { onSetUp(integration.id) },
+                    border = BorderStroke(
+                        1.5.dp,
+                        MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = integration.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = integration.description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddIntegrationPickerScreen(
@@ -45,8 +93,6 @@ fun AddIntegrationPickerScreen(
     onSetUp: (String) -> Unit = {},
     onCancel: () -> Unit = {}
 ) {
-    val available = integrations.filter { it.state == PickerIntegrationState.AVAILABLE }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -60,42 +106,11 @@ fun AddIntegrationPickerScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(modifier = Modifier.height(8.dp))
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(available) { integration ->
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clickable { onSetUp(integration.id) },
-                        border = BorderStroke(
-                            1.5.dp,
-                            MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = integration.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = integration.description,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        AddIntegrationPickerContent(
+            integrations = integrations,
+            onSetUp = onSetUp,
+            modifier = Modifier.padding(padding)
+        )
     }
 }
 

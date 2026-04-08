@@ -47,6 +47,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.rousecontext.app.buildMcpUrl
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
 import com.rousecontext.app.ui.components.navBarItemColors
@@ -814,13 +815,21 @@ fun AppNavigation(
                             value =
                                 certStore.getSubdomain() ?: "unknown"
                         }.value
+                    val secretPrefix =
+                        androidx.compose.runtime
+                            .produceState<String?>(null) {
+                                value = certStore.getSecretPrefix()
+                            }.value
                     val baseDomain =
                         com.rousecontext.app.BuildConfig.RELAY_HOST
                             .removePrefix("relay.")
                     val mcpUrl = if (subdomain.isNotEmpty()) {
-                        "https://$subdomain.$baseDomain${
+                        buildMcpUrl(
+                            secretPrefix,
+                            subdomain,
+                            baseDomain,
                             integration?.path ?: "/$integrationId"
-                        }/mcp"
+                        )
                     } else {
                         ""
                     }

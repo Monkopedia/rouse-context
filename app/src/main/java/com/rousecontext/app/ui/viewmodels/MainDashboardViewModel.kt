@@ -6,6 +6,7 @@ import com.rousecontext.api.IntegrationState
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
+import com.rousecontext.app.buildMcpUrl
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
@@ -52,6 +53,7 @@ class MainDashboardViewModel(
         recentAuditFlow
     ) { connection, _, recentEntries ->
         val subdomain = certStore.getSubdomain() ?: "unknown"
+        val secretPrefix = certStore.getSecretPrefix()
         val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
             .removePrefix("relay.")
         val items = integrations.mapNotNull { integration ->
@@ -70,7 +72,7 @@ class MainDashboardViewModel(
                     } else {
                         IntegrationStatus.PENDING
                     },
-                    url = "https://$subdomain.$baseDomain${integration.path}/mcp"
+                    url = buildMcpUrl(secretPrefix, subdomain, baseDomain, integration.path)
                 )
             } else {
                 null

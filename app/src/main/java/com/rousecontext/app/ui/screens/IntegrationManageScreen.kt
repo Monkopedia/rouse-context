@@ -61,6 +61,65 @@ data class IntegrationManageState(
     val authorizedClients: List<AuthorizedClient> = emptyList()
 )
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ * Configures the nav bar with integration name + status badge.
+ */
+@Composable
+fun IntegrationManageContent(
+    state: IntegrationManageState = IntegrationManageState(),
+    onCopyUrl: () -> Unit = {},
+    onViewAllActivity: () -> Unit = {},
+    onRevokeClient: (String) -> Unit = {},
+    onSettings: () -> Unit = {},
+    onDisable: () -> Unit = {},
+    onBack: () -> Unit = {}
+) {
+    val controller = com.rousecontext.app.ui.navigation.LocalNavBarController.current
+    androidx.compose.runtime.LaunchedEffect(state.integrationName, state.status) {
+        controller.title = state.integrationName
+        controller.showBackButton = true
+        controller.showBottomBar = false
+        controller.showTopBar = true
+        controller.onBackPressed = onBack
+        controller.titleContent = null
+    }
+    // Set custom title content with badge (must be outside LaunchedEffect)
+    controller.titleContent = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(state.integrationName)
+            Spacer(modifier = Modifier.width(12.dp))
+            val badgeColor = when (state.status) {
+                IntegrationStatus.ACTIVE -> MaterialTheme.colorScheme.primary
+                IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
+            }
+            Text(
+                text = when (state.status) {
+                    IntegrationStatus.ACTIVE -> "Active"
+                    IntegrationStatus.PENDING -> "Pending"
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = badgeColor,
+                modifier = Modifier
+                    .background(
+                        color = badgeColor.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(4.dp)
+                    )
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
+            )
+        }
+    }
+
+    IntegrationManageBody(
+        state = state,
+        onCopyUrl = onCopyUrl,
+        onViewAllActivity = onViewAllActivity,
+        onRevokeClient = onRevokeClient,
+        onSettings = onSettings,
+        onDisable = onDisable
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IntegrationManageScreen(
@@ -108,138 +167,84 @@ fun IntegrationManageScreen(
             )
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-        ) {
-            // URL card
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
+        IntegrationManageBody(
+            state = state,
+            onCopyUrl = onCopyUrl,
+            onViewAllActivity = onViewAllActivity,
+            onRevokeClient = onRevokeClient,
+            onSettings = onSettings,
+            onDisable = onDisable,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
+
+@Composable
+private fun IntegrationManageBody(
+    state: IntegrationManageState,
+    onCopyUrl: () -> Unit = {},
+    onViewAllActivity: () -> Unit = {},
+    onRevokeClient: (String) -> Unit = {},
+    onSettings: () -> Unit = {},
+    onDisable: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+    ) {
+        // URL card
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = state.url,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = onCopyUrl) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL")
-                        }
+                    Text(
+                        text = state.url,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onCopyUrl) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL")
                     }
                 }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // Pending waiting message or recent activity
+        if (state.status == IntegrationStatus.PENDING) {
+            item {
+                Text(
+                    text = "Waiting for first client...",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "To connect, add the URL above to your AI client. " +
+                        "This screen will update automatically once a client connects.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Spacer(modifier = Modifier.height(24.dp))
             }
-
-            // Pending waiting message or recent activity
-            if (state.status == IntegrationStatus.PENDING) {
-                item {
-                    Text(
-                        text = "Waiting for first client...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "To connect, add the URL above to your AI client. " +
-                            "This screen will update automatically once a client connects.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-            } else {
-                item {
-                    SectionHeader("Recent Activity")
-                }
-                if (state.recentActivity.isEmpty()) {
-                    item {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.History,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "No recent activity",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                } else {
-                    item {
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column {
-                                state.recentActivity.forEachIndexed { index, entry ->
-                                    ListRow {
-                                        Text(
-                                            entry.toolName,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Medium,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        Text(
-                                            entry.time,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            "${entry.durationMs}ms",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (index < state.recentActivity.lastIndex) {
-                                        ListDivider()
-                                    }
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(onClick = onViewAllActivity) {
-                                Text("View all")
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                }
-            }
-
-            // Authorized clients
+        } else {
             item {
-                SectionHeader("Authorized Clients")
+                SectionHeader("Recent Activity")
             }
-
-            if (state.authorizedClients.isEmpty()) {
+            if (state.recentActivity.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
@@ -249,22 +254,15 @@ fun IntegrationManageScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
-                                imageVector = Icons.Default.People,
+                                imageVector = Icons.Default.History,
                                 contentDescription = null,
                                 modifier = Modifier.size(32.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "No clients connected yet",
+                                text = "No recent activity",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Add the URL above to an AI client to connect.",
-                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
                             )
@@ -274,82 +272,163 @@ fun IntegrationManageScreen(
                 }
             } else {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                        )
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Column {
-                            state.authorizedClients.forEachIndexed { index, client ->
+                            state.recentActivity.forEachIndexed { index, entry ->
                                 ListRow {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            client.name,
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
-                                        Text(
-                                            "${client.authorizedDate} \u00B7 ${client.lastUsed}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    TextButton(
-                                        onClick = { onRevokeClient(client.name) }
-                                    ) {
-                                        Text(
-                                            "Revoke",
-                                            color = MaterialTheme.colorScheme.error
-                                        )
-                                    }
+                                    Text(
+                                        entry.toolName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        entry.time,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        "${entry.durationMs}ms",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
-                                if (index < state.authorizedClients.lastIndex) {
+                                if (index < state.recentActivity.lastIndex) {
                                     ListDivider()
                                 }
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = onViewAllActivity) {
+                            Text("View all")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
             }
+        }
 
-            // Action buttons
+        // Authorized clients
+        item {
+            SectionHeader("Authorized Clients")
+        }
+
+        if (state.authorizedClients.isEmpty()) {
             item {
-                OutlinedButton(
-                    onClick = onSettings,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Settings")
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.People,
+                            contentDescription = null,
+                            modifier = Modifier.size(32.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "No clients connected yet",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Add the URL above to an AI client to connect.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onDisable,
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        } else {
+            item {
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 ) {
-                    Text(
-                        if (state.status == IntegrationStatus.PENDING) {
-                            "Cancel Setup"
-                        } else {
-                            "Disable Integration"
+                    Column {
+                        state.authorizedClients.forEachIndexed { index, client ->
+                            ListRow {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        client.name,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                    Text(
+                                        "${client.authorizedDate} \u00B7 ${client.lastUsed}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                TextButton(
+                                    onClick = { onRevokeClient(client.name) }
+                                ) {
+                                    Text(
+                                        "Revoke",
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                            if (index < state.authorizedClients.lastIndex) {
+                                ListDivider()
+                            }
                         }
-                    )
+                    }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+
+        // Action buttons
+        item {
+            OutlinedButton(
+                onClick = onSettings,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Settings")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onDisable,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                )
+            ) {
+                Text(
+                    if (state.status == IntegrationStatus.PENDING) {
+                        "Cancel Setup"
+                    } else {
+                        "Disable Integration"
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
-fun IntegrationManageActivePreview() {
+private fun IntegrationManageActivePreview() {
     RouseContextTheme(darkTheme = true) {
         IntegrationManageScreen(
             state = IntegrationManageState(

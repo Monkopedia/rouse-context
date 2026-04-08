@@ -44,6 +44,17 @@ data class AuditDetailState(
     val isLoading: Boolean = true
 )
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun AuditDetailContent(
+    state: AuditDetailState = AuditDetailState(),
+    modifier: Modifier = Modifier
+) {
+    AuditDetailBody(state = state, modifier = modifier)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuditDetailScreen(state: AuditDetailState = AuditDetailState(), onBack: () -> Unit = {}) {
@@ -60,78 +71,81 @@ fun AuditDetailScreen(state: AuditDetailState = AuditDetailState(), onBack: () -
             )
         }
     ) { padding ->
-        if (state.isLoading) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(24.dp)
-            ) {
+        AuditDetailBody(state = state, modifier = Modifier.padding(padding))
+    }
+}
+
+@Composable
+private fun AuditDetailBody(state: AuditDetailState, modifier: Modifier = Modifier) {
+    if (state.isLoading) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp)
+        ) {
+            Text(
+                text = "Loading...",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Tool name & provider
+            DetailSection(label = "Tool") {
                 Text(
-                    text = "Loading...",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = state.toolName,
+                    style = MaterialTheme.typography.headlineSmall
                 )
             }
-        } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp)
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Spacer(modifier = Modifier.height(16.dp))
 
-                // Tool name & provider
-                DetailSection(label = "Tool") {
-                    Text(
-                        text = state.toolName,
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                }
-
-                DetailSection(label = "Provider") {
-                    Text(
-                        text = state.provider,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-
-                // Timestamp
-                DetailSection(label = "Timestamp") {
-                    Text(
-                        text = formatTimestamp(state.timestampMillis),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-
-                // Duration
-                DetailSection(label = "Duration") {
-                    Text(
-                        text = "${state.durationMs}ms",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-
-                // Arguments
-                DetailSection(label = "Arguments") {
-                    CodeBlock(
-                        text = formatJsonOrRaw(state.argumentsJson),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                // Result
-                DetailSection(label = "Result") {
-                    CodeBlock(
-                        text = formatJsonOrRaw(state.resultJson),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
+            DetailSection(label = "Provider") {
+                Text(
+                    text = state.provider,
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
+
+            // Timestamp
+            DetailSection(label = "Timestamp") {
+                Text(
+                    text = formatTimestamp(state.timestampMillis),
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+
+            // Duration
+            DetailSection(label = "Duration") {
+                Text(
+                    text = "${state.durationMs}ms",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
+
+            // Arguments
+            DetailSection(label = "Arguments") {
+                CodeBlock(
+                    text = formatJsonOrRaw(state.argumentsJson),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Result
+            DetailSection(label = "Result") {
+                CodeBlock(
+                    text = formatJsonOrRaw(state.resultJson),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

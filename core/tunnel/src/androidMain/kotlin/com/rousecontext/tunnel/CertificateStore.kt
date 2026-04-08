@@ -21,6 +21,12 @@ interface CertificateStore {
     /** Device subdomain (e.g. "abc123" for abc123.rousecontext.com). */
     fun getSubdomain(): String?
 
+    /** Store the secret prefix (e.g. "brave-falcon") for URL construction. */
+    fun storeSecretPrefix(prefix: String)
+
+    /** Retrieve the stored secret prefix, or null if not yet assigned. */
+    fun getSecretPrefix(): String?
+
     /** Cert expiry for renewal checks. */
     fun getCertExpiry(): Instant?
 }

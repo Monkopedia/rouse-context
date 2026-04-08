@@ -98,6 +98,45 @@ class OnboardingFlowTest {
     }
 
     @Test
+    fun `onboarding stores secret prefix from register response`(): Unit = runBlocking {
+        mockServer.registerHandler = { _ ->
+            MockRegisterResponse(
+                status = 201,
+                body = RegisterResponse(
+                    subdomain = "abc123",
+                    relayHost = "relay.rousecontext.com",
+                    secretPrefix = "brave-falcon"
+                )
+            )
+        }
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.Success)
+        assertEquals("abc123", store.getSubdomain())
+        assertEquals("brave-falcon", store.getSecretPrefix())
+    }
+
+    @Test
+    fun `onboarding without secret prefix leaves it null`(): Unit = runBlocking {
+        mockServer.registerHandler = { _ ->
+            MockRegisterResponse(
+                status = 201,
+                body = RegisterResponse(
+                    subdomain = "abc123",
+                    relayHost = "relay.rousecontext.com"
+                )
+            )
+        }
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.Success)
+        assertEquals("abc123", store.getSubdomain())
+        assertNull(store.getSecretPrefix())
+    }
+
+    @Test
     fun `relay returns server error on register`(): Unit = runBlocking {
         mockServer.registerHandler = { _ ->
             MockRegisterResponse(status = 500)

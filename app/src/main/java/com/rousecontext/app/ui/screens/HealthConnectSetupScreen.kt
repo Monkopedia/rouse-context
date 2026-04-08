@@ -29,13 +29,25 @@ import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.mcp.health.RecordTypeRegistry
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun HealthConnectSetupContent(
+    onGrantAccess: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    HealthConnectSetupBody(
+        onGrantAccess = onGrantAccess,
+        onCancel = onCancel,
+        modifier = modifier
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Unit = {}) {
-    val typesByCategory = RecordTypeRegistry.allTypes
-        .groupBy { it.category }
-        .toSortedMap(compareBy { it.ordinal })
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -49,95 +61,111 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
+        HealthConnectSetupBody(
+            onGrantAccess = onGrantAccess,
+            onCancel = onCancel,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
 
+@Composable
+private fun HealthConnectSetupBody(
+    onGrantAccess: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val typesByCategory = RecordTypeRegistry.allTypes
+        .groupBy { it.category }
+        .toSortedMap(compareBy { it.ordinal })
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Health Connect lets AI clients read your health data " +
+                "to give personalized responses.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "We'll request access to all supported data types:",
+            style = MaterialTheme.typography.titleSmall
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        typesByCategory.forEach { (category, types) ->
             Text(
-                text = "Health Connect lets AI clients read your health data " +
-                    "to give personalized responses.",
-                style = MaterialTheme.typography.bodyLarge
+                text = category.value.replaceFirstChar { it.uppercase() },
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
             )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "We'll request access to all supported data types:",
-                style = MaterialTheme.typography.titleSmall
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            typesByCategory.forEach { (category, types) ->
-                Text(
-                    text = category.value.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                )
-                types.forEach { recordType ->
-                    Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
+            types.forEach { recordType ->
+                Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
+                    Text(
+                        text = "\u2022",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
                         Text(
-                            text = "\u2022",
+                            text = recordType.displayName,
                             style = MaterialTheme.typography.bodyMedium
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = recordType.displayName,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                text = recordType.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = recordType.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "You can change these permissions at any time in system settings.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Every access is logged in the app's audit history.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = onGrantAccess,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Grant All Health Access")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Cancel")
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "You can change these permissions at any time in system settings.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Every access is logged in the app's audit history.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = onGrantAccess,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Grant All Health Access")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Cancel")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 

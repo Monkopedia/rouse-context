@@ -52,6 +52,13 @@ class MockRelayServer {
         )
     }
 
+    var rotateSecretHandler: (suspend () -> MockRotateSecretResponse) = {
+        MockRotateSecretResponse(
+            status = 200,
+            body = RotateSecretResponse(secretPrefix = "new-prefix")
+        )
+    }
+
     private var server:
         EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
     var port: Int = 0
@@ -105,6 +112,16 @@ class MockRelayServer {
                     }
                     when (val body = response.body) {
                         is RenewResponse -> call.respond(
+                            HttpStatusCode.fromValue(response.status),
+                            body
+                        )
+                        else -> call.respond(HttpStatusCode.fromValue(response.status), "")
+                    }
+                }
+                post("/rotate-secret") {
+                    val response = rotateSecretHandler()
+                    when (val body = response.body) {
+                        is RotateSecretResponse -> call.respond(
                             HttpStatusCode.fromValue(response.status),
                             body
                         )
@@ -185,4 +202,9 @@ data class MockRenewResponse(
     val status: Int = 200,
     val body: RenewResponse? = null,
     val retryAfter: Long? = null
+)
+
+data class MockRotateSecretResponse(
+    val status: Int = 200,
+    val body: RotateSecretResponse? = null
 )
