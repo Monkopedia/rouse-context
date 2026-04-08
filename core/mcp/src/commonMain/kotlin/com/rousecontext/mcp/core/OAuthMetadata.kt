@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 /**
  * RFC 8414 OAuth Authorization Server Metadata, per-integration.
  *
- * Generated from the device hostname and integration path prefix.
+ * Generated from the per-integration hostname (e.g. brave-health.abc123.rousecontext.com).
  */
 @Serializable
 data class OAuthMetadata(
@@ -28,10 +28,11 @@ data class OAuthMetadata(
 )
 
 /**
- * Builds the OAuth metadata for a given integration path on this device.
+ * Builds the OAuth metadata for a hostname. With per-integration hostnames,
+ * everything is at root level -- no integration path prefix needed.
  */
-fun buildOAuthMetadata(hostname: String, integrationPath: String): OAuthMetadata {
-    val baseUrl = "https://$hostname/$integrationPath"
+fun buildOAuthMetadata(hostname: String): OAuthMetadata {
+    val baseUrl = "https://$hostname"
     return OAuthMetadata(
         issuer = baseUrl,
         authorizationEndpoint = "$baseUrl/authorize",

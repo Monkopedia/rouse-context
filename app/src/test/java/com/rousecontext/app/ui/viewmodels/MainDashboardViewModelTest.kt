@@ -35,7 +35,7 @@ class MainDashboardViewModelTest {
     private val fakeUrlProvider = McpUrlProvider(
         mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "test-device"
-            coEvery { getSecretPrefix() } returns "test-prefix"
+            coEvery { getSecretForIntegration(any()) } returns "test-secret"
         },
         "rousecontext.com"
     )

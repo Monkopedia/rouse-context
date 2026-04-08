@@ -65,7 +65,7 @@ class MainDashboardViewModel(
                     } else {
                         IntegrationStatus.PENDING
                     },
-                    url = urlProvider.buildUrl(integration.path) ?: ""
+                    url = urlProvider.buildUrl(integration.id) ?: ""
                 )
             } else {
                 null

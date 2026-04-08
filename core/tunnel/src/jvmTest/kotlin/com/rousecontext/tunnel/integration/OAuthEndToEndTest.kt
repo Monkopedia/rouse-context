@@ -115,16 +115,16 @@ class OAuthEndToEndTest {
      *
      * 1. Device connects via TunnelClientImpl with mTLS
      * 2. AI client connects via TLS to device subdomain through relay
-     * 3. POST /test/mcp without auth -> 401 Unauthorized
-     * 4. GET /.well-known/oauth-authorization-server/test -> OAuth metadata
-     * 5. POST /test/register -> dynamic client registration -> client_id
-     * 6. GET /test/authorize with PKCE challenge -> HTML with display code
+     * 3. POST /mcp without auth -> 401 Unauthorized
+     * 4. GET /.well-known/oauth-authorization-server -> OAuth metadata
+     * 5. POST /register -> dynamic client registration -> client_id
+     * 6. GET /authorize with PKCE challenge -> HTML with display code
      * 7. Programmatic approve via authorizationCodeManager.approve()
-     * 8. GET /test/authorize/status -> approved with auth code
-     * 9. POST /test/token with code + code_verifier -> access_token
-     * 10. POST /test/mcp with Bearer token + initialize -> 200
-     * 11. POST /test/mcp with tools/list -> tool list
-     * 12. POST /test/mcp with tools/call echo -> echo response
+     * 8. GET /authorize/status -> approved with auth code
+     * 9. POST /token with code + code_verifier -> access_token
+     * 10. POST /mcp with Bearer token + initialize -> 200
+     * 11. POST /mcp with tools/list -> tool list
+     * 12. POST /mcp with tools/call echo -> echo response
      */
     @Suppress("LongMethod")
     @Test
@@ -166,7 +166,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc("initialize", initializeParams())
             )
             assertEquals(
@@ -180,7 +180,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/.well-known/oauth-authorization-server/test"
+                path = "/.well-known/oauth-authorization-server"
             )
             assertEquals(200, metadataResponse.statusCode)
             val metadata = mcpJson.parseToJsonElement(metadataResponse.body).jsonObject
@@ -202,7 +202,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/register",
+                path = "/register",
                 body = registerBody
             )
             assertEquals(
@@ -220,7 +220,7 @@ class OAuthEndToEndTest {
 
             // --- Step 5: GET /authorize with PKCE ---
             val state = "test-state-${System.nanoTime()}"
-            val authorizePath = "/test/authorize" +
+            val authorizePath = "/authorize" +
                 "?response_type=code" +
                 "&client_id=$clientId" +
                 "&code_challenge=$codeChallenge" +
@@ -260,7 +260,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/test/authorize/status?request_id=$requestId"
+                path = "/authorize/status?request_id=$requestId"
             )
             assertEquals(200, pendingResponse.statusCode)
             val pendingJson = mcpJson.parseToJsonElement(pendingResponse.body).jsonObject
@@ -278,7 +278,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/test/authorize/status?request_id=$requestId"
+                path = "/authorize/status?request_id=$requestId"
             )
             assertEquals(200, approvedResponse.statusCode)
             val approvedJson = mcpJson.parseToJsonElement(approvedResponse.body).jsonObject
@@ -300,7 +300,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/token",
+                path = "/token",
                 body = tokenBody,
                 contentType = "application/x-www-form-urlencoded"
             )
@@ -322,7 +322,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc("initialize", initializeParams()),
                 bearerToken = accessToken
             )
@@ -345,7 +345,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = """{"jsonrpc":"2.0","method":"notifications/initialized"}""",
                 bearerToken = accessToken
             )
@@ -355,7 +355,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc("tools/list", id = 2),
                 bearerToken = accessToken
             )
@@ -374,7 +374,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc(
                     "tools/call",
                     """{"name":"echo","arguments":{"message":"hello through OAuth relay"}}""",
@@ -456,7 +456,8 @@ class OAuthEndToEndTest {
                         tokenStore = tokenStore,
                         deviceCodeManager = deviceCodeManager,
                         authorizationCodeManager = authorizationCodeManager,
-                        hostname = "$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
+                        hostname = "$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME",
+                        integration = "test"
                     )
                 }
                 server.start(wait = false)

@@ -21,11 +21,15 @@ interface CertificateStore {
     /** Device subdomain (e.g. "abc123" for abc123.rousecontext.com). */
     fun getSubdomain(): String?
 
-    /** Store the secret prefix (e.g. "brave-falcon") for URL construction. */
-    fun storeSecretPrefix(prefix: String)
+    /** Store per-integration secrets (e.g. {"health": "brave-health"}). */
+    fun storeIntegrationSecrets(secrets: Map<String, String>)
 
-    /** Retrieve the stored secret prefix, or null if not yet assigned. */
-    fun getSecretPrefix(): String?
+    /** Retrieve the stored integration secrets, or null if not yet assigned. */
+    fun getIntegrationSecrets(): Map<String, String>?
+
+    /** Convenience: look up the secret for a single integration. */
+    fun getSecretForIntegration(integration: String): String? =
+        getIntegrationSecrets()?.get(integration)
 
     /** Cert expiry for renewal checks. */
     fun getCertExpiry(): Instant?

@@ -183,12 +183,12 @@ data class RegisterRequest(
 data class RegisterResponse(
     @SerialName("subdomain") val subdomain: String,
     @SerialName("relay_host") val relayHost: String,
-    @SerialName("secret_prefix") val secretPrefix: String? = null
+    @SerialName("integration_secrets") val integrationSecrets: Map<String, String> = emptyMap()
 )
 
 @Serializable
 data class RotateSecretResponse(
-    @SerialName("secret_prefix") val secretPrefix: String
+    @SerialName("integration_secrets") val integrationSecrets: Map<String, String>
 )
 
 @Serializable

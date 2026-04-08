@@ -27,8 +27,7 @@ import org.junit.Test
 
 /**
  * Verifies that [IntegrationManageViewModel] generates MCP endpoint URLs
- * using the real subdomain from [CertificateStore] via [McpUrlProvider],
- * not placeholders like "<device>" or "brave-falcon".
+ * using the real subdomain from [CertificateStore] and per-integration secrets.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class IntegrationUrlTest {
@@ -45,17 +44,13 @@ class IntegrationUrlTest {
         Dispatchers.resetMain()
     }
 
-    private fun mockUrlProvider(subdomain: String?, secretPrefix: String?): McpUrlProvider {
-        val certStore = mockk<CertificateStore> {
-            coEvery { getSubdomain() } returns subdomain
-            coEvery { getSecretPrefix() } returns secretPrefix
-        }
-        return McpUrlProvider(certStore, "rousecontext.com")
-    }
-
     @Test
-    fun `URL uses real subdomain from CertificateStore`() = runTest(testDispatcher) {
-        val urlProvider = mockUrlProvider("test-sub", "brave-falcon")
+    fun `URL uses real subdomain and integration secret`() = runTest(testDispatcher) {
+        val certStore = mockk<CertificateStore> {
+            coEvery { getSubdomain() } returns "test-sub"
+            coEvery { getSecretForIntegration("health") } returns "brave-health"
+        }
+        val urlProvider = McpUrlProvider(certStore, "rousecontext.com")
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true
             every { wasEverEnabled("health") } returns true
@@ -86,16 +81,16 @@ class IntegrationUrlTest {
                 state.url.contains("test-sub")
             )
             assertTrue(
-                "URL should contain secret prefix brave-falcon, was: ${state.url}",
-                state.url.contains("brave-falcon")
+                "URL should contain integration secret brave-health, was: ${state.url}",
+                state.url.contains("brave-health")
             )
             assertTrue(
-                "URL should have prefix.subdomain format, was: ${state.url}",
-                state.url.contains("brave-falcon.test-sub.")
+                "URL should have secret.subdomain format, was: ${state.url}",
+                state.url.contains("brave-health.test-sub.")
             )
             assertTrue(
-                "URL should end with /health/mcp, was: ${state.url}",
-                state.url.endsWith("/health/mcp")
+                "URL should end with /mcp, was: ${state.url}",
+                state.url.endsWith("/mcp")
             )
             assertFalse(
                 "URL should not contain placeholder <device>, was: ${state.url}",
@@ -105,8 +100,12 @@ class IntegrationUrlTest {
     }
 
     @Test
-    fun `URL includes correct path for different integrations`() = runTest(testDispatcher) {
-        val urlProvider = mockUrlProvider("my-device", "swift-tiger")
+    fun `URL includes correct secret for different integrations`() = runTest(testDispatcher) {
+        val certStore = mockk<CertificateStore> {
+            coEvery { getSubdomain() } returns "my-device"
+            coEvery { getSecretForIntegration("notifications") } returns "swift-notifications"
+        }
+        val urlProvider = McpUrlProvider(certStore, "rousecontext.com")
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("notifications") } returns true
             every { wasEverEnabled("notifications") } returns true
@@ -136,19 +135,23 @@ class IntegrationUrlTest {
             val state = awaitItem()
             assertEquals(IntegrationStatus.ACTIVE, state.status)
             assertTrue(
-                "URL should use secret prefix and subdomain, was: ${state.url}",
-                state.url.startsWith("https://swift-tiger.my-device.")
+                "URL should use integration secret and subdomain, was: ${state.url}",
+                state.url.startsWith("https://swift-notifications.my-device.")
             )
             assertTrue(
-                "URL should end with /notifications/mcp, was: ${state.url}",
-                state.url.endsWith("/notifications/mcp")
+                "URL should end with /mcp, was: ${state.url}",
+                state.url.endsWith("/mcp")
             )
         }
     }
 
     @Test
     fun `URL is empty when registration incomplete`() = runTest(testDispatcher) {
-        val urlProvider = mockUrlProvider(null, null)
+        val certStore = mockk<CertificateStore> {
+            coEvery { getSubdomain() } returns null
+            coEvery { getSecretForIntegration(any()) } returns null
+        }
+        val urlProvider = McpUrlProvider(certStore, "rousecontext.com")
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true
             every { wasEverEnabled("health") } returns true

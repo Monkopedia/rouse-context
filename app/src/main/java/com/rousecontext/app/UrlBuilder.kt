@@ -3,50 +3,47 @@ package com.rousecontext.app
 import com.rousecontext.tunnel.CertificateStore
 
 /**
- * Builds the public MCP endpoint URL for an integration.
+ * Builds per-integration MCP endpoint URLs and hostnames.
  *
- * URL format: https://{secretPrefix}.{subdomain}.{baseDomain}{path}/mcp
+ * With per-integration hostnames, each integration gets its own secret prefix
+ * (e.g. "brave-health" for health), yielding a hostname like:
+ *   brave-health.abc123.rousecontext.com
  *
- * A secret prefix is always required. Missing prefix indicates a device
- * that hasn't completed registration and should not serve URLs.
- */
-fun buildMcpUrl(
-    secretPrefix: String,
-    subdomain: String,
-    baseDomain: String,
-    integrationPath: String
-): String {
-    val host = "$secretPrefix.$subdomain.$baseDomain"
-    return "https://$host$integrationPath/mcp"
-}
-
-/**
- * Central URL provider that resolves device identity from the CertificateStore
- * and builds MCP URLs. Inject this instead of manually reading certStore +
- * BuildConfig in every ViewModel / composable.
+ * The MCP endpoint is always at /mcp on that hostname.
  */
 class McpUrlProvider(
     private val certStore: CertificateStore,
     private val baseDomain: String = BuildConfig.RELAY_HOST.removePrefix("relay.")
 ) {
+
     /**
-     * Build the full MCP endpoint URL for the given integration path.
-     * Returns null if the device hasn't completed registration
-     * (missing subdomain or secret prefix).
+     * Builds the full MCP URL for an integration.
+     * Returns null if subdomain or secret is unavailable.
      */
-    suspend fun buildUrl(integrationPath: String): String? {
+    suspend fun buildUrl(integrationId: String): String? {
         val subdomain = certStore.getSubdomain() ?: return null
-        val secretPrefix = certStore.getSecretPrefix() ?: return null
-        return buildMcpUrl(secretPrefix, subdomain, baseDomain, integrationPath)
+        val secret = certStore.getSecretForIntegration(integrationId) ?: return null
+        return buildMcpUrl(secret, subdomain, baseDomain)
     }
 
     /**
-     * Build the hostname portion (no scheme, no path) for use in MCP session setup.
-     * Returns null if registration is incomplete.
+     * Builds the hostname for an integration (e.g. "brave-health.abc123.rousecontext.com").
+     * Returns null if subdomain or secret is unavailable.
      */
-    suspend fun buildHostname(): String? {
+    suspend fun buildHostname(integrationId: String): String? {
         val subdomain = certStore.getSubdomain() ?: return null
-        val secretPrefix = certStore.getSecretPrefix() ?: return null
-        return "$secretPrefix.$subdomain.$baseDomain"
+        val secret = certStore.getSecretForIntegration(integrationId) ?: return null
+        return "$secret.$subdomain.$baseDomain"
     }
+}
+
+/**
+ * Builds the public MCP endpoint URL for an integration.
+ *
+ * The URL is: https://{integrationSecret}.{subdomain}.{baseDomain}/mcp
+ *
+ * The path is always /mcp -- the integration is identified by hostname.
+ */
+fun buildMcpUrl(integrationSecret: String, subdomain: String, baseDomain: String): String {
+    return "https://$integrationSecret.$subdomain.$baseDomain/mcp"
 }

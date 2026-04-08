@@ -98,14 +98,17 @@ class OnboardingFlowTest {
     }
 
     @Test
-    fun `onboarding stores secret prefix from register response`(): Unit = runBlocking {
+    fun `onboarding stores integration secrets from register response`(): Unit = runBlocking {
         mockServer.registerHandler = { _ ->
             MockRegisterResponse(
                 status = 201,
                 body = RegisterResponse(
                     subdomain = "abc123",
                     relayHost = "relay.rousecontext.com",
-                    secretPrefix = "brave-falcon"
+                    integrationSecrets = mapOf(
+                        "health" to "brave-health",
+                        "notifications" to "swift-notifications"
+                    )
                 )
             )
         }
@@ -114,11 +117,15 @@ class OnboardingFlowTest {
 
         assertTrue(result is OnboardingResult.Success)
         assertEquals("abc123", store.getSubdomain())
-        assertEquals("brave-falcon", store.getSecretPrefix())
+        assertEquals(
+            mapOf("health" to "brave-health", "notifications" to "swift-notifications"),
+            store.getIntegrationSecrets()
+        )
+        assertEquals("brave-health", store.getSecretForIntegration("health"))
     }
 
     @Test
-    fun `onboarding without secret prefix leaves it null`(): Unit = runBlocking {
+    fun `onboarding without integration secrets leaves them null`(): Unit = runBlocking {
         mockServer.registerHandler = { _ ->
             MockRegisterResponse(
                 status = 201,
@@ -133,7 +140,7 @@ class OnboardingFlowTest {
 
         assertTrue(result is OnboardingResult.Success)
         assertEquals("abc123", store.getSubdomain())
-        assertNull(store.getSecretPrefix())
+        assertNull(store.getIntegrationSecrets())
     }
 
     @Test

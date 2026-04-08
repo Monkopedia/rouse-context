@@ -7,9 +7,9 @@ import kotlinx.coroutines.CompletableDeferred
 /**
  * Orchestrates MCP HTTP sessions with per-integration OAuth and auth.
  *
- * Wraps a Ktor embedded HTTP server that routes by integration path prefix.
- * Each integration path is an independent MCP server with its own OAuth endpoints,
- * device codes, and tokens.
+ * Wraps a Ktor embedded HTTP server that serves a single integration.
+ * Each integration gets its own hostname, so each McpSession serves one
+ * integration with its own OAuth endpoints, device codes, and tokens.
  *
  * The session is long-lived and shared across streams. Provider changes
  * (enable/disable) are reflected immediately via [ProviderRegistry].
@@ -20,12 +20,14 @@ import kotlinx.coroutines.CompletableDeferred
  *     registry = providerRegistry,
  *     tokenStore = roomTokenStore,
  *     auditListener = auditLog,
- *     hostname = "brave-falcon.rousecontext.com"
+ *     hostname = "brave-health.abc123.rousecontext.com",
+ *     integration = "health"
  * )
  * session.start(port = 0) // starts embedded HTTP server
  * session.awaitClose()    // suspends until stopped
  * ```
  */
+@Suppress("LongParameterList")
 class McpSession(
     private val registry: ProviderRegistry,
     private val tokenStore: TokenStore,
@@ -34,6 +36,7 @@ class McpSession(
         AuthorizationCodeManager(tokenStore = tokenStore),
     private val auditListener: AuditListener? = null,
     private val hostname: String = "localhost",
+    private val integration: String = "health",
     private val rateLimiter: RateLimiter? = null,
     private val mcpRateLimiter: RateLimiter? = null,
     private val serverName: String = "rouse-context",
@@ -65,6 +68,7 @@ class McpSession(
                 deviceCodeManager = deviceCodeManager,
                 authorizationCodeManager = authorizationCodeManager,
                 hostname = hostname,
+                integration = integration,
                 auditListener = auditListener,
                 rateLimiter = rateLimiter,
                 mcpRateLimiter = mcpRateLimiter,

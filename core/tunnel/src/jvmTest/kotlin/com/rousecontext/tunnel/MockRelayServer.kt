@@ -55,7 +55,9 @@ class MockRelayServer {
     var rotateSecretHandler: (suspend () -> MockRotateSecretResponse) = {
         MockRotateSecretResponse(
             status = 200,
-            body = RotateSecretResponse(secretPrefix = "new-prefix")
+            body = RotateSecretResponse(
+                integrationSecrets = mapOf("health" to "new-health")
+            )
         )
     }
 

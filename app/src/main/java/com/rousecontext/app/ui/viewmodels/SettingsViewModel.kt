@@ -84,7 +84,7 @@ class SettingsViewModel(
             rotateError.value = null
             when (val result = relayApiClient.rotateSecret()) {
                 is RelayApiResult.Success -> {
-                    certStore.storeSecretPrefix(result.data.secretPrefix)
+                    certStore.storeIntegrationSecrets(result.data.integrationSecrets)
                 }
                 is RelayApiResult.RateLimited -> {
                     rotateError.value = "Rate limited. Try again later."

@@ -165,17 +165,21 @@ val appModule = module {
     }
 
     // --- MCP session ---
+    // TODO: With per-integration hostnames, each integration needs its own McpSession.
+    // For now, create a single session for the first enabled integration.
     single {
-        val urlProvider: McpUrlProvider = get()
-        val hostname = kotlinx.coroutines.runBlocking {
-            urlProvider.buildHostname()
-        } ?: "localhost"
+        val certStore: CertificateStore = get()
+        val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
         val notifier: AuthRequestNotifier = get()
+        val integrations: List<McpIntegration> = get()
+        // Default to first integration id
+        val defaultIntegration = integrations.firstOrNull()?.id ?: "health"
         McpSession(
             registry = get(),
             tokenStore = get(),
             auditListener = get(),
-            hostname = hostname
+            hostname = "localhost",
+            integration = defaultIntegration
         ).also { session ->
             session.start(port = 0)
             session.authorizationCodeManager.onNewRequest = { displayCode, integration ->

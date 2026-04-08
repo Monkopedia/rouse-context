@@ -71,7 +71,7 @@ class DashboardStateFlowTest {
             urlProvider = McpUrlProvider(
                 mockk<CertificateStore> {
                     coEvery { getSubdomain() } returns "test-sub"
-                    coEvery { getSecretPrefix() } returns "test-prefix"
+                    coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
             )
@@ -116,7 +116,7 @@ class DashboardStateFlowTest {
             urlProvider = McpUrlProvider(
                 mockk<CertificateStore> {
                     coEvery { getSubdomain() } returns "test-sub"
-                    coEvery { getSecretPrefix() } returns "test-prefix"
+                    coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
             )
@@ -173,7 +173,7 @@ class DashboardStateFlowTest {
             urlProvider = McpUrlProvider(
                 mockk<CertificateStore> {
                     coEvery { getSubdomain() } returns "test-sub"
-                    coEvery { getSecretPrefix() } returns "test-prefix"
+                    coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
             )
@@ -234,7 +234,7 @@ class DashboardStateFlowTest {
             urlProvider = McpUrlProvider(
                 mockk<CertificateStore> {
                     coEvery { getSubdomain() } returns "test-sub"
-                    coEvery { getSecretPrefix() } returns "test-prefix"
+                    coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
             )

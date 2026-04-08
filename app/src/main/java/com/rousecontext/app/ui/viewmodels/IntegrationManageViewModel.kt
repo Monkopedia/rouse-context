@@ -77,7 +77,7 @@ class IntegrationManageViewModel(
                 } else {
                     IntegrationStatus.PENDING
                 },
-                url = urlProvider.buildUrl(integration.path) ?: "",
+                url = urlProvider.buildUrl(integration.id) ?: "",
                 recentActivity = recent,
                 authorizedClients = clients
             )

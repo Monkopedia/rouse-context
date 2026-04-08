@@ -776,7 +776,7 @@ fun AppNavigation(
                     val mcpUrl =
                         androidx.compose.runtime.produceState("") {
                             value = urlProvider.buildUrl(
-                                integration?.path ?: "/$integrationId"
+                                integrationId
                             ) ?: ""
                         }.value
                     val integrationName = integration?.displayName

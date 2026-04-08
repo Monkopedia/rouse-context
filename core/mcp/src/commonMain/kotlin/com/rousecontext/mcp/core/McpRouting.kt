@@ -13,7 +13,6 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
-import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
@@ -50,11 +49,12 @@ private data class IntegrationServer(
 /**
  * Configures Ktor routing for MCP Streamable HTTP with per-integration OAuth.
  *
- * Routes:
- * - `/{integration}/.well-known/oauth-authorization-server` -- OAuth metadata (no auth)
- * - `/{integration}/device/authorize` -- Device code flow start (no auth)
- * - `/{integration}/token` -- Token exchange (no auth, checks device_code)
- * - `/{integration}/mcp` -- MCP Streamable HTTP (Bearer auth required)
+ * Each server instance serves a single integration, identified by hostname.
+ * Routes are at root level:
+ * - `/.well-known/oauth-authorization-server` -- OAuth metadata (no auth)
+ * - `/device/authorize` -- Device code flow start (no auth)
+ * - `/token` -- Token exchange (no auth, checks device_code)
+ * - `/mcp` -- MCP Streamable HTTP (Bearer auth required)
  */
 @Suppress("LongMethod", "LongParameterList", "CyclomaticComplexMethod")
 fun Application.configureMcpRouting(
@@ -67,6 +67,7 @@ fun Application.configureMcpRouting(
         auditListener = auditListener
     ),
     hostname: String,
+    integration: String,
     clock: Clock = SystemClock,
     rateLimiter: RateLimiter? = null,
     mcpRateLimiter: RateLimiter? = null,
@@ -82,18 +83,15 @@ fun Application.configureMcpRouting(
     val serversMutex = Mutex()
 
     routing {
-        // RFC 9728: Protected Resource Metadata for path-based MCP endpoints.
+        // RFC 9728: Protected Resource Metadata.
         // Claude's MCP client discovers OAuth by requesting:
-        //   GET /.well-known/oauth-protected-resource/{integration}/mcp
+        //   GET /.well-known/oauth-protected-resource/mcp
         get("/.well-known/oauth-protected-resource/{path...}") {
-            val fullPath = call.parameters.getAll("path")?.joinToString("/") ?: ""
-            // Extract integration name from path (e.g. "test/mcp" -> "test")
-            val integration = fullPath.split("/").firstOrNull() ?: ""
-            if (integration.isBlank() || registry.providerForPath(integration) == null) {
+            if (registry.providerForPath(integration) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val baseUrl = "https://$hostname/$integration"
+            val baseUrl = "https://$hostname"
             call.respond(
                 buildJsonObject {
                     put("resource", "$baseUrl/mcp")
@@ -109,481 +107,434 @@ fun Application.configureMcpRouting(
             )
         }
 
-        // RFC 8414 path-based discovery: given issuer https://host/test,
-        // clients look for metadata at /.well-known/oauth-authorization-server/test
+        // RFC 8414: OAuth authorization server metadata at root.
         get("/.well-known/oauth-authorization-server/{path...}") {
-            val integration = call.parameters.getAll("path")?.firstOrNull() ?: ""
-            if (integration.isBlank() || registry.providerForPath(integration) == null) {
+            if (registry.providerForPath(integration) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(hostname, integration)
+            val metadata = buildOAuthMetadata(hostname)
             call.respond(metadata)
         }
 
-        // Fallback: root-level OAuth authorization server metadata.
         get("/.well-known/oauth-authorization-server") {
-            val integration = registry.enabledPaths().firstOrNull()
-            if (integration == null) {
+            if (registry.providerForPath(integration) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(hostname, integration)
+            val metadata = buildOAuthMetadata(hostname)
             call.respond(metadata)
         }
 
-        route("/{integration}") {
-            // OAuth metadata -- no auth required
-            get("/.well-known/oauth-authorization-server") {
-                val integration = call.parameters["integration"] ?: return@get
-                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@get
-                }
-                if (registry.providerForPath(integration) == null) {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@get
-                }
-
-                val metadata = buildOAuthMetadata(hostname, integration)
-                call.respond(metadata)
+        // RFC 7591 Dynamic Client Registration -- accepts any client and
+        // returns a client_id. We don't enforce client authentication for the
+        // device code flow, so this is a simple pass-through.
+        post("/register") {
+            if (registry.providerForPath(integration) == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@post
+            }
+            if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/register")) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@post
             }
 
-            // RFC 7591 Dynamic Client Registration -- accepts any client and
-            // returns a client_id. We don't enforce client authentication for the
-            // device code flow, so this is a simple pass-through.
-            post("/register") {
-                val integration = call.parameters["integration"] ?: return@post
-                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
+            val body = try {
+                val text = kotlinx.coroutines.withTimeout(5000) {
+                    call.receiveText()
                 }
-                if (registry.providerForPath(integration) == null) {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@post
-                }
-                if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/register")) {
-                    call.respond(HttpStatusCode.TooManyRequests)
-                    return@post
-                }
-
-                val body = try {
-                    val text = kotlinx.coroutines.withTimeout(5000) {
-                        call.receiveText()
-                    }
-                    mcpJson.parseToJsonElement(text).jsonObject
-                } catch (e: Exception) {
-                    println(
-                        "McpRouting: /register body read failed: " +
-                            "${e::class.simpleName}: ${e.message}"
-                    )
-                    call.respondText(
-                        "{}",
-                        ContentType.Application.Json,
-                        HttpStatusCode.BadRequest
-                    )
-                    return@post
-                }
-
-                val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
-
-                // Validate redirect_uris: only http/https schemes allowed
-                val rawUris = (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
-                    ?.mapNotNull { it.jsonPrimitive.content }
-                    ?: emptyList()
-                val validUris = rawUris.filter { uri ->
-                    try {
-                        val scheme = java.net.URI(uri).scheme?.lowercase()
-                        scheme == "http" || scheme == "https"
-                    } catch (_: Exception) {
-                        false
-                    }
-                }
-                if (validUris.isEmpty()) {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        buildJsonObject {
-                            put("error", "invalid_redirect_uri")
-                            put(
-                                "error_description",
-                                "At least one http or https redirect_uri is required"
-                            )
-                        }
-                    )
-                    return@post
-                }
-                val redirectUris = validUris
-
-                val clientId = java.util.UUID.randomUUID().toString()
-                try {
-                    authorizationCodeManager.registerClient(clientId, clientName, redirectUris)
-                } catch (e: IllegalArgumentException) {
-                    call.respondText(
-                        buildJsonObject {
-                            put("error", "invalid_redirect_uri")
-                            put("error_description", e.message ?: "Invalid redirect_uri")
-                        }.toString(),
-                        ContentType.Application.Json,
-                        HttpStatusCode.BadRequest
-                    )
-                    return@post
-                }
-                val response = buildJsonObject {
-                    put("client_id", clientId)
-                    put("client_name", clientName)
-                    put(
-                        "redirect_uris",
-                        kotlinx.serialization.json.JsonArray(
-                            validUris.map { kotlinx.serialization.json.JsonPrimitive(it) }
-                        )
-                    )
-                    put(
-                        "grant_types",
-                        kotlinx.serialization.json.JsonArray(
-                            listOf(
-                                kotlinx.serialization.json.JsonPrimitive(
-                                    "authorization_code"
-                                ),
-                                kotlinx.serialization.json.JsonPrimitive(
-                                    "urn:ietf:params:oauth:grant-type:device_code"
-                                )
-                            )
-                        )
-                    )
-                    put(
-                        "response_types",
-                        kotlinx.serialization.json.JsonArray(
-                            listOf(
-                                kotlinx.serialization.json.JsonPrimitive("code")
-                            )
-                        )
-                    )
-                    put("token_endpoint_auth_method", "none")
-                }
+                mcpJson.parseToJsonElement(text).jsonObject
+            } catch (e: Exception) {
+                println(
+                    "McpRouting: /register body read failed: " +
+                        "${e::class.simpleName}: ${e.message}"
+                )
                 call.respondText(
-                    response.toString(),
+                    "{}",
                     ContentType.Application.Json,
-                    HttpStatusCode.Created
+                    HttpStatusCode.BadRequest
                 )
+                return@post
             }
 
-            // Device code authorize -- no auth required
-            post("/device/authorize") {
-                val integration = call.parameters["integration"] ?: return@post
-                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
-                }
-                if (registry.providerForPath(integration) == null) {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@post
-                }
+            val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
 
-                val response = deviceCodeManager.authorize(integration)
+            // Validate redirect_uris: only http/https schemes allowed
+            val rawUris = (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
+                ?.mapNotNull { it.jsonPrimitive.content }
+                ?: emptyList()
+            val validUris = rawUris.filter { uri ->
+                try {
+                    val scheme = java.net.URI(uri).scheme?.lowercase()
+                    scheme == "http" || scheme == "https"
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            if (validUris.isEmpty()) {
                 call.respond(
+                    HttpStatusCode.BadRequest,
                     buildJsonObject {
-                        put("device_code", response.deviceCode)
-                        put("user_code", response.userCode)
-                        put("interval", response.interval)
+                        put("error", "invalid_redirect_uri")
                         put(
-                            "verification_uri",
-                            "https://$hostname/$integration/device"
+                            "error_description",
+                            "At least one http or https redirect_uri is required"
                         )
-                        put("expires_in", 600)
                     }
                 )
+                return@post
+            }
+            val redirectUris = validUris
+
+            val clientId = java.util.UUID.randomUUID().toString()
+            try {
+                authorizationCodeManager.registerClient(clientId, clientName, redirectUris)
+            } catch (e: IllegalArgumentException) {
+                call.respondText(
+                    buildJsonObject {
+                        put("error", "invalid_redirect_uri")
+                        put("error_description", e.message ?: "Invalid redirect_uri")
+                    }.toString(),
+                    ContentType.Application.Json,
+                    HttpStatusCode.BadRequest
+                )
+                return@post
+            }
+            val response = buildJsonObject {
+                put("client_id", clientId)
+                put("client_name", clientName)
+                put(
+                    "redirect_uris",
+                    kotlinx.serialization.json.JsonArray(
+                        validUris.map { kotlinx.serialization.json.JsonPrimitive(it) }
+                    )
+                )
+                put(
+                    "grant_types",
+                    kotlinx.serialization.json.JsonArray(
+                        listOf(
+                            kotlinx.serialization.json.JsonPrimitive(
+                                "authorization_code"
+                            ),
+                            kotlinx.serialization.json.JsonPrimitive(
+                                "urn:ietf:params:oauth:grant-type:device_code"
+                            )
+                        )
+                    )
+                )
+                put(
+                    "response_types",
+                    kotlinx.serialization.json.JsonArray(
+                        listOf(
+                            kotlinx.serialization.json.JsonPrimitive("code")
+                        )
+                    )
+                )
+                put("token_endpoint_auth_method", "none")
+            }
+            call.respondText(
+                response.toString(),
+                ContentType.Application.Json,
+                HttpStatusCode.Created
+            )
+        }
+
+        // Device code authorize -- no auth required
+        post("/device/authorize") {
+            if (registry.providerForPath(integration) == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@post
             }
 
-            // Authorization code flow -- returns HTML page with display code
-            get("/authorize") {
-                val integration = call.parameters["integration"] ?: return@get
-                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@get
-                }
-                if (registry.providerForPath(integration) == null) {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@get
-                }
-                if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/authorize")) {
-                    call.respond(HttpStatusCode.TooManyRequests)
-                    return@get
-                }
-
-                val responseType = call.request.queryParameters["response_type"]
-                val clientId = call.request.queryParameters["client_id"]
-                val codeChallenge = call.request.queryParameters["code_challenge"]
-                val codeChallengeMethod = call.request.queryParameters["code_challenge_method"]
-                val redirectUri = call.request.queryParameters["redirect_uri"]
-                val state = call.request.queryParameters["state"]
-
-                val validRequest = responseType == "code" && codeChallengeMethod == "S256"
-                val allParamsPresent = clientId != null && codeChallenge != null &&
-                    redirectUri != null && state != null
-                if (!validRequest || !allParamsPresent) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@get
-                }
-
-                // Validate redirect_uri scheme
-                val uriScheme = try {
-                    java.net.URI(redirectUri!!).scheme?.lowercase()
-                } catch (_: Exception) {
-                    null
-                }
-                if (uriScheme != "http" && uriScheme != "https") {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@get
-                }
-
-                // Non-null guaranteed by allParamsPresent check above
-                val request = try {
-                    authorizationCodeManager.createRequest(
-                        clientId = clientId!!,
-                        codeChallenge = codeChallenge!!,
-                        codeChallengeMethod = codeChallengeMethod!!,
-                        redirectUri = redirectUri,
-                        state = state!!,
-                        integration = integration
+            val response = deviceCodeManager.authorize(integration)
+            call.respond(
+                buildJsonObject {
+                    put("device_code", response.deviceCode)
+                    put("user_code", response.userCode)
+                    put("interval", response.interval)
+                    put(
+                        "verification_uri",
+                        "https://$hostname/device"
                     )
-                } catch (_: IllegalArgumentException) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@get
+                    put("expires_in", 600)
                 }
+            )
+        }
 
-                val html = buildAuthorizePage(
-                    displayCode = request.displayCode,
-                    requestId = request.requestId,
+        // Authorization code flow -- returns HTML page with display code
+        get("/authorize") {
+            if (registry.providerForPath(integration) == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@get
+            }
+            if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/authorize")) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@get
+            }
+
+            val responseType = call.request.queryParameters["response_type"]
+            val clientId = call.request.queryParameters["client_id"]
+            val codeChallenge = call.request.queryParameters["code_challenge"]
+            val codeChallengeMethod = call.request.queryParameters["code_challenge_method"]
+            val redirectUri = call.request.queryParameters["redirect_uri"]
+            val state = call.request.queryParameters["state"]
+
+            val validRequest = responseType == "code" && codeChallengeMethod == "S256"
+            val allParamsPresent = clientId != null && codeChallenge != null &&
+                redirectUri != null && state != null
+            if (!validRequest || !allParamsPresent) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@get
+            }
+
+            // Validate redirect_uri scheme
+            val uriScheme = try {
+                java.net.URI(redirectUri!!).scheme?.lowercase()
+            } catch (_: Exception) {
+                null
+            }
+            if (uriScheme != "http" && uriScheme != "https") {
+                call.respond(HttpStatusCode.BadRequest)
+                return@get
+            }
+
+            // Non-null guaranteed by allParamsPresent check above
+            val request = try {
+                authorizationCodeManager.createRequest(
+                    clientId = clientId!!,
+                    codeChallenge = codeChallenge!!,
+                    codeChallengeMethod = codeChallengeMethod!!,
                     redirectUri = redirectUri,
-                    hostname = hostname,
+                    state = state!!,
                     integration = integration
                 )
-                call.response.headers.append("X-Frame-Options", "DENY")
-                call.response.headers.append(
-                    "Content-Security-Policy",
-                    "frame-ancestors 'none'; default-src 'self'; " +
-                        "script-src 'unsafe-inline'; " +
-                        "style-src 'unsafe-inline'; " +
-                        "img-src 'self' data:"
-                )
-                call.response.headers.append("X-Content-Type-Options", "nosniff")
-                call.response.headers.append(
-                    "Strict-Transport-Security",
-                    "max-age=31536000"
-                )
-                call.respondText(html, ContentType.Text.Html)
+            } catch (_: IllegalArgumentException) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@get
             }
 
-            // Authorization status polling -- JSON endpoint for JS on the HTML page
-            get("/authorize/status") {
-                val requestId = call.request.queryParameters["request_id"]
-                if (requestId == null) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@get
-                }
+            val html = buildAuthorizePage(
+                displayCode = request.displayCode,
+                requestId = request.requestId,
+                redirectUri = redirectUri,
+                hostname = hostname,
+                integration = integration
+            )
+            call.response.headers.append("X-Frame-Options", "DENY")
+            call.response.headers.append(
+                "Content-Security-Policy",
+                "frame-ancestors 'none'; default-src 'self'; " +
+                    "script-src 'unsafe-inline'; " +
+                    "style-src 'unsafe-inline'; " +
+                    "img-src 'self' data:"
+            )
+            call.response.headers.append("X-Content-Type-Options", "nosniff")
+            call.response.headers.append(
+                "Strict-Transport-Security",
+                "max-age=31536000"
+            )
+            call.respondText(html, ContentType.Text.Html)
+        }
 
-                val status = authorizationCodeManager.getStatus(requestId)
-                val json = when (status) {
-                    is AuthorizationRequestStatus.Pending ->
-                        buildJsonObject { put("status", "pending") }
-                    is AuthorizationRequestStatus.Approved ->
-                        buildJsonObject {
-                            put("status", "approved")
-                            put("code", status.code)
-                            put("state", status.state)
-                        }
-                    is AuthorizationRequestStatus.Denied ->
-                        buildJsonObject { put("status", "denied") }
-                    is AuthorizationRequestStatus.Expired ->
-                        buildJsonObject { put("status", "expired") }
-                }
-                call.respond(json)
+        // Authorization status polling -- JSON endpoint for JS on the HTML page
+        get("/authorize/status") {
+            val requestId = call.request.queryParameters["request_id"]
+            if (requestId == null) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@get
             }
 
-            // Token exchange -- handles both authorization_code and device_code
-            post("/token") {
-                val integration = call.parameters["integration"] ?: return@post
-                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
-                }
-                if (registry.providerForPath(integration) == null) {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@post
-                }
-                if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/token")) {
-                    call.respond(HttpStatusCode.TooManyRequests)
-                    return@post
-                }
-
-                val params = parseTokenRequestParams(call)
-                if (params == null) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
-                }
-
-                val grantType = params["grant_type"]
-
-                when (grantType) {
-                    "authorization_code" -> {
-                        val code = params["code"]
-                        val codeVerifier = params["code_verifier"]
-                        if (code == null || codeVerifier == null) {
-                            call.respond(HttpStatusCode.BadRequest)
-                            return@post
-                        }
-                        val pair = authorizationCodeManager.exchangeCode(code, codeVerifier)
-                        if (pair != null) {
-                            call.respond(
-                                buildJsonObject {
-                                    put("access_token", pair.accessToken)
-                                    put("token_type", "Bearer")
-                                    put("expires_in", pair.expiresIn)
-                                    put("refresh_token", pair.refreshToken)
-                                }
-                            )
-                        } else {
-                            call.respond(
-                                HttpStatusCode.BadRequest,
-                                buildJsonObject { put("error", "invalid_grant") }
-                            )
-                        }
+            val status = authorizationCodeManager.getStatus(requestId)
+            val json = when (status) {
+                is AuthorizationRequestStatus.Pending ->
+                    buildJsonObject { put("status", "pending") }
+                is AuthorizationRequestStatus.Approved ->
+                    buildJsonObject {
+                        put("status", "approved")
+                        put("code", status.code)
+                        put("state", status.state)
                     }
-                    "urn:ietf:params:oauth:grant-type:device_code" -> {
-                        val deviceCode = params["device_code"]
-                        if (deviceCode == null) {
-                            call.respond(HttpStatusCode.BadRequest)
-                            return@post
-                        }
-                        respondToDeviceCodePoll(call, deviceCodeManager, deviceCode)
+                is AuthorizationRequestStatus.Denied ->
+                    buildJsonObject { put("status", "denied") }
+                is AuthorizationRequestStatus.Expired ->
+                    buildJsonObject { put("status", "expired") }
+            }
+            call.respond(json)
+        }
+
+        // Token exchange -- handles both authorization_code and device_code
+        post("/token") {
+            if (registry.providerForPath(integration) == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@post
+            }
+            if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/token")) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
+
+            val params = parseTokenRequestParams(call)
+            if (params == null) {
+                call.respond(HttpStatusCode.BadRequest)
+                return@post
+            }
+
+            val grantType = params["grant_type"]
+
+            when (grantType) {
+                "authorization_code" -> {
+                    val code = params["code"]
+                    val codeVerifier = params["code_verifier"]
+                    if (code == null || codeVerifier == null) {
+                        call.respond(HttpStatusCode.BadRequest)
+                        return@post
                     }
-                    "refresh_token" -> {
-                        val refreshTokenValue = params["refresh_token"]
-                        if (refreshTokenValue == null) {
-                            call.respond(HttpStatusCode.BadRequest)
-                            return@post
-                        }
-                        val pair = tokenStore.refreshToken(
-                            integration,
-                            refreshTokenValue
+                    val pair = authorizationCodeManager.exchangeCode(code, codeVerifier)
+                    if (pair != null) {
+                        call.respond(
+                            buildJsonObject {
+                                put("access_token", pair.accessToken)
+                                put("token_type", "Bearer")
+                                put("expires_in", pair.expiresIn)
+                                put("refresh_token", pair.refreshToken)
+                            }
                         )
-                        if (pair != null) {
-                            call.respond(
-                                buildJsonObject {
-                                    put("access_token", pair.accessToken)
-                                    put("token_type", "Bearer")
-                                    put("expires_in", pair.expiresIn)
-                                    put("refresh_token", pair.refreshToken)
-                                }
-                            )
-                        } else {
-                            call.respond(
-                                HttpStatusCode.BadRequest,
-                                buildJsonObject { put("error", "invalid_grant") }
-                            )
-                        }
-                    }
-                    else -> {
+                    } else {
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            buildJsonObject { put("error", "unsupported_grant_type") }
+                            buildJsonObject { put("error", "invalid_grant") }
                         )
                     }
+                }
+                "urn:ietf:params:oauth:grant-type:device_code" -> {
+                    val deviceCode = params["device_code"]
+                    if (deviceCode == null) {
+                        call.respond(HttpStatusCode.BadRequest)
+                        return@post
+                    }
+                    respondToDeviceCodePoll(call, deviceCodeManager, deviceCode)
+                }
+                "refresh_token" -> {
+                    val refreshTokenValue = params["refresh_token"]
+                    if (refreshTokenValue == null) {
+                        call.respond(HttpStatusCode.BadRequest)
+                        return@post
+                    }
+                    val pair = tokenStore.refreshToken(
+                        integration,
+                        refreshTokenValue
+                    )
+                    if (pair != null) {
+                        call.respond(
+                            buildJsonObject {
+                                put("access_token", pair.accessToken)
+                                put("token_type", "Bearer")
+                                put("expires_in", pair.expiresIn)
+                                put("refresh_token", pair.refreshToken)
+                            }
+                        )
+                    } else {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            buildJsonObject { put("error", "invalid_grant") }
+                        )
+                    }
+                }
+                else -> {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        buildJsonObject { put("error", "unsupported_grant_type") }
+                    )
+                }
+            }
+        }
+
+        // MCP Streamable HTTP -- Bearer auth required
+        post("/mcp") {
+            val provider = registry.providerForPath(integration)
+            if (provider == null) {
+                call.respond(HttpStatusCode.NotFound)
+                return@post
+            }
+            if (mcpRateLimiter != null &&
+                !mcpRateLimiter.tryAcquire("$integration/mcp")
+            ) {
+                call.respond(HttpStatusCode.TooManyRequests)
+                return@post
+            }
+
+            // Auth check
+            val authHeader = call.request.headers["Authorization"]
+            val token = authHeader?.removePrefix("Bearer ")?.takeIf {
+                authHeader.startsWith("Bearer ")
+            }
+
+            if (token == null || !tokenStore.validateToken(integration, token)) {
+                call.response.headers.append(
+                    "WWW-Authenticate",
+                    "Bearer resource_metadata=\"https://$hostname" +
+                        "/.well-known/oauth-authorization-server\""
+                )
+                call.respond(HttpStatusCode.Unauthorized)
+                return@post
+            }
+
+            // Get or create MCP server + transport for this integration
+            val integrationServer = serversMutex.withLock {
+                integrationServers.getOrPut(integration) {
+                    createIntegrationServer(provider, serverName, serverVersion)
                 }
             }
 
-            // MCP Streamable HTTP -- Bearer auth required
-            post("/mcp") {
-                val integration = call.parameters["integration"] ?: return@post
-                if (!INTEGRATION_NAME_REGEX.matches(integration)) {
-                    call.respond(HttpStatusCode.BadRequest)
-                    return@post
+            // Parse and dispatch JSON-RPC request through SDK transport
+            val requestBody = try {
+                kotlinx.coroutines.withTimeout(MCP_REQUEST_TIMEOUT_MS) {
+                    call.receiveText()
                 }
-                val provider = registry.providerForPath(integration)
-                if (provider == null) {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@post
-                }
-                if (mcpRateLimiter != null &&
-                    !mcpRateLimiter.tryAcquire("$integration/mcp")
-                ) {
-                    call.respond(HttpStatusCode.TooManyRequests)
-                    return@post
-                }
+            } catch (e: Exception) {
+                println(
+                    "McpRouting: /mcp body read failed: " +
+                        "${e::class.simpleName}: ${e.message}"
+                )
+                call.respondText(
+                    mcpJson.encodeToString(
+                        JsonObject.serializer(),
+                        jsonRpcError(JsonNull, -32700, "Request body read timeout")
+                    ),
+                    ContentType.Application.Json,
+                    HttpStatusCode.BadRequest
+                )
+                return@post
+            }
 
-                // Auth check
-                val authHeader = call.request.headers["Authorization"]
-                val token = authHeader?.removePrefix("Bearer ")?.takeIf {
-                    authHeader.startsWith("Bearer ")
-                }
+            // JSON-RPC notifications have no "id" field and expect no response
+            val parsed = try {
+                mcpJson.parseToJsonElement(requestBody).jsonObject
+            } catch (_: Exception) {
+                null
+            }
+            val isNotification = parsed != null && !parsed.containsKey("id")
 
-                if (token == null || !tokenStore.validateToken(integration, token)) {
-                    call.response.headers.append(
-                        "WWW-Authenticate",
-                        "Bearer resource_metadata=\"https://$hostname/$integration" +
-                            "/.well-known/oauth-authorization-server\""
+            if (isNotification) {
+                // Fire-and-forget: dispatch to SDK but return 202 immediately
+                dispatchNotification(integrationServer.transport, requestBody)
+                call.respond(HttpStatusCode.Accepted)
+            } else {
+                val startMs = clock.currentTimeMillis()
+                val responseJson = dispatchJsonRpc(integrationServer.transport, requestBody)
+
+                if (auditListener != null && parsed != null) {
+                    emitAuditEvent(
+                        auditListener,
+                        parsed,
+                        responseJson,
+                        integration,
+                        startMs,
+                        clock
                     )
-                    call.respond(HttpStatusCode.Unauthorized)
-                    return@post
                 }
 
-                // Get or create MCP server + transport for this integration
-                val integrationServer = serversMutex.withLock {
-                    integrationServers.getOrPut(integration) {
-                        createIntegrationServer(provider, serverName, serverVersion)
-                    }
-                }
-
-                // Parse and dispatch JSON-RPC request through SDK transport
-                val requestBody = try {
-                    kotlinx.coroutines.withTimeout(MCP_REQUEST_TIMEOUT_MS) {
-                        call.receiveText()
-                    }
-                } catch (e: Exception) {
-                    println(
-                        "McpRouting: /mcp body read failed: " +
-                            "${e::class.simpleName}: ${e.message}"
-                    )
-                    call.respondText(
-                        mcpJson.encodeToString(
-                            JsonObject.serializer(),
-                            jsonRpcError(JsonNull, -32700, "Request body read timeout")
-                        ),
-                        ContentType.Application.Json,
-                        HttpStatusCode.BadRequest
-                    )
-                    return@post
-                }
-
-                // JSON-RPC notifications have no "id" field and expect no response
-                val parsed = try {
-                    mcpJson.parseToJsonElement(requestBody).jsonObject
-                } catch (_: Exception) {
-                    null
-                }
-                val isNotification = parsed != null && !parsed.containsKey("id")
-
-                if (isNotification) {
-                    // Fire-and-forget: dispatch to SDK but return 202 immediately
-                    dispatchNotification(integrationServer.transport, requestBody)
-                    call.respond(HttpStatusCode.Accepted)
-                } else {
-                    val startMs = clock.currentTimeMillis()
-                    val responseJson = dispatchJsonRpc(integrationServer.transport, requestBody)
-
-                    if (auditListener != null && parsed != null) {
-                        emitAuditEvent(
-                            auditListener,
-                            parsed,
-                            responseJson,
-                            integration,
-                            startMs,
-                            clock
-                        )
-                    }
-
-                    call.respondText(responseJson, ContentType.Application.Json)
-                }
+                call.respondText(responseJson, ContentType.Application.Json)
             }
         }
     }
@@ -727,7 +678,7 @@ internal fun buildAuthorizePage(
     hostname: String,
     integration: String
 ): String {
-    val statusUrl = "https://$hostname/$integration/authorize/status?request_id=$requestId"
+    val statusUrl = "https://$hostname/authorize/status?request_id=$requestId"
     return """
         <!DOCTYPE html>
         <html lang="en">
@@ -928,9 +879,6 @@ internal fun htmlEscapeForJs(value: String): String {
 
 /** Timeout for reading the MCP request body and dispatching it (30 seconds). */
 private const val MCP_REQUEST_TIMEOUT_MS = 30_000L
-
-/** Valid integration name pattern: alphanumeric, hyphens, underscores, 1-64 chars. */
-private val INTEGRATION_NAME_REGEX = Regex("^[a-zA-Z0-9_-]{1,64}$")
 
 private fun jsonRpcError(
     id: kotlinx.serialization.json.JsonElement,
