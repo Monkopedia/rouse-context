@@ -292,6 +292,118 @@ class TunnelClientImplTest {
     }
 
     @Test
+    fun `disconnect when already disconnected does not throw or corrupt state`() = runBlocking {
+        val client = TunnelClientImpl(this, KtorWebSocketFactory())
+
+        // Initial state is DISCONNECTED
+        assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+        // Calling disconnect when already disconnected should be a no-op
+        client.disconnect()
+        assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+        // Call it again -- still should not throw
+        client.disconnect()
+        assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `connect after disconnect works correctly`() = runBlocking {
+        val port = findFreePort()
+
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        for (frame in incoming) {
+                            // consume
+                        }
+                    }
+                }
+            }
+        server.start(wait = false)
+
+        try {
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+
+            // Connect, disconnect, connect again
+            client.connect("ws://localhost:$port/tunnel")
+            assertEquals(TunnelState.CONNECTED, client.state.value)
+
+            client.disconnect()
+            assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+            // Brief delay for async WebSocket close callbacks to settle.
+            // The onClosing/onFailure callbacks fire asynchronously after
+            // disconnect() returns, and can race with the next connect().
+            delay(200)
+
+            // Second connect should work
+            client.connect("ws://localhost:$port/tunnel")
+            assertEquals(TunnelState.CONNECTED, client.state.value)
+
+            client.disconnect()
+            assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
+        }
+    }
+
+    @Test
+    fun `rapid connect-disconnect cycles do not crash or leak state`() = runBlocking {
+        val port = findFreePort()
+
+        val server =
+            embeddedServer(CIO, port = port) {
+                install(ServerWebSockets)
+                routing {
+                    webSocket("/tunnel") {
+                        for (frame in incoming) {
+                            // consume
+                        }
+                    }
+                }
+            }
+        server.start(wait = false)
+
+        try {
+            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+
+            // Connect/disconnect 5 times with brief settling delays
+            repeat(5) { i ->
+                client.connect("ws://localhost:$port/tunnel")
+                assertEquals(
+                    TunnelState.CONNECTED,
+                    client.state.value,
+                    "Cycle $i: expected CONNECTED after connect"
+                )
+
+                client.disconnect()
+                assertEquals(
+                    TunnelState.DISCONNECTED,
+                    client.state.value,
+                    "Cycle $i: expected DISCONNECTED after disconnect"
+                )
+
+                // Allow async WebSocket close callbacks to settle
+                delay(200)
+            }
+
+            // Final state should be DISCONNECTED
+            assertEquals(TunnelState.DISCONNECTED, client.state.value)
+
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0)
+        }
+    }
+
+    @Test
     fun `connection failure emits error on SharedFlow`() = runBlocking {
         val client = TunnelClientImpl(this, KtorWebSocketFactory())
 

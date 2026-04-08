@@ -14,10 +14,10 @@ import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TunnelClientImpl
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
-import io.modelcontextprotocol.kotlin.sdk.CallToolResult
-import io.modelcontextprotocol.kotlin.sdk.TextContent
-import io.modelcontextprotocol.kotlin.sdk.Tool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -411,7 +411,7 @@ class OAuthEndToEndTest {
             server.addTool(
                 name = "echo",
                 description = "Echoes back the input message",
-                inputSchema = Tool.Input(
+                inputSchema = ToolSchema(
                     properties = buildJsonObject {
                         put(
                             "message",
@@ -424,7 +424,7 @@ class OAuthEndToEndTest {
                 )
             ) { request ->
                 val message =
-                    request.arguments["message"]?.jsonPrimitive?.content ?: "empty"
+                    request.params.arguments?.get("message")?.jsonPrimitive?.content ?: "empty"
                 CallToolResult(content = listOf(TextContent(message)))
             }
         }
