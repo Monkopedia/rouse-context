@@ -32,6 +32,7 @@ fn make_device(secret: &str) -> DeviceRecord {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: Some(secret.to_string()),
+        integration_secrets: std::collections::HashMap::new(),
     }
 }
 
@@ -73,6 +74,26 @@ async fn rotate_secret_returns_new_prefix() {
         "New secret should differ from old"
     );
 
+    // Verify integration_secrets are returned
+    let int_secrets = json["integration_secrets"].as_object();
+    assert!(
+        int_secrets.is_some(),
+        "Rotate response must include integration_secrets"
+    );
+    let int_secrets = int_secrets.unwrap();
+    assert_eq!(
+        int_secrets.len(),
+        4,
+        "Should have secrets for all default integrations"
+    );
+    for (name, val) in int_secrets {
+        let secret_val = val.as_str().unwrap();
+        assert!(
+            secret_val.ends_with(&format!("-{name}")),
+            "Integration secret '{secret_val}' should end with '-{name}'"
+        );
+    }
+
     // Verify Firestore was updated
     let devices = fs.devices.lock().unwrap();
     let updated = devices.get("cool-penguin").unwrap();
@@ -80,6 +101,11 @@ async fn rotate_secret_returns_new_prefix() {
         updated.secret_prefix.as_deref(),
         Some(new_secret),
         "Firestore should have the new secret prefix"
+    );
+    assert_eq!(
+        updated.integration_secrets.len(),
+        4,
+        "Firestore should have integration_secrets"
     );
 }
 

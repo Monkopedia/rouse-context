@@ -149,10 +149,10 @@ fn secret_prefix_device_routes_to_passthrough() {
     match decision {
         RouteDecision::DevicePassthrough {
             subdomain,
-            secret_prefix,
+            integration_secret,
         } => {
             assert_eq!(subdomain, "cool-penguin");
-            assert_eq!(secret_prefix, "brave-falcon");
+            assert_eq!(integration_secret, "brave-falcon");
         }
         other => panic!("Expected DevicePassthrough, got {:?}", other),
     }

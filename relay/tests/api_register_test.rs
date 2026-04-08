@@ -69,6 +69,26 @@ async fn register_new_device_returns_subdomain() {
         secret.contains('-'),
         "Secret prefix should be adjective-noun format, got: {secret}"
     );
+    // Round 1 response should include integration_secrets map
+    let int_secrets = json["integration_secrets"].as_object();
+    assert!(
+        int_secrets.is_some(),
+        "Registration response must include integration_secrets"
+    );
+    let int_secrets = int_secrets.unwrap();
+    // Default config has 4 integrations: health, outreach, notifications, usage
+    assert_eq!(
+        int_secrets.len(),
+        4,
+        "Should have secrets for all default integrations"
+    );
+    for (name, val) in int_secrets {
+        let secret_val = val.as_str().unwrap();
+        assert!(
+            secret_val.ends_with(&format!("-{name}")),
+            "Integration secret '{secret_val}' should end with '-{name}'"
+        );
+    }
     // Round 1 response should NOT contain cert or private_key
     assert!(json.get("cert").is_none());
     assert!(json.get("private_key").is_none());
@@ -136,6 +156,7 @@ async fn re_register_without_signature_returns_403() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -192,6 +213,7 @@ async fn force_new_within_cooldown_returns_429() {
         last_rotation: Some(SystemTime::now()), // just rotated
         renewal_nudge_sent: None,
         secret_prefix: None,
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -250,6 +272,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = MockFirestore::new().with_device("brave-falcon", existing_record);
     let acme = MockAcme::new("new-cert-chain");
@@ -308,6 +331,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
         last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)), // 31 days ago
         renewal_nudge_sent: None,
         secret_prefix: None,
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let acme = MockAcme::new("rotated-cert");
