@@ -17,6 +17,7 @@ import com.rousecontext.app.registry.UsageIntegration
 import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
+import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
@@ -83,6 +84,9 @@ val appModule = module {
 
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
+
+    // --- Device registration status ---
+    single { DeviceRegistrationStatus() }
 
     // --- Onboarding ---
     single { CsrGenerator() }
@@ -253,6 +257,6 @@ val appModule = module {
     viewModel { NotificationSetupViewModel(androidContext(), get()) }
     viewModel { OutreachSetupViewModel(androidContext(), get()) }
     viewModel { UsageSetupViewModel(androidContext(), get()) }
-    viewModel { IntegrationSetupViewModel(get(), get(), get()) }
-    viewModel { OnboardingViewModel(get(), get()) }
+    viewModel { IntegrationSetupViewModel(get(), get(), get(), get()) }
+    viewModel { OnboardingViewModel(get(), get(), get()) }
 }

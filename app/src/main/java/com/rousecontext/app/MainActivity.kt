@@ -40,6 +40,9 @@ class MainActivity : ComponentActivity() {
         splashScreen.setKeepOnScreenCondition { startDestination == null }
 
         // Determine start destination (getSubdomain is suspend).
+        // New users go to the Welcome screen; returning users go straight to Home.
+        // Registration itself is non-blocking — it runs in the background after
+        // the user taps "Get Started" and lands on Home immediately.
         lifecycleScope.launch {
             val hasSubdomain = certStore.getSubdomain() != null
             startDestination = if (hasSubdomain) Routes.HOME else Routes.ONBOARDING
