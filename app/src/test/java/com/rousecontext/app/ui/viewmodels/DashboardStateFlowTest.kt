@@ -66,7 +66,10 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
+            certStore = mockk {
+                coEvery { getSubdomain() } returns "test-sub"
+                coEvery { getSecretPrefix() } returns null
+            }
         )
 
         vm.state.test {
@@ -105,7 +108,10 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
+            certStore = mockk {
+                coEvery { getSubdomain() } returns "test-sub"
+                coEvery { getSecretPrefix() } returns null
+            }
         )
 
         vm.state.test {
@@ -156,7 +162,10 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
+            certStore = mockk {
+                coEvery { getSubdomain() } returns "test-sub"
+                coEvery { getSecretPrefix() } returns null
+            }
         )
 
         vm.state.test {
@@ -211,7 +220,10 @@ class DashboardStateFlowTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            certStore = mockk { coEvery { getSubdomain() } returns "test-sub" }
+            certStore = mockk {
+                coEvery { getSubdomain() } returns "test-sub"
+                coEvery { getSecretPrefix() } returns null
+            }
         )
 
         vm.state.test {

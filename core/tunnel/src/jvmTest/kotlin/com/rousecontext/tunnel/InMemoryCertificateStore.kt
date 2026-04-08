@@ -7,6 +7,7 @@ class InMemoryCertificateStore : CertificateStore {
 
     private var certificate: String? = null
     private var subdomain: String? = null
+    private var secretPrefix: String? = null
     private var privateKey: String? = null
     private var certChain: List<ByteArray>? = null
     private val knownFingerprints: MutableSet<String> = mutableSetOf()
@@ -53,6 +54,14 @@ class InMemoryCertificateStore : CertificateStore {
 
     override suspend fun getSubdomain(): String? = subdomain
 
+    override suspend fun storeSecretPrefix(prefix: String) {
+        throwOnStore?.let { throw it }
+        storeCallCount++
+        secretPrefix = prefix
+    }
+
+    override suspend fun getSecretPrefix(): String? = secretPrefix
+
     override suspend fun storePrivateKey(pemKey: String) {
         throwOnStore?.let { throw it }
         storeCallCount++
@@ -66,6 +75,7 @@ class InMemoryCertificateStore : CertificateStore {
         clientCertificate = null
         relayCaCert = null
         subdomain = null
+        secretPrefix = null
         privateKey = null
         storeCallCount = 0
     }

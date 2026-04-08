@@ -149,6 +149,8 @@ class SecurityCertificateStore(
     override suspend fun getRelayCaCert(): String? = null
     override suspend fun storeSubdomain(subdomain: String) {}
     override suspend fun getSubdomain(): String? = subdomain
+    override suspend fun storeSecretPrefix(prefix: String) {}
+    override suspend fun getSecretPrefix(): String? = null
     override suspend fun storePrivateKey(pemKey: String) {}
     override suspend fun getPrivateKey(): String? = null
     override suspend fun clear() {}
@@ -174,6 +176,8 @@ class FailingCertificateStore : CertificateStore {
     override suspend fun getRelayCaCert(): String? = null
     override suspend fun storeSubdomain(subdomain: String) {}
     override suspend fun getSubdomain(): String? = null
+    override suspend fun storeSecretPrefix(prefix: String) {}
+    override suspend fun getSecretPrefix(): String? = null
     override suspend fun storePrivateKey(pemKey: String) {}
     override suspend fun getPrivateKey(): String? = null
     override suspend fun clear() {}

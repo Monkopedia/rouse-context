@@ -26,6 +26,7 @@ class FileCertificateStore(
     private val filesDir get() = context.filesDir
     private val certFile get() = File(filesDir, CERT_PEM_FILE)
     private val subdomainFile get() = File(filesDir, SUBDOMAIN_FILE)
+    private val secretPrefixFile get() = File(filesDir, SECRET_PREFIX_FILE)
     private val fingerprintsFile get() = File(filesDir, FINGERPRINTS_FILE)
 
     override suspend fun storeCertificate(pemChain: String) {
@@ -60,6 +61,14 @@ class FileCertificateStore(
 
     override suspend fun getSubdomain(): String? {
         return if (subdomainFile.exists()) subdomainFile.readText().trim() else null
+    }
+
+    override suspend fun storeSecretPrefix(prefix: String) {
+        secretPrefixFile.writeText(prefix)
+    }
+
+    override suspend fun getSecretPrefix(): String? {
+        return if (secretPrefixFile.exists()) secretPrefixFile.readText().trim() else null
     }
 
     override suspend fun storePrivateKey(pemKey: String) {
@@ -154,6 +163,7 @@ class FileCertificateStore(
         File(filesDir, RELAY_CA_PEM_FILE).delete()
         File(filesDir, KEY_PEM_FILE).delete()
         subdomainFile.delete()
+        secretPrefixFile.delete()
         fingerprintsFile.delete()
         val keyStore = androidKeyStore()
         if (keyStore.containsAlias(KEY_ALIAS)) {
@@ -234,6 +244,7 @@ class FileCertificateStore(
         private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
         private const val KEY_PEM_FILE = "rouse_key.pem"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
+        private const val SECRET_PREFIX_FILE = "rouse_secret_prefix.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"
         private const val KEY_ALIAS = "rouse_device_key"
         private const val ENCRYPTION_KEY_ALIAS = "rouse_key_encryption_key"

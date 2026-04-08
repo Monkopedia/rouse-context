@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
+import com.rousecontext.app.buildMcpUrl
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.IntegrationManageState
@@ -42,6 +43,7 @@ class IntegrationManageViewModel(
             val integration = integrations.find { it.id == id }
                 ?: return@map IntegrationManageState()
             val subdomain = certStore.getSubdomain() ?: "unknown"
+            val secretPrefix = certStore.getSecretPrefix()
             val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
                 .removePrefix("relay.")
 
@@ -79,7 +81,7 @@ class IntegrationManageViewModel(
                 } else {
                     IntegrationStatus.PENDING
                 },
-                url = "https://$subdomain.$baseDomain${integration.path}/mcp",
+                url = buildMcpUrl(secretPrefix, subdomain, baseDomain, integration.path),
                 recentActivity = recent,
                 authorizedClients = clients
             )

@@ -164,8 +164,17 @@ val appModule = module {
         } else {
             null
         }
+        val secretPrefixFile = java.io.File(androidContext().filesDir, "rouse_secret_prefix.txt")
+        val secretPrefix = if (secretPrefixFile.exists()) {
+            secretPrefixFile.readText().trim()
+        } else {
+            null
+        }
         val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
-        val hostname = subdomain?.let { "$it.$baseDomain" } ?: "localhost"
+        val hostname = subdomain?.let { sub ->
+            val prefix = secretPrefix?.let { "$it." } ?: ""
+            "$prefix$sub.$baseDomain"
+        } ?: "localhost"
         val notifier: AuthRequestNotifier = get()
         McpSession(
             registry = get(),

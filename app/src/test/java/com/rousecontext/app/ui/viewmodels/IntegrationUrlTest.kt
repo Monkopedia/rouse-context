@@ -48,6 +48,7 @@ class IntegrationUrlTest {
     fun `URL uses real subdomain from CertificateStore`() = runTest(testDispatcher) {
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "test-sub"
+            coEvery { getSecretPrefix() } returns "brave-falcon"
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true
@@ -79,16 +80,20 @@ class IntegrationUrlTest {
                 state.url.contains("test-sub")
             )
             assertTrue(
+                "URL should contain secret prefix brave-falcon, was: ${state.url}",
+                state.url.contains("brave-falcon")
+            )
+            assertTrue(
+                "URL should have prefix.subdomain format, was: ${state.url}",
+                state.url.contains("brave-falcon.test-sub.")
+            )
+            assertTrue(
                 "URL should end with /health/mcp, was: ${state.url}",
                 state.url.endsWith("/health/mcp")
             )
             assertFalse(
                 "URL should not contain placeholder <device>, was: ${state.url}",
                 state.url.contains("<device>")
-            )
-            assertFalse(
-                "URL should not contain placeholder brave-falcon, was: ${state.url}",
-                state.url.contains("brave-falcon")
             )
         }
     }
@@ -97,6 +102,7 @@ class IntegrationUrlTest {
     fun `URL includes correct path for different integrations`() = runTest(testDispatcher) {
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "my-device"
+            coEvery { getSecretPrefix() } returns "swift-tiger"
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("notifications") } returns true
@@ -127,8 +133,8 @@ class IntegrationUrlTest {
             val state = awaitItem()
             assertEquals(IntegrationStatus.ACTIVE, state.status)
             assertTrue(
-                "URL should use my-device subdomain, was: ${state.url}",
-                state.url.startsWith("https://my-device.")
+                "URL should use secret prefix and subdomain, was: ${state.url}",
+                state.url.startsWith("https://swift-tiger.my-device.")
             )
             assertTrue(
                 "URL should end with /notifications/mcp, was: ${state.url}",
@@ -141,6 +147,7 @@ class IntegrationUrlTest {
     fun `URL uses unknown when subdomain is null`() = runTest(testDispatcher) {
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns null
+            coEvery { getSecretPrefix() } returns null
         }
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true

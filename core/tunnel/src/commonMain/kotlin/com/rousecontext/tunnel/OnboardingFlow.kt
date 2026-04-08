@@ -19,13 +19,13 @@ class OnboardingFlow(
      * Executes the onboarding flow: registers with the relay to get a subdomain.
      */
     suspend fun execute(firebaseToken: String, fcmToken: String): OnboardingResult {
-        val subdomain = when (
+        val registerData = when (
             val response = relayApiClient.register(
                 firebaseToken = firebaseToken,
                 fcmToken = fcmToken
             )
         ) {
-            is RelayApiResult.Success -> response.data.subdomain
+            is RelayApiResult.Success -> response.data
             is RelayApiResult.RateLimited ->
                 return OnboardingResult.RateLimited(retryAfterSeconds = response.retryAfterSeconds)
             is RelayApiResult.Error ->
@@ -38,8 +38,9 @@ class OnboardingFlow(
         }
 
         return try {
-            certificateStore.storeSubdomain(subdomain)
-            OnboardingResult.Success(subdomain = subdomain)
+            certificateStore.storeSubdomain(registerData.subdomain)
+            registerData.secretPrefix?.let { certificateStore.storeSecretPrefix(it) }
+            OnboardingResult.Success(subdomain = registerData.subdomain)
         } catch (e: Exception) {
             certificateStore.clear()
             OnboardingResult.StorageFailed(e)

@@ -69,6 +69,16 @@ class RelayApiClient(
         }
 
     /**
+     * Rotate the device's secret prefix. Authenticated via mTLS.
+     * Returns the new secret prefix assigned by the relay.
+     */
+    suspend fun rotateSecret(): RelayApiResult<RotateSecretResponse> = executeRequest {
+        httpClient.post("$baseUrl/rotate-secret") {
+            contentType(ContentType.Application.Json)
+        }
+    }
+
+    /**
      * Renew a device certificate using mTLS (valid cert) authentication.
      */
     suspend fun renewWithMtls(
@@ -172,7 +182,13 @@ data class RegisterRequest(
 @Serializable
 data class RegisterResponse(
     @SerialName("subdomain") val subdomain: String,
-    @SerialName("relay_host") val relayHost: String
+    @SerialName("relay_host") val relayHost: String,
+    @SerialName("secret_prefix") val secretPrefix: String? = null
+)
+
+@Serializable
+data class RotateSecretResponse(
+    @SerialName("secret_prefix") val secretPrefix: String
 )
 
 @Serializable
