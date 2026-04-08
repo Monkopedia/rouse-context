@@ -36,6 +36,28 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
 import com.rousecontext.app.ui.viewmodels.OutreachSetupState
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun OutreachSetupContent(
+    state: OutreachSetupState = OutreachSetupState(),
+    onDndToggled: (Boolean) -> Unit = {},
+    onGrantDnd: () -> Unit = {},
+    onEnable: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    OutreachSetupBody(
+        state = state,
+        onDndToggled = onDndToggled,
+        onGrantDnd = onGrantDnd,
+        onEnable = onEnable,
+        onCancel = onCancel,
+        modifier = modifier
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OutreachSetupScreen(
@@ -58,139 +80,157 @@ fun OutreachSetupScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
+        OutreachSetupBody(
+            state = state,
+            onDndToggled = onDndToggled,
+            onGrantDnd = onGrantDnd,
+            onEnable = onEnable,
+            onCancel = onCancel,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
 
-            Text(
-                text = "Allow AI clients to take actions on your device: launch apps, " +
-                    "open links, copy to clipboard, and send you notifications.",
-                style = MaterialTheme.typography.bodyLarge
-            )
+@Composable
+private fun OutreachSetupBody(
+    state: OutreachSetupState,
+    onDndToggled: (Boolean) -> Unit = {},
+    onGrantDnd: () -> Unit = {},
+    onEnable: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Allow AI clients to take actions on your device: launch apps, " +
+                "open links, copy to clipboard, and send you notifications.",
+            style = MaterialTheme.typography.bodyLarge
+        )
 
-            Text(
-                text = "No special permissions are needed for basic tools.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "No special permissions are needed for basic tools.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
-            Text(
-                text = "Every action is logged in the app's audit history.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Spacer(modifier = Modifier.height(12.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Every action is logged in the app's audit history.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
-            // DND section
-            Text(
-                text = "Do Not Disturb Control",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+        Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
+        // DND section
+        Text(
+            text = "Do Not Disturb Control",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Allow DND changes",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "This is a sensitive permission. When enabled, " +
-                                    "AI clients can change your Do Not Disturb settings.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Switch(
-                            checked = state.dndToggled,
-                            onCheckedChange = onDndToggled
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Allow DND changes",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "This is a sensitive permission. When enabled, " +
+                                "AI clients can change your Do Not Disturb settings.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = state.dndToggled,
+                        onCheckedChange = onDndToggled
+                    )
+                }
 
-                    if (state.dndToggled) {
-                        Spacer(modifier = Modifier.height(12.dp))
+                if (state.dndToggled) {
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                        if (state.dndPermissionGranted) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Granted",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = SuccessGreen
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Permission granted",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        } else {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                )
-                            ) {
-                                Text(
-                                    text = "DND access requires a special permission. " +
-                                        "You'll be taken to system settings to grant it.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
+                    if (state.dndPermissionGranted) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Granted",
+                                modifier = Modifier.size(20.dp),
+                                tint = SuccessGreen
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Permission granted",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    } else {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            )
+                        ) {
+                            Text(
+                                text = "DND access requires a special permission. " +
+                                    "You'll be taken to system settings to grant it.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                            OutlinedButton(
-                                onClick = onGrantDnd,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Grant DND Access")
-                            }
+                        OutlinedButton(
+                            onClick = onGrantDnd,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Grant DND Access")
                         }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = onEnable,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Enable")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Cancel")
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = onEnable,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Enable")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Cancel")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 

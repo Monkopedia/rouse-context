@@ -46,6 +46,30 @@ import com.rousecontext.app.ui.theme.SuccessGreen
 import com.rousecontext.app.ui.viewmodels.NotificationSetupState
 import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun NotificationSetupContent(
+    state: NotificationSetupState = NotificationSetupState(),
+    onGrantAccess: () -> Unit = {},
+    onRetentionChanged: (Int) -> Unit = {},
+    onAllowActionsChanged: (Boolean) -> Unit = {},
+    onEnable: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    NotificationSetupBody(
+        state = state,
+        onGrantAccess = onGrantAccess,
+        onRetentionChanged = onRetentionChanged,
+        onAllowActionsChanged = onAllowActionsChanged,
+        onEnable = onEnable,
+        onCancel = onCancel,
+        modifier = modifier
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationSetupScreen(
@@ -69,131 +93,151 @@ fun NotificationSetupScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
+        NotificationSetupBody(
+            state = state,
+            onGrantAccess = onGrantAccess,
+            onRetentionChanged = onRetentionChanged,
+            onAllowActionsChanged = onAllowActionsChanged,
+            onEnable = onEnable,
+            onCancel = onCancel,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
 
-            Text(
-                text = "Allow Rouse Context to read your notifications so AI " +
-                    "clients can help you manage them.",
-                style = MaterialTheme.typography.bodyLarge
-            )
+@Composable
+private fun NotificationSetupBody(
+    state: NotificationSetupState,
+    onGrantAccess: () -> Unit = {},
+    onRetentionChanged: (Int) -> Unit = {},
+    onAllowActionsChanged: (Boolean) -> Unit = {},
+    onEnable: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Allow Rouse Context to read your notifications so AI " +
+                "clients can help you manage them.",
+            style = MaterialTheme.typography.bodyLarge
+        )
 
-            // Privacy warning
-            PrivacyWarningCard(
-                text = "AI clients will be able to see notification titles " +
-                    "and content, including messages and alerts."
-            )
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
+        // Privacy warning
+        PrivacyWarningCard(
+            text = "AI clients will be able to see notification titles " +
+                "and content, including messages and alerts."
+        )
 
-            // Permission status
-            Text(
-                text = "Permission",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+        Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
+        // Permission status
+        Text(
+            text = "Permission",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
 
-            if (state.permissionGranted) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Granted",
-                        modifier = Modifier.size(20.dp),
-                        tint = SuccessGreen
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Access granted",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            } else {
-                OutlinedButton(
-                    onClick = onGrantAccess,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Grant Access")
-                }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (state.permissionGranted) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Granted",
+                    modifier = Modifier.size(20.dp),
+                    tint = SuccessGreen
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Access granted",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Retention picker
-            Text(
-                text = "Keep notification history for",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            RetentionDropdown(
-                selectedDays = state.retentionDays,
-                onSelected = onRetentionChanged
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Action toggle
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Allow AI to act on notifications",
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "When enabled, AI clients can perform actions " +
-                                "on and dismiss your notifications.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(
-                        checked = state.allowActions,
-                        onCheckedChange = onAllowActionsChanged
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = onEnable,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = state.permissionGranted
-            ) {
-                Text("Enable")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+        } else {
             OutlinedButton(
-                onClick = onCancel,
+                onClick = onGrantAccess,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Cancel")
+                Text("Grant Access")
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Retention picker
+        Text(
+            text = "Keep notification history for",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        RetentionDropdown(
+            selectedDays = state.retentionDays,
+            onSelected = onRetentionChanged
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Action toggle
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Allow AI to act on notifications",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "When enabled, AI clients can perform actions " +
+                            "on and dismiss your notifications.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Switch(
+                    checked = state.allowActions,
+                    onCheckedChange = onAllowActionsChanged
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = onEnable,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = state.permissionGranted
+        ) {
+            Text("Enable")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Cancel")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 

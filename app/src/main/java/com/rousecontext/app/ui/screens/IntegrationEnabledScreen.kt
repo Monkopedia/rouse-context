@@ -42,6 +42,24 @@ data class IntegrationEnabledState(
     val url: String = ""
 )
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun IntegrationEnabledContent(
+    state: IntegrationEnabledState = IntegrationEnabledState(),
+    onCopyUrl: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    IntegrationEnabledBody(
+        state = state,
+        onCopyUrl = onCopyUrl,
+        onCancel = onCancel,
+        modifier = modifier
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IntegrationEnabledScreen(
@@ -54,97 +72,110 @@ fun IntegrationEnabledScreen(
             TopAppBar(title = { Text("${state.integrationName} Ready") }, colors = appBarColors())
         }
     ) { padding ->
-        Surface(
+        IntegrationEnabledBody(
+            state = state,
+            onCopyUrl = onCopyUrl,
+            onCancel = onCancel,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
+
+@Composable
+private fun IntegrationEnabledBody(
+    state: IntegrationEnabledState,
+    onCopyUrl: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "${state.integrationName} is set up",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Add this URL to your AI client:",
+                style = MaterialTheme.typography.bodyLarge
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                )
             ) {
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = "${state.integrationName} is set up",
-                    style = MaterialTheme.typography.headlineSmall
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "Add this URL to your AI client:",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = state.url,
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f)
-                        )
-                        IconButton(onClick = onCopyUrl) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL")
-                        }
+                    Text(
+                        text = state.url,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onCopyUrl) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL")
                     }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
+            Text(
+                text = "The first time your AI client connects, " +
+                    "you'll be asked to approve it with a code.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = AmberAccent,
+                    strokeWidth = 2.5.dp
+                )
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "The first time your AI client connects, " +
-                        "you'll be asked to approve it with a code.",
+                    text = "Waiting for connection...",
                     style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
 
-                Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.weight(1f))
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = AmberAccent,
-                        strokeWidth = 2.5.dp
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Waiting for connection...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                OutlinedButton(onClick = onCancel) {
-                    Text("Finish Later")
-                }
+            OutlinedButton(onClick = onCancel) {
+                Text("Finish Later")
             }
         }
     }

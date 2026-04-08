@@ -45,6 +45,18 @@ data class SettingUpState(
     val variant: SettingUpVariant = SettingUpVariant.FirstTime()
 )
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun SettingUpContent(
+    state: SettingUpState = SettingUpState(),
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    SettingUpBody(state = state, onCancel = onCancel, modifier = modifier)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Unit = {}) {
@@ -53,103 +65,114 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
             TopAppBar(title = { Text("Setting Up") }, colors = appBarColors())
         }
     ) { padding ->
-        Surface(
+        SettingUpBody(
+            state = state,
+            onCancel = onCancel,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
+
+@Composable
+private fun SettingUpBody(
+    state: SettingUpState,
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxSize()
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                when (state.variant) {
-                    is SettingUpVariant.FirstTime, is SettingUpVariant.Refreshing -> {
-                        CircularProgressIndicator(
-                            color = AmberAccent,
-                            trackColor = AmberAccent.copy(alpha = 0.35f),
-                            modifier = Modifier.size(64.dp),
-                            strokeWidth = 5.dp
-                        )
-                    }
-                    is SettingUpVariant.RateLimited -> {
-                        Icon(
-                            imageVector = Icons.Default.Schedule,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = AmberAccent
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                Text(
-                    text = when (state.variant) {
-                        is SettingUpVariant.FirstTime ->
-                            "Setting up your device..."
-                        is SettingUpVariant.Refreshing ->
-                            "Provisioning your certificate..."
-                        is SettingUpVariant.RateLimited ->
-                            "Certificate issuance is temporarily delayed."
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                when (state.variant) {
-                    is SettingUpVariant.FirstTime -> {
-                        val step = state.variant.step
-                        SetupStepRow(
-                            label = "Authenticating",
-                            done = step > OnboardingStep.FIREBASE_AUTH,
-                            active = step == OnboardingStep.FIREBASE_AUTH
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        SetupStepRow(
-                            label = "Registering with relay",
-                            done = false,
-                            active = step == OnboardingStep.RELAY_REGISTRATION
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "This usually takes a few seconds.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    is SettingUpVariant.Refreshing -> {
-                        Text(
-                            text = "This usually takes about 30 seconds.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    is SettingUpVariant.RateLimited -> {
-                        Text(
-                            text = "Will retry on ${state.variant.expectedDate}.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                TextButton(onClick = onCancel) {
-                    Text(
-                        when (state.variant) {
-                            is SettingUpVariant.RateLimited -> "Dismiss"
-                            else -> "Cancel"
-                        }
+            when (state.variant) {
+                is SettingUpVariant.FirstTime, is SettingUpVariant.Refreshing -> {
+                    CircularProgressIndicator(
+                        color = AmberAccent,
+                        trackColor = AmberAccent.copy(alpha = 0.35f),
+                        modifier = Modifier.size(64.dp),
+                        strokeWidth = 5.dp
                     )
                 }
+                is SettingUpVariant.RateLimited -> {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = AmberAccent
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Text(
+                text = when (state.variant) {
+                    is SettingUpVariant.FirstTime ->
+                        "Setting up your device..."
+                    is SettingUpVariant.Refreshing ->
+                        "Provisioning your certificate..."
+                    is SettingUpVariant.RateLimited ->
+                        "Certificate issuance is temporarily delayed."
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when (state.variant) {
+                is SettingUpVariant.FirstTime -> {
+                    val step = state.variant.step
+                    SetupStepRow(
+                        label = "Authenticating",
+                        done = step > OnboardingStep.FIREBASE_AUTH,
+                        active = step == OnboardingStep.FIREBASE_AUTH
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SetupStepRow(
+                        label = "Registering with relay",
+                        done = false,
+                        active = step == OnboardingStep.RELAY_REGISTRATION
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "This usually takes a few seconds.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                is SettingUpVariant.Refreshing -> {
+                    Text(
+                        text = "This usually takes about 30 seconds.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                is SettingUpVariant.RateLimited -> {
+                    Text(
+                        text = "Will retry on ${state.variant.expectedDate}.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            TextButton(onClick = onCancel) {
+                Text(
+                    when (state.variant) {
+                        is SettingUpVariant.RateLimited -> "Dismiss"
+                        else -> "Cancel"
+                    }
+                )
             }
         }
     }

@@ -34,6 +34,26 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
 import com.rousecontext.app.ui.viewmodels.UsageSetupState
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ */
+@Composable
+fun UsageSetupContent(
+    state: UsageSetupState = UsageSetupState(),
+    onGrantAccess: () -> Unit = {},
+    onEnable: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    UsageSetupBody(
+        state = state,
+        onGrantAccess = onGrantAccess,
+        onEnable = onEnable,
+        onCancel = onCancel,
+        modifier = modifier
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UsageSetupScreen(
@@ -55,93 +75,109 @@ fun UsageSetupScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
+        UsageSetupBody(
+            state = state,
+            onGrantAccess = onGrantAccess,
+            onEnable = onEnable,
+            onCancel = onCancel,
+            modifier = Modifier.padding(padding)
+        )
+    }
+}
 
-            Text(
-                text = "Allow AI clients to see how you use your device \u2014 " +
-                    "which apps you use and how much time you spend in them.",
-                style = MaterialTheme.typography.bodyLarge
-            )
+@Composable
+private fun UsageSetupBody(
+    state: UsageSetupState,
+    onGrantAccess: () -> Unit = {},
+    onEnable: () -> Unit = {},
+    onCancel: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Allow AI clients to see how you use your device \u2014 " +
+                "which apps you use and how much time you spend in them.",
+            style = MaterialTheme.typography.bodyLarge
+        )
 
-            // Privacy warning
-            PrivacyWarningCard(
-                text = "AI clients will be able to see your complete app " +
-                    "usage history, including which apps you use, how " +
-                    "often, and when."
-            )
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
+        // Privacy warning
+        PrivacyWarningCard(
+            text = "AI clients will be able to see your complete app " +
+                "usage history, including which apps you use, how " +
+                "often, and when."
+        )
 
-            // Permission status
-            Text(
-                text = "Permission",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+        Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(8.dp))
+        // Permission status
+        Text(
+            text = "Permission",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
 
-            if (state.permissionGranted) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Granted",
-                        modifier = Modifier.size(20.dp),
-                        tint = SuccessGreen
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Access granted",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            } else {
-                OutlinedButton(
-                    onClick = onGrantAccess,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Grant Access")
-                }
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (state.permissionGranted) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Granted",
+                    modifier = Modifier.size(20.dp),
+                    tint = SuccessGreen
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Access granted",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Text(
-                text = "Every access is logged in the app's audit history.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = onEnable,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = state.permissionGranted
-            ) {
-                Text("Enable")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
+        } else {
             OutlinedButton(
-                onClick = onCancel,
+                onClick = onGrantAccess,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Cancel")
+                Text("Grant Access")
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Text(
+            text = "Every access is logged in the app's audit history.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = onEnable,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = state.permissionGranted
+        ) {
+            Text("Enable")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Cancel")
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
