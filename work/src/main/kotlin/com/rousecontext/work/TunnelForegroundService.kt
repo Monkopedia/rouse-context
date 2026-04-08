@@ -87,6 +87,11 @@ class TunnelForegroundService : LifecycleService() {
             return START_NOT_STICKY
         }
 
+        // Reset flags from any previous service instance — Koin singletons
+        // and this service's own state may carry over from an idle-timeout stop.
+        intentionalDisconnect = false
+        idleTimeoutManager.resetTimeout()
+
         lifecycleScope.launch { connectToRelay() }
 
         return START_NOT_STICKY

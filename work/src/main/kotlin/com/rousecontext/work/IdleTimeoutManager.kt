@@ -32,6 +32,11 @@ class IdleTimeoutManager(
     var timeoutFired: Boolean = false
         private set
 
+    /** Reset the timeout flag so FCM wake can restart the service after idle shutdown. */
+    fun resetTimeout() {
+        timeoutFired = false
+    }
+
     /**
      * Collects [stateFlow] and manages the idle timer.
      * Suspends until cancelled.

@@ -37,7 +37,7 @@ class ManageScreenQuickRender {
         composeRule.setContent {
             RouseContextTheme(darkTheme = true) { content() }
         }
-        composeRule.onRoot().captureRoboImage("screenshots/quick_${name}.png")
+        composeRule.onRoot().captureRoboImage("screenshots/quick_$name.png")
     }
 
     @Test

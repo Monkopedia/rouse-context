@@ -195,7 +195,13 @@ class SettingsViewModelTest {
         val themePref = mockk<ThemePreference> {
             every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
         }
-        return SettingsViewModel(provider, themePref, securityPrefs)
+        return SettingsViewModel(
+            provider,
+            themePref,
+            mockk(relaxed = true),
+            mockk(relaxed = true),
+            securityPrefs
+        )
     }
 
     private fun createMockPrefs(

@@ -34,14 +34,14 @@ class SettingsViewModel(
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
-    private val _rotateInProgress = MutableStateFlow(false)
-    private val _rotateError = MutableStateFlow<String?>(null)
+    private val rotateInProgress = MutableStateFlow(false)
+    private val rotateError = MutableStateFlow<String?>(null)
 
     val state: StateFlow<SettingsState> = combine(
         refreshTrigger,
         themePreference.themeMode,
-        _rotateInProgress,
-        _rotateError
+        rotateInProgress,
+        rotateError
     ) { _, themeMode, rotating, rotateErr ->
         val settings = notificationSettingsProvider.settings
         SettingsState(
@@ -80,23 +80,23 @@ class SettingsViewModel(
 
     fun rotateSecret() {
         viewModelScope.launch {
-            _rotateInProgress.value = true
-            _rotateError.value = null
+            rotateInProgress.value = true
+            rotateError.value = null
             when (val result = relayApiClient.rotateSecret()) {
                 is RelayApiResult.Success -> {
                     certStore.storeSecretPrefix(result.data.secretPrefix)
                 }
                 is RelayApiResult.RateLimited -> {
-                    _rotateError.value = "Rate limited. Try again later."
+                    rotateError.value = "Rate limited. Try again later."
                 }
                 is RelayApiResult.Error -> {
-                    _rotateError.value = "Failed: ${result.message}"
+                    rotateError.value = "Failed: ${result.message}"
                 }
                 is RelayApiResult.NetworkError -> {
-                    _rotateError.value = "Network error"
+                    rotateError.value = "Network error"
                 }
             }
-            _rotateInProgress.value = false
+            rotateInProgress.value = false
         }
     }
 
