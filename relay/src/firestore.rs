@@ -31,6 +31,9 @@ pub struct DeviceRecord {
     pub last_rotation: Option<SystemTime>,
     /// Set when a renewal nudge FCM is sent. Cleared on successful renewal.
     pub renewal_nudge_sent: Option<SystemTime>,
+    /// Two-word secret prefix for bot rejection (e.g. "brave-falcon").
+    /// Clients must connect to `{secret_prefix}.{subdomain}.rousecontext.com`.
+    pub secret_prefix: Option<String>,
 }
 
 /// A pending certificate record stored in `pending_certs/{subdomain}`.

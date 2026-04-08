@@ -141,17 +141,49 @@ fn relay_hostname_routes_to_api() {
 }
 
 #[test]
-fn device_subdomain_routes_to_passthrough() {
+fn secret_prefix_device_routes_to_passthrough() {
+    let decision = RouteDecision::from_sni(
+        Some("brave-falcon.cool-penguin.rousecontext.com"),
+        "relay.rousecontext.com",
+    );
+    match decision {
+        RouteDecision::DevicePassthrough {
+            subdomain,
+            secret_prefix,
+        } => {
+            assert_eq!(subdomain, "cool-penguin");
+            assert_eq!(secret_prefix, "brave-falcon");
+        }
+        other => panic!("Expected DevicePassthrough, got {:?}", other),
+    }
+}
+
+#[test]
+fn bare_subdomain_without_secret_rejects() {
+    // No secret prefix -- just "device.rousecontext.com" -- should reject
     let decision = RouteDecision::from_sni(
         Some("cool-penguin.rousecontext.com"),
         "relay.rousecontext.com",
     );
-    match decision {
-        RouteDecision::DevicePassthrough { subdomain } => {
-            assert_eq!(subdomain, "cool-penguin");
-        }
-        other => panic!("Expected DevicePassthrough, got {:?}", other),
-    }
+    assert!(
+        matches!(decision, RouteDecision::Reject),
+        "Bare subdomain without secret prefix should be rejected, got {:?}",
+        decision
+    );
+}
+
+#[test]
+fn too_many_levels_rejects() {
+    // Three levels deep: a.b.device.rousecontext.com should reject
+    let decision = RouteDecision::from_sni(
+        Some("a.b.device.rousecontext.com"),
+        "relay.rousecontext.com",
+    );
+    assert!(
+        matches!(decision, RouteDecision::Reject),
+        "Too many subdomain levels should be rejected, got {:?}",
+        decision
+    );
 }
 
 #[test]

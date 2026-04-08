@@ -101,13 +101,23 @@ pub enum RouteDecision {
     /// Route to the relay's own API (HTTPS).
     RelayApi,
     /// Route to a device via TLS passthrough.
-    DevicePassthrough { subdomain: String },
+    /// `secret_prefix` is the bot-rejection prefix from the URL.
+    DevicePassthrough {
+        subdomain: String,
+        secret_prefix: String,
+    },
     /// Reject the connection (unknown or missing SNI).
     Reject,
 }
 
 impl RouteDecision {
     /// Determine routing based on the extracted SNI hostname and the relay's own hostname.
+    ///
+    /// Expected device URL format: `{secret_prefix}.{subdomain}.{base_domain}`
+    /// e.g. `brave-falcon.cool-penguin.rousecontext.com`
+    ///
+    /// Bare subdomains without a secret prefix are rejected.
+    /// More than two levels of subdomain are rejected.
     pub fn from_sni(sni: Option<&str>, relay_hostname: &str) -> Self {
         let sni = match sni {
             Some(s) => s,
@@ -124,13 +134,26 @@ impl RouteDecision {
             .strip_prefix("relay.")
             .unwrap_or(relay_hostname);
 
-        // Check if SNI is a subdomain of the base domain: "<subdomain>.rousecontext.com"
-        if let Some(subdomain) = sni.strip_suffix(&format!(".{base_domain}")) {
-            if !subdomain.is_empty() && subdomain != "relay" && !subdomain.contains('.') {
-                return RouteDecision::DevicePassthrough {
-                    subdomain: subdomain.to_string(),
-                };
+        // Strip the base domain suffix: "secret.device.rousecontext.com" -> "secret.device"
+        if let Some(remainder) = sni.strip_suffix(&format!(".{base_domain}")) {
+            if remainder.is_empty() || remainder == "relay" {
+                return RouteDecision::Reject;
             }
+
+            // Split remainder on the first dot: "secret.device" -> ("secret", "device")
+            if let Some((secret, device)) = remainder.split_once('.') {
+                // Reject if device part contains more dots (too many levels)
+                if device.contains('.') {
+                    return RouteDecision::Reject;
+                }
+                if !secret.is_empty() && !device.is_empty() {
+                    return RouteDecision::DevicePassthrough {
+                        subdomain: device.to_string(),
+                        secret_prefix: secret.to_string(),
+                    };
+                }
+            }
+            // No dot in remainder -> bare subdomain without secret prefix -> reject
         }
 
         RouteDecision::Reject

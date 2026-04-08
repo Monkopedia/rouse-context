@@ -298,7 +298,10 @@ async fn handle_connection(
             )
             .await
         }
-        RouteDecision::DevicePassthrough { subdomain } => {
+        RouteDecision::DevicePassthrough {
+            subdomain,
+            secret_prefix,
+        } => {
             // Per-IP rate limit: reject scanners before doing any real work
             if !ctx.conn_rate_limiter.allow(peer_addr.ip(), &subdomain) {
                 debug!(
@@ -315,7 +318,7 @@ async fn handle_connection(
             client_hello.truncate(n_read);
 
             // Build the SNI hostname for the OPEN frame
-            let sni_hostname = format!("{subdomain}.{}", ctx.base_domain);
+            let sni_hostname = format!("{secret_prefix}.{subdomain}.{}", ctx.base_domain);
 
             let pt_ctx = PassthroughContext {
                 relay_state: ctx.relay_state,
@@ -327,9 +330,14 @@ async fn handle_connection(
                 fcm_wake_throttle: ctx.fcm_wake_throttle,
             };
 
-            let resolved = passthrough::resolve_device_stream(&pt_ctx, &subdomain, &sni_hostname)
-                .await
-                .map_err(|e| format!("passthrough resolve failed: {e}"))?;
+            let resolved = passthrough::resolve_device_stream(
+                &pt_ctx,
+                &subdomain,
+                &sni_hostname,
+                &secret_prefix,
+            )
+            .await
+            .map_err(|e| format!("passthrough resolve failed: {e}"))?;
 
             passthrough::splice_stream(
                 stream,

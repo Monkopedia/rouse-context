@@ -87,7 +87,7 @@ async fn open_frame_sent_with_sni_hostname() {
     );
 
     let sni = "brave-falcon.rousecontext.com";
-    let result = resolve_device_stream(&ctx, "brave-falcon", sni).await;
+    let result = resolve_device_stream(&ctx, "brave-falcon", sni, "").await;
 
     assert!(result.is_ok());
     let resolved = result.unwrap();
@@ -239,6 +239,7 @@ async fn fcm_sent_when_device_offline() {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
 
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", device_record));
@@ -256,7 +257,8 @@ async fn fcm_sent_when_device_offline() {
 
     // Device is NOT online, so FCM should be sent.
     // We don't simulate the device connecting back, so this should timeout.
-    let result = resolve_device_stream(&ctx, "brave-falcon", "brave-falcon.rousecontext.com").await;
+    let result =
+        resolve_device_stream(&ctx, "brave-falcon", "brave-falcon.rousecontext.com", "").await;
 
     // Should have timed out
     assert!(matches!(result, Err(PassthroughError::WakeupTimeout)));
@@ -281,6 +283,7 @@ async fn fcm_timeout_returns_error() {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     let firestore = Arc::new(MockFirestore::new().with_device("test-sub", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -295,7 +298,7 @@ async fn fcm_timeout_returns_error() {
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
     };
 
-    let result = resolve_device_stream(&ctx, "test-sub", "test-sub.rousecontext.com").await;
+    let result = resolve_device_stream(&ctx, "test-sub", "test-sub.rousecontext.com", "").await;
 
     assert!(matches!(result, Err(PassthroughError::WakeupTimeout)));
 }
@@ -312,7 +315,8 @@ async fn device_not_found_returns_error() {
         Arc::new(MockFcm::new()),
     );
 
-    let result = resolve_device_stream(&ctx, "nonexistent", "nonexistent.rousecontext.com").await;
+    let result =
+        resolve_device_stream(&ctx, "nonexistent", "nonexistent.rousecontext.com", "").await;
 
     assert!(matches!(result, Err(PassthroughError::DeviceNotFound)));
 }
@@ -330,6 +334,7 @@ async fn cold_client_fcm_then_device_connects() {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     let firestore = Arc::new(MockFirestore::new().with_device("cold-dev", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -363,7 +368,7 @@ async fn cold_client_fcm_then_device_connects() {
         }
     });
 
-    let result = resolve_device_stream(&ctx, "cold-dev", "cold-dev.rousecontext.com").await;
+    let result = resolve_device_stream(&ctx, "cold-dev", "cold-dev.rousecontext.com", "").await;
 
     assert!(result.is_ok());
     let resolved = result.unwrap();
@@ -373,6 +378,110 @@ async fn cold_client_fcm_then_device_connects() {
     let sent = fcm.sent.lock().unwrap();
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].0, "fcm-cold");
+}
+
+// ---------------------------------------------------------------------------
+// Secret prefix validation tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn valid_secret_prefix_proceeds_to_wake() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let mut device_record = make_device_record("fcm-secret");
+    device_record.secret_prefix = Some("brave-falcon".to_string());
+
+    let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_millis(200),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
+    };
+
+    // Valid secret prefix but device offline -> should send FCM and timeout
+    let result = resolve_device_stream(
+        &ctx,
+        "cool-penguin",
+        "brave-falcon.cool-penguin.rousecontext.com",
+        "brave-falcon",
+    )
+    .await;
+
+    // Should timeout (not InvalidSecret), proving it got past the secret check
+    assert!(matches!(result, Err(PassthroughError::WakeupTimeout)));
+
+    // FCM was sent (secret was valid)
+    let sent = fcm.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+}
+
+#[tokio::test]
+async fn invalid_secret_prefix_rejects_without_fcm() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let mut device_record = make_device_record("fcm-secret2");
+    device_record.secret_prefix = Some("brave-falcon".to_string());
+
+    let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_millis(200),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
+    };
+
+    // Wrong secret prefix
+    let result = resolve_device_stream(
+        &ctx,
+        "cool-penguin",
+        "wrong-secret.cool-penguin.rousecontext.com",
+        "wrong-secret",
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(PassthroughError::InvalidSecret)),
+        "Expected InvalidSecret"
+    );
+
+    // FCM should NOT have been sent
+    let sent = fcm.sent.lock().unwrap();
+    assert!(sent.is_empty(), "No FCM should be sent for invalid secret");
+}
+
+#[tokio::test]
+async fn valid_secret_with_online_device_opens_stream() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let mut device_record = make_device_record("fcm-online");
+    device_record.secret_prefix = Some("brave-falcon".to_string());
+
+    // Device is online
+    let mut _frame_rx = setup_device(&relay_state, &registry, "cool-penguin", 8);
+
+    let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
+    let fcm = Arc::new(MockFcm::new());
+
+    let ctx = make_ctx(relay_state, registry, firestore, fcm);
+
+    let sni = "brave-falcon.cool-penguin.rousecontext.com";
+    let result = resolve_device_stream(&ctx, "cool-penguin", sni, "brave-falcon").await;
+
+    assert!(result.is_ok());
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +498,7 @@ fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     }
 }
 
@@ -477,7 +587,9 @@ async fn cold_wake_full_data_roundtrip() {
 
     // Phase 1: resolve (waits for FCM + device connect)
     let sni = "wake-dev.rousecontext.com";
-    let resolved = resolve_device_stream(&ctx, "wake-dev", sni).await.unwrap();
+    let resolved = resolve_device_stream(&ctx, "wake-dev", sni, "")
+        .await
+        .unwrap();
     assert_eq!(resolved.stream_id, 1);
 
     // Verify OPEN frame was sent with correct SNI
@@ -595,12 +707,12 @@ async fn multiple_clients_wake_same_device() {
     // Launch two concurrent resolve calls
     let ctx1 = ctx.clone();
     let resolve1 = tokio::spawn(async move {
-        resolve_device_stream(&ctx1, "multi-dev", "multi-dev.rousecontext.com").await
+        resolve_device_stream(&ctx1, "multi-dev", "multi-dev.rousecontext.com", "").await
     });
 
     let ctx2 = ctx.clone();
     let resolve2 = tokio::spawn(async move {
-        resolve_device_stream(&ctx2, "multi-dev", "multi-dev.rousecontext.com").await
+        resolve_device_stream(&ctx2, "multi-dev", "multi-dev.rousecontext.com", "").await
     });
 
     let r1 = resolve1.await.unwrap().unwrap();
@@ -665,7 +777,7 @@ async fn cold_wake_stream_refused_max_streams_zero() {
         Duration::from_millis(50),
     );
 
-    let result = resolve_device_stream(&ctx, "full-dev", "full-dev.rousecontext.com").await;
+    let result = resolve_device_stream(&ctx, "full-dev", "full-dev.rousecontext.com", "").await;
 
     assert!(
         matches!(result, Err(PassthroughError::StreamRefused)),
@@ -728,7 +840,7 @@ async fn client_hello_preserved_through_wake_delay() {
     );
 
     // Resolve through the cold wake path
-    let resolved = resolve_device_stream(&ctx, "exact-dev", "exact-dev.rousecontext.com")
+    let resolved = resolve_device_stream(&ctx, "exact-dev", "exact-dev.rousecontext.com", "")
         .await
         .unwrap();
 

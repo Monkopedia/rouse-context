@@ -59,6 +59,16 @@ async fn register_new_device_returns_subdomain() {
         json["relay_host"].as_str().unwrap(),
         "relay.rousecontext.com"
     );
+    // Round 1 response should include secret_prefix
+    assert!(
+        json["secret_prefix"].is_string(),
+        "Registration response must include secret_prefix"
+    );
+    let secret = json["secret_prefix"].as_str().unwrap();
+    assert!(
+        secret.contains('-'),
+        "Secret prefix should be adjective-noun format, got: {secret}"
+    );
     // Round 1 response should NOT contain cert or private_key
     assert!(json.get("cert").is_none());
     assert!(json.get("private_key").is_none());
@@ -125,6 +135,7 @@ async fn re_register_without_signature_returns_403() {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -180,6 +191,7 @@ async fn force_new_within_cooldown_returns_429() {
         registered_at: SystemTime::now(),
         last_rotation: Some(SystemTime::now()), // just rotated
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -237,6 +249,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     let firestore = MockFirestore::new().with_device("brave-falcon", existing_record);
     let acme = MockAcme::new("new-cert-chain");
@@ -294,6 +307,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
         registered_at: SystemTime::now() - Duration::from_secs(60 * 86400),
         last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)), // 31 days ago
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let acme = MockAcme::new("rotated-cert");

@@ -4,6 +4,7 @@
 
 pub mod register;
 pub mod renew;
+pub mod rotate_secret;
 pub mod status;
 pub mod wake;
 pub mod ws;
@@ -186,6 +187,10 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
             axum::routing::post(register::handle_register_certs),
         )
         .route("/renew", axum::routing::post(renew::handle_renew))
+        .route(
+            "/rotate-secret",
+            axum::routing::post(rotate_secret::handle_rotate_secret),
+        )
         // /wake disabled — passthrough handles FCM wake implicitly on client connect
         // .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))
         .route("/status", axum::routing::get(status::handle_status))
