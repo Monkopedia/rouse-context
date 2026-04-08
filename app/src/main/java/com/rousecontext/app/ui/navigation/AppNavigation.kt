@@ -480,6 +480,11 @@ fun AppNavigation(
                     val state by viewModel.state.collectAsState()
                     IntegrationManageContent(
                         state = state,
+                        onAddClient = {
+                            navController.navigate(
+                                Routes.integrationEnabled(integrationId)
+                            )
+                        },
                         onDisable = {
                             viewModel.disable()
                             navController.popBackStack()

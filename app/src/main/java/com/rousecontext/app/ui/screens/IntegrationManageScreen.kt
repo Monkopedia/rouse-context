@@ -16,9 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,7 +68,7 @@ data class IntegrationManageState(
 @Composable
 fun IntegrationManageContent(
     state: IntegrationManageState = IntegrationManageState(),
-    onCopyUrl: () -> Unit = {},
+    onAddClient: () -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRevokeClient: (String) -> Unit = {},
     onSettings: () -> Unit = {},
@@ -112,7 +112,7 @@ fun IntegrationManageContent(
 
     IntegrationManageBody(
         state = state,
-        onCopyUrl = onCopyUrl,
+        onAddClient = onAddClient,
         onViewAllActivity = onViewAllActivity,
         onRevokeClient = onRevokeClient,
         onSettings = onSettings,
@@ -124,7 +124,7 @@ fun IntegrationManageContent(
 @Composable
 fun IntegrationManageScreen(
     state: IntegrationManageState = IntegrationManageState(),
-    onCopyUrl: () -> Unit = {},
+    onAddClient: () -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRevokeClient: (String) -> Unit = {},
     onSettings: () -> Unit = {},
@@ -169,7 +169,7 @@ fun IntegrationManageScreen(
     ) { padding ->
         IntegrationManageBody(
             state = state,
-            onCopyUrl = onCopyUrl,
+            onAddClient = onAddClient,
             onViewAllActivity = onViewAllActivity,
             onRevokeClient = onRevokeClient,
             onSettings = onSettings,
@@ -182,7 +182,7 @@ fun IntegrationManageScreen(
 @Composable
 private fun IntegrationManageBody(
     state: IntegrationManageState,
-    onCopyUrl: () -> Unit = {},
+    onAddClient: () -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRevokeClient: (String) -> Unit = {},
     onSettings: () -> Unit = {},
@@ -194,38 +194,10 @@ private fun IntegrationManageBody(
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        // URL card
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.url,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onCopyUrl) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL")
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-        }
-
         // Pending waiting message or recent activity
         if (state.status == IntegrationStatus.PENDING) {
             item {
+                Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Waiting for first client...",
                     style = MaterialTheme.typography.bodyLarge,
@@ -233,7 +205,7 @@ private fun IntegrationManageBody(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "To connect, add the URL above to your AI client. " +
+                    text = "Tap \"Add Client\" below to get the URL for your AI client. " +
                         "This screen will update automatically once a client connects.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -341,16 +313,9 @@ private fun IntegrationManageBody(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Add the URL above to an AI client to connect.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
         } else {
             item {
@@ -389,8 +354,25 @@ private fun IntegrationManageBody(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(12.dp))
             }
+        }
+
+        // Add Client button
+        item {
+            OutlinedButton(
+                onClick = onAddClient,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PersonAdd,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Add Client")
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
         // Action buttons
