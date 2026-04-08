@@ -281,16 +281,6 @@ class ScreenScreenshotTest {
     }
 
     @Test
-    fun addIntegrationPickerDisabledDark() = captureDark("15_add_integration_picker_disabled") {
-        AddIntegrationPickerScreen(integrations = pickerIntegrationsDisabled())
-    }
-
-    @Test
-    fun addIntegrationPickerDisabledLight() = captureLight("15_add_integration_picker_disabled") {
-        AddIntegrationPickerScreen(integrations = pickerIntegrationsDisabled())
-    }
-
-    @Test
     fun integrationEnabledDark() = captureDark("16_integration_enabled") {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(

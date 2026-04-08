@@ -299,7 +299,7 @@ fun AppNavigation(
                             targetState.destination.route
                         )
                         slideInHorizontally(
-                            initialOffsetX = { -dir * (it / 4) }
+                            initialOffsetX = { dir * (it / 4) }
                         ) + fadeIn()
                     },
                     exitTransition = {
@@ -353,7 +353,7 @@ fun AppNavigation(
                             targetState.destination.route
                         )
                         slideInHorizontally(
-                            initialOffsetX = { -dir * (it / 4) }
+                            initialOffsetX = { dir * (it / 4) }
                         ) + fadeIn()
                     },
                     exitTransition = {
@@ -394,7 +394,7 @@ fun AppNavigation(
                             targetState.destination.route
                         )
                         slideInHorizontally(
-                            initialOffsetX = { -dir * (it / 4) }
+                            initialOffsetX = { dir * (it / 4) }
                         ) + fadeIn()
                     },
                     exitTransition = {

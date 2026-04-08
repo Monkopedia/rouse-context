@@ -85,6 +85,8 @@ sealed interface CertBanner {
     ) : CertBanner
 }
 
+private const val MAX_RECENT_ITEMS = 8
+
 @Immutable
 data class DashboardState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
@@ -190,12 +192,13 @@ fun HomeDashboardContent(
                 EmptyRecentActivityCard()
             }
         } else {
+            val visibleActivity = state.recentActivity.take(MAX_RECENT_ITEMS)
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column {
-                        state.recentActivity.forEachIndexed { index, entry ->
+                        visibleActivity.forEachIndexed { index, entry ->
                             ActivityRow(entry)
-                            if (index < state.recentActivity.lastIndex) {
+                            if (index < visibleActivity.lastIndex) {
                                 ListDivider()
                             }
                         }
