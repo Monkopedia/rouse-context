@@ -713,7 +713,8 @@ impl AcmeClient for RealAcmeClient {
         subdomain: &str,
         device_csr_der: Option<&[u8]>,
     ) -> Result<CertificateBundle, AcmeError> {
-        let fqdn = format!("{subdomain}.{}", self.base_domain);
+        // Wildcard cert: *.{subdomain}.{base_domain} covers all secret prefixes
+        let fqdn = format!("*.{subdomain}.{}", self.base_domain);
         info!(fqdn = %fqdn, device_csr = device_csr_der.is_some(), "Starting ACME DNS-01 certificate issuance");
 
         // Either use the device-provided CSR or generate a fresh keypair + CSR.
@@ -805,7 +806,10 @@ impl AcmeClient for RealAcmeClient {
         );
 
         // 6. Set DNS TXT record via Cloudflare
-        let txt_name = format!("_acme-challenge.{fqdn}");
+        // For wildcards (*.foo.example.com), the TXT record goes at
+        // _acme-challenge.foo.example.com (strip the "*." prefix).
+        let challenge_domain = fqdn.strip_prefix("*.").unwrap_or(&fqdn);
+        let txt_name = format!("_acme-challenge.{challenge_domain}");
         info!(
             txt_name = %txt_name,
             txt_value = %dns_value,

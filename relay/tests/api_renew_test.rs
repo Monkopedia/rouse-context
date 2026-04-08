@@ -55,6 +55,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
         registered_at: SystemTime::now(),
         last_rotation: None,
         renewal_nudge_sent: None,
+        secret_prefix: None,
     };
     (signing_key, record)
 }

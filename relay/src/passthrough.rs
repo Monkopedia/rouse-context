@@ -41,6 +41,8 @@ pub enum PassthroughError {
     FirestoreFailed(String),
     /// Internal channel error.
     ChannelClosed,
+    /// Secret prefix does not match the device record.
+    InvalidSecret,
     /// I/O error on the client socket.
     Io(std::io::Error),
 }
@@ -50,6 +52,7 @@ impl std::fmt::Display for PassthroughError {
         match self {
             PassthroughError::WakeupTimeout => write!(f, "device wakeup timed out"),
             PassthroughError::DeviceNotFound => write!(f, "device not found"),
+            PassthroughError::InvalidSecret => write!(f, "invalid secret prefix"),
             PassthroughError::StreamRefused => write!(f, "max streams exceeded"),
             PassthroughError::FcmFailed(e) => write!(f, "FCM send failed: {e}"),
             PassthroughError::FirestoreFailed(e) => write!(f, "Firestore failed: {e}"),
@@ -141,13 +144,41 @@ pub struct ResolvedStream {
 
 /// Attempt to get a mux handle for the device, waking it via FCM if needed.
 ///
+/// `secret_prefix` is the prefix extracted from the SNI hostname. If the device
+/// record has a stored `secret_prefix`, it must match. Empty string skips
+/// validation (for legacy devices without a secret).
+///
 /// Returns a `MuxHandle` and opens a stream, or an error if the device cannot
 /// be reached within the timeout.
 pub async fn resolve_device_stream(
     ctx: &PassthroughContext,
     subdomain: &str,
     sni_hostname: &str,
+    secret_prefix: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
+    // Try to open a stream on an existing mux connection.
+    // If the device is online, we still need to validate the secret prefix,
+    // so look up the device record first when a non-empty prefix is provided.
+    if !secret_prefix.is_empty() {
+        // Validate secret prefix against Firestore before doing anything
+        let device = ctx
+            .firestore
+            .get_device(subdomain)
+            .await
+            .map_err(|e| match e {
+                crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
+                other => PassthroughError::FirestoreFailed(other.to_string()),
+            })?;
+
+        if let Some(stored_secret) = &device.secret_prefix {
+            if stored_secret != secret_prefix {
+                info!(subdomain, "Secret prefix mismatch (silent reject)");
+                return Err(PassthroughError::InvalidSecret);
+            }
+        }
+        // If device has no stored secret, skip validation (legacy device)
+    }
+
     // Try to open a stream on an existing mux connection
     if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain).await {
         send_open_frame(&handle, stream.stream_id, sni_hostname).await?;
@@ -162,7 +193,8 @@ pub async fn resolve_device_stream(
     // If throttled, we still wait for the device (FCM was already sent recently).
     // This lets multiple concurrent clients share a single FCM wake.
     if ctx.fcm_wake_throttle.should_wake(subdomain) {
-        // Look up FCM token and send wake
+        // Look up FCM token and send wake (may already be cached from above,
+        // but re-fetch is fine -- Firestore lookups are fast for in-memory/stub).
         let device = ctx
             .firestore
             .get_device(subdomain)

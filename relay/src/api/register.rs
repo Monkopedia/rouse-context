@@ -31,6 +31,7 @@ pub struct RegisterRequest {
 #[derive(Debug, Serialize)]
 pub struct RegisterResponse {
     pub subdomain: String,
+    pub secret_prefix: String,
     pub relay_host: String,
 }
 
@@ -152,7 +153,10 @@ pub async fn handle_register(
         state.subdomain_generator.generate()
     };
 
-    // 4. Store device record (public_key will be set in round 2 when CSR arrives)
+    // 4. Generate secret prefix for bot rejection
+    let secret_prefix = state.subdomain_generator.generate();
+
+    // 5. Store device record (public_key will be set in round 2 when CSR arrives)
     let record = DeviceRecord {
         fcm_token: req.fcm_token,
         firebase_uid: uid,
@@ -165,17 +169,19 @@ pub async fn handle_register(
             None
         },
         renewal_nudge_sent: None,
+        secret_prefix: Some(secret_prefix.clone()),
     };
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
         return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
     }
 
-    // 5. Return subdomain
+    // 6. Return subdomain and secret prefix
     (
         StatusCode::OK,
         Json(RegisterResponse {
             subdomain,
+            secret_prefix,
             relay_host: state.config.server.relay_hostname.clone(),
         }),
     )

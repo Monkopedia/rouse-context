@@ -198,6 +198,24 @@ fn string_val(s: &str) -> serde_json::Value {
     serde_json::json!({ "stringValue": s })
 }
 
+fn opt_string_val(s: &Option<String>) -> serde_json::Value {
+    match s {
+        Some(v) => serde_json::json!({ "stringValue": v }),
+        None => serde_json::json!({ "nullValue": null }),
+    }
+}
+
+fn read_opt_string(
+    fields: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    fields
+        .get(key)
+        .and_then(|v| v.get("stringValue"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
 fn timestamp_val(t: SystemTime) -> serde_json::Value {
     let secs = t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     // RFC 3339
@@ -297,6 +315,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
         "renewal_nudge_sent".to_string(),
         opt_timestamp_val(&record.renewal_nudge_sent),
     );
+    fields.insert(
+        "secret_prefix".to_string(),
+        opt_string_val(&record.secret_prefix),
+    );
     fields
 }
 
@@ -311,6 +333,7 @@ fn device_record_from_fields(
         registered_at: read_timestamp(fields, "registered_at")?,
         last_rotation: read_opt_timestamp(fields, "last_rotation")?,
         renewal_nudge_sent: read_opt_timestamp(fields, "renewal_nudge_sent")?,
+        secret_prefix: read_opt_string(fields, "secret_prefix"),
     })
 }
 
@@ -596,6 +619,7 @@ mod tests {
             registered_at: UNIX_EPOCH + Duration::from_secs(1_712_000_000),
             last_rotation: Some(UNIX_EPOCH + Duration::from_secs(1_713_000_000)),
             renewal_nudge_sent: None,
+            secret_prefix: Some("brave-falcon".to_string()),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -627,6 +651,7 @@ mod tests {
         );
         assert!(back.last_rotation.is_some());
         assert!(back.renewal_nudge_sent.is_none());
+        assert_eq!(back.secret_prefix, Some("brave-falcon".to_string()));
     }
 
     #[test]
@@ -672,11 +697,13 @@ mod tests {
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
             last_rotation: None,
             renewal_nudge_sent: None,
+            secret_prefix: None,
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
         assert!(back.last_rotation.is_none());
         assert!(back.renewal_nudge_sent.is_none());
+        assert!(back.secret_prefix.is_none());
     }
 
     #[test]
