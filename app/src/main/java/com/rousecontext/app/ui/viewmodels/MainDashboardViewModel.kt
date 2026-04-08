@@ -14,6 +14,7 @@ import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
+import com.rousecontext.tunnel.CertificateStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -33,6 +34,7 @@ class MainDashboardViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
+    private val certStore: CertificateStore,
     private val authorizationCodeManager: AuthorizationCodeManager? = null
 ) : ViewModel() {
 
@@ -49,6 +51,9 @@ class MainDashboardViewModel(
         stateStore.observeChanges().onStart { emit(Unit) },
         recentAuditFlow
     ) { connection, _, recentEntries ->
+        val subdomain = certStore.getSubdomain() ?: "unknown"
+        val baseDomain = com.rousecontext.app.BuildConfig.RELAY_HOST
+            .removePrefix("relay.")
         val items = integrations.mapNotNull { integration ->
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(integration.id),
@@ -65,7 +70,7 @@ class MainDashboardViewModel(
                     } else {
                         IntegrationStatus.PENDING
                     },
-                    url = "https://<device>.rousecontext.com${integration.path}"
+                    url = "https://$subdomain.$baseDomain${integration.path}/mcp"
                 )
             } else {
                 null

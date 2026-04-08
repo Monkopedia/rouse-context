@@ -40,7 +40,7 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 @Immutable
 data class IntegrationEnabledState(
     val integrationName: String = "Health Connect",
-    val url: String = "https://brave-falcon.rousecontext.com/health"
+    val url: String = ""
 )
 
 @OptIn(ExperimentalMaterial3Api::class)

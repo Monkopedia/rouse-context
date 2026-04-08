@@ -692,13 +692,13 @@ fun DashboardWithIntegrationsPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://brave-falcon.rousecontext.com/health"
+                        url = "https://my-device.rousecontext.com/health/mcp"
                     ),
                     IntegrationItem(
                         id = "notifications",
                         name = "Notifications",
                         status = IntegrationStatus.PENDING,
-                        url = "https://brave-falcon.rousecontext.com/notifications"
+                        url = "https://my-device.rousecontext.com/notifications/mcp"
                     )
                 ),
                 recentActivity = listOf(
@@ -722,7 +722,7 @@ fun DashboardCertExpiredPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://brave-falcon.rousecontext.com/health"
+                        url = "https://my-device.rousecontext.com/health/mcp"
                     )
                 )
             )
@@ -742,7 +742,7 @@ fun DashboardCertRenewingPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://brave-falcon.rousecontext.com/health"
+                        url = "https://my-device.rousecontext.com/health/mcp"
                     )
                 )
             )
@@ -807,13 +807,13 @@ fun DashboardWithIntegrationsLightPreview() {
                         id = "health",
                         name = "Health Connect",
                         status = IntegrationStatus.ACTIVE,
-                        url = "https://brave-falcon.rousecontext.com/health"
+                        url = "https://my-device.rousecontext.com/health/mcp"
                     ),
                     IntegrationItem(
                         id = "notifications",
                         name = "Notifications",
                         status = IntegrationStatus.PENDING,
-                        url = "https://brave-falcon.rousecontext.com/notifications"
+                        url = "https://my-device.rousecontext.com/notifications/mcp"
                     )
                 ),
                 recentActivity = listOf(

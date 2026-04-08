@@ -56,7 +56,7 @@ data class AuthorizedClient(
 data class IntegrationManageState(
     val integrationName: String = "Health Connect",
     val status: IntegrationStatus = IntegrationStatus.ACTIVE,
-    val url: String = "https://brave-falcon.rousecontext.com/health",
+    val url: String = "",
     val recentActivity: List<AuditEntry> = emptyList(),
     val authorizedClients: List<AuthorizedClient> = emptyList()
 )

@@ -9,6 +9,7 @@ import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
+import com.rousecontext.tunnel.CertificateStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -30,6 +31,9 @@ import org.junit.Test
 class MainDashboardViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val fakeCertStore = mockk<CertificateStore> {
+        coEvery { getSubdomain() } returns "test-device"
+    }
 
     @Before
     fun setup() {
@@ -73,7 +77,8 @@ class MainDashboardViewModelTest {
             integrations = listOf(fakeIntegration()),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = fakeCertStore
         )
 
         vm.state.test {
@@ -106,7 +111,8 @@ class MainDashboardViewModelTest {
             integrations = listOf(fakeIntegration()),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = fakeCertStore
         )
 
         vm.state.test {
@@ -146,7 +152,8 @@ class MainDashboardViewModelTest {
             integrations = emptyList(),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = fakeCertStore
         )
 
         vm.state.test {
@@ -178,7 +185,8 @@ class MainDashboardViewModelTest {
             integrations = listOf(fakeIntegration()),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = fakeCertStore
         )
 
         vm.state.test {
@@ -212,7 +220,8 @@ class MainDashboardViewModelTest {
             integrations = emptyList(),
             stateStore = stateStore,
             tokenStore = tokenStore,
-            auditDao = auditDao
+            auditDao = auditDao,
+            certStore = fakeCertStore
         )
     }
 

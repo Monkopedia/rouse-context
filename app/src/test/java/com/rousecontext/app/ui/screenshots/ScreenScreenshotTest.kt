@@ -295,7 +295,7 @@ class ScreenScreenshotTest {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(
                 integrationName = "Health Connect",
-                url = "https://brave-falcon.rousecontext.com/health"
+                url = "https://my-device.rousecontext.com/health/mcp"
             )
         )
     }
@@ -305,7 +305,7 @@ class ScreenScreenshotTest {
         IntegrationEnabledScreen(
             state = IntegrationEnabledState(
                 integrationName = "Health Connect",
-                url = "https://brave-falcon.rousecontext.com/health"
+                url = "https://my-device.rousecontext.com/health/mcp"
             )
         )
     }
@@ -323,14 +323,20 @@ class ScreenScreenshotTest {
     @Test
     fun integrationManagePendingDark() = captureDark("18_integration_manage_pending") {
         IntegrationManageScreen(
-            state = IntegrationManageState(status = IntegrationStatus.PENDING)
+            state = IntegrationManageState(
+                    status = IntegrationStatus.PENDING,
+                    url = "https://my-device.rousecontext.com/health/mcp"
+                )
         )
     }
 
     @Test
     fun integrationManagePendingLight() = captureLight("18_integration_manage_pending") {
         IntegrationManageScreen(
-            state = IntegrationManageState(status = IntegrationStatus.PENDING)
+            state = IntegrationManageState(
+                    status = IntegrationStatus.PENDING,
+                    url = "https://my-device.rousecontext.com/health/mcp"
+                )
         )
     }
 
@@ -634,13 +640,13 @@ class ScreenScreenshotTest {
                 id = "health",
                 name = "Health Connect",
                 status = IntegrationStatus.ACTIVE,
-                url = "https://brave-falcon.rousecontext.com/health"
+                url = "https://my-device.rousecontext.com/health/mcp"
             ),
             IntegrationItem(
                 id = "notifications",
                 name = "Notifications",
                 status = IntegrationStatus.PENDING,
-                url = "https://brave-falcon.rousecontext.com/notifications"
+                url = "https://my-device.rousecontext.com/notifications/mcp"
             )
         ),
         recentActivity = listOf(
@@ -656,7 +662,7 @@ class ScreenScreenshotTest {
                 "health",
                 "Health Connect",
                 IntegrationStatus.ACTIVE,
-                "https://brave-falcon.rousecontext.com/health"
+                "https://my-device.rousecontext.com/health/mcp"
             )
         )
     )
@@ -693,6 +699,7 @@ class ScreenScreenshotTest {
 
     private fun integrationManageActiveState() = IntegrationManageState(
         status = IntegrationStatus.ACTIVE,
+        url = "https://my-device.rousecontext.com/health/mcp",
         recentActivity = listOf(
             AuditEntry("10:32 AM", "get_steps", 142),
             AuditEntry("10:31 AM", "get_sleep", 89)
