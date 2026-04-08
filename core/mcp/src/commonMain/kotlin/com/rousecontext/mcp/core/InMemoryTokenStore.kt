@@ -92,6 +92,15 @@ class InMemoryTokenStore(
         }
     }
 
+    override fun revokeByClientId(integrationId: String, clientId: String) {
+        synchronized(this) {
+            tokens.filter { it.integrationId == integrationId && it.clientId == clientId }
+                .forEach { it.revoked = true }
+            refreshTokens.filter { it.integrationId == integrationId && it.clientId == clientId }
+                .forEach { it.revoked = true }
+        }
+    }
+
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
         synchronized(this) {
             val stored = refreshTokens.find {

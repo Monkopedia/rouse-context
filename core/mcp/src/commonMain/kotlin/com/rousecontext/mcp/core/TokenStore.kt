@@ -33,6 +33,13 @@ interface TokenStore {
     fun revokeToken(integrationId: String, token: String)
 
     /**
+     * Revokes all tokens for a specific client within an integration.
+     * Used by the UI to revoke an authorized client by its clientId.
+     * No-op if no tokens exist for the given client.
+     */
+    fun revokeByClientId(integrationId: String, clientId: String)
+
+    /**
      * Exchanges a valid refresh token for a new token pair (access + refresh).
      * The old refresh token is invalidated (rotation). Returns null if the
      * refresh token is invalid, expired, or belongs to a different integration.

@@ -367,7 +367,7 @@ private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
                 when (banner) {
                     is CertBanner.Renewing -> {
                         Text(
-                            "Refreshing your certificate...",
+                            "Provisioning your certificate...",
                             style = MaterialTheme.typography.titleSmall
                         )
                         Spacer(modifier = Modifier.height(2.dp))

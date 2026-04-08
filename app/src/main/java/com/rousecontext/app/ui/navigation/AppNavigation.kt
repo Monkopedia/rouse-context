@@ -440,6 +440,13 @@ fun AppNavigation(
                 val state by viewModel.state.collectAsState()
                 IntegrationManageScreen(
                     state = state,
+                    onDisable = {
+                        viewModel.disable()
+                        navController.popBackStack()
+                    },
+                    onRevokeClient = { clientName ->
+                        viewModel.revokeClient(clientName)
+                    },
                     onBack = { navController.popBackStack() }
                 )
             }

@@ -95,6 +95,25 @@ class IntegrationManageViewModel(
         refresh()
     }
 
+    fun disable() {
+        val id = integrationId.value
+        if (id.isNotEmpty()) {
+            stateStore.setUserEnabled(id, false)
+            refresh()
+        }
+    }
+
+    fun revokeClient(clientName: String) {
+        val id = integrationId.value
+        if (id.isNotEmpty()) {
+            val match = tokenStore.listTokens(id).find { it.label == clientName }
+            if (match != null) {
+                tokenStore.revokeByClientId(id, match.clientId)
+                refresh()
+            }
+        }
+    }
+
     fun refresh() {
         viewModelScope.launch {
             refreshTrigger.value++

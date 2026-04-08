@@ -36,6 +36,9 @@ interface TokenDao {
     @Query("DELETE FROM tokens WHERE id = :id")
     fun deleteById(id: Long)
 
+    @Query("DELETE FROM tokens WHERE integrationId = :integrationId AND clientId = :clientId")
+    fun deleteByClientId(integrationId: String, clientId: String)
+
     @Query("SELECT * FROM tokens WHERE integrationId = :integrationId ORDER BY createdAt DESC")
     fun listByIntegration(integrationId: String): List<TokenEntity>
 

@@ -91,7 +91,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
                         is SettingUpVariant.FirstTime ->
                             "Setting up your device..."
                         is SettingUpVariant.Refreshing ->
-                            "Your certificate is being refreshed."
+                            "Provisioning your certificate..."
                         is SettingUpVariant.RateLimited ->
                             "Certificate issuance is temporarily delayed."
                     },

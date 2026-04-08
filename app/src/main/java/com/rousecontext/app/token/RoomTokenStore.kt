@@ -65,6 +65,10 @@ class RoomTokenStore(
         dao.deleteByHash(integrationId, hashToken(token))
     }
 
+    override fun revokeByClientId(integrationId: String, clientId: String) {
+        dao.deleteByClientId(integrationId, clientId)
+    }
+
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
         val hash = hashToken(refreshToken)
         val entity = dao.findByRefreshHash(integrationId, hash) ?: return null
