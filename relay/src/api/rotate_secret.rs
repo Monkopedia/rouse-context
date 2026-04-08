@@ -25,7 +25,10 @@ pub struct RotateSecretRequest {
 
 #[derive(Debug, Serialize)]
 pub struct RotateSecretResponse {
+    /// Legacy secret prefix (backward compat).
     pub secret_prefix: String,
+    /// Per-integration secrets. Key is integration name, value is `{adjective}-{integration}`.
+    pub integration_secrets: std::collections::HashMap<String, String>,
 }
 
 pub async fn handle_rotate_secret(
@@ -55,9 +58,20 @@ pub async fn handle_rotate_secret(
         }
     };
 
-    // Generate new secret prefix
-    let new_secret = state.subdomain_generator.generate();
+    // Generate new per-integration secrets
+    let integration_secrets = state
+        .subdomain_generator
+        .generate_integration_secrets(&state.config.integrations);
+
+    // Legacy secret_prefix for backward compat
+    let new_secret = integration_secrets
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| state.subdomain_generator.generate());
+
     record.secret_prefix = Some(new_secret.clone());
+    record.integration_secrets = integration_secrets.clone();
 
     // Update Firestore
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
@@ -66,14 +80,14 @@ pub async fn handle_rotate_secret(
 
     info!(
         subdomain = %subdomain,
-        new_secret = %new_secret,
-        "Secret prefix rotated"
+        "Integration secrets rotated"
     );
 
     (
         StatusCode::OK,
         Json(RotateSecretResponse {
             secret_prefix: new_secret,
+            integration_secrets,
         }),
     )
         .into_response()
