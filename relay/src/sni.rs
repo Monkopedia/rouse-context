@@ -101,10 +101,11 @@ pub enum RouteDecision {
     /// Route to the relay's own API (HTTPS).
     RelayApi,
     /// Route to a device via TLS passthrough.
-    /// `secret_prefix` is the bot-rejection prefix from the URL.
+    /// `integration_secret` is the per-integration secret from the SNI label
+    /// (e.g. "brave-health" from `brave-health.cool-penguin.rousecontext.com`).
     DevicePassthrough {
         subdomain: String,
-        secret_prefix: String,
+        integration_secret: String,
     },
     /// Reject the connection (unknown or missing SNI).
     Reject,
@@ -149,7 +150,7 @@ impl RouteDecision {
                 if !secret.is_empty() && !device.is_empty() {
                     return RouteDecision::DevicePassthrough {
                         subdomain: device.to_string(),
-                        secret_prefix: secret.to_string(),
+                        integration_secret: secret.to_string(),
                     };
                 }
             }

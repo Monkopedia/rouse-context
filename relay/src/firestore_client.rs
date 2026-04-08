@@ -205,6 +205,35 @@ fn opt_string_val(s: &Option<String>) -> serde_json::Value {
     }
 }
 
+fn string_map_val(map: &std::collections::HashMap<String, String>) -> serde_json::Value {
+    let mut fields = serde_json::Map::new();
+    for (k, v) in map {
+        fields.insert(k.clone(), serde_json::json!({ "stringValue": v }));
+    }
+    serde_json::json!({ "mapValue": { "fields": fields } })
+}
+
+fn read_string_map(
+    fields: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> std::collections::HashMap<String, String> {
+    fields
+        .get(key)
+        .and_then(|v| v.get("mapValue"))
+        .and_then(|v| v.get("fields"))
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| {
+                    v.get("stringValue")
+                        .and_then(|s| s.as_str())
+                        .map(|s| (k.clone(), s.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn read_opt_string(
     fields: &serde_json::Map<String, serde_json::Value>,
     key: &str,
@@ -319,6 +348,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
         "secret_prefix".to_string(),
         opt_string_val(&record.secret_prefix),
     );
+    fields.insert(
+        "integration_secrets".to_string(),
+        string_map_val(&record.integration_secrets),
+    );
     fields
 }
 
@@ -334,6 +367,7 @@ fn device_record_from_fields(
         last_rotation: read_opt_timestamp(fields, "last_rotation")?,
         renewal_nudge_sent: read_opt_timestamp(fields, "renewal_nudge_sent")?,
         secret_prefix: read_opt_string(fields, "secret_prefix"),
+        integration_secrets: read_string_map(fields, "integration_secrets"),
     })
 }
 
@@ -620,6 +654,12 @@ mod tests {
             last_rotation: Some(UNIX_EPOCH + Duration::from_secs(1_713_000_000)),
             renewal_nudge_sent: None,
             secret_prefix: Some("brave-falcon".to_string()),
+            integration_secrets: {
+                let mut m = std::collections::HashMap::new();
+                m.insert("health".to_string(), "brave-health".to_string());
+                m.insert("outreach".to_string(), "swift-outreach".to_string());
+                m
+            },
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -652,6 +692,15 @@ mod tests {
         assert!(back.last_rotation.is_some());
         assert!(back.renewal_nudge_sent.is_none());
         assert_eq!(back.secret_prefix, Some("brave-falcon".to_string()));
+        assert_eq!(back.integration_secrets.len(), 2);
+        assert_eq!(
+            back.integration_secrets.get("health").unwrap(),
+            "brave-health"
+        );
+        assert_eq!(
+            back.integration_secrets.get("outreach").unwrap(),
+            "swift-outreach"
+        );
     }
 
     #[test]
@@ -698,12 +747,14 @@ mod tests {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            integration_secrets: std::collections::HashMap::new(),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
         assert!(back.last_rotation.is_none());
         assert!(back.renewal_nudge_sent.is_none());
         assert!(back.secret_prefix.is_none());
+        assert!(back.integration_secrets.is_empty());
     }
 
     #[test]

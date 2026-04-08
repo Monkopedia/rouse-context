@@ -140,13 +140,16 @@ pub struct ResolvedStream {
     pub handle: MuxHandle,
     pub stream_id: u32,
     pub stream_rx: mpsc::Receiver<Frame>,
+    /// The integration name resolved from the secret (e.g. "health").
+    /// Empty string for legacy devices using `secret_prefix`.
+    pub integration: String,
 }
 
 /// Attempt to get a mux handle for the device, waking it via FCM if needed.
 ///
-/// `secret_prefix` is the prefix extracted from the SNI hostname. If the device
-/// record has a stored `secret_prefix`, it must match. Empty string skips
-/// validation (for legacy devices without a secret).
+/// `integration_secret` is the secret extracted from the SNI hostname (first label).
+/// It is validated against the device's `integration_secrets` map (reverse lookup),
+/// falling back to `secret_prefix` for legacy devices. Empty string skips validation.
 ///
 /// Returns a `MuxHandle` and opens a stream, or an error if the device cannot
 /// be reached within the timeout.
@@ -154,13 +157,13 @@ pub async fn resolve_device_stream(
     ctx: &PassthroughContext,
     subdomain: &str,
     sni_hostname: &str,
-    secret_prefix: &str,
+    integration_secret: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
-    // Try to open a stream on an existing mux connection.
-    // If the device is online, we still need to validate the secret prefix,
-    // so look up the device record first when a non-empty prefix is provided.
-    if !secret_prefix.is_empty() {
-        // Validate secret prefix against Firestore before doing anything
+    // Validate the integration secret against the device record.
+    // Resolved integration name is empty for legacy devices.
+    let mut resolved_integration = String::new();
+
+    if !integration_secret.is_empty() {
         let device = ctx
             .firestore
             .get_device(subdomain)
@@ -170,13 +173,28 @@ pub async fn resolve_device_stream(
                 other => PassthroughError::FirestoreFailed(other.to_string()),
             })?;
 
-        if let Some(stored_secret) = &device.secret_prefix {
-            if stored_secret != secret_prefix {
+        // Try integration_secrets map first (reverse lookup: find key whose value matches)
+        if !device.integration_secrets.is_empty() {
+            if let Some(integration_name) = device
+                .integration_secrets
+                .iter()
+                .find(|(_, v)| v.as_str() == integration_secret)
+                .map(|(k, _)| k.clone())
+            {
+                resolved_integration = integration_name;
+            } else {
+                info!(subdomain, "Integration secret mismatch (silent reject)");
+                return Err(PassthroughError::InvalidSecret);
+            }
+        } else if let Some(stored_secret) = &device.secret_prefix {
+            // Fall back to legacy secret_prefix for devices that haven't migrated
+            if stored_secret != integration_secret {
                 info!(subdomain, "Secret prefix mismatch (silent reject)");
                 return Err(PassthroughError::InvalidSecret);
             }
+            // Legacy device -- integration is unknown
         }
-        // If device has no stored secret, skip validation (legacy device)
+        // If device has neither integration_secrets nor secret_prefix, skip validation
     }
 
     // Try to open a stream on an existing mux connection
@@ -186,6 +204,7 @@ pub async fn resolve_device_stream(
             handle,
             stream_id: stream.stream_id,
             stream_rx: stream.rx,
+            integration: resolved_integration,
         });
     }
 
@@ -234,6 +253,7 @@ pub async fn resolve_device_stream(
                     handle,
                     stream_id: stream.stream_id,
                     stream_rx: stream.rx,
+                    integration: resolved_integration,
                 })
             } else {
                 Err(PassthroughError::StreamRefused)
