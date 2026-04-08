@@ -12,3 +12,4 @@ local.properties
 relay/target/
 .claude/worktrees/
 .signing/
+.signing
