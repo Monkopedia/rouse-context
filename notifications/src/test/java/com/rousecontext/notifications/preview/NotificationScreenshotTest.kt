@@ -305,7 +305,7 @@ class NotificationScreenshotTest {
             .setContentTitle("Approval Required")
             .setContentText("Code: AB3X-9K2F \u2014 Tap to approve or deny")
             .setSubText("Health Connect")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(dummyIntent)
             .addAction(0, "Approve", dummyIntent)

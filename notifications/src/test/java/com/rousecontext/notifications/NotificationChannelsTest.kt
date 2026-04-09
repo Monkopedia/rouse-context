@@ -61,12 +61,12 @@ class NotificationChannelsTest {
     }
 
     @Test
-    fun `createAll registers auth request channel with high importance`() {
+    fun `createAll registers auth request channel with default importance`() {
         NotificationChannels.createAll(context)
 
         val channel = manager.getNotificationChannel(NotificationChannels.AUTH_REQUEST_CHANNEL_ID)
         assertNotNull(channel)
-        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
         assertEquals("Authorization Requests", channel.name.toString())
     }
 

@@ -32,13 +32,13 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 sealed interface SettingUpVariant {
     /** Shown when integration setup is waiting for background device registration. */
     data object Registering : SettingUpVariant
-    data object Refreshing : SettingUpVariant
+    data object Requesting : SettingUpVariant
     data class RateLimited(val expectedDate: String) : SettingUpVariant
 }
 
 @Immutable
 data class SettingUpState(
-    val variant: SettingUpVariant = SettingUpVariant.Refreshing
+    val variant: SettingUpVariant = SettingUpVariant.Requesting
 )
 
 /**
@@ -87,7 +87,7 @@ private fun SettingUpBody(
         ) {
             when (state.variant) {
                 is SettingUpVariant.Registering,
-                is SettingUpVariant.Refreshing -> {
+                is SettingUpVariant.Requesting -> {
                     CircularProgressIndicator(
                         color = AmberAccent,
                         trackColor = AmberAccent.copy(alpha = 0.35f),
@@ -111,8 +111,8 @@ private fun SettingUpBody(
                 text = when (state.variant) {
                     is SettingUpVariant.Registering ->
                         "Registering your device..."
-                    is SettingUpVariant.Refreshing ->
-                        "Provisioning your certificate..."
+                    is SettingUpVariant.Requesting ->
+                        "Requesting your certificate..."
                     is SettingUpVariant.RateLimited ->
                         "Certificate issuance is temporarily delayed."
                 },
@@ -131,7 +131,7 @@ private fun SettingUpBody(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                is SettingUpVariant.Refreshing -> {
+                is SettingUpVariant.Requesting -> {
                     Text(
                         text = "This usually takes about 30 seconds.",
                         style = MaterialTheme.typography.bodyMedium,
@@ -174,9 +174,9 @@ fun SettingUpRegisteringPreview() {
 
 @Preview(showBackground = true, showSystemUi = true)
 @Composable
-fun SettingUpRefreshingPreview() {
+fun SettingUpRequestingPreview() {
     RouseContextTheme(darkTheme = true) {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.Refreshing))
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.Requesting))
     }
 }
 

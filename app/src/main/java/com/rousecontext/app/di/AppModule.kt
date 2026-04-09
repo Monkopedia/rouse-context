@@ -246,7 +246,12 @@ val appModule = module {
     viewModel { AuditHistoryViewModel(get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
-    viewModel { AuthorizationApprovalViewModel(get<McpSession>().authorizationCodeManager) }
+    viewModel {
+        AuthorizationApprovalViewModel(
+            get<McpSession>().authorizationCodeManager,
+            androidContext().getSystemService(android.app.NotificationManager::class.java)
+        )
+    }
     viewModel { HealthConnectSetupViewModel(get()) }
     viewModel { NotificationSetupViewModel(androidContext(), get()) }
     viewModel { OutreachSetupViewModel(androidContext(), get()) }

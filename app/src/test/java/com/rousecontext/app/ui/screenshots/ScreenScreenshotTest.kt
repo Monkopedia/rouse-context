@@ -117,13 +117,13 @@ class ScreenScreenshotTest {
     }
 
     @Test
-    fun settingUpRefreshingDark() = captureDark("03_setting_up_refreshing") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.Refreshing))
+    fun settingUpRequestingDark() = captureDark("03_setting_up_requesting") {
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.Requesting))
     }
 
     @Test
-    fun settingUpRefreshingLight() = captureLight("03_setting_up_refreshing") {
-        SettingUpScreen(state = SettingUpState(SettingUpVariant.Refreshing))
+    fun settingUpRequestingLight() = captureLight("03_setting_up_requesting") {
+        SettingUpScreen(state = SettingUpState(SettingUpVariant.Requesting))
     }
 
     @Test
