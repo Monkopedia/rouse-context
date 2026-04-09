@@ -36,7 +36,7 @@ class SecretRotationTest {
             )
         }
 
-        val result = client.updateSecrets(listOf("brave-health", "swift-notifications"))
+        val result = client.updateSecrets("test-sub", listOf("brave-health", "swift-notifications"))
 
         assertTrue(result is RelayApiResult.Success)
         assertEquals(
@@ -58,7 +58,7 @@ class SecretRotationTest {
         }
 
         val newSecrets = SecretGenerator.generateAll(listOf("health"))
-        val result = client.updateSecrets(newSecrets.values.toList())
+        val result = client.updateSecrets("test-sub", newSecrets.values.toList())
         assertTrue(result is RelayApiResult.Success)
         store.storeIntegrationSecrets(newSecrets)
 
@@ -84,7 +84,7 @@ class SecretRotationTest {
             MockUpdateSecretsResponse(status = 500)
         }
 
-        val result = client.updateSecrets(listOf("brave-health"))
+        val result = client.updateSecrets("test-sub", listOf("brave-health"))
 
         assertTrue(result is RelayApiResult.Error)
         assertEquals(500, (result as RelayApiResult.Error).statusCode)
