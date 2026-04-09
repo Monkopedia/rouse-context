@@ -2,6 +2,10 @@ package com.rousecontext.app.ui.navigation
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.runtime.rememberCoroutineScope
+import com.rousecontext.tunnel.CertProvisioningFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -435,9 +439,28 @@ fun AppNavigation(
                     val viewModel: AddIntegrationViewModel = koinViewModel()
                     val integrations by viewModel.pickerIntegrations
                         .collectAsState()
+                    val certProvisioningFlow: CertProvisioningFlow =
+                        org.koin.compose.koinInject()
+                    val coroutineScope = rememberCoroutineScope()
                     AddIntegrationPickerContent(
                         integrations = integrations,
                         onSetUp = { id ->
+                            // Kick off cert provisioning in the background while
+                            // user configures the integration. By the time they
+                            // tap Enable, certs should already be provisioned.
+                            coroutineScope.launch {
+                                try {
+                                    val token = com.google.firebase.auth
+                                        .FirebaseAuth.getInstance()
+                                        .currentUser?.getIdToken(false)
+                                        ?.await()?.token
+                                    if (token != null) {
+                                        certProvisioningFlow.execute(token)
+                                    }
+                                } catch (_: Exception) {
+                                    // Best-effort; integrationSetup will retry
+                                }
+                            }
                             when (id) {
                                 HealthConnectSetupViewModel
                                     .HEALTH_INTEGRATION_ID ->
