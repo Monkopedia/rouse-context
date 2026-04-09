@@ -599,7 +599,7 @@ fun AppNavigation(
                                 viewModel.onPermissionsResult(granted)
                             if (enabled) {
                                 navController.navigate(
-                                    Routes.integrationEnabled(
+                                    Routes.integrationSetup(
                                         HealthConnectSetupViewModel
                                             .HEALTH_INTEGRATION_ID
                                     )
@@ -655,7 +655,7 @@ fun AppNavigation(
                         onEnable = {
                             if (viewModel.enable()) {
                                 navController.navigate(
-                                    Routes.integrationEnabled(
+                                    Routes.integrationSetup(
                                         NotificationSetupViewModel
                                             .INTEGRATION_ID
                                     )
@@ -704,7 +704,7 @@ fun AppNavigation(
                         onEnable = {
                             viewModel.enable()
                             navController.navigate(
-                                Routes.integrationEnabled(
+                                Routes.integrationSetup(
                                     OutreachSetupViewModel.INTEGRATION_ID
                                 )
                             ) {
@@ -748,7 +748,7 @@ fun AppNavigation(
                         onEnable = {
                             if (viewModel.enable()) {
                                 navController.navigate(
-                                    Routes.integrationEnabled(
+                                    Routes.integrationSetup(
                                         UsageSetupViewModel.INTEGRATION_ID
                                     )
                                 ) {
