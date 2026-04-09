@@ -65,56 +65,6 @@ fn no_collision_in_1000_generations() {
 }
 
 #[test]
-fn generate_integration_secrets_format() {
-    let gen = SubdomainGenerator::new();
-    let integrations = vec![
-        "health".to_string(),
-        "outreach".to_string(),
-        "notifications".to_string(),
-    ];
-    let secrets = gen.generate_integration_secrets(&integrations);
-
-    assert_eq!(secrets.len(), 3);
-    for name in &integrations {
-        let secret = secrets
-            .get(name)
-            .expect(&format!("missing secret for {name}"));
-        // Must end with -{integration_name}
-        assert!(
-            secret.ends_with(&format!("-{name}")),
-            "Secret '{secret}' should end with '-{name}'"
-        );
-        // Must have exactly one hyphen separating adjective from integration name
-        let parts: Vec<&str> = secret.splitn(2, '-').collect();
-        assert_eq!(
-            parts.len(),
-            2,
-            "Secret '{secret}' should be adjective-integration format"
-        );
-        assert!(
-            !parts[0].is_empty(),
-            "Adjective part is empty in '{secret}'"
-        );
-    }
-}
-
-#[test]
-fn generate_adjective_returns_valid_word() {
-    let gen = SubdomainGenerator::new();
-    for _ in 0..50 {
-        let adj = gen.generate_adjective();
-        assert!(!adj.is_empty(), "Adjective should not be empty");
-        assert_eq!(adj, adj.to_lowercase(), "Adjective not lowercase: {adj}");
-        for ch in adj.chars() {
-            assert!(
-                ch.is_ascii_lowercase(),
-                "Invalid char '{ch}' in adjective: {adj}"
-            );
-        }
-    }
-}
-
-#[test]
 fn word_lists_have_sufficient_entries() {
     let gen = SubdomainGenerator::new();
     let (adj_count, noun_count) = gen.word_counts();

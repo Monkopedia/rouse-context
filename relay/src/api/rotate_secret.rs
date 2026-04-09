@@ -21,14 +21,13 @@ pub struct RotateSecretRequest {
     /// Subdomain to rotate. In production this is verified against the mTLS
     /// client cert identity; in tests it may be provided directly.
     pub subdomain: String,
+    /// New client-generated secret strings for SNI validation.
+    pub valid_secrets: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RotateSecretResponse {
-    /// Legacy secret prefix (backward compat).
-    pub secret_prefix: String,
-    /// Per-integration secrets. Key is integration name, value is `{adjective}-{integration}`.
-    pub integration_secrets: std::collections::HashMap<String, String>,
+    pub success: bool,
 }
 
 pub async fn handle_rotate_secret(
@@ -58,20 +57,8 @@ pub async fn handle_rotate_secret(
         }
     };
 
-    // Generate new per-integration secrets
-    let integration_secrets = state
-        .subdomain_generator
-        .generate_integration_secrets(&state.config.integrations);
-
-    // Legacy secret_prefix for backward compat
-    let new_secret = integration_secrets
-        .values()
-        .next()
-        .cloned()
-        .unwrap_or_else(|| state.subdomain_generator.generate());
-
-    record.secret_prefix = Some(new_secret.clone());
-    record.integration_secrets = integration_secrets.clone();
+    // Replace valid_secrets with client-provided values
+    record.valid_secrets = req.valid_secrets;
 
     // Update Firestore
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
@@ -80,15 +67,8 @@ pub async fn handle_rotate_secret(
 
     info!(
         subdomain = %subdomain,
-        "Integration secrets rotated"
+        "Secrets rotated"
     );
 
-    (
-        StatusCode::OK,
-        Json(RotateSecretResponse {
-            secret_prefix: new_secret,
-            integration_secrets,
-        }),
-    )
-        .into_response()
+    (StatusCode::OK, Json(RotateSecretResponse { success: true })).into_response()
 }

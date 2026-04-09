@@ -12,7 +12,7 @@ pub enum ConfigError {
     MissingEnvVar(String),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct RelayConfig {
     pub server: ServerConfig,
@@ -22,33 +22,6 @@ pub struct RelayConfig {
     pub limits: LimitsConfig,
     pub acme: AcmeConfig,
     pub device_ca: DeviceCaConfig,
-    /// Known integration names. Each device gets a per-integration secret
-    /// in the format `{adjective}-{integration}`.
-    pub integrations: Vec<String>,
-}
-
-impl Default for RelayConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            tls: TlsConfig::default(),
-            firebase: FirebaseConfig::default(),
-            cloudflare: CloudflareConfig::default(),
-            limits: LimitsConfig::default(),
-            acme: AcmeConfig::default(),
-            device_ca: DeviceCaConfig::default(),
-            integrations: default_integrations(),
-        }
-    }
-}
-
-fn default_integrations() -> Vec<String> {
-    vec![
-        "health".to_string(),
-        "outreach".to_string(),
-        "notifications".to_string(),
-        "usage".to_string(),
-    ]
 }
 
 #[derive(Debug, Clone, Deserialize)]

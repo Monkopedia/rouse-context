@@ -25,16 +25,15 @@ pub struct RegisterRequest {
     pub signature: Option<String>,
     #[serde(default)]
     pub force_new: bool,
+    /// Client-generated secret strings for SNI validation.
+    #[serde(default)]
+    pub valid_secrets: Vec<String>,
 }
 
 /// Round 1 response: subdomain assigned, device should now generate CSR.
 #[derive(Debug, Serialize)]
 pub struct RegisterResponse {
     pub subdomain: String,
-    /// Legacy secret prefix (backward compat). Same as the first integration secret.
-    pub secret_prefix: String,
-    /// Per-integration secrets. Key is integration name, value is `{adjective}-{integration}`.
-    pub integration_secrets: std::collections::HashMap<String, String>,
     pub relay_host: String,
 }
 
@@ -156,20 +155,7 @@ pub async fn handle_register(
         state.subdomain_generator.generate()
     };
 
-    // 4. Generate per-integration secrets for bot rejection
-    let integration_secrets = state
-        .subdomain_generator
-        .generate_integration_secrets(&state.config.integrations);
-
-    // Legacy secret_prefix for backward compat: use the first integration secret
-    // or fall back to a random adjective-noun pair
-    let secret_prefix = integration_secrets
-        .values()
-        .next()
-        .cloned()
-        .unwrap_or_else(|| state.subdomain_generator.generate());
-
-    // 5. Store device record (public_key will be set in round 2 when CSR arrives)
+    // 4. Store device record (public_key will be set in round 2 when CSR arrives)
     let record = DeviceRecord {
         fcm_token: req.fcm_token,
         firebase_uid: uid,
@@ -182,21 +168,19 @@ pub async fn handle_register(
             None
         },
         renewal_nudge_sent: None,
-        secret_prefix: Some(secret_prefix.clone()),
-        integration_secrets: integration_secrets.clone(),
+        secret_prefix: None,
+        valid_secrets: req.valid_secrets,
     };
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
         return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
     }
 
-    // 6. Return subdomain, secret prefix, and integration secrets
+    // 5. Return subdomain and relay host
     (
         StatusCode::OK,
         Json(RegisterResponse {
             subdomain,
-            secret_prefix,
-            integration_secrets,
             relay_host: state.config.server.relay_hostname.clone(),
         }),
     )

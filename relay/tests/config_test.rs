@@ -51,21 +51,6 @@ fn missing_file_uses_defaults() {
     assert_eq!(cfg.server.bind_addr, "0.0.0.0:443");
     assert_eq!(cfg.limits.max_streams_per_device, 8);
     assert_eq!(cfg.limits.wake_rate_limit, 6);
-    // Default integrations
-    assert_eq!(
-        cfg.integrations,
-        vec!["health", "outreach", "notifications", "usage"]
-    );
-}
-
-#[test]
-fn integrations_from_toml() {
-    let toml = r#"
-integrations = ["health", "calendar"]
-"#;
-    let f = write_toml(toml);
-    let cfg = RelayConfig::from_file(f.path()).unwrap();
-    assert_eq!(cfg.integrations, vec!["health", "calendar"]);
 }
 
 #[test]

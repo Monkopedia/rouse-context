@@ -32,7 +32,7 @@ fn make_device(secret: &str) -> DeviceRecord {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: Some(secret.to_string()),
-        integration_secrets: std::collections::HashMap::new(),
+        valid_secrets: Vec::new(),
     }
 }
 
@@ -47,7 +47,8 @@ async fn rotate_secret_returns_new_prefix() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin"
+                "subdomain": "cool-penguin",
+                "valid_secrets": ["new-alpha", "new-beta"]
             })
             .to_string(),
         ))
@@ -64,48 +65,15 @@ async fn rotate_secret_returns_new_prefix() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    let new_secret = json["secret_prefix"].as_str().unwrap();
-    assert!(
-        new_secret.contains('-'),
-        "New secret should be adjective-noun format, got: {new_secret}"
-    );
-    assert_ne!(
-        new_secret, "old-secret",
-        "New secret should differ from old"
-    );
+    assert_eq!(json["success"].as_bool().unwrap(), true);
 
-    // Verify integration_secrets are returned
-    let int_secrets = json["integration_secrets"].as_object();
-    assert!(
-        int_secrets.is_some(),
-        "Rotate response must include integration_secrets"
-    );
-    let int_secrets = int_secrets.unwrap();
-    assert_eq!(
-        int_secrets.len(),
-        4,
-        "Should have secrets for all default integrations"
-    );
-    for (name, val) in int_secrets {
-        let secret_val = val.as_str().unwrap();
-        assert!(
-            secret_val.ends_with(&format!("-{name}")),
-            "Integration secret '{secret_val}' should end with '-{name}'"
-        );
-    }
-
-    // Verify Firestore was updated
+    // Verify Firestore was updated with client-provided secrets
     let devices = fs.devices.lock().unwrap();
     let updated = devices.get("cool-penguin").unwrap();
     assert_eq!(
-        updated.secret_prefix.as_deref(),
-        Some(new_secret),
-        "Firestore should have the new secret prefix"
-    );
-    assert_eq!(
-        updated.integration_secrets.len(),
-        4,
-        "Firestore should have integration_secrets"
+        updated.valid_secrets,
+        vec!["new-alpha".to_string(), "new-beta".to_string()],
+        "Firestore should have the new valid_secrets"
     );
 }
 
@@ -120,7 +88,8 @@ async fn rotate_secret_device_not_found_returns_404() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "nonexistent"
+                "subdomain": "nonexistent",
+                "valid_secrets": ["test"]
             })
             .to_string(),
         ))
