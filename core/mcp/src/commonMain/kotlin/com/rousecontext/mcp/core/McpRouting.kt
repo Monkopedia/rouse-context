@@ -82,6 +82,13 @@ fun Application.configureMcpRouting(
     val integrationServers = mutableMapOf<String, IntegrationServer>()
     val serversMutex = Mutex()
 
+    // Resolve the public hostname from the request's Host header, falling back
+    // to the configured hostname. This allows a single MCP session to serve
+    // multiple integration hostnames correctly.
+    fun io.ktor.server.routing.RoutingCall.resolveHostname(): String {
+        return request.headers["Host"]?.takeIf { it.isNotEmpty() } ?: hostname
+    }
+
     routing {
         // RFC 9728: Protected Resource Metadata.
         // Claude's MCP client discovers OAuth by requesting:
@@ -91,7 +98,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val baseUrl = "https://$hostname"
+            val baseUrl = "https://${call.resolveHostname()}"
             call.respond(
                 buildJsonObject {
                     put("resource", "$baseUrl/mcp")
@@ -113,7 +120,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(hostname)
+            val metadata = buildOAuthMetadata(call.resolveHostname())
             call.respond(metadata)
         }
 
@@ -122,7 +129,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(hostname)
+            val metadata = buildOAuthMetadata(call.resolveHostname())
             call.respond(metadata)
         }
 
@@ -254,7 +261,7 @@ fun Application.configureMcpRouting(
                     put("interval", response.interval)
                     put(
                         "verification_uri",
-                        "https://$hostname/device"
+                        "https://${call.resolveHostname()}/device"
                     )
                     put("expires_in", 600)
                 }
@@ -317,7 +324,7 @@ fun Application.configureMcpRouting(
                 displayCode = request.displayCode,
                 requestId = request.requestId,
                 redirectUri = redirectUri,
-                hostname = hostname,
+                hostname = call.resolveHostname(),
                 integration = integration
             )
             call.response.headers.append("X-Frame-Options", "DENY")
@@ -479,7 +486,7 @@ fun Application.configureMcpRouting(
             if (token == null || !tokenStore.validateToken(integration, token)) {
                 call.response.headers.append(
                     "WWW-Authenticate",
-                    "Bearer resource_metadata=\"https://$hostname" +
+                    "Bearer resource_metadata=\"https://${call.resolveHostname()}" +
                         "/.well-known/oauth-authorization-server\""
                 )
                 call.respond(HttpStatusCode.Unauthorized)
