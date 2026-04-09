@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 /**
  * Manages a specific integration's detail screen: status, recent activity,
@@ -113,9 +112,7 @@ class IntegrationManageViewModel(
     }
 
     fun refresh() {
-        viewModelScope.launch {
-            refreshTrigger.value++
-        }
+        refreshTrigger.value++
     }
 
     companion object {
