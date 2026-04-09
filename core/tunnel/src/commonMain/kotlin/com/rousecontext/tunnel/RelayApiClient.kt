@@ -74,11 +74,14 @@ class RelayApiClient(
      * Update the device's valid secrets. Authenticated via mTLS.
      * The client generates secrets locally and sends the full list to the relay.
      */
-    suspend fun updateSecrets(validSecrets: List<String>): RelayApiResult<UpdateSecretsResponse> =
+    suspend fun updateSecrets(
+        subdomain: String,
+        validSecrets: List<String>
+    ): RelayApiResult<UpdateSecretsResponse> =
         executeRequest {
             httpClient.post("$baseUrl/rotate-secret") {
                 contentType(ContentType.Application.Json)
-                setBody(UpdateSecretsRequest(validSecrets = validSecrets))
+                setBody(UpdateSecretsRequest(subdomain = subdomain, validSecrets = validSecrets))
             }
         }
 
@@ -192,6 +195,7 @@ data class RegisterResponse(
 
 @Serializable
 data class UpdateSecretsRequest(
+    @SerialName("subdomain") val subdomain: String,
     @SerialName("valid_secrets") val validSecrets: List<String>
 )
 

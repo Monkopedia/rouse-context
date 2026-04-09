@@ -86,11 +86,17 @@ class SettingsViewModel(
             rotateInProgress.value = true
             rotateError.value = null
 
+            val subdomain = certStore.getSubdomain()
+            if (subdomain == null) {
+                rotateError.value = "Device not registered"
+                rotateInProgress.value = false
+                return@launch
+            }
             val integrationIds = integrations.map { it.id }
             val newSecrets = SecretGenerator.generateAll(integrationIds)
             val validSecrets = newSecrets.values.toList()
 
-            when (val result = relayApiClient.updateSecrets(validSecrets)) {
+            when (val result = relayApiClient.updateSecrets(subdomain, validSecrets)) {
                 is RelayApiResult.Success -> {
                     certStore.storeIntegrationSecrets(newSecrets)
                 }

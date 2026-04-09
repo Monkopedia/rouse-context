@@ -29,5 +29,6 @@ tasks.register<Test>("e2eTest") {
     // Pass device URL via system property
     // ./gradlew :e2e:e2eTest -Dmcp.url=https://foo-test.device.rousecontext.com/mcp
     systemProperty("mcp.url", System.getProperty("mcp.url", ""))
+    systemProperty("mcp.integration", System.getProperty("mcp.integration", "test"))
     systemProperty("adb.host", System.getProperty("adb.host", "adolin.lan"))
 }

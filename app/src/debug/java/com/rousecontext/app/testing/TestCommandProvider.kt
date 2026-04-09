@@ -2,14 +2,17 @@ package com.rousecontext.app.testing
 
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
 import android.os.Process
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession
+import com.rousecontext.work.TunnelForegroundService
 import org.koin.core.context.GlobalContext
 import org.koin.java.KoinJavaComponent.getKoin
 
