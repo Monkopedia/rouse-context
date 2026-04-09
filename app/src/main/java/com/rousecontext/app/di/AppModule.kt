@@ -243,7 +243,7 @@ val appModule = module {
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
-    viewModel { AuditHistoryViewModel(get()) }
+    viewModel { AuditHistoryViewModel(get(), get()) }
     viewModel { SettingsViewModel(get(), get(), get(), get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel { AuthorizationApprovalViewModel(get<McpSession>().authorizationCodeManager) }

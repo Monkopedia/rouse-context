@@ -7,6 +7,7 @@ import com.rousecontext.app.ui.screens.AuditHistoryGroup
 import com.rousecontext.app.ui.screens.AuditHistoryState
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
+import com.rousecontext.notifications.capture.FieldEncryptor
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -25,7 +26,8 @@ import kotlinx.coroutines.launch
  * Queries audit entries with provider/date filters and groups results by date.
  */
 class AuditHistoryViewModel(
-    private val auditDao: AuditDao
+    private val auditDao: AuditDao,
+    private val fieldEncryptor: FieldEncryptor? = null
 ) : ViewModel() {
 
     private val providerFilter = MutableStateFlow("All providers")
@@ -40,7 +42,7 @@ class AuditHistoryViewModel(
         val (startMillis, endMillis) = dateRangeFor(date)
         val providerArg = if (provider == "All providers") null else provider
         val entries = auditDao.queryByDateRange(startMillis, endMillis, providerArg)
-        val groups = groupByDate(entries)
+        val groups = groupByDate(entries, fieldEncryptor)
 
         AuditHistoryState(
             groups = groups,
@@ -88,7 +90,10 @@ class AuditHistoryViewModel(
             }
         }
 
-        internal fun groupByDate(entries: List<AuditEntry>): List<AuditHistoryGroup> {
+        internal fun groupByDate(
+            entries: List<AuditEntry>,
+            fieldEncryptor: FieldEncryptor? = null
+        ): List<AuditHistoryGroup> {
             return entries
                 .groupBy { entry ->
                     Instant.ofEpochMilli(entry.timestampMillis)
@@ -101,16 +106,20 @@ class AuditHistoryViewModel(
                     AuditHistoryGroup(
                         dateLabel = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")),
                         entries = dayEntries.map { entry ->
+                            val decryptedArgs = fieldEncryptor?.decrypt(entry.argumentsJson)
+                                ?: entry.argumentsJson
+                            val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
+                                ?: entry.resultJson
                             AuditHistoryEntry(
                                 id = entry.id,
                                 time = TIME_FORMAT.format(Date(entry.timestampMillis)),
                                 toolName = entry.toolName,
                                 provider = entry.provider,
                                 durationMs = entry.durationMillis,
-                                arguments = entry.argumentsJson ?: "",
+                                arguments = decryptedArgs ?: "",
                                 timestampMillis = entry.timestampMillis,
-                                argumentsJson = entry.argumentsJson,
-                                resultJson = entry.resultJson
+                                argumentsJson = decryptedArgs,
+                                resultJson = decryptedResult
                             )
                         }
                     )

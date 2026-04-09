@@ -884,6 +884,9 @@ fun AppNavigation(
                     val auditDao: com.rousecontext.notifications
                         .audit.AuditDao =
                         org.koin.compose.koinInject()
+                    val fieldEncryptor: com.rousecontext.notifications
+                        .capture.FieldEncryptor =
+                        org.koin.compose.koinInject()
                     var detailState by remember {
                         mutableStateOf(
                             AuditDetailState(isLoading = true)
@@ -897,8 +900,12 @@ fun AppNavigation(
                                 provider = entry.provider,
                                 timestampMillis = entry.timestampMillis,
                                 durationMs = entry.durationMillis,
-                                argumentsJson = entry.argumentsJson,
-                                resultJson = entry.resultJson,
+                                argumentsJson = fieldEncryptor.decrypt(
+                                    entry.argumentsJson
+                                ) ?: entry.argumentsJson,
+                                resultJson = fieldEncryptor.decrypt(
+                                    entry.resultJson
+                                ) ?: entry.resultJson,
                                 isLoading = false
                             )
                         } else {
