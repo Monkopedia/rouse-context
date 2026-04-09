@@ -37,7 +37,6 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -52,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.SectionHeader
+import com.rousecontext.app.ui.components.SwitchRow
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
 import com.rousecontext.app.ui.components.navBarItemColors
@@ -141,26 +141,17 @@ fun SettingsContent(
                     }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Disable timeout", style = MaterialTheme.typography.bodyLarge)
-                        if (!state.batteryOptimizationExempt) {
-                            Text(
-                                "(requires battery exemption)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = state.idleTimeoutDisabled,
-                        onCheckedChange = onDisableTimeoutToggled,
-                        enabled = state.batteryOptimizationExempt
-                    )
-                }
+                SwitchRow(
+                    title = "Disable timeout",
+                    subtitle = if (!state.batteryOptimizationExempt) {
+                        "(requires battery exemption)"
+                    } else {
+                        null
+                    },
+                    checked = state.idleTimeoutDisabled,
+                    onCheckedChange = onDisableTimeoutToggled,
+                    enabled = state.batteryOptimizationExempt
+                )
             }
         }
 
