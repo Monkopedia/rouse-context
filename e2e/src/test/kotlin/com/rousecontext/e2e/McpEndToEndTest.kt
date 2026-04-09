@@ -1,7 +1,10 @@
 package com.rousecontext.e2e
 
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import java.util.concurrent.TimeUnit
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -21,10 +24,6 @@ import org.junit.jupiter.api.Order
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
-import java.util.concurrent.TimeUnit
 
 /**
  * End-to-end MCP test that connects through the real relay to a real device.
@@ -73,8 +72,13 @@ class McpEndToEndTest {
         integrationId = System.getProperty("mcp.integration", "test")
 
         // Ensure app is running and Koin is initialized
-        adb("shell", "am", "start", "-n",
-            "com.rousecontext.debug/com.rousecontext.app.MainActivity")
+        adb(
+            "shell",
+            "am",
+            "start",
+            "-n",
+            "com.rousecontext.debug/com.rousecontext.app.MainActivity"
+        )
         Thread.sleep(3000)
 
         // Enable the integration
@@ -101,12 +105,22 @@ class McpEndToEndTest {
     }
 
     private fun discoverMcpUrl(integration: String): String {
-        val subdomain = adb("shell", "run-as", "com.rousecontext.debug",
-            "cat", "files/rouse_subdomain.txt").trim()
+        val subdomain = adb(
+            "shell",
+            "run-as",
+            "com.rousecontext.debug",
+            "cat",
+            "files/rouse_subdomain.txt"
+        ).trim()
         require(subdomain.isNotEmpty()) { "No subdomain found on device" }
 
-        val secretsJson = adb("shell", "run-as", "com.rousecontext.debug",
-            "cat", "files/rouse_integration_secrets.json").trim()
+        val secretsJson = adb(
+            "shell",
+            "run-as",
+            "com.rousecontext.debug",
+            "cat",
+            "files/rouse_integration_secrets.json"
+        ).trim()
         require(secretsJson.isNotEmpty()) { "No integration secrets found on device" }
 
         val secrets = json.parseToJsonElement(secretsJson).jsonObject
@@ -151,7 +165,11 @@ class McpEndToEndTest {
             assertNotNull(body["authorization_endpoint"], "Missing authorization_endpoint")
             assertNotNull(body["token_endpoint"], "Missing token_endpoint")
             assertNotNull(body["registration_endpoint"], "Missing registration_endpoint")
-            println("Endpoints discovered: auth=${body["authorization_endpoint"]}, token=${body["token_endpoint"]}")
+            println(
+                "Endpoints discovered: " +
+                    "auth=${body["authorization_endpoint"]}, " +
+                    "token=${body["token_endpoint"]}"
+            )
         }
     }
 
@@ -159,20 +177,31 @@ class McpEndToEndTest {
     @Order(3)
     fun `03 - register client`() {
         val registerBody = buildJsonObject {
-            put("redirect_uris", kotlinx.serialization.json.JsonArray(
-                listOf(kotlinx.serialization.json.JsonPrimitive("http://localhost:9999/callback"))
-            ))
+            put(
+                "redirect_uris",
+                kotlinx.serialization.json.JsonArray(
+                    listOf(
+                        kotlinx.serialization.json.JsonPrimitive("http://localhost:9999/callback")
+                    )
+                )
+            )
             put("client_name", "E2E Test Client")
             put("token_endpoint_auth_method", "client_secret_post")
-            put("grant_types", kotlinx.serialization.json.JsonArray(
-                listOf(
-                    kotlinx.serialization.json.JsonPrimitive("authorization_code"),
-                    kotlinx.serialization.json.JsonPrimitive("refresh_token")
+            put(
+                "grant_types",
+                kotlinx.serialization.json.JsonArray(
+                    listOf(
+                        kotlinx.serialization.json.JsonPrimitive("authorization_code"),
+                        kotlinx.serialization.json.JsonPrimitive("refresh_token")
+                    )
                 )
-            ))
-            put("response_types", kotlinx.serialization.json.JsonArray(
-                listOf(kotlinx.serialization.json.JsonPrimitive("code"))
-            ))
+            )
+            put(
+                "response_types",
+                kotlinx.serialization.json.JsonArray(
+                    listOf(kotlinx.serialization.json.JsonPrimitive("code"))
+                )
+            )
         }
 
         val request = Request.Builder()
@@ -198,7 +227,9 @@ class McpEndToEndTest {
         val authUrl = "$baseUrl/authorize?" +
             "response_type=code&" +
             "client_id=$clientId&" +
-            "redirect_uri=${java.net.URLEncoder.encode("http://localhost:9999/callback", "UTF-8")}&" +
+            "redirect_uri=${
+                java.net.URLEncoder.encode("http://localhost:9999/callback", "UTF-8")
+            }&" +
             "code_challenge=$codeChallenge&" +
             "code_challenge_method=S256&" +
             "state=e2etest"
@@ -287,14 +318,20 @@ class McpEndToEndTest {
             put("method", "initialize")
             put("jsonrpc", "2.0")
             put("id", 1)
-            put("params", buildJsonObject {
-                put("protocolVersion", "2025-11-25")
-                put("capabilities", buildJsonObject {})
-                put("clientInfo", buildJsonObject {
-                    put("name", "E2E Test")
-                    put("version", "1.0.0")
-                })
-            })
+            put(
+                "params",
+                buildJsonObject {
+                    put("protocolVersion", "2025-11-25")
+                    put("capabilities", buildJsonObject {})
+                    put(
+                        "clientInfo",
+                        buildJsonObject {
+                            put("name", "E2E Test")
+                            put("version", "1.0.0")
+                        }
+                    )
+                }
+            )
         }
 
         val request = Request.Builder()
@@ -311,7 +348,10 @@ class McpEndToEndTest {
             assertNotNull(result, "Missing result in initialize response")
             val serverInfo = result!!["serverInfo"]?.jsonObject
             assertNotNull(serverInfo, "Missing serverInfo")
-            println("Server: ${serverInfo!!["name"]?.jsonPrimitive?.content} ${serverInfo["version"]?.jsonPrimitive?.content}")
+            println(
+                "Server: ${serverInfo!!["name"]?.jsonPrimitive?.content} " +
+                    serverInfo["version"]?.jsonPrimitive?.content
+            )
         }
     }
 
@@ -350,12 +390,18 @@ class McpEndToEndTest {
             put("method", "tools/call")
             put("jsonrpc", "2.0")
             put("id", 3)
-            put("params", buildJsonObject {
-                put("name", "echo")
-                put("arguments", buildJsonObject {
-                    put("message", "hello from e2e test")
-                })
-            })
+            put(
+                "params",
+                buildJsonObject {
+                    put("name", "echo")
+                    put(
+                        "arguments",
+                        buildJsonObject {
+                            put("message", "hello from e2e test")
+                        }
+                    )
+                }
+            )
         }
 
         val request = Request.Builder()

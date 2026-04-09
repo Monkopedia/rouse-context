@@ -77,13 +77,12 @@ class RelayApiClient(
     suspend fun updateSecrets(
         subdomain: String,
         validSecrets: List<String>
-    ): RelayApiResult<UpdateSecretsResponse> =
-        executeRequest {
-            httpClient.post("$baseUrl/rotate-secret") {
-                contentType(ContentType.Application.Json)
-                setBody(UpdateSecretsRequest(subdomain = subdomain, validSecrets = validSecrets))
-            }
+    ): RelayApiResult<UpdateSecretsResponse> = executeRequest {
+        httpClient.post("$baseUrl/rotate-secret") {
+            contentType(ContentType.Application.Json)
+            setBody(UpdateSecretsRequest(subdomain = subdomain, validSecrets = validSecrets))
         }
+    }
 
     /**
      * Renew a device certificate using mTLS (valid cert) authentication.

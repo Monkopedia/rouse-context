@@ -3,8 +3,6 @@ package com.rousecontext.app.testing
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Binder
-import android.os.Process
 import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession

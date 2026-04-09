@@ -2,10 +2,6 @@ package com.rousecontext.app.ui.navigation
 
 import android.content.Intent
 import android.provider.Settings
-import androidx.compose.runtime.rememberCoroutineScope
-import com.rousecontext.tunnel.CertProvisioningFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -89,6 +85,9 @@ import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import com.rousecontext.app.ui.viewmodels.OutreachSetupViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
+import com.rousecontext.tunnel.CertProvisioningFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.koin.androidx.compose.koinViewModel
 
 object Routes {

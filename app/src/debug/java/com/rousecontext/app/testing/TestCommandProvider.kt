@@ -2,17 +2,14 @@ package com.rousecontext.app.testing
 
 import android.content.ContentProvider
 import android.content.ContentValues
-import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
 import android.os.Process
 import android.util.Log
-import androidx.core.content.ContextCompat
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession
-import com.rousecontext.work.TunnelForegroundService
 import org.koin.core.context.GlobalContext
 import org.koin.java.KoinJavaComponent.getKoin
 
@@ -75,11 +72,26 @@ class TestCommandProvider : ContentProvider() {
     }
 
     override fun onCreate(): Boolean = true
-    override fun query(u: Uri, p: Array<String>?, s: String?, a: Array<String>?, o: String?): Cursor? = null
+
+    override fun query(
+        u: Uri,
+        p: Array<String>?,
+        s: String?,
+        a: Array<String>?,
+        o: String?
+    ): Cursor? = null
+
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<String>?): Int = 0
+
+    override fun update(
+        uri: Uri,
+        values: ContentValues?,
+        selection: String?,
+        selectionArgs: Array<String>?
+    ): Int = 0
 
     companion object {
         private const val TAG = "TestCommandProvider"
