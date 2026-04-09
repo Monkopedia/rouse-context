@@ -4,6 +4,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
@@ -20,7 +21,8 @@ class OnboardingFlowTest {
         val client = RelayApiClient(baseUrl = mockServer.baseUrl)
         flow = OnboardingFlow(
             relayApiClient = client,
-            certificateStore = store
+            certificateStore = store,
+            integrationIds = listOf("health", "notifications")
         )
     }
 
@@ -98,34 +100,7 @@ class OnboardingFlowTest {
     }
 
     @Test
-    fun `onboarding stores integration secrets from register response`(): Unit = runBlocking {
-        mockServer.registerHandler = { _ ->
-            MockRegisterResponse(
-                status = 201,
-                body = RegisterResponse(
-                    subdomain = "abc123",
-                    relayHost = "relay.rousecontext.com",
-                    integrationSecrets = mapOf(
-                        "health" to "brave-health",
-                        "notifications" to "swift-notifications"
-                    )
-                )
-            )
-        }
-
-        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
-
-        assertTrue(result is OnboardingResult.Success)
-        assertEquals("abc123", store.getSubdomain())
-        assertEquals(
-            mapOf("health" to "brave-health", "notifications" to "swift-notifications"),
-            store.getIntegrationSecrets()
-        )
-        assertEquals("brave-health", store.getSecretForIntegration("health"))
-    }
-
-    @Test
-    fun `onboarding without integration secrets leaves them null`(): Unit = runBlocking {
+    fun `onboarding generates and stores integration secrets locally`(): Unit = runBlocking {
         mockServer.registerHandler = { _ ->
             MockRegisterResponse(
                 status = 201,
@@ -137,6 +112,63 @@ class OnboardingFlowTest {
         }
 
         val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.Success)
+        assertEquals("abc123", store.getSubdomain())
+        val secrets = store.getIntegrationSecrets()
+        assertNotNull(secrets)
+        assertEquals(2, secrets.size)
+        assertTrue(secrets.containsKey("health"))
+        assertTrue(secrets.containsKey("notifications"))
+        // Secrets follow "{adjective}-{integration}" format
+        assertTrue(secrets["health"]!!.endsWith("-health"))
+        assertTrue(secrets["notifications"]!!.endsWith("-notifications"))
+    }
+
+    @Test
+    fun `onboarding sends valid_secrets to relay`(): Unit = runBlocking {
+        var capturedRequest: RegisterRequest? = null
+        mockServer.registerHandler = { request ->
+            capturedRequest = request
+            MockRegisterResponse(
+                status = 201,
+                body = RegisterResponse(
+                    subdomain = "abc123",
+                    relayHost = "relay.rousecontext.com"
+                )
+            )
+        }
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.Success)
+        assertNotNull(capturedRequest)
+        assertEquals(2, capturedRequest!!.validSecrets.size)
+        // The secrets sent to relay should match what's stored locally
+        val storedSecrets = store.getIntegrationSecrets()!!
+        assertTrue(capturedRequest!!.validSecrets.containsAll(storedSecrets.values))
+    }
+
+    @Test
+    fun `onboarding with no integrations stores no secrets`(): Unit = runBlocking {
+        mockServer.registerHandler = { _ ->
+            MockRegisterResponse(
+                status = 201,
+                body = RegisterResponse(
+                    subdomain = "abc123",
+                    relayHost = "relay.rousecontext.com"
+                )
+            )
+        }
+
+        val client = RelayApiClient(baseUrl = mockServer.baseUrl)
+        val noIntegrationsFlow = OnboardingFlow(
+            relayApiClient = client,
+            certificateStore = store,
+            integrationIds = emptyList()
+        )
+
+        val result = noIntegrationsFlow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
 
         assertTrue(result is OnboardingResult.Success)
         assertEquals("abc123", store.getSubdomain())

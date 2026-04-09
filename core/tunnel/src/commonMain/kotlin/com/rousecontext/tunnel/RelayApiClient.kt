@@ -29,14 +29,16 @@ class RelayApiClient(
      */
     suspend fun register(
         firebaseToken: String,
-        fcmToken: String
+        fcmToken: String,
+        validSecrets: List<String> = emptyList()
     ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
             contentType(ContentType.Application.Json)
             setBody(
                 RegisterRequest(
                     firebaseToken = firebaseToken,
-                    fcmToken = fcmToken
+                    fcmToken = fcmToken,
+                    validSecrets = validSecrets
                 )
             )
         }
@@ -69,14 +71,16 @@ class RelayApiClient(
         }
 
     /**
-     * Rotate the device's secret prefix. Authenticated via mTLS.
-     * Returns the new secret prefix assigned by the relay.
+     * Update the device's valid secrets. Authenticated via mTLS.
+     * The client generates secrets locally and sends the full list to the relay.
      */
-    suspend fun rotateSecret(): RelayApiResult<RotateSecretResponse> = executeRequest {
-        httpClient.post("$baseUrl/rotate-secret") {
-            contentType(ContentType.Application.Json)
+    suspend fun updateSecrets(validSecrets: List<String>): RelayApiResult<UpdateSecretsResponse> =
+        executeRequest {
+            httpClient.post("$baseUrl/rotate-secret") {
+                contentType(ContentType.Application.Json)
+                setBody(UpdateSecretsRequest(validSecrets = validSecrets))
+            }
         }
-    }
 
     /**
      * Renew a device certificate using mTLS (valid cert) authentication.
@@ -176,19 +180,24 @@ sealed class RelayApiResult<out T> {
 @Serializable
 data class RegisterRequest(
     @SerialName("firebase_token") val firebaseToken: String,
-    @SerialName("fcm_token") val fcmToken: String
+    @SerialName("fcm_token") val fcmToken: String,
+    @SerialName("valid_secrets") val validSecrets: List<String> = emptyList()
 )
 
 @Serializable
 data class RegisterResponse(
     @SerialName("subdomain") val subdomain: String,
-    @SerialName("relay_host") val relayHost: String,
-    @SerialName("integration_secrets") val integrationSecrets: Map<String, String> = emptyMap()
+    @SerialName("relay_host") val relayHost: String
 )
 
 @Serializable
-data class RotateSecretResponse(
-    @SerialName("integration_secrets") val integrationSecrets: Map<String, String>
+data class UpdateSecretsRequest(
+    @SerialName("valid_secrets") val validSecrets: List<String>
+)
+
+@Serializable
+data class UpdateSecretsResponse(
+    @SerialName("status") val status: String = "ok"
 )
 
 @Serializable

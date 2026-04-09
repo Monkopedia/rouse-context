@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.viewmodels
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.state.ThemeMode
@@ -13,6 +14,7 @@ import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
+import com.rousecontext.tunnel.SecretGenerator
 import com.rousecontext.work.SecurityCheckWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,6 +32,7 @@ class SettingsViewModel(
     private val themePreference: ThemePreference,
     private val relayApiClient: RelayApiClient,
     private val certStore: CertificateStore,
+    private val integrations: List<McpIntegration> = emptyList(),
     private val securityCheckPrefs: SharedPreferences? = null
 ) : ViewModel() {
 
@@ -82,9 +85,14 @@ class SettingsViewModel(
         viewModelScope.launch {
             rotateInProgress.value = true
             rotateError.value = null
-            when (val result = relayApiClient.rotateSecret()) {
+
+            val integrationIds = integrations.map { it.id }
+            val newSecrets = SecretGenerator.generateAll(integrationIds)
+            val validSecrets = newSecrets.values.toList()
+
+            when (val result = relayApiClient.updateSecrets(validSecrets)) {
                 is RelayApiResult.Success -> {
-                    certStore.storeIntegrationSecrets(result.data.integrationSecrets)
+                    certStore.storeIntegrationSecrets(newSecrets)
                 }
                 is RelayApiResult.RateLimited -> {
                     rotateError.value = "Rate limited. Try again later."
