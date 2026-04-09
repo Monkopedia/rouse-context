@@ -5,7 +5,6 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::time::SystemTime;
 use thiserror::Error;
 
@@ -34,12 +33,13 @@ pub struct DeviceRecord {
     pub renewal_nudge_sent: Option<SystemTime>,
     /// Two-word secret prefix for bot rejection (e.g. "brave-falcon").
     /// Clients must connect to `{secret_prefix}.{subdomain}.rousecontext.com`.
-    /// Deprecated: use `integration_secrets` for new registrations.
+    /// Deprecated: use `valid_secrets` for new registrations.
     pub secret_prefix: Option<String>,
-    /// Per-integration secret words. Key is integration name (e.g. "health"),
-    /// value is the secret word (e.g. "brave-health"). Format: `{adjective}-{integration}`.
+    /// Client-provided secret strings for SNI validation.
+    /// Each entry is a valid first-label for the SNI hostname (e.g. "brave-health").
+    /// The relay does not know or care which integration a secret maps to.
     #[serde(default)]
-    pub integration_secrets: HashMap<String, String>,
+    pub valid_secrets: Vec<String>,
 }
 
 /// A pending certificate record stored in `pending_certs/{subdomain}`.

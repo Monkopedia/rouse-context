@@ -240,7 +240,7 @@ async fn fcm_sent_when_device_offline() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
-        integration_secrets: std::collections::HashMap::new(),
+        valid_secrets: Vec::new(),
     };
 
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", device_record));
@@ -285,7 +285,7 @@ async fn fcm_timeout_returns_error() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
-        integration_secrets: std::collections::HashMap::new(),
+        valid_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("test-sub", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -337,7 +337,7 @@ async fn cold_client_fcm_then_device_connects() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
-        integration_secrets: std::collections::HashMap::new(),
+        valid_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("cold-dev", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -488,19 +488,16 @@ async fn valid_secret_with_online_device_opens_stream() {
 }
 
 // ---------------------------------------------------------------------------
-// Per-integration secret tests
+// valid_secrets list tests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn integration_secret_valid_resolves_integration_name() {
+async fn valid_secret_in_list_proceeds() {
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
     let mut device_record = make_device_record("fcm-int");
-    let mut secrets = std::collections::HashMap::new();
-    secrets.insert("health".to_string(), "brave-health".to_string());
-    secrets.insert("outreach".to_string(), "swift-outreach".to_string());
-    device_record.integration_secrets = secrets;
+    device_record.valid_secrets = vec!["brave-health".to_string(), "swift-outreach".to_string()];
 
     // Device is online
     let mut _frame_rx = setup_device(&relay_state, &registry, "cool-penguin", 8);
@@ -513,19 +510,15 @@ async fn integration_secret_valid_resolves_integration_name() {
     let result = resolve_device_stream(&ctx, "cool-penguin", sni, "brave-health").await;
 
     assert!(result.is_ok());
-    let resolved = result.unwrap();
-    assert_eq!(resolved.integration, "health");
 }
 
 #[tokio::test]
-async fn integration_secret_wrong_value_rejects() {
+async fn secret_not_in_valid_list_rejects() {
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
     let mut device_record = make_device_record("fcm-int2");
-    let mut secrets = std::collections::HashMap::new();
-    secrets.insert("health".to_string(), "brave-health".to_string());
-    device_record.integration_secrets = secrets;
+    device_record.valid_secrets = vec!["brave-health".to_string()];
 
     let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -541,18 +534,18 @@ async fn integration_secret_wrong_value_rejects() {
 
     assert!(
         matches!(result, Err(PassthroughError::InvalidSecret)),
-        "Expected InvalidSecret for wrong integration secret"
+        "Expected InvalidSecret for secret not in valid_secrets list"
     );
 }
 
 #[tokio::test]
-async fn legacy_secret_prefix_fallback_when_no_integration_secrets() {
+async fn legacy_secret_prefix_fallback_when_no_valid_secrets() {
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
     let mut device_record = make_device_record("fcm-legacy");
     device_record.secret_prefix = Some("brave-falcon".to_string());
-    // integration_secrets is empty (legacy device)
+    // valid_secrets is empty (legacy device)
 
     // Device is online
     let mut _frame_rx = setup_device(&relay_state, &registry, "cool-penguin", 8);
@@ -565,8 +558,6 @@ async fn legacy_secret_prefix_fallback_when_no_integration_secrets() {
     let result = resolve_device_stream(&ctx, "cool-penguin", sni, "brave-falcon").await;
 
     assert!(result.is_ok());
-    // Legacy device: integration is empty
-    assert_eq!(result.unwrap().integration, "");
 }
 
 #[tokio::test]
@@ -576,7 +567,7 @@ async fn legacy_secret_prefix_wrong_value_rejects() {
 
     let mut device_record = make_device_record("fcm-legacy2");
     device_record.secret_prefix = Some("brave-falcon".to_string());
-    // integration_secrets is empty (legacy device)
+    // valid_secrets is empty (legacy device)
 
     let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -597,17 +588,15 @@ async fn legacy_secret_prefix_wrong_value_rejects() {
 }
 
 #[tokio::test]
-async fn integration_secrets_take_priority_over_secret_prefix() {
-    // Device has both integration_secrets AND secret_prefix.
-    // Integration secrets should be checked first.
+async fn valid_secrets_take_priority_over_secret_prefix() {
+    // Device has both valid_secrets AND secret_prefix.
+    // valid_secrets should be checked first.
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
     let mut device_record = make_device_record("fcm-both");
     device_record.secret_prefix = Some("old-falcon".to_string());
-    let mut secrets = std::collections::HashMap::new();
-    secrets.insert("health".to_string(), "brave-health".to_string());
-    device_record.integration_secrets = secrets;
+    device_record.valid_secrets = vec!["brave-health".to_string()];
 
     // Device is online
     let mut _frame_rx = setup_device(&relay_state, &registry, "cool-penguin", 8);
@@ -616,32 +605,29 @@ async fn integration_secrets_take_priority_over_secret_prefix() {
     let fcm = Arc::new(MockFcm::new());
     let ctx = make_ctx(relay_state, registry, firestore, fcm);
 
-    // Using the integration secret should work
+    // Using a valid secret should work
     let sni = "brave-health.cool-penguin.rousecontext.com";
     let result = resolve_device_stream(&ctx, "cool-penguin", sni, "brave-health").await;
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().integration, "health");
 }
 
 #[tokio::test]
-async fn old_secret_prefix_rejected_when_integration_secrets_present() {
-    // Device has both integration_secrets AND secret_prefix.
+async fn old_secret_prefix_rejected_when_valid_secrets_present() {
+    // Device has both valid_secrets AND secret_prefix.
     // Using the old secret_prefix value should be rejected because
-    // integration_secrets take priority.
+    // valid_secrets take priority.
     let relay_state = Arc::new(RelayState::new());
     let registry = Arc::new(SessionRegistry::new());
 
     let mut device_record = make_device_record("fcm-both2");
     device_record.secret_prefix = Some("old-falcon".to_string());
-    let mut secrets = std::collections::HashMap::new();
-    secrets.insert("health".to_string(), "brave-health".to_string());
-    device_record.integration_secrets = secrets;
+    device_record.valid_secrets = vec!["brave-health".to_string()];
 
     let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
     let fcm = Arc::new(MockFcm::new());
     let ctx = make_ctx(relay_state, registry, firestore, fcm);
 
-    // Using the old secret_prefix should NOT work (integration_secrets are checked first)
+    // Using the old secret_prefix should NOT work (valid_secrets are checked first)
     let result = resolve_device_stream(
         &ctx,
         "cool-penguin",
@@ -652,7 +638,7 @@ async fn old_secret_prefix_rejected_when_integration_secrets_present() {
 
     assert!(
         matches!(result, Err(PassthroughError::InvalidSecret)),
-        "Old secret_prefix should be rejected when integration_secrets are present"
+        "Old secret_prefix should be rejected when valid_secrets are present"
     );
 }
 
@@ -671,7 +657,7 @@ fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
-        integration_secrets: std::collections::HashMap::new(),
+        valid_secrets: Vec::new(),
     }
 }
 
