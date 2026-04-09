@@ -90,12 +90,24 @@ fun Application.configureMcpRouting(
         return request.headers["Host"]?.takeIf { it.isNotEmpty() } ?: hostname
     }
 
+    // Resolve the integration name from the Host header.
+    // Hostname format: {adjective}-{integration}.{subdomain}.{domain}
+    // e.g. "exact-health.abc123.rousecontext.com" -> "health"
+    // Falls back to the configured integration parameter.
+    fun io.ktor.server.routing.RoutingCall.resolveIntegration(): String {
+        val host = request.headers["Host"] ?: return integration
+        val firstLabel = host.split(".").firstOrNull() ?: return integration
+        val parts = firstLabel.split("-", limit = 2)
+        return if (parts.size == 2) parts[1] else integration
+    }
+
     routing {
         // RFC 9728: Protected Resource Metadata.
         // Claude's MCP client discovers OAuth by requesting:
         //   GET /.well-known/oauth-protected-resource/mcp
         get("/.well-known/oauth-protected-resource/{path...}") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -117,7 +129,8 @@ fun Application.configureMcpRouting(
 
         // RFC 8414: OAuth authorization server metadata at root.
         get("/.well-known/oauth-authorization-server/{path...}") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -126,7 +139,8 @@ fun Application.configureMcpRouting(
         }
 
         get("/.well-known/oauth-authorization-server") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -138,11 +152,12 @@ fun Application.configureMcpRouting(
         // returns a client_id. We don't enforce client authentication for the
         // device code flow, so this is a simple pass-through.
         post("/register") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@post
             }
-            if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/register")) {
+            if (rateLimiter != null && !rateLimiter.tryAcquire("$ri/register")) {
                 call.respond(HttpStatusCode.TooManyRequests)
                 return@post
             }
@@ -249,12 +264,13 @@ fun Application.configureMcpRouting(
 
         // Device code authorize -- no auth required
         post("/device/authorize") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@post
             }
 
-            val response = deviceCodeManager.authorize(integration)
+            val response = deviceCodeManager.authorize(ri)
             call.respond(
                 buildJsonObject {
                     put("device_code", response.deviceCode)
@@ -271,11 +287,12 @@ fun Application.configureMcpRouting(
 
         // Authorization code flow -- returns HTML page with display code
         get("/authorize") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/authorize")) {
+            if (rateLimiter != null && !rateLimiter.tryAcquire("$ri/authorize")) {
                 call.respond(HttpStatusCode.TooManyRequests)
                 return@get
             }
@@ -314,7 +331,7 @@ fun Application.configureMcpRouting(
                     codeChallengeMethod = codeChallengeMethod!!,
                     redirectUri = redirectUri,
                     state = state!!,
-                    integration = integration
+                    integration = ri
                 )
             } catch (_: IllegalArgumentException) {
                 call.respond(HttpStatusCode.BadRequest)
@@ -326,7 +343,7 @@ fun Application.configureMcpRouting(
                 requestId = request.requestId,
                 redirectUri = redirectUri,
                 hostname = call.resolveHostname(),
-                integration = integration
+                integration = ri
             )
             call.response.headers.append("X-Frame-Options", "DENY")
             call.response.headers.append(
@@ -372,11 +389,12 @@ fun Application.configureMcpRouting(
 
         // Token exchange -- handles both authorization_code and device_code
         post("/token") {
-            if (registry.enabledPaths().isEmpty()) {
+            val ri = call.resolveIntegration()
+            if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
                 return@post
             }
-            if (rateLimiter != null && !rateLimiter.tryAcquire("$integration/token")) {
+            if (rateLimiter != null && !rateLimiter.tryAcquire("$ri/token")) {
                 call.respond(HttpStatusCode.TooManyRequests)
                 return@post
             }
@@ -429,7 +447,7 @@ fun Application.configureMcpRouting(
                         return@post
                     }
                     val pair = tokenStore.refreshToken(
-                        integration,
+                        ri,
                         refreshTokenValue
                     )
                     if (pair != null) {
@@ -459,20 +477,14 @@ fun Application.configureMcpRouting(
 
         // MCP Streamable HTTP -- Bearer auth required
         post("/mcp") {
-            // With single-session serving all integrations, find any enabled provider.
-            // TODO: per-integration sessions would pass the correct integration here.
-            val resolvedIntegration = registry.enabledPaths().firstOrNull()
-                ?: run {
-                    call.respond(HttpStatusCode.NotFound)
-                    return@post
-                }
-            val provider = registry.providerForPath(resolvedIntegration)
+            val ri = call.resolveIntegration()
+            val provider = registry.providerForPath(ri)
                 ?: run {
                     call.respond(HttpStatusCode.NotFound)
                     return@post
                 }
             if (mcpRateLimiter != null &&
-                !mcpRateLimiter.tryAcquire("$integration/mcp")
+                !mcpRateLimiter.tryAcquire("$ri/mcp")
             ) {
                 call.respond(HttpStatusCode.TooManyRequests)
                 return@post
@@ -484,7 +496,7 @@ fun Application.configureMcpRouting(
                 authHeader.startsWith("Bearer ")
             }
 
-            if (token == null || !tokenStore.validateToken(integration, token)) {
+            if (token == null || !tokenStore.validateToken(ri, token)) {
                 call.response.headers.append(
                     "WWW-Authenticate",
                     "Bearer resource_metadata=\"https://${call.resolveHostname()}" +
@@ -496,7 +508,7 @@ fun Application.configureMcpRouting(
 
             // Get or create MCP server + transport for this integration
             val integrationServer = serversMutex.withLock {
-                integrationServers.getOrPut(integration) {
+                integrationServers.getOrPut(ri) {
                     createIntegrationServer(provider, serverName, serverVersion)
                 }
             }
@@ -543,7 +555,7 @@ fun Application.configureMcpRouting(
                         auditListener,
                         parsed,
                         responseJson,
-                        integration,
+                        ri,
                         startMs,
                         clock
                     )
