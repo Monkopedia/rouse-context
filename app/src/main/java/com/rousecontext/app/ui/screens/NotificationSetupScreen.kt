@@ -27,7 +27,6 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -40,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.PrivacyWarningCard
+import com.rousecontext.app.ui.components.SwitchRow
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
@@ -191,31 +191,13 @@ private fun NotificationSetupBody(
 
         // Action toggle
         Card(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Allow AI to act on notifications",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "When enabled, AI clients can perform actions " +
-                            "on and dismiss your notifications.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Switch(
-                    checked = state.allowActions,
-                    onCheckedChange = onAllowActionsChanged
-                )
-            }
+            SwitchRow(
+                title = "Allow AI to act on notifications",
+                subtitle = "When enabled, AI clients can perform actions " +
+                    "on and dismiss your notifications.",
+                checked = state.allowActions,
+                onCheckedChange = onAllowActionsChanged
+            )
         }
 
         Spacer(modifier = Modifier.weight(1f))
