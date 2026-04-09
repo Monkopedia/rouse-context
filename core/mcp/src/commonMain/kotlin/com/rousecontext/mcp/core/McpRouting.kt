@@ -87,7 +87,7 @@ fun Application.configureMcpRouting(
         // Claude's MCP client discovers OAuth by requesting:
         //   GET /.well-known/oauth-protected-resource/mcp
         get("/.well-known/oauth-protected-resource/{path...}") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -109,7 +109,7 @@ fun Application.configureMcpRouting(
 
         // RFC 8414: OAuth authorization server metadata at root.
         get("/.well-known/oauth-authorization-server/{path...}") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -118,7 +118,7 @@ fun Application.configureMcpRouting(
         }
 
         get("/.well-known/oauth-authorization-server") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -130,7 +130,7 @@ fun Application.configureMcpRouting(
         // returns a client_id. We don't enforce client authentication for the
         // device code flow, so this is a simple pass-through.
         post("/register") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@post
             }
@@ -241,7 +241,7 @@ fun Application.configureMcpRouting(
 
         // Device code authorize -- no auth required
         post("/device/authorize") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@post
             }
@@ -263,7 +263,7 @@ fun Application.configureMcpRouting(
 
         // Authorization code flow -- returns HTML page with display code
         get("/authorize") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
@@ -364,7 +364,7 @@ fun Application.configureMcpRouting(
 
         // Token exchange -- handles both authorization_code and device_code
         post("/token") {
-            if (registry.providerForPath(integration) == null) {
+            if (registry.enabledPaths().isEmpty()) {
                 call.respond(HttpStatusCode.NotFound)
                 return@post
             }
@@ -451,11 +451,18 @@ fun Application.configureMcpRouting(
 
         // MCP Streamable HTTP -- Bearer auth required
         post("/mcp") {
-            val provider = registry.providerForPath(integration)
-            if (provider == null) {
-                call.respond(HttpStatusCode.NotFound)
-                return@post
-            }
+            // With single-session serving all integrations, find any enabled provider.
+            // TODO: per-integration sessions would pass the correct integration here.
+            val resolvedIntegration = registry.enabledPaths().firstOrNull()
+                ?: run {
+                    call.respond(HttpStatusCode.NotFound)
+                    return@post
+                }
+            val provider = registry.providerForPath(resolvedIntegration)
+                ?: run {
+                    call.respond(HttpStatusCode.NotFound)
+                    return@post
+                }
             if (mcpRateLimiter != null &&
                 !mcpRateLimiter.tryAcquire("$integration/mcp")
             ) {
