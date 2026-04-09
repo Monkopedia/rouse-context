@@ -56,6 +56,7 @@ class McpEndToEndTest {
     private lateinit var mcpUrl: String
     private lateinit var baseUrl: String
     private lateinit var adbHost: String
+    private lateinit var integrationId: String
 
     // State accumulated across ordered tests
     private var authServerUrl: String? = null
@@ -68,12 +69,27 @@ class McpEndToEndTest {
 
     @BeforeAll
     fun setup() {
-        mcpUrl = System.getProperty("mcp.url")
-        require(mcpUrl.isNotEmpty()) {
-            "mcp.url system property required. Pass -Dmcp.url=https://..."
+        adbHost = System.getProperty("adb.host", "adolin.lan")
+        integrationId = System.getProperty("mcp.integration", "test")
+
+        // Ensure app is running and Koin is initialized
+        adb("shell", "am", "start", "-n",
+            "com.rousecontext.debug/com.rousecontext.app.MainActivity")
+        Thread.sleep(3000)
+
+        // Enable the integration
+        enableIntegration(integrationId)
+        Thread.sleep(1000)
+
+        // Read device URL from adb — auto-discover subdomain + integration secret
+        val explicitUrl = System.getProperty("mcp.url", "")
+        if (explicitUrl.isNotEmpty()) {
+            mcpUrl = explicitUrl
+        } else {
+            mcpUrl = discoverMcpUrl(integrationId)
         }
         baseUrl = mcpUrl.removeSuffix("/mcp")
-        adbHost = System.getProperty("adb.host", "adolin.lan")
+        println("MCP URL: $mcpUrl")
 
         // Generate PKCE code verifier and challenge
         val random = SecureRandom()
@@ -82,9 +98,22 @@ class McpEndToEndTest {
         codeVerifier = Base64.getUrlEncoder().withoutPadding().encodeToString(verifierBytes)
         val digest = MessageDigest.getInstance("SHA-256").digest(codeVerifier!!.toByteArray())
         codeChallenge = Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
+    }
 
-        // Enable test integration via adb
-        enableIntegration("test")
+    private fun discoverMcpUrl(integration: String): String {
+        val subdomain = adb("shell", "run-as", "com.rousecontext.debug",
+            "cat", "files/rouse_subdomain.txt").trim()
+        require(subdomain.isNotEmpty()) { "No subdomain found on device" }
+
+        val secretsJson = adb("shell", "run-as", "com.rousecontext.debug",
+            "cat", "files/rouse_integration_secrets.json").trim()
+        require(secretsJson.isNotEmpty()) { "No integration secrets found on device" }
+
+        val secrets = json.parseToJsonElement(secretsJson).jsonObject
+        val secret = secrets[integration]?.jsonPrimitive?.content
+            ?: error("No secret for integration '$integration'. Available: ${secrets.keys}")
+
+        return "https://$secret.$subdomain.rousecontext.com/mcp"
     }
 
     @Test
@@ -96,8 +125,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "Protected resource discovery failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "Protected resource discovery failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             val authServers = body["authorization_servers"]?.jsonArray
             assertNotNull(authServers, "Missing authorization_servers")
             assertTrue(authServers!!.isNotEmpty(), "Empty authorization_servers")
@@ -115,8 +145,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "Auth server metadata failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "Auth server metadata failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             assertNotNull(body["authorization_endpoint"], "Missing authorization_endpoint")
             assertNotNull(body["token_endpoint"], "Missing token_endpoint")
             assertNotNull(body["registration_endpoint"], "Missing registration_endpoint")
@@ -150,8 +181,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(201, response.code, "Client registration failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(201, response.code, "Client registration failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             clientId = body["client_id"]?.jsonPrimitive?.content
             clientSecret = body["client_secret"]?.jsonPrimitive?.content
             assertNotNull(clientId, "Missing client_id")
@@ -174,11 +206,11 @@ class McpEndToEndTest {
         val request = Request.Builder().url(authUrl).get().build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "Authorization page failed: ${response.body?.string()}")
-            val html = response.body!!.string()
+            val html = response.body?.string() ?: ""
+            assertEquals(200, response.code, "Authorization page failed: $html")
 
-            // Extract display code from HTML — look for the code pattern (e.g. AB3X-9K2F)
-            val codePattern = Regex("""([A-Z0-9]{4}-[A-Z0-9]{4})""")
+            // Extract display code from HTML — format is 6+6 chars with dash (e.g. NUVHNK-Z2V638)
+            val codePattern = Regex("""([A-Z0-9]{6}-[A-Z0-9]{6})""")
             val match = codePattern.find(html)
             assertNotNull(match, "Could not find display code in authorize page")
             val displayCode = match!!.value
@@ -239,8 +271,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "Token exchange failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "Token exchange failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             accessToken = body["access_token"]?.jsonPrimitive?.content
             assertNotNull(accessToken, "Missing access_token")
             println("Access token obtained: ${accessToken!!.take(10)}...")
@@ -271,8 +304,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "MCP initialize failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "MCP initialize failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             val result = body["result"]?.jsonObject
             assertNotNull(result, "Missing result in initialize response")
             val serverInfo = result!!["serverInfo"]?.jsonObject
@@ -297,8 +331,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "tools/list failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "tools/list failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             val tools = body["result"]?.jsonObject?.get("tools")?.jsonArray
             assertNotNull(tools, "Missing tools in response")
             assertTrue(tools!!.isNotEmpty(), "No tools returned")
@@ -330,8 +365,9 @@ class McpEndToEndTest {
             .build()
 
         client.newCall(request).execute().use { response ->
-            assertEquals(200, response.code, "tools/call failed: ${response.body?.string()}")
-            val body = json.parseToJsonElement(response.body!!.string()).jsonObject
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "tools/call failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
             val content = body["result"]?.jsonObject?.get("content")?.jsonArray
             assertNotNull(content, "Missing content in response")
             val text = content!![0].jsonObject["text"]?.jsonPrimitive?.content

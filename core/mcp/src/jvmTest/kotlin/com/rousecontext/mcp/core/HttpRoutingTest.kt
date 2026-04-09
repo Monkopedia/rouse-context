@@ -45,7 +45,8 @@ class HttpRoutingTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "brave-falcon.rousecontext.com"
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -81,7 +82,8 @@ class HttpRoutingTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "brave-falcon.rousecontext.com"
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -102,7 +104,8 @@ class HttpRoutingTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "brave-falcon.rousecontext.com"
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health"
             )
         }
 

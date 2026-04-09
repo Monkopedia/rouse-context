@@ -56,7 +56,11 @@ class TestCommandProvider : ContentProvider() {
                 val code = extras?.getString("code")
                     ?: return Bundle().apply { putString("error", "missing 'code' extra") }
                 val session = getKoin().get<McpSession>()
-                val approved = session.authorizationCodeManager.approve(code)
+                val mgr = session.authorizationCodeManager
+                val pending = mgr.pendingRequests()
+                Log.i(TAG, "Pending requests: ${pending.map { it.displayCode }}")
+                Log.i(TAG, "AuthCodeManager identity: ${System.identityHashCode(mgr)}")
+                val approved = mgr.approve(code)
                 Log.i(TAG, "Approve auth '$code': $approved")
                 Bundle().apply { putString("result", if (approved) "approved" else "not found") }
             }

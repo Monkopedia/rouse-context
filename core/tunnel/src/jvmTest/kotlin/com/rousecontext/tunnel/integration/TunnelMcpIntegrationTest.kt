@@ -336,7 +336,7 @@ class TunnelMcpIntegrationTest {
         )
 
         val responseBody = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
+            httpPost(clientIn, clientOut, "/test/mcp", initRequest, token)
         }
 
         val json = mcpJson.parseToJsonElement(responseBody).jsonObject
@@ -391,7 +391,7 @@ class TunnelMcpIntegrationTest {
                 ""","clientInfo":{"name":"integration-test","version":"1.0"}}"""
         )
         val initResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
+            httpPost(clientIn, clientOut, "/test/mcp", initRequest, token)
         }
         val initJson = mcpJson.parseToJsonElement(initResponse).jsonObject
         assertTrue(
@@ -402,7 +402,7 @@ class TunnelMcpIntegrationTest {
         // Step 2: tools/list
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val listResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", listRequest, token)
+            httpPost(clientIn, clientOut, "/test/mcp", listRequest, token)
         }
         val listJson = mcpJson.parseToJsonElement(listResponse).jsonObject
         val tools = listJson["result"]?.jsonObject?.get("tools")?.jsonArray
@@ -419,7 +419,7 @@ class TunnelMcpIntegrationTest {
             id = 3
         )
         val callResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", callRequest, token)
+            httpPost(clientIn, clientOut, "/test/mcp", callRequest, token)
         }
         val callJson = mcpJson.parseToJsonElement(callResponse).jsonObject
         val content = callJson["result"]?.jsonObject?.get("content")?.jsonArray
@@ -481,10 +481,10 @@ class TunnelMcpIntegrationTest {
         )
 
         val init1 = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", initRequest, token)
+            httpPost(clientIn1, clientOut1, "/test/mcp", initRequest, token)
         }
         val init2 = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", initRequest, token)
+            httpPost(clientIn2, clientOut2, "/test/mcp", initRequest, token)
         }
 
         assertTrue(
@@ -509,10 +509,10 @@ class TunnelMcpIntegrationTest {
         )
 
         val call1Response = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", call1Request, token)
+            httpPost(clientIn1, clientOut1, "/test/mcp", call1Request, token)
         }
         val call2Response = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", call2Request, token)
+            httpPost(clientIn2, clientOut2, "/test/mcp", call2Request, token)
         }
 
         val text1 = mcpJson.parseToJsonElement(call1Response).jsonObject["result"]

@@ -88,10 +88,10 @@ class TunnelSessionManagerTest {
         )
 
         val init1 = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", initRequest, token)
+            httpPost(clientIn1, clientOut1, "/test/mcp", initRequest, token)
         }
         val init2 = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", initRequest, token)
+            httpPost(clientIn2, clientOut2, "/test/mcp", initRequest, token)
         }
 
         assertTrue(
@@ -116,10 +116,10 @@ class TunnelSessionManagerTest {
         )
 
         val call1Response = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", call1Request, token)
+            httpPost(clientIn1, clientOut1, "/test/mcp", call1Request, token)
         }
         val call2Response = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", call2Request, token)
+            httpPost(clientIn2, clientOut2, "/test/mcp", call2Request, token)
         }
 
         val text1 = mcpJson.parseToJsonElement(call1Response).jsonObject["result"]

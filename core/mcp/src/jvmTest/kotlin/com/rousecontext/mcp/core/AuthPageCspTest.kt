@@ -61,7 +61,8 @@ class AuthPageCspTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 authorizationCodeManager = authorizationCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -135,7 +136,8 @@ class AuthPageCspTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 authorizationCodeManager = authorizationCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -175,7 +177,8 @@ class AuthPageCspTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 authorizationCodeManager = authorizationCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -219,7 +222,8 @@ class AuthPageCspTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 authorizationCodeManager = authorizationCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 

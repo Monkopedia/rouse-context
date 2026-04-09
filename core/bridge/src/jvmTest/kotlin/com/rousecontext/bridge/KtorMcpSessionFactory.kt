@@ -10,6 +10,8 @@ import io.ktor.server.engine.embeddedServer
 /**
  * Test implementation of [McpSessionFactory] that starts a Ktor embedded server
  * with MCP routing on an ephemeral port.
+ *
+ * Registers routes for every enabled integration in the registry.
  */
 class KtorMcpSessionFactory(
     private val registry: InMemoryProviderRegistry,
@@ -20,13 +22,15 @@ class KtorMcpSessionFactory(
 
     override suspend fun create(): McpSessionHandle {
         val server = embeddedServer(CIO, port = 0) {
-            configureMcpRouting(
-                registry = registry,
-                tokenStore = tokenStore,
-                deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com",
-                integration = "test"
-            )
+            for (integration in registry.enabledPaths()) {
+                configureMcpRouting(
+                    registry = registry,
+                    tokenStore = tokenStore,
+                    deviceCodeManager = deviceCodeManager,
+                    hostname = "test.rousecontext.com",
+                    integration = integration
+                )
+            }
         }
         server.start(wait = false)
         val port = server.engine.resolvedConnectors().first().port

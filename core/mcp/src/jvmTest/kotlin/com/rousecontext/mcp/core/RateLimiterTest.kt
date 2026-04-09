@@ -84,6 +84,7 @@ class RateLimiterTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
+                integration = "health",
                 clock = clock,
                 rateLimiter = rateLimiter
             )
@@ -125,6 +126,7 @@ class RateLimiterTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
+                integration = "health",
                 clock = clock,
                 rateLimiter = rateLimiter
             )
@@ -155,6 +157,7 @@ class RateLimiterTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
+                integration = "health",
                 clock = clock,
                 rateLimiter = rateLimiter
             )

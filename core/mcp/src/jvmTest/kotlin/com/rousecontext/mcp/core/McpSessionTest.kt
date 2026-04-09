@@ -71,7 +71,8 @@ class McpSessionTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -111,7 +112,8 @@ class McpSessionTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -158,7 +160,8 @@ class McpSessionTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 

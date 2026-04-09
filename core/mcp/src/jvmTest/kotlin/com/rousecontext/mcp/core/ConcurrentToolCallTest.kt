@@ -120,7 +120,8 @@ class ConcurrentToolCallTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -173,7 +174,8 @@ class ConcurrentToolCallTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -231,7 +233,8 @@ class ConcurrentToolCallTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 

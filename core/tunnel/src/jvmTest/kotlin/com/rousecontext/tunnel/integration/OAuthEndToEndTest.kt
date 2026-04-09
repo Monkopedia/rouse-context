@@ -166,7 +166,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/mcp",
+                path = "/test/mcp",
                 body = mcpJsonRpc("initialize", initializeParams())
             )
             assertEquals(
@@ -180,7 +180,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/.well-known/oauth-authorization-server"
+                path = "/test/.well-known/oauth-authorization-server"
             )
             assertEquals(200, metadataResponse.statusCode)
             val metadata = mcpJson.parseToJsonElement(metadataResponse.body).jsonObject
@@ -202,7 +202,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/register",
+                path = "/test/register",
                 body = registerBody
             )
             assertEquals(
@@ -220,7 +220,7 @@ class OAuthEndToEndTest {
 
             // --- Step 5: GET /authorize with PKCE ---
             val state = "test-state-${System.nanoTime()}"
-            val authorizePath = "/authorize" +
+            val authorizePath = "/test/authorize" +
                 "?response_type=code" +
                 "&client_id=$clientId" +
                 "&code_challenge=$codeChallenge" +
@@ -260,7 +260,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/authorize/status?request_id=$requestId"
+                path = "/test/authorize/status?request_id=$requestId"
             )
             assertEquals(200, pendingResponse.statusCode)
             val pendingJson = mcpJson.parseToJsonElement(pendingResponse.body).jsonObject
@@ -278,7 +278,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/authorize/status?request_id=$requestId"
+                path = "/test/authorize/status?request_id=$requestId"
             )
             assertEquals(200, approvedResponse.statusCode)
             val approvedJson = mcpJson.parseToJsonElement(approvedResponse.body).jsonObject
@@ -300,7 +300,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/token",
+                path = "/test/token",
                 body = tokenBody,
                 contentType = "application/x-www-form-urlencoded"
             )
@@ -322,7 +322,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/mcp",
+                path = "/test/mcp",
                 body = mcpJsonRpc("initialize", initializeParams()),
                 bearerToken = accessToken
             )
@@ -345,7 +345,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/mcp",
+                path = "/test/mcp",
                 body = """{"jsonrpc":"2.0","method":"notifications/initialized"}""",
                 bearerToken = accessToken
             )
@@ -355,7 +355,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/mcp",
+                path = "/test/mcp",
                 body = mcpJsonRpc("tools/list", id = 2),
                 bearerToken = accessToken
             )
@@ -374,7 +374,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/mcp",
+                path = "/test/mcp",
                 body = mcpJsonRpc(
                     "tools/call",
                     """{"name":"echo","arguments":{"message":"hello through OAuth relay"}}""",

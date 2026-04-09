@@ -28,8 +28,8 @@ data class OAuthMetadata(
 )
 
 /**
- * Builds the OAuth metadata for a hostname. With per-integration hostnames,
- * everything is at root level -- no integration path prefix needed.
+ * Builds the OAuth metadata for a hostname and integration.
+ * All endpoint URLs are scoped under the integration path prefix.
  */
 fun buildOAuthMetadata(hostname: String): OAuthMetadata {
     val baseUrl = "https://$hostname"

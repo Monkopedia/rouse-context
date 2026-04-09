@@ -42,7 +42,8 @@ class AuthMiddlewareTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -69,7 +70,8 @@ class AuthMiddlewareTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -95,7 +97,8 @@ class AuthMiddlewareTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -121,7 +124,8 @@ class AuthMiddlewareTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 
@@ -142,7 +146,8 @@ class AuthMiddlewareTest {
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
-                hostname = "test.rousecontext.com"
+                hostname = "test.rousecontext.com",
+                integration = "health"
             )
         }
 

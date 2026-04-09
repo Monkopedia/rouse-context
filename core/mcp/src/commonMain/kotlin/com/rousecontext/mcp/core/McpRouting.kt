@@ -99,7 +99,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val baseUrl = "https://${call.resolveHostname()}/$integration"
+            val baseUrl = "https://${call.resolveHostname()}"
             call.respond(
                 buildJsonObject {
                     put("resource", "$baseUrl/mcp")
@@ -121,7 +121,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(call.resolveHostname(), integration)
+            val metadata = buildOAuthMetadata(call.resolveHostname())
             call.respond(metadata)
         }
 
@@ -130,7 +130,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(call.resolveHostname(), integration)
+            val metadata = buildOAuthMetadata(call.resolveHostname())
             call.respond(metadata)
         }
 
@@ -488,7 +488,7 @@ fun Application.configureMcpRouting(
                 call.response.headers.append(
                     "WWW-Authenticate",
                     "Bearer resource_metadata=\"https://${call.resolveHostname()}" +
-                        "/$integration/.well-known/oauth-authorization-server\""
+                        "/.well-known/oauth-authorization-server\""
                 )
                 call.respond(HttpStatusCode.Unauthorized)
                 return@post
