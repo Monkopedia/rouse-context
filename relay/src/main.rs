@@ -181,7 +181,9 @@ async fn main() {
     // Throttle must be shorter than fcm_wakeup_timeout so a failed wake
     // allows a retry on the next client connection.
     let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(10)));
-    let conn_rate_limiter = Arc::new(ConnectionRateLimiter::new(5, Duration::from_secs(60)));
+    // OAuth flow needs ~8+ connections (discovery, register, authorize, token, mcp).
+    // 5 was too low and caused token exchange failures.
+    let conn_rate_limiter = Arc::new(ConnectionRateLimiter::new(20, Duration::from_secs(60)));
 
     // Accept loop
     info!("Accept loop running");
