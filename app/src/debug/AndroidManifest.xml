@@ -12,14 +12,9 @@
                 <action android:name="com.rousecontext.action.TEST_WAKE" />
             </intent-filter>
         </receiver>
-        <receiver
-            android:name=".testing.TestCommandReceiver"
-            android:permission="android.permission.SHELL"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.rousecontext.debug.ENABLE_INTEGRATION" />
-                <action android:name="com.rousecontext.debug.APPROVE_AUTH" />
-            </intent-filter>
-        </receiver>
+        <provider
+            android:name=".testing.TestCommandProvider"
+            android:authorities="com.rousecontext.debug.test"
+            android:exported="true" />
     </application>
 </manifest>

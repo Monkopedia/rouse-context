@@ -3,6 +3,8 @@ package com.rousecontext.app.testing
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Binder
+import android.os.Process
 import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession
@@ -33,6 +35,7 @@ import org.koin.java.KoinJavaComponent.getKoin
 class TestCommandReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // Only exists in debug builds — no additional permission check needed.
         when (intent.action) {
             ACTION_ENABLE_INTEGRATION -> handleEnableIntegration(intent)
             ACTION_APPROVE_AUTH -> handleApproveAuth(intent)

@@ -13,6 +13,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
@@ -98,7 +99,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val baseUrl = "https://${call.resolveHostname()}"
+            val baseUrl = "https://${call.resolveHostname()}/$integration"
             call.respond(
                 buildJsonObject {
                     put("resource", "$baseUrl/mcp")
@@ -120,7 +121,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(call.resolveHostname())
+            val metadata = buildOAuthMetadata(call.resolveHostname(), integration)
             call.respond(metadata)
         }
 
@@ -129,7 +130,7 @@ fun Application.configureMcpRouting(
                 call.respond(HttpStatusCode.NotFound)
                 return@get
             }
-            val metadata = buildOAuthMetadata(call.resolveHostname())
+            val metadata = buildOAuthMetadata(call.resolveHostname(), integration)
             call.respond(metadata)
         }
 
@@ -487,7 +488,7 @@ fun Application.configureMcpRouting(
                 call.response.headers.append(
                     "WWW-Authenticate",
                     "Bearer resource_metadata=\"https://${call.resolveHostname()}" +
-                        "/.well-known/oauth-authorization-server\""
+                        "/$integration/.well-known/oauth-authorization-server\""
                 )
                 call.respond(HttpStatusCode.Unauthorized)
                 return@post
