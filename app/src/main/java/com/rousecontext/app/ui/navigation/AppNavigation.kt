@@ -441,14 +441,17 @@ fun AppNavigation(
                         .collectAsState()
                     val certProvisioningFlow: CertProvisioningFlow =
                         org.koin.compose.koinInject()
-                    val coroutineScope = rememberCoroutineScope()
+                    val appScope: kotlinx.coroutines.CoroutineScope =
+                        org.koin.compose.koinInject(
+                            org.koin.core.qualifier.named("appScope")
+                        )
                     AddIntegrationPickerContent(
                         integrations = integrations,
                         onSetUp = { id ->
                             // Kick off cert provisioning in the background while
-                            // user configures the integration. By the time they
-                            // tap Enable, certs should already be provisioned.
-                            coroutineScope.launch {
+                            // user configures the integration. Survives navigation
+                            // since it uses the app-scoped coroutine scope.
+                            appScope.launch {
                                 try {
                                     val token = com.google.firebase.auth
                                         .FirebaseAuth.getInstance()
