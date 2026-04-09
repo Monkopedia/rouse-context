@@ -200,6 +200,7 @@ class SettingsViewModelTest {
             themePref,
             mockk(relaxed = true),
             mockk(relaxed = true),
+            emptyList(),
             securityPrefs
         )
     }
