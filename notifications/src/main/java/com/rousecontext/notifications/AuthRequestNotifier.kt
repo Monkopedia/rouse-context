@@ -81,7 +81,7 @@ class AuthRequestNotifier(
             .setContentTitle("Approval Required")
             .setContentText("Code: $displayCode - Tap to approve or deny")
             .setSubText(integration)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
             .addAction(0, "Approve", approveIntent)

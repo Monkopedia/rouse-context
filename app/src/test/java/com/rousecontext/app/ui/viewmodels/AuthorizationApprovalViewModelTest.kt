@@ -1,8 +1,10 @@
 package com.rousecontext.app.ui.viewmodels
 
+import android.app.NotificationManager
 import app.cash.turbine.test
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.InMemoryTokenStore
+import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -20,6 +22,7 @@ import org.junit.Test
 class AuthorizationApprovalViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val mockNotificationManager: NotificationManager = mockk(relaxed = true)
 
     @Before
     fun setup() {
@@ -34,7 +37,7 @@ class AuthorizationApprovalViewModelTest {
     @Test
     fun `initial state has no pending requests`() = runTest(testDispatcher) {
         val manager = AuthorizationCodeManager(tokenStore = InMemoryTokenStore())
-        val vm = AuthorizationApprovalViewModel(manager)
+        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
 
         vm.pendingRequests.test {
             val initial = awaitItem()
@@ -45,7 +48,7 @@ class AuthorizationApprovalViewModelTest {
     @Test
     fun `polls and shows new pending requests`() = runTest(testDispatcher) {
         val manager = AuthorizationCodeManager(tokenStore = InMemoryTokenStore())
-        val vm = AuthorizationApprovalViewModel(manager)
+        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
 
         vm.pendingRequests.test {
             // Initial empty state
@@ -83,7 +86,7 @@ class AuthorizationApprovalViewModelTest {
             integration = "health"
         )
 
-        val vm = AuthorizationApprovalViewModel(manager)
+        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
 
         vm.pendingRequests.test {
             // Let the initial poll run
@@ -114,7 +117,7 @@ class AuthorizationApprovalViewModelTest {
             integration = "health"
         )
 
-        val vm = AuthorizationApprovalViewModel(manager)
+        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
 
         vm.pendingRequests.test {
             // Let the initial poll run

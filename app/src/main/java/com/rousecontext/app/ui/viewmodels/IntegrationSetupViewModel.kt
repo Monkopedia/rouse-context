@@ -55,7 +55,7 @@ class IntegrationSetupViewModel(
         integrationId = id
         stateStore.setUserEnabled(id, true)
         _state.value = IntegrationSetupState.Provisioning(
-            SettingUpState(variant = SettingUpVariant.Refreshing)
+            SettingUpState(variant = SettingUpVariant.Requesting)
         )
         beginProvisioning()
     }
@@ -71,7 +71,7 @@ class IntegrationSetupViewModel(
             )
             registrationStatus.awaitComplete()
             _state.value = IntegrationSetupState.Provisioning(
-                SettingUpState(variant = SettingUpVariant.Refreshing)
+                SettingUpState(variant = SettingUpVariant.Requesting)
             )
         }
     }

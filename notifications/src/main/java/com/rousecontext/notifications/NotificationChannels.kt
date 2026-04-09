@@ -56,7 +56,7 @@ object NotificationChannels {
             NotificationChannel(
                 AUTH_REQUEST_CHANNEL_ID,
                 "Authorization Requests",
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Approval requests for new client connections"
             }

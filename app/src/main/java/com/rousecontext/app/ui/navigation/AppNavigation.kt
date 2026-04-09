@@ -294,22 +294,29 @@ fun AppNavigation(
                 composable(
                     Routes.HOME,
                     enterTransition = {
-                        val dir = tabSlideDirection(
-                            initialState.destination.route,
-                            targetState.destination.route
-                        )
-                        slideInHorizontally(
-                            initialOffsetX = { dir * (it / 4) }
-                        ) + fadeIn()
+                        val fromRoute = initialState.destination.route
+                        if (fromRoute != null && fromRoute in TAB_INDEX) {
+                            val dir = tabSlideDirection(fromRoute, targetState.destination.route)
+                            slideInHorizontally(
+                                initialOffsetX = { dir * (it / 4) }
+                            ) + fadeIn()
+                        } else {
+                            fadeIn()
+                        }
                     },
                     exitTransition = {
-                        val dir = tabSlideDirection(
-                            initialState.destination.route,
-                            targetState.destination.route
-                        )
-                        slideOutHorizontally(
-                            targetOffsetX = { -dir * (it / 4) }
-                        ) + fadeOut()
+                        val toRoute = targetState.destination.route
+                        if (toRoute != null && toRoute in TAB_INDEX) {
+                            val dir = tabSlideDirection(
+                                initialState.destination.route,
+                                toRoute
+                            )
+                            slideOutHorizontally(
+                                targetOffsetX = { -dir * (it / 4) }
+                            ) + fadeOut()
+                        } else {
+                            fadeOut()
+                        }
                     }
                 ) {
                     ConfigureNavBar(
