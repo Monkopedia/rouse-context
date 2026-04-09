@@ -26,45 +26,45 @@ class SecretRotationTest {
     }
 
     @Test
-    fun `rotate secret returns new integration secrets`(): Unit = runBlocking {
-        mockServer.rotateSecretHandler = {
-            MockRotateSecretResponse(
+    fun `update secrets sends valid_secrets to relay`(): Unit = runBlocking {
+        var capturedRequest: UpdateSecretsRequest? = null
+        mockServer.updateSecretsHandler = { request ->
+            capturedRequest = request
+            MockUpdateSecretsResponse(
                 status = 200,
-                body = RotateSecretResponse(
-                    integrationSecrets = mapOf("health" to "swift-health")
-                )
+                body = UpdateSecretsResponse(status = "ok")
             )
         }
 
-        val result = client.rotateSecret()
+        val result = client.updateSecrets(listOf("brave-health", "swift-notifications"))
 
         assertTrue(result is RelayApiResult.Success)
         assertEquals(
-            mapOf("health" to "swift-health"),
-            (result as RelayApiResult.Success).data.integrationSecrets
+            listOf("brave-health", "swift-notifications"),
+            capturedRequest?.validSecrets
         )
     }
 
     @Test
-    fun `rotate secret stores new secrets in certificate store`(): Unit = runBlocking {
+    fun `update secrets stores new secrets locally on success`(): Unit = runBlocking {
         store.storeIntegrationSecrets(mapOf("health" to "old-health"))
         assertEquals("old-health", store.getSecretForIntegration("health"))
 
-        mockServer.rotateSecretHandler = {
-            MockRotateSecretResponse(
+        mockServer.updateSecretsHandler = { _ ->
+            MockUpdateSecretsResponse(
                 status = 200,
-                body = RotateSecretResponse(
-                    integrationSecrets = mapOf("health" to "new-health")
-                )
+                body = UpdateSecretsResponse(status = "ok")
             )
         }
 
-        val result = client.rotateSecret()
+        val newSecrets = SecretGenerator.generateAll(listOf("health"))
+        val result = client.updateSecrets(newSecrets.values.toList())
         assertTrue(result is RelayApiResult.Success)
-        val newSecrets = (result as RelayApiResult.Success).data.integrationSecrets
         store.storeIntegrationSecrets(newSecrets)
 
-        assertEquals("new-health", store.getSecretForIntegration("health"))
+        val stored = store.getSecretForIntegration("health")
+        assertTrue(stored!!.endsWith("-health"))
+        assertTrue(stored != "old-health")
     }
 
     @Test
@@ -79,12 +79,12 @@ class SecretRotationTest {
     }
 
     @Test
-    fun `rotate secret handles server error`(): Unit = runBlocking {
-        mockServer.rotateSecretHandler = {
-            MockRotateSecretResponse(status = 500)
+    fun `update secrets handles server error`(): Unit = runBlocking {
+        mockServer.updateSecretsHandler = { _ ->
+            MockUpdateSecretsResponse(status = 500)
         }
 
-        val result = client.rotateSecret()
+        val result = client.updateSecrets(listOf("brave-health"))
 
         assertTrue(result is RelayApiResult.Error)
         assertEquals(500, (result as RelayApiResult.Error).statusCode)

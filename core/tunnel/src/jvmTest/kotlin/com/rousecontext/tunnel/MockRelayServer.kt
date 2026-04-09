@@ -52,12 +52,10 @@ class MockRelayServer {
         )
     }
 
-    var rotateSecretHandler: (suspend () -> MockRotateSecretResponse) = {
-        MockRotateSecretResponse(
+    var updateSecretsHandler: (suspend (UpdateSecretsRequest) -> MockUpdateSecretsResponse) = { _ ->
+        MockUpdateSecretsResponse(
             status = 200,
-            body = RotateSecretResponse(
-                integrationSecrets = mapOf("health" to "new-health")
-            )
+            body = UpdateSecretsResponse(status = "ok")
         )
     }
 
@@ -121,9 +119,10 @@ class MockRelayServer {
                     }
                 }
                 post("/rotate-secret") {
-                    val response = rotateSecretHandler()
+                    val request = call.receive<UpdateSecretsRequest>()
+                    val response = updateSecretsHandler(request)
                     when (val body = response.body) {
-                        is RotateSecretResponse -> call.respond(
+                        is UpdateSecretsResponse -> call.respond(
                             HttpStatusCode.fromValue(response.status),
                             body
                         )
@@ -206,7 +205,7 @@ data class MockRenewResponse(
     val retryAfter: Long? = null
 )
 
-data class MockRotateSecretResponse(
+data class MockUpdateSecretsResponse(
     val status: Int = 200,
-    val body: RotateSecretResponse? = null
+    val body: UpdateSecretsResponse? = null
 )

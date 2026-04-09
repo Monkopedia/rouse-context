@@ -12,17 +12,24 @@ package com.rousecontext.tunnel
  */
 class OnboardingFlow(
     private val relayApiClient: RelayApiClient,
-    private val certificateStore: CertificateStore
+    private val certificateStore: CertificateStore,
+    private val integrationIds: List<String> = emptyList()
 ) {
 
     /**
      * Executes the onboarding flow: registers with the relay to get a subdomain.
+     * Generates integration secrets locally and sends them to the relay as valid_secrets.
      */
     suspend fun execute(firebaseToken: String, fcmToken: String): OnboardingResult {
+        // Generate secrets locally for each known integration
+        val secrets = SecretGenerator.generateAll(integrationIds)
+        val validSecrets = secrets.values.toList()
+
         val registerData = when (
             val response = relayApiClient.register(
                 firebaseToken = firebaseToken,
-                fcmToken = fcmToken
+                fcmToken = fcmToken,
+                validSecrets = validSecrets
             )
         ) {
             is RelayApiResult.Success -> response.data
@@ -39,8 +46,8 @@ class OnboardingFlow(
 
         return try {
             certificateStore.storeSubdomain(registerData.subdomain)
-            if (registerData.integrationSecrets.isNotEmpty()) {
-                certificateStore.storeIntegrationSecrets(registerData.integrationSecrets)
+            if (secrets.isNotEmpty()) {
+                certificateStore.storeIntegrationSecrets(secrets)
             }
             OnboardingResult.Success(subdomain = registerData.subdomain)
         } catch (e: Exception) {

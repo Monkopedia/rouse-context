@@ -98,7 +98,13 @@ val appModule = module {
         val httpScheme = if (BuildConfig.RELAY_SCHEME == "wss") "https" else "http"
         RelayApiClient("$httpScheme://${BuildConfig.RELAY_HOST}")
     }
-    single { OnboardingFlow(get<RelayApiClient>(), get<CertificateStore>()) }
+    single {
+        OnboardingFlow(
+            relayApiClient = get<RelayApiClient>(),
+            certificateStore = get<CertificateStore>(),
+            integrationIds = get<List<McpIntegration>>().map { it.id }
+        )
+    }
     single { CertProvisioningFlow(get(), get(), get()) }
 
     // --- Token store ---
@@ -255,7 +261,7 @@ val appModule = module {
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get(), get()) }
-    viewModel { SettingsViewModel(get(), get(), get(), get()) }
+    viewModel { SettingsViewModel(get(), get(), get(), get(), get()) }
     viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel {
         AuthorizationApprovalViewModel(
