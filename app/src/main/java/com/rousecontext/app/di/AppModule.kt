@@ -174,11 +174,22 @@ val appModule = module {
         val integrations: List<McpIntegration> = get()
         // Default to first integration id
         val defaultIntegration = integrations.firstOrNull()?.id ?: "health"
+        // Build hostname from cert store for OAuth metadata URLs.
+        // With single-session, use the first available integration secret.
+        val hostname = kotlinx.coroutines.runBlocking {
+            val subdomain = certStore.getSubdomain()
+            val secret = certStore.getSecretForIntegration(defaultIntegration)
+            if (subdomain != null && secret != null) {
+                "$secret.$subdomain.$baseDomain"
+            } else {
+                "localhost"
+            }
+        }
         McpSession(
             registry = get(),
             tokenStore = get(),
             auditListener = get(),
-            hostname = "localhost",
+            hostname = hostname,
             integration = defaultIntegration
         ).also { session ->
             session.start(port = 0)
