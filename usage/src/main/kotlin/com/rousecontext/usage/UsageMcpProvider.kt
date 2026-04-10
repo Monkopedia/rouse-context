@@ -95,13 +95,14 @@ class UsageMcpProvider(
             range.second
         )
 
-        val filtered = stats
-            .filter { it.totalTimeInForeground > 0 }
-            .sortedByDescending { it.totalTimeInForeground }
+        val merged = mergeByPackage(stats)
+        val filtered = merged.entries
+            .filter { (_, ms) -> ms > 0 }
+            .sortedByDescending { (_, ms) -> ms }
             .take(limit)
 
-        val totalMs = filtered.sumOf { it.totalTimeInForeground }
-        val apps = filtered.joinToString(",") { it.toJson() }
+        val totalMs = filtered.sumOf { (_, ms) -> ms }
+        val apps = filtered.joinToString(",") { (pkg, ms) -> appToJson(pkg, ms) }
 
         return jsonResult(
             """{"period":"$periodStr",""" +
@@ -127,7 +128,7 @@ class UsageMcpProvider(
 
         val appStats = stats.filter { it.packageName == packageName }
         val appName = resolveAppName(packageName)
-        val totalMs = appStats.sumOf { it.totalTimeInForeground }
+        val totalMs = mergeByPackage(appStats)[packageName] ?: 0L
         val daily = formatDailyBreakdown(appStats)
 
         return jsonResult(
@@ -187,27 +188,32 @@ class UsageMcpProvider(
 
     // region formatting helpers
 
-    private fun UsageStats.toJson(): String {
+    private fun appToJson(packageName: String, foregroundMs: Long): String {
         val name = resolveAppName(packageName)
-        val mins = totalTimeInForeground / MS_PER_MIN
+        val mins = foregroundMs / MS_PER_MIN
         return """{"package":"${packageName.escapeJson()}",""" +
             """"name":"${name.escapeJson()}",""" +
             """"foreground_minutes":$mins}"""
     }
 
-    private fun formatDailyBreakdown(appStats: List<UsageStats>): String = appStats
-        .filter { it.totalTimeInForeground > 0 }
-        .joinToString(",") { stat ->
-            val cal = Calendar.getInstance(TimeZone.getDefault())
+    private fun formatDailyBreakdown(appStats: List<UsageStats>): String {
+        val cal = Calendar.getInstance(TimeZone.getDefault())
+        // Group by date string and sum foreground time per day
+        val byDate = mutableMapOf<String, Long>()
+        for (stat in appStats) {
+            if (stat.totalTimeInForeground <= 0) continue
             cal.timeInMillis = stat.firstTimeStamp
             val date = "%04d-%02d-%02d".format(
                 cal.get(Calendar.YEAR),
                 cal.get(Calendar.MONTH) + 1,
                 cal.get(Calendar.DAY_OF_MONTH)
             )
-            val mins = stat.totalTimeInForeground / MS_PER_MIN
-            """{"date":"$date","foreground_minutes":$mins}"""
+            byDate[date] = (byDate[date] ?: 0L) + stat.totalTimeInForeground
         }
+        return byDate.entries.joinToString(",") { (date, ms) ->
+            """{"date":"$date","foreground_minutes":${ms / MS_PER_MIN}}"""
+        }
+    }
 
     private fun collectEvents(
         usageEvents: UsageEvents,
@@ -239,8 +245,8 @@ class UsageMcpProvider(
         stats2: List<UsageStats>,
         limit: Int
     ): CallToolResult {
-        val map1 = stats1.associate { it.packageName to it.totalTimeInForeground }
-        val map2 = stats2.associate { it.packageName to it.totalTimeInForeground }
+        val map1 = mergeByPackage(stats1)
+        val map2 = mergeByPackage(stats2)
 
         val changes = (map1.keys + map2.keys)
             .map { pkg ->
@@ -252,8 +258,8 @@ class UsageMcpProvider(
             }
             .take(limit)
 
-        val total1 = stats1.sumOf { it.totalTimeInForeground }
-        val total2 = stats2.sumOf { it.totalTimeInForeground }
+        val total1 = map1.values.sum()
+        val total2 = map2.values.sum()
 
         val apps = changes.joinToString(",") { (pkg, t1, t2) ->
             val name = resolveAppName(pkg)
@@ -277,6 +283,15 @@ class UsageMcpProvider(
     // endregion
 
     // region utilities
+
+    /**
+     * Merge duplicate [UsageStats] entries by package name, summing foreground time.
+     * [UsageStatsManager] may return multiple entries per package for different
+     * internal time buckets; this collapses them into one entry per package.
+     */
+    private fun mergeByPackage(stats: List<UsageStats>): Map<String, Long> =
+        stats.groupBy { it.packageName }
+            .mapValues { (_, entries) -> entries.sumOf { it.totalTimeInForeground } }
 
     private fun queryBest(range: Pair<Long, Long>): List<UsageStats> =
         usageStatsManager.queryUsageStats(
