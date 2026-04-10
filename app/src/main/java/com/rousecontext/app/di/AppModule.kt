@@ -19,6 +19,7 @@ import com.rousecontext.app.session.McpSessionBridge
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
@@ -118,6 +119,9 @@ val appModule = module {
 
     // --- Integration state ---
     single<IntegrationStateStore> { DataStoreIntegrationStateStore(androidContext()) }
+
+    // --- Integration settings (per-integration preferences) ---
+    single { IntegrationSettingsStore(androidContext()) }
 
     // --- Theme preference ---
     single { ThemePreference(androidContext()) }
@@ -276,8 +280,8 @@ val appModule = module {
         )
     }
     viewModel { HealthConnectSetupViewModel(get()) }
-    viewModel { NotificationSetupViewModel(androidContext(), get()) }
-    viewModel { OutreachSetupViewModel(androidContext(), get()) }
+    viewModel { NotificationSetupViewModel(androidContext(), get(), get()) }
+    viewModel { OutreachSetupViewModel(androidContext(), get(), get()) }
     viewModel { UsageSetupViewModel(androidContext(), get()) }
     viewModel { IntegrationSetupViewModel(get(), get(), get(), get()) }
     viewModel { OnboardingViewModel(get(), get(), get()) }

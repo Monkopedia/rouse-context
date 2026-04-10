@@ -34,11 +34,13 @@ import com.rousecontext.mcp.health.RecordTypeRegistry
  */
 @Composable
 fun HealthConnectSetupContent(
+    mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit = {},
     onCancel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     HealthConnectSetupBody(
+        mode = mode,
         onGrantAccess = onGrantAccess,
         onCancel = onCancel,
         modifier = modifier
@@ -71,6 +73,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
 
 @Composable
 private fun HealthConnectSetupBody(
+    mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
@@ -149,11 +152,17 @@ private fun HealthConnectSetupBody(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        val buttonText = if (mode == SetupMode.SETTINGS) {
+            "Update Health Access"
+        } else {
+            "Grant All Health Access"
+        }
+
         Button(
             onClick = onGrantAccess,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Grant All Health Access")
+            Text(buttonText)
         }
 
         Spacer(modifier = Modifier.height(8.dp))

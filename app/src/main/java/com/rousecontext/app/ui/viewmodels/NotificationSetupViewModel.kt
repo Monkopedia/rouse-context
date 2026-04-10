@@ -5,6 +5,8 @@ import android.content.Context
 import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import com.rousecontext.api.IntegrationStateStore
+import com.rousecontext.app.state.IntegrationSettingsStore
+import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.notifications.capture.NotificationCaptureService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,11 +30,31 @@ data class NotificationSetupState(
  */
 class NotificationSetupViewModel(
     private val context: Context,
-    private val stateStore: IntegrationStateStore
+    private val stateStore: IntegrationStateStore,
+    private val settingsStore: IntegrationSettingsStore
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(NotificationSetupState())
     val state: StateFlow<NotificationSetupState> = _state.asStateFlow()
+
+    /** Load persisted settings when opening in SETTINGS mode. */
+    fun initForMode(mode: SetupMode) {
+        if (mode == SetupMode.SETTINGS) {
+            _state.update {
+                it.copy(
+                    retentionDays = settingsStore.getInt(
+                        INTEGRATION_ID,
+                        IntegrationSettingsStore.KEY_RETENTION_DAYS,
+                        NotificationSetupState.DEFAULT_RETENTION_DAYS
+                    ),
+                    allowActions = settingsStore.getBoolean(
+                        INTEGRATION_ID,
+                        IntegrationSettingsStore.KEY_ALLOW_ACTIONS
+                    )
+                )
+            }
+        }
+    }
 
     /** Re-check permission state (call when user returns from Settings). */
     fun refreshPermission() {
@@ -53,8 +75,28 @@ class NotificationSetupViewModel(
      */
     fun enable(): Boolean {
         if (!_state.value.permissionGranted) return false
+        persistSettings()
         stateStore.setUserEnabled(INTEGRATION_ID, true)
         return true
+    }
+
+    /** Save settings without changing the enabled state (SETTINGS mode). */
+    fun saveSettings() {
+        persistSettings()
+    }
+
+    private fun persistSettings() {
+        val s = _state.value
+        settingsStore.setInt(
+            INTEGRATION_ID,
+            IntegrationSettingsStore.KEY_RETENTION_DAYS,
+            s.retentionDays
+        )
+        settingsStore.setBoolean(
+            INTEGRATION_ID,
+            IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
+            s.allowActions
+        )
     }
 
     private fun isListenerEnabled(): Boolean {

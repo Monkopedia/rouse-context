@@ -52,6 +52,7 @@ import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
 @Composable
 fun NotificationSetupContent(
     state: NotificationSetupState = NotificationSetupState(),
+    mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit = {},
     onRetentionChanged: (Int) -> Unit = {},
     onAllowActionsChanged: (Boolean) -> Unit = {},
@@ -61,6 +62,7 @@ fun NotificationSetupContent(
 ) {
     NotificationSetupBody(
         state = state,
+        mode = mode,
         onGrantAccess = onGrantAccess,
         onRetentionChanged = onRetentionChanged,
         onAllowActionsChanged = onAllowActionsChanged,
@@ -108,6 +110,7 @@ fun NotificationSetupScreen(
 @Composable
 private fun NotificationSetupBody(
     state: NotificationSetupState,
+    mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit = {},
     onRetentionChanged: (Int) -> Unit = {},
     onAllowActionsChanged: (Boolean) -> Unit = {},
@@ -202,12 +205,14 @@ private fun NotificationSetupBody(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        val buttonText = if (mode == SetupMode.SETTINGS) "Save" else "Enable"
+
         Button(
             onClick = onEnable,
             modifier = Modifier.fillMaxWidth(),
             enabled = state.permissionGranted
         ) {
-            Text("Enable")
+            Text(buttonText)
         }
 
         Spacer(modifier = Modifier.height(8.dp))

@@ -70,6 +70,7 @@ import com.rousecontext.app.ui.screens.SettingUpContent
 import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsContent
+import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.app.ui.screens.UsageSetupContent
 import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
@@ -101,10 +102,10 @@ object Routes {
     const val ADD_INTEGRATION = "add_integration"
     const val INTEGRATION_MANAGE = "integration/{integrationId}"
     const val INTEGRATION_SETUP = "integration_setup/{integrationId}"
-    const val HEALTH_CONNECT_SETUP = "health_connect_setup"
-    const val NOTIFICATION_SETUP = "notification_setup"
-    const val OUTREACH_SETUP = "outreach_setup"
-    const val USAGE_SETUP = "usage_setup"
+    const val HEALTH_CONNECT_SETUP = "health_connect_setup/{mode}"
+    const val NOTIFICATION_SETUP = "notification_setup/{mode}"
+    const val OUTREACH_SETUP = "outreach_setup/{mode}"
+    const val USAGE_SETUP = "usage_setup/{mode}"
     const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
     const val DEVICE_CODE = "device_code/{integrationId}"
     const val AUTH_APPROVAL = "auth_approval"
@@ -117,6 +118,10 @@ object Routes {
     fun integrationSetup(id: String): String = "integration_setup/$id"
     fun integrationEnabled(id: String): String = "integration_enabled/$id"
     fun deviceCode(id: String): String = "device_code/$id"
+    fun healthConnectSetup(mode: SetupMode): String = "health_connect_setup/${mode.name}"
+    fun notificationSetup(mode: SetupMode): String = "notification_setup/${mode.name}"
+    fun outreachSetup(mode: SetupMode): String = "outreach_setup/${mode.name}"
+    fun usageSetup(mode: SetupMode): String = "usage_setup/${mode.name}"
 }
 
 private val TAB_INDEX = mapOf(
@@ -489,19 +494,27 @@ fun AppNavigation(
                                 HealthConnectSetupViewModel
                                     .HEALTH_INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.HEALTH_CONNECT_SETUP
+                                        Routes.healthConnectSetup(
+                                            SetupMode.SETUP
+                                        )
                                     )
                                 NotificationSetupViewModel.INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.NOTIFICATION_SETUP
+                                        Routes.notificationSetup(
+                                            SetupMode.SETUP
+                                        )
                                     )
                                 OutreachSetupViewModel.INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.OUTREACH_SETUP
+                                        Routes.outreachSetup(
+                                            SetupMode.SETUP
+                                        )
                                     )
                                 UsageSetupViewModel.INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.USAGE_SETUP
+                                        Routes.usageSetup(
+                                            SetupMode.SETUP
+                                        )
                                     )
                                 else ->
                                     navController.navigate(
@@ -553,19 +566,27 @@ fun AppNavigation(
                                 HealthConnectSetupViewModel
                                     .HEALTH_INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.HEALTH_CONNECT_SETUP
+                                        Routes.healthConnectSetup(
+                                            SetupMode.SETTINGS
+                                        )
                                     )
                                 NotificationSetupViewModel.INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.NOTIFICATION_SETUP
+                                        Routes.notificationSetup(
+                                            SetupMode.SETTINGS
+                                        )
                                     )
                                 OutreachSetupViewModel.INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.OUTREACH_SETUP
+                                        Routes.outreachSetup(
+                                            SetupMode.SETTINGS
+                                        )
                                     )
                                 UsageSetupViewModel.INTEGRATION_ID ->
                                     navController.navigate(
-                                        Routes.USAGE_SETUP
+                                        Routes.usageSetup(
+                                            SetupMode.SETTINGS
+                                        )
                                     )
                             }
                         },
@@ -680,9 +701,27 @@ fun AppNavigation(
                     }
                 }
 
-                composable(Routes.HEALTH_CONNECT_SETUP) {
+                composable(
+                    route = Routes.HEALTH_CONNECT_SETUP,
+                    arguments = listOf(
+                        navArgument("mode") {
+                            type = NavType.StringType
+                        }
+                    )
+                ) { backStackEntry ->
+                    val modeArg = backStackEntry.arguments
+                        ?.getString("mode")
+                    val mode = if (modeArg == SetupMode.SETTINGS.name) {
+                        SetupMode.SETTINGS
+                    } else {
+                        SetupMode.SETUP
+                    }
                     ConfigureNavBar(
-                        title = "Health Connect Setup",
+                        title = if (mode == SetupMode.SETTINGS) {
+                            "Health Connect Settings"
+                        } else {
+                            "Health Connect Setup"
+                        },
                         showBackButton = true,
                         onBackPressed = { navController.popBackStack() }
                     )
@@ -695,7 +734,7 @@ fun AppNavigation(
                         ) { granted ->
                             val enabled =
                                 viewModel.onPermissionsResult(granted)
-                            if (enabled) {
+                            if (enabled && mode == SetupMode.SETUP) {
                                 navController.navigate(
                                     Routes.integrationSetup(
                                         HealthConnectSetupViewModel
@@ -706,35 +745,63 @@ fun AppNavigation(
                                         inclusive = true
                                     }
                                 }
+                            } else if (mode == SetupMode.SETTINGS) {
+                                navController.popBackStack()
                             }
                         }
                     HealthConnectSetupContent(
+                        mode = mode,
                         onGrantAccess = {
                             requestPermissions.launch(
                                 HEALTH_CONNECT_PERMISSIONS
                             )
                         },
                         onCancel = {
-                            navController.navigate(
-                                Routes.integrationManage(
-                                    HealthConnectSetupViewModel
-                                        .HEALTH_INTEGRATION_ID
-                                )
-                            ) {
-                                popUpTo(Routes.HOME)
+                            if (mode == SetupMode.SETTINGS) {
+                                navController.popBackStack()
+                            } else {
+                                navController.navigate(
+                                    Routes.integrationManage(
+                                        HealthConnectSetupViewModel
+                                            .HEALTH_INTEGRATION_ID
+                                    )
+                                ) {
+                                    popUpTo(Routes.HOME)
+                                }
                             }
                         }
                     )
                 }
 
-                composable(Routes.NOTIFICATION_SETUP) {
+                composable(
+                    route = Routes.NOTIFICATION_SETUP,
+                    arguments = listOf(
+                        navArgument("mode") {
+                            type = NavType.StringType
+                        }
+                    )
+                ) { backStackEntry ->
+                    val modeArg = backStackEntry.arguments
+                        ?.getString("mode")
+                    val mode = if (modeArg == SetupMode.SETTINGS.name) {
+                        SetupMode.SETTINGS
+                    } else {
+                        SetupMode.SETUP
+                    }
                     ConfigureNavBar(
-                        title = "Notification Access",
+                        title = if (mode == SetupMode.SETTINGS) {
+                            "Notification Settings"
+                        } else {
+                            "Notification Access"
+                        },
                         showBackButton = true,
                         onBackPressed = { navController.popBackStack() }
                     )
                     val viewModel: NotificationSetupViewModel =
                         koinViewModel()
+                    LaunchedEffect(mode) {
+                        viewModel.initForMode(mode)
+                    }
                     val state by viewModel.state.collectAsState()
                     val lifecycleOwner = LocalLifecycleOwner.current
                     val lifecycle = lifecycleOwner.lifecycle
@@ -750,6 +817,7 @@ fun AppNavigation(
                     }
                     NotificationSetupContent(
                         state = state,
+                        mode = mode,
                         onGrantAccess = {
                             val intent = Intent(
                                 Settings
@@ -760,40 +828,70 @@ fun AppNavigation(
                         onRetentionChanged = viewModel::setRetentionDays,
                         onAllowActionsChanged = viewModel::setAllowActions,
                         onEnable = {
-                            if (viewModel.enable()) {
-                                navController.navigate(
-                                    Routes.integrationSetup(
-                                        NotificationSetupViewModel
-                                            .INTEGRATION_ID
-                                    )
-                                ) {
-                                    popUpTo(Routes.ADD_INTEGRATION) {
-                                        inclusive = true
+                            if (mode == SetupMode.SETTINGS) {
+                                viewModel.saveSettings()
+                                navController.popBackStack()
+                            } else {
+                                if (viewModel.enable()) {
+                                    navController.navigate(
+                                        Routes.integrationSetup(
+                                            NotificationSetupViewModel
+                                                .INTEGRATION_ID
+                                        )
+                                    ) {
+                                        popUpTo(Routes.ADD_INTEGRATION) {
+                                            inclusive = true
+                                        }
                                     }
                                 }
                             }
                         },
                         onCancel = {
-                            navController.navigate(
-                                Routes.integrationManage(
-                                    NotificationSetupViewModel
-                                        .INTEGRATION_ID
-                                )
-                            ) {
-                                popUpTo(Routes.HOME)
+                            if (mode == SetupMode.SETTINGS) {
+                                navController.popBackStack()
+                            } else {
+                                navController.navigate(
+                                    Routes.integrationManage(
+                                        NotificationSetupViewModel
+                                            .INTEGRATION_ID
+                                    )
+                                ) {
+                                    popUpTo(Routes.HOME)
+                                }
                             }
                         }
                     )
                 }
 
-                composable(Routes.OUTREACH_SETUP) {
+                composable(
+                    route = Routes.OUTREACH_SETUP,
+                    arguments = listOf(
+                        navArgument("mode") {
+                            type = NavType.StringType
+                        }
+                    )
+                ) { backStackEntry ->
+                    val modeArg = backStackEntry.arguments
+                        ?.getString("mode")
+                    val mode = if (modeArg == SetupMode.SETTINGS.name) {
+                        SetupMode.SETTINGS
+                    } else {
+                        SetupMode.SETUP
+                    }
                     ConfigureNavBar(
-                        title = "Outreach",
+                        title = if (mode == SetupMode.SETTINGS) {
+                            "Outreach Settings"
+                        } else {
+                            "Outreach"
+                        },
                         showBackButton = true,
                         onBackPressed = { navController.popBackStack() }
                     )
                     val viewModel: OutreachSetupViewModel =
                         koinViewModel()
+                    LaunchedEffect(mode) {
+                        viewModel.initForMode(mode)
+                    }
                     val state by viewModel.state.collectAsState()
                     val lifecycleOwner = LocalLifecycleOwner.current
                     val lifecycle = lifecycleOwner.lifecycle
@@ -809,6 +907,7 @@ fun AppNavigation(
                     }
                     OutreachSetupContent(
                         state = state,
+                        mode = mode,
                         onDndToggled = viewModel::setDndToggled,
                         onGrantDnd = {
                             val intent = Intent(
@@ -818,33 +917,61 @@ fun AppNavigation(
                             navController.context.startActivity(intent)
                         },
                         onEnable = {
-                            viewModel.enable()
-                            navController.navigate(
-                                Routes.integrationSetup(
-                                    OutreachSetupViewModel.INTEGRATION_ID
-                                )
-                            ) {
-                                popUpTo(Routes.ADD_INTEGRATION) {
-                                    inclusive = true
+                            if (mode == SetupMode.SETTINGS) {
+                                viewModel.saveSettings()
+                                navController.popBackStack()
+                            } else {
+                                viewModel.enable()
+                                navController.navigate(
+                                    Routes.integrationSetup(
+                                        OutreachSetupViewModel
+                                            .INTEGRATION_ID
+                                    )
+                                ) {
+                                    popUpTo(Routes.ADD_INTEGRATION) {
+                                        inclusive = true
+                                    }
                                 }
                             }
                         },
                         onCancel = {
-                            navController.navigate(
-                                Routes.integrationManage(
-                                    OutreachSetupViewModel
-                                        .INTEGRATION_ID
-                                )
-                            ) {
-                                popUpTo(Routes.HOME)
+                            if (mode == SetupMode.SETTINGS) {
+                                navController.popBackStack()
+                            } else {
+                                navController.navigate(
+                                    Routes.integrationManage(
+                                        OutreachSetupViewModel
+                                            .INTEGRATION_ID
+                                    )
+                                ) {
+                                    popUpTo(Routes.HOME)
+                                }
                             }
                         }
                     )
                 }
 
-                composable(Routes.USAGE_SETUP) {
+                composable(
+                    route = Routes.USAGE_SETUP,
+                    arguments = listOf(
+                        navArgument("mode") {
+                            type = NavType.StringType
+                        }
+                    )
+                ) { backStackEntry ->
+                    val modeArg = backStackEntry.arguments
+                        ?.getString("mode")
+                    val mode = if (modeArg == SetupMode.SETTINGS.name) {
+                        SetupMode.SETTINGS
+                    } else {
+                        SetupMode.SETUP
+                    }
                     ConfigureNavBar(
-                        title = "Usage Stats",
+                        title = if (mode == SetupMode.SETTINGS) {
+                            "Usage Stats Settings"
+                        } else {
+                            "Usage Stats"
+                        },
                         showBackButton = true,
                         onBackPressed = { navController.popBackStack() }
                     )
@@ -864,6 +991,7 @@ fun AppNavigation(
                     }
                     UsageSetupContent(
                         state = state,
+                        mode = mode,
                         onGrantAccess = {
                             val intent = Intent(
                                 Settings.ACTION_USAGE_ACCESS_SETTINGS
@@ -871,25 +999,35 @@ fun AppNavigation(
                             navController.context.startActivity(intent)
                         },
                         onEnable = {
-                            if (viewModel.enable()) {
-                                navController.navigate(
-                                    Routes.integrationSetup(
-                                        UsageSetupViewModel.INTEGRATION_ID
-                                    )
-                                ) {
-                                    popUpTo(Routes.ADD_INTEGRATION) {
-                                        inclusive = true
+                            if (mode == SetupMode.SETTINGS) {
+                                navController.popBackStack()
+                            } else {
+                                if (viewModel.enable()) {
+                                    navController.navigate(
+                                        Routes.integrationSetup(
+                                            UsageSetupViewModel
+                                                .INTEGRATION_ID
+                                        )
+                                    ) {
+                                        popUpTo(Routes.ADD_INTEGRATION) {
+                                            inclusive = true
+                                        }
                                     }
                                 }
                             }
                         },
                         onCancel = {
-                            navController.navigate(
-                                Routes.integrationManage(
-                                    UsageSetupViewModel.INTEGRATION_ID
-                                )
-                            ) {
-                                popUpTo(Routes.HOME)
+                            if (mode == SetupMode.SETTINGS) {
+                                navController.popBackStack()
+                            } else {
+                                navController.navigate(
+                                    Routes.integrationManage(
+                                        UsageSetupViewModel
+                                            .INTEGRATION_ID
+                                    )
+                                ) {
+                                    popUpTo(Routes.HOME)
+                                }
                             }
                         }
                     )

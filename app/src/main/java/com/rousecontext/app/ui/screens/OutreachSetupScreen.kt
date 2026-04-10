@@ -42,6 +42,7 @@ import com.rousecontext.app.ui.viewmodels.OutreachSetupState
 @Composable
 fun OutreachSetupContent(
     state: OutreachSetupState = OutreachSetupState(),
+    mode: SetupMode = SetupMode.SETUP,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
     onEnable: () -> Unit = {},
@@ -50,6 +51,7 @@ fun OutreachSetupContent(
 ) {
     OutreachSetupBody(
         state = state,
+        mode = mode,
         onDndToggled = onDndToggled,
         onGrantDnd = onGrantDnd,
         onEnable = onEnable,
@@ -94,6 +96,7 @@ fun OutreachSetupScreen(
 @Composable
 private fun OutreachSetupBody(
     state: OutreachSetupState,
+    mode: SetupMode = SetupMode.SETUP,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
     onEnable: () -> Unit = {},
@@ -201,11 +204,13 @@ private fun OutreachSetupBody(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        val buttonText = if (mode == SetupMode.SETTINGS) "Save" else "Enable"
+
         Button(
             onClick = onEnable,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Enable")
+            Text(buttonText)
         }
 
         Spacer(modifier = Modifier.height(8.dp))

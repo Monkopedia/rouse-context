@@ -40,6 +40,7 @@ import com.rousecontext.app.ui.viewmodels.UsageSetupState
 @Composable
 fun UsageSetupContent(
     state: UsageSetupState = UsageSetupState(),
+    mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit = {},
     onEnable: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -47,6 +48,7 @@ fun UsageSetupContent(
 ) {
     UsageSetupBody(
         state = state,
+        mode = mode,
         onGrantAccess = onGrantAccess,
         onEnable = onEnable,
         onCancel = onCancel,
@@ -88,6 +90,7 @@ fun UsageSetupScreen(
 @Composable
 private fun UsageSetupBody(
     state: UsageSetupState,
+    mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit = {},
     onEnable: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -160,12 +163,14 @@ private fun UsageSetupBody(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        val buttonText = if (mode == SetupMode.SETTINGS) "Save" else "Enable"
+
         Button(
             onClick = onEnable,
             modifier = Modifier.fillMaxWidth(),
             enabled = state.permissionGranted
         ) {
-            Text("Enable")
+            Text(buttonText)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
