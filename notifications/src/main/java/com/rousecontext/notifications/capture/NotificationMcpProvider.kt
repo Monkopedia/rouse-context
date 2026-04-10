@@ -78,7 +78,6 @@ class NotificationMcpProvider(
             val filter = request.params.arguments?.get("filter")?.jsonPrimitive?.content
 
             val notifications = activeNotificationSource()
-                .filter { !NotificationCaptureService.isOwnPackage(it.packageName) }
                 .filter { sbn ->
                     filter == null || sbn.packageName.contains(filter, ignoreCase = true)
                 }
@@ -137,6 +136,16 @@ class NotificationMcpProvider(
                     isError = true
                 )
 
+            // Block actions on our own notifications
+            val isOwn = activeNotificationSource()
+                .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
+            if (isOwn) {
+                return@addTool CallToolResult(
+                    content = listOf(TextContent("""{"success":false,"message":"Cannot act on Rouse Context notifications"}""")),
+                    isError = true
+                )
+            }
+
             val actionIndex = request.params.arguments?.get("action_index")
                 ?.jsonPrimitive?.int
                 ?: return@addTool CallToolResult(
@@ -186,6 +195,16 @@ class NotificationMcpProvider(
                     content = listOf(TextContent("""{"success":false}""")),
                     isError = true
                 )
+
+            // Block dismissing our own notifications
+            val isOwn = activeNotificationSource()
+                .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
+            if (isOwn) {
+                return@addTool CallToolResult(
+                    content = listOf(TextContent("""{"success":false,"message":"Cannot dismiss Rouse Context notifications"}""")),
+                    isError = true
+                )
+            }
 
             val success = notificationDismisser(key)
             CallToolResult(
