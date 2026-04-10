@@ -11,6 +11,9 @@ import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.serialization.json.JsonPrimitive
@@ -147,6 +150,7 @@ class UsageMcpProvider(
         val untilStr = request.stringArg("until")
             ?: return errorResult("Missing until")
         val packageFilter = request.stringArg("package")
+        val includeSystem = request.boolArg("include_system") ?: false
         val limit = request.intArg("limit") ?: DEFAULT_EVENT_LIMIT
 
         val sinceRange = parsePeriod(sinceStr)
@@ -158,7 +162,7 @@ class UsageMcpProvider(
             sinceRange.first,
             untilRange.second
         )
-        val entries = collectEvents(events, packageFilter, limit)
+        val entries = collectEvents(events, packageFilter, includeSystem, limit)
 
         return jsonResult(
             """{"events":[${entries.joinToString(",")}]}"""
@@ -215,9 +219,11 @@ class UsageMcpProvider(
         }
     }
 
+    @Suppress("LoopWithTooManyJumpStatements")
     private fun collectEvents(
         usageEvents: UsageEvents,
         packageFilter: String?,
+        includeSystem: Boolean,
         limit: Int
     ): List<String> {
         val entries = mutableListOf<String>()
@@ -226,13 +232,15 @@ class UsageMcpProvider(
             usageEvents.getNextEvent(event)
             val pkg = event.packageName
             if (packageFilter != null && pkg != packageFilter) continue
+            if (!includeSystem && isFilteredPackage(pkg)) continue
             val typeName = eventTypeToString(event.eventType)
             val appName = resolveAppName(pkg)
+            val isoTime = formatTimestamp(event.timeStamp)
             entries.add(
                 """{"package":"${pkg.escapeJson()}",""" +
                     """"name":"${appName.escapeJson()}",""" +
                     """"type":"$typeName",""" +
-                    """"timestamp":${event.timeStamp}}"""
+                    """"timestamp":"$isoTime"}"""
             )
         }
         return entries
@@ -315,6 +323,25 @@ class UsageMcpProvider(
         private const val DEFAULT_LIMIT = 10
         private const val DEFAULT_EVENT_LIMIT = 50
         private const val MS_PER_MIN = 60_000L
+
+        /**
+         * Packages filtered out by default from usage events to reduce noise.
+         * Includes Rouse Context itself and Android system intelligence services.
+         */
+        private val FILTERED_PACKAGE_PREFIXES = listOf(
+            "com.rousecontext",
+            "com.google.android.as",
+            "com.google.android.ext.services"
+        )
+
+        internal fun isFilteredPackage(packageName: String): Boolean =
+            FILTERED_PACKAGE_PREFIXES.any { packageName.startsWith(it) }
+
+        private val ISO_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ISO_OFFSET_DATE_TIME.withZone(ZoneId.systemDefault())
+
+        internal fun formatTimestamp(epochMillis: Long): String =
+            ISO_FORMATTER.format(Instant.ofEpochMilli(epochMillis))
     }
 
     // endregion
@@ -430,6 +457,19 @@ private fun eventsSchema() = ToolSchema(
             }
         )
         put(
+            "include_system",
+            buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put(
+                    "description",
+                    JsonPrimitive(
+                        "Include Rouse Context and Android system " +
+                            "intelligence events (default false)"
+                    )
+                )
+            }
+        )
+        put(
             "limit",
             buildJsonObject {
                 put("type", JsonPrimitive("integer"))
@@ -487,20 +527,51 @@ private fun compareSchema() = ToolSchema(
 
 // region Event type mapping
 
-private fun eventTypeToString(type: Int): String = when (type) {
-    UsageEvents.Event.ACTIVITY_RESUMED -> "resumed"
-    UsageEvents.Event.ACTIVITY_PAUSED -> "paused"
-    UsageEvents.Event.ACTIVITY_STOPPED -> "stopped"
-    UsageEvents.Event.CONFIGURATION_CHANGE -> "config_change"
-    UsageEvents.Event.USER_INTERACTION -> "user_interaction"
-    UsageEvents.Event.FOREGROUND_SERVICE_START -> "fg_service_start"
-    UsageEvents.Event.FOREGROUND_SERVICE_STOP -> "fg_service_stop"
-    UsageEvents.Event.SCREEN_INTERACTIVE -> "screen_on"
-    UsageEvents.Event.SCREEN_NON_INTERACTIVE -> "screen_off"
-    UsageEvents.Event.DEVICE_SHUTDOWN -> "shutdown"
-    UsageEvents.Event.DEVICE_STARTUP -> "startup"
-    else -> "unknown($type)"
-}
+/**
+ * Maps [UsageEvents.Event] type constants to human-readable names.
+ * Constants that lack SDK fields are referenced by their integer value.
+ */
+@Suppress("MagicNumber")
+private fun eventTypeToString(type: Int): String = EVENT_TYPE_NAMES[type]
+    ?: "unknown($type)"
+
+/**
+ * Lookup table for all documented UsageEvents event type constants.
+ * Values sourced from [UsageEvents.Event] and AOSP docs.
+ */
+@Suppress("MagicNumber")
+private val EVENT_TYPE_NAMES: Map<Int, String> = mapOf(
+    UsageEvents.Event.ACTIVITY_RESUMED to "activity_resumed",
+    UsageEvents.Event.ACTIVITY_PAUSED to "activity_paused",
+    3 to "end_of_day",
+    4 to "continue_previous_day",
+    UsageEvents.Event.CONFIGURATION_CHANGE to "configuration_change",
+    6 to "system_interaction",
+    UsageEvents.Event.USER_INTERACTION to "user_interaction",
+    8 to "shortcut_invocation",
+    9 to "chooser_action",
+    10 to "notification_seen",
+    11 to "standby_bucket_changed",
+    12 to "notification_interruption",
+    13 to "slice_pinned_priv",
+    14 to "slice_pinned",
+    15 to "screen_interactive",
+    16 to "screen_non_interactive",
+    17 to "keyguard_shown",
+    18 to "keyguard_hidden",
+    19 to "foreground_service_start",
+    20 to "foreground_service_stop",
+    21 to "continue_previous_day",
+    22 to "continuing_foreground_service",
+    23 to "activity_stopped",
+    24 to "activity_destroyed",
+    25 to "flush_to_disk",
+    26 to "device_shutdown",
+    27 to "device_startup",
+    28 to "user_unlocked",
+    29 to "user_stopped",
+    30 to "locus_id_set"
+)
 
 // endregion
 
@@ -545,6 +616,10 @@ private fun CallToolRequest.stringArg(name: String): String? =
     params.arguments?.get(name)?.let { it as? JsonPrimitive }?.content
 
 private fun CallToolRequest.intArg(name: String): Int? = stringArg(name)?.toIntOrNull()
+
+private fun CallToolRequest.boolArg(name: String): Boolean? =
+    params.arguments?.get(name)?.let { it as? JsonPrimitive }
+        ?.content?.toBooleanStrictOrNull()
 
 private fun String.escapeJson(): String = replace("\\", "\\\\")
     .replace("\"", "\\\"")

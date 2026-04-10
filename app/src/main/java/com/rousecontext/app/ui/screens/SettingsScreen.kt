@@ -189,7 +189,8 @@ fun SettingsContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Generate new address", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            text = state.rotationCooldownMessage ?: "(once per 30 days)",
+                            text = state.rotationCooldownMessage
+                                ?: "Changes take effect immediately",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

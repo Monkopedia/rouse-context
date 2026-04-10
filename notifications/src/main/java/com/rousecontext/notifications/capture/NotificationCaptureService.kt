@@ -31,6 +31,42 @@ class NotificationCaptureService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         instance = this
+        seedActiveNotifications()
+    }
+
+    /**
+     * Captures all currently active notifications into Room when the listener
+     * first connects. Without this, notifications posted before the service
+     * started would never appear in history queries.
+     */
+    private fun seedActiveNotifications() {
+        serviceScope.launch {
+            try {
+                val active = activeNotifications ?: return@launch
+                val candidates = active.filter { !isOwnPackage(it.packageName) }
+                for (sbn in candidates) {
+                    val existing = dao.findByPackageAndTime(sbn.packageName, sbn.postTime)
+                    if (existing != null) continue
+
+                    val extras = sbn.notification.extras
+                    val record = NotificationRecord(
+                        packageName = sbn.packageName,
+                        title = encryptor.encrypt(
+                            extras.getCharSequence("android.title")?.toString()
+                        ),
+                        text = encryptor.encrypt(
+                            extras.getCharSequence("android.text")?.toString()
+                        ),
+                        postedAt = sbn.postTime,
+                        category = sbn.notification.category,
+                        ongoing = sbn.isOngoing
+                    )
+                    dao.insert(record)
+                }
+            } catch (_: Exception) {
+                // Best-effort seeding - don't crash the listener service
+            }
+        }
     }
 
     override fun onListenerDisconnected() {
