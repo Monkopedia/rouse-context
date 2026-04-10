@@ -13,11 +13,12 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
-import kotlin.test.Test
 import kotlin.test.assertTrue
-import org.junit.After
-import org.junit.Assume.assumeTrue
-import org.junit.Before
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Test
 
 /**
  * Integration tests that start the real Rust relay binary as a subprocess
@@ -26,6 +27,7 @@ import org.junit.Before
  * These tests are skipped (via Assume) if the relay binary has not been built.
  * Build it with: cd relay && cargo build
  */
+@Tag("integration")
 class RealRelayIntegrationTest {
 
     companion object {
@@ -41,12 +43,12 @@ class RealRelayIntegrationTest {
     private val caCert: X509Certificate get() = ca.caCert
     private val deviceKeyStore: KeyStore get() = ca.deviceKeyStore
 
-    @Before
+    @BeforeEach
     fun setUp() {
         val relayBinary = findRelayBinary()
         assumeTrue(
-            "Relay binary not found. Build with: cd relay && cargo build",
-            relayBinary.exists() && relayBinary.canExecute()
+            relayBinary.exists() && relayBinary.canExecute(),
+            "Relay binary not found. Build with: cd relay && cargo build"
         )
 
         tempDir = File.createTempFile("relay-integration-", "")
@@ -63,9 +65,11 @@ class RealRelayIntegrationTest {
         relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
     }
 
-    @After
+    @AfterEach
     fun tearDown() {
-        relayManager.stop()
+        if (::relayManager.isInitialized) {
+            relayManager.stop()
+        }
         if (::tempDir.isInitialized && tempDir.exists()) {
             tempDir.deleteRecursively()
         }

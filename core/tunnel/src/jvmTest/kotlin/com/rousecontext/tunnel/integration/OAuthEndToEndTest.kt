@@ -28,7 +28,6 @@ import java.security.cert.X509Certificate
 import java.util.Base64
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -44,9 +43,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.After
-import org.junit.Assume.assumeTrue
-import org.junit.Before
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Test
 
 /**
  * End-to-end test that exercises the full OAuth authorization code flow
@@ -60,6 +61,7 @@ import org.junit.Before
  * Build it with: cd relay && cargo build
  */
 @Suppress("LargeClass")
+@Tag("integration")
 class OAuthEndToEndTest {
 
     companion object {
@@ -82,12 +84,12 @@ class OAuthEndToEndTest {
     // the test calls approve() on this after the AI client hits /authorize.
     private lateinit var authorizationCodeManager: AuthorizationCodeManager
 
-    @Before
+    @BeforeEach
     fun setUp() {
         val relayBinary = findRelayBinary()
         assumeTrue(
-            "Relay binary not found. Build with: cd relay && cargo build",
-            relayBinary.exists() && relayBinary.canExecute()
+            relayBinary.exists() && relayBinary.canExecute(),
+            "Relay binary not found. Build with: cd relay && cargo build"
         )
 
         tempDir = File.createTempFile("e2e-oauth-", "")
@@ -102,9 +104,11 @@ class OAuthEndToEndTest {
         relayManager.start(relayPort)
     }
 
-    @After
+    @AfterEach
     fun tearDown() {
-        relayManager.stop()
+        if (::relayManager.isInitialized) {
+            relayManager.stop()
+        }
         if (::tempDir.isInitialized && tempDir.exists()) {
             tempDir.deleteRecursively()
         }

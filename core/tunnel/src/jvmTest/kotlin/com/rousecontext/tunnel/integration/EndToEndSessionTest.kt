@@ -20,7 +20,6 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.SSLSocket
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
@@ -30,9 +29,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.After
-import org.junit.Assume.assumeTrue
-import org.junit.Before
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Test
 
 /**
  * End-to-end session tests using the real Rust relay binary.
@@ -49,6 +50,7 @@ import org.junit.Before
  * Build it with: cd relay && cargo build
  */
 @Suppress("LargeClass")
+@Tag("integration")
 class EndToEndSessionTest {
 
     companion object {
@@ -67,12 +69,12 @@ class EndToEndSessionTest {
     private val deviceKeyStore: KeyStore get() = ca.deviceKeyStore
     private val deviceCert: X509Certificate get() = ca.deviceCert
 
-    @Before
+    @BeforeEach
     fun setUp() {
         val relayBinary = findRelayBinary()
         assumeTrue(
-            "Relay binary not found. Build with: cd relay && cargo build",
-            relayBinary.exists() && relayBinary.canExecute()
+            relayBinary.exists() && relayBinary.canExecute(),
+            "Relay binary not found. Build with: cd relay && cargo build"
         )
 
         tempDir = File.createTempFile("e2e-session-", "")
@@ -87,9 +89,11 @@ class EndToEndSessionTest {
         relayManager.start(relayPort)
     }
 
-    @After
+    @AfterEach
     fun tearDown() {
-        relayManager.stop()
+        if (::relayManager.isInitialized) {
+            relayManager.stop()
+        }
         if (::tempDir.isInitialized && tempDir.exists()) {
             tempDir.deleteRecursively()
         }

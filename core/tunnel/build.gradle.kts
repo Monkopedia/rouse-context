@@ -14,6 +14,9 @@ kotlin {
     // Pass repo root to JVM tests so integration tests can find the relay binary
     tasks.named<Test>("jvmTest") {
         systemProperty("repo.root", rootProject.projectDir.absolutePath)
+        useJUnitPlatform {
+            excludeTags("integration")
+        }
     }
 
     sourceSets {
@@ -49,6 +52,8 @@ kotlin {
                 implementation(libs.ktor.server.websockets)
                 implementation(libs.ktor.server.content.negotiation)
                 implementation(libs.ktor.serialization.json)
+                implementation(libs.junit.jupiter.api)
+                runtimeOnly(libs.junit.jupiter.engine)
                 // Integration test: MCP and bridge modules for end-to-end tests
                 implementation(project(":core:mcp"))
                 implementation(project(":core:bridge"))

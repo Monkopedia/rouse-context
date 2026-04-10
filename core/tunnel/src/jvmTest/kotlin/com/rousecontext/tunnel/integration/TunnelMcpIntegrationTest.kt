@@ -25,7 +25,6 @@ import java.io.InputStreamReader
 import java.io.OutputStream
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngineResult
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
@@ -41,6 +40,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Test
 
 /**
  * End-to-end integration tests verifying the full data path:
@@ -49,6 +50,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * Uses [SessionHandler] from core:bridge for the server-side TLS accept + MCP bridging.
  * Tests IDs 97-99 from overall.md.
  */
+@Tag("integration")
 class TunnelMcpIntegrationTest {
 
     private val mcpJson = Json { ignoreUnknownKeys = true }
