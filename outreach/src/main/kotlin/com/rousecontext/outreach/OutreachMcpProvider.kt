@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.rousecontext.mcp.core.Clock
 import com.rousecontext.mcp.core.McpServerProvider
@@ -95,12 +96,7 @@ class OutreachMcpProvider(
                 intent.putExtra(key, value.jsonPrimitive.content)
             }
 
-            try {
-                context.startActivity(intent)
-                successResult("Launched $packageName")
-            } catch (e: SecurityException) {
-                errorResult("Permission denied launching $packageName: ${e.message}")
-            }
+            launchActivitySafely(intent, "launch $packageName")
         }
     }
 
@@ -125,12 +121,7 @@ class OutreachMcpProvider(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            try {
-                context.startActivity(intent)
-                successResult("Opened $url")
-            } catch (e: android.content.ActivityNotFoundException) {
-                errorResult("No app found to handle URL: $url (${e.message})")
-            }
+            launchActivitySafely(intent, "open $url")
         }
     }
 
@@ -341,6 +332,37 @@ class OutreachMcpProvider(
         )
     }
 
+    /**
+     * Launch an activity using PendingIntent to avoid Android 10+ background activity
+     * start restrictions. Direct startActivity from a Service/Application context is
+     * silently dropped on API 29+; PendingIntent.send() works reliably from background.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    private fun launchActivitySafely(intent: Intent, description: String): CallToolResult {
+        return try {
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                intent.hashCode(),
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            pendingIntent.send()
+            successResult("Launched: $description")
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.e(TAG, "No activity found to $description", e)
+            errorResult("No app found to $description: ${e.message}")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Permission denied to $description", e)
+            errorResult("Permission denied to $description: ${e.message}")
+        } catch (e: PendingIntent.CanceledException) {
+            Log.e(TAG, "PendingIntent cancelled for $description", e)
+            errorResult("Failed to $description: activity launch was cancelled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error trying to $description", e)
+            errorResult("Failed to $description: ${e.javaClass.simpleName} - ${e.message}")
+        }
+    }
+
     companion object {
         const val CHANNEL_ID = "outreach"
         private const val CHANNEL_NAME = "AI Outreach"
@@ -348,6 +370,7 @@ class OutreachMcpProvider(
         private const val MAX_NOTIFICATIONS_PER_MINUTE = 10
         private const val RATE_LIMIT_WINDOW_MS = 60_000L
         private const val MAX_NOTIFICATION_ACTIONS = 3
+        private const val TAG = "OutreachMcp"
     }
 }
 
