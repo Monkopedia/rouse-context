@@ -122,6 +122,47 @@ class UsageMcpProviderTest {
     }
 
     @Test
+    fun `get_usage_summary deduplicates entries per package`() = runBlocking {
+        // UsageStatsManager may return multiple entries per package for different buckets
+        val msPerMin = 60_000L
+        val dup1 = mockUsageStats("com.example.app1", totalForeground = 1_080 * msPerMin)
+        val dup2 = mockUsageStats("com.example.app1", totalForeground = 42 * msPerMin)
+        val other = mockUsageStats("com.example.app2", totalForeground = 500 * msPerMin)
+
+        every {
+            usageStatsManager.queryUsageStats(any(), any(), any())
+        } returns listOf(dup1, dup2, other)
+
+        setupAppLabel("com.example.app1", "Rouse Context")
+        setupAppLabel("com.example.app2", "Other App")
+
+        val handler = toolHandlers["get_usage_summary"]!!
+        val result = handler.invoke(
+            fakeConnection,
+            CallToolRequest(
+                params = CallToolRequestParams(
+                    name = "get_usage_summary",
+                    arguments = buildJsonObject {
+                        put("period", JsonPrimitive("today"))
+                    }
+                )
+            )
+        )
+
+        assertFalse(result.isError == true)
+        val text = (result.content.first() as TextContent).text!!
+        // Should appear exactly once with summed time (1080 + 42 = 1122 min)
+        assertEquals(
+            "Package should appear exactly once",
+            1,
+            Regex("com\\.example\\.app1").findAll(text).count()
+        )
+        assertTrue("Should contain merged total", text.contains("1122"))
+        // Total should be 1122 + 500 = 1622
+        assertTrue("Total should be summed correctly", text.contains("1622"))
+    }
+
+    @Test
     fun `get_usage_summary respects limit`() = runBlocking {
         val stats = (1..5).map { i ->
             mockUsageStats("com.example.app$i", totalForeground = (i * 1_000_000L))
