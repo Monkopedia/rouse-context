@@ -53,6 +53,7 @@ import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
 import com.rousecontext.app.ui.components.navBarItemColors
 import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
+import com.rousecontext.app.ui.screens.AllClientsContent
 import com.rousecontext.app.ui.screens.AuditDetailContent
 import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditHistoryContent
@@ -109,8 +110,10 @@ object Routes {
     const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
     const val DEVICE_CODE = "device_code/{integrationId}"
     const val AUTH_APPROVAL = "auth_approval"
+    const val ALL_CLIENTS = "all_clients/{integrationId}"
     const val AUDIT_DETAIL = "audit_detail/{entryId}"
 
+    fun allClients(integrationId: String): String = "all_clients/$integrationId"
     fun audit(provider: String? = null): String =
         if (provider != null) "audit?provider=$provider" else "audit"
     fun auditDetail(entryId: Long): String = "audit_detail/$entryId"
@@ -552,6 +555,11 @@ fun AppNavigation(
                                 Routes.integrationEnabled(integrationId)
                             )
                         },
+                        onViewAllClients = {
+                            navController.navigate(
+                                Routes.allClients(integrationId)
+                            )
+                        },
                         onEntryClick = { entryId ->
                             navController.navigate(
                                 Routes.auditDetail(entryId)
@@ -597,6 +605,33 @@ fun AppNavigation(
                             viewModel.disable()
                             navController.popBackStack()
                         },
+                        onRevokeClient = { clientName ->
+                            viewModel.revokeClient(clientName)
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(
+                    route = Routes.ALL_CLIENTS,
+                    arguments = listOf(
+                        navArgument("integrationId") {
+                            type = NavType.StringType
+                        }
+                    )
+                ) { backStackEntry ->
+                    val integrationId = backStackEntry.arguments
+                        ?.getString("integrationId")
+                        ?: return@composable
+                    val viewModel: IntegrationManageViewModel =
+                        koinViewModel()
+                    LaunchedEffect(integrationId) {
+                        viewModel.loadIntegration(integrationId)
+                    }
+                    val state by viewModel.state.collectAsState()
+                    AllClientsContent(
+                        integrationName = state.integrationName,
+                        clients = state.authorizedClients,
                         onRevokeClient = { clientName ->
                             viewModel.revokeClient(clientName)
                         },

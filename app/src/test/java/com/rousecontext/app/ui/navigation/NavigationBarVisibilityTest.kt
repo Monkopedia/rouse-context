@@ -129,6 +129,14 @@ class NavigationBarVisibilityTest {
     }
 
     @Test
+    fun `ALL_CLIENTS route hides navigation bars`() {
+        assertFalse(
+            "ALL_CLIENTS should hide bars",
+            shouldShowBars(Routes.ALL_CLIENTS)
+        )
+    }
+
+    @Test
     fun `AUDIT_DETAIL route hides navigation bars`() {
         assertFalse(
             "AUDIT_DETAIL should hide bars",
@@ -153,6 +161,14 @@ class NavigationBarVisibilityTest {
     }
 
     // -- Resolved routes (with actual arguments) should also be hidden --
+
+    @Test
+    fun `resolved all clients route hides navigation bars`() {
+        assertFalse(
+            "Resolved all_clients/health should hide bars",
+            shouldShowBars(Routes.allClients("health"))
+        )
+    }
 
     @Test
     fun `resolved integration manage route hides navigation bars`() {
