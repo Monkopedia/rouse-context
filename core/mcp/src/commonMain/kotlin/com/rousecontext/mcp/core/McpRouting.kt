@@ -499,7 +499,7 @@ fun Application.configureMcpRouting(
                 call.response.headers.append(
                     "WWW-Authenticate",
                     "Bearer resource_metadata=\"https://${call.resolveHostname()}" +
-                        "/.well-known/oauth-authorization-server\""
+                        "/.well-known/oauth-protected-resource\""
                 )
                 call.respond(HttpStatusCode.Unauthorized)
                 return@post
