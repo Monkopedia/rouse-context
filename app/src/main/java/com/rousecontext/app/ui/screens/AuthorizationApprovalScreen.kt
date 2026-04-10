@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -65,34 +63,27 @@ fun AuthorizationApprovalScreen(
                 )
             }
         } else {
-            LazyColumn(
+            val request = pendingRequests.first()
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
+                if (pendingRequests.size > 1) {
                     Text(
-                        text = "Pending Approvals",
-                        style = MaterialTheme.typography.headlineMedium,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
+                        text = "1 of ${pendingRequests.size}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-                items(
-                    items = pendingRequests,
-                    key = { it.displayCode }
-                ) { request ->
-                    AuthorizationRequestCard(
-                        request = request,
-                        onApprove = onApprove,
-                        onDeny = onDeny
-                    )
-                }
-                item {
                     Spacer(modifier = Modifier.height(16.dp))
                 }
+                AuthorizationRequestCard(
+                    request = request,
+                    onApprove = onApprove,
+                    onDeny = onDeny
+                )
             }
         }
     }
