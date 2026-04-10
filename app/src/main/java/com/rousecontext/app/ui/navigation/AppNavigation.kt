@@ -566,7 +566,13 @@ fun AppNavigation(
                                         IntegrationSetupState.Provisioning
                                     ).settingUpState,
                                 onCancel = {
-                                    navController.popBackStack()
+                                    navController.navigate(
+                                        Routes.integrationManage(
+                                            integrationId
+                                        )
+                                    ) {
+                                        popUpTo(Routes.HOME)
+                                    }
                                 }
                             )
                         }
@@ -581,7 +587,13 @@ fun AppNavigation(
                                     )
                                 ),
                                 onCancel = {
-                                    navController.popBackStack()
+                                    navController.navigate(
+                                        Routes.integrationManage(
+                                            integrationId
+                                        )
+                                    ) {
+                                        popUpTo(Routes.HOME)
+                                    }
                                 }
                             )
                         }
@@ -597,7 +609,13 @@ fun AppNavigation(
                                     )
                                 ),
                                 onCancel = {
-                                    navController.popBackStack()
+                                    navController.navigate(
+                                        Routes.integrationManage(
+                                            integrationId
+                                        )
+                                    ) {
+                                        popUpTo(Routes.HOME)
+                                    }
                                 }
                             )
                         }
@@ -641,7 +659,16 @@ fun AppNavigation(
                                 HEALTH_CONNECT_PERMISSIONS
                             )
                         },
-                        onCancel = { navController.popBackStack() }
+                        onCancel = {
+                            navController.navigate(
+                                Routes.integrationManage(
+                                    HealthConnectSetupViewModel
+                                        .HEALTH_INTEGRATION_ID
+                                )
+                            ) {
+                                popUpTo(Routes.HOME)
+                            }
+                        }
                     )
                 }
 
@@ -691,7 +718,16 @@ fun AppNavigation(
                                 }
                             }
                         },
-                        onCancel = { navController.popBackStack() }
+                        onCancel = {
+                            navController.navigate(
+                                Routes.integrationManage(
+                                    NotificationSetupViewModel
+                                        .INTEGRATION_ID
+                                )
+                            ) {
+                                popUpTo(Routes.HOME)
+                            }
+                        }
                     )
                 }
 
@@ -738,7 +774,16 @@ fun AppNavigation(
                                 }
                             }
                         },
-                        onCancel = { navController.popBackStack() }
+                        onCancel = {
+                            navController.navigate(
+                                Routes.integrationManage(
+                                    OutreachSetupViewModel
+                                        .INTEGRATION_ID
+                                )
+                            ) {
+                                popUpTo(Routes.HOME)
+                            }
+                        }
                     )
                 }
 
@@ -783,7 +828,15 @@ fun AppNavigation(
                                 }
                             }
                         },
-                        onCancel = { navController.popBackStack() }
+                        onCancel = {
+                            navController.navigate(
+                                Routes.integrationManage(
+                                    UsageSetupViewModel.INTEGRATION_ID
+                                )
+                            ) {
+                                popUpTo(Routes.HOME)
+                            }
+                        }
                     )
                 }
 
@@ -873,7 +926,17 @@ fun AppNavigation(
                     val requests by viewModel.pendingRequests
                         .collectAsState()
 
-                    // When no pending requests remain, go back
+                    // Track the integration from the last approved request
+                    // so we can navigate to its manage page.
+                    val lastApprovedIntegration =
+                        androidx.compose.runtime.remember {
+                            androidx.compose.runtime.mutableStateOf<String?>(
+                                null
+                            )
+                        }
+
+                    // When no pending requests remain after approval,
+                    // navigate to the manage page for that integration.
                     val hadRequests = androidx.compose.runtime.remember {
                         androidx.compose.runtime.mutableStateOf(false)
                     }
@@ -882,7 +945,17 @@ fun AppNavigation(
                     }
                     if (hadRequests.value && requests.isEmpty()) {
                         androidx.compose.runtime.LaunchedEffect(Unit) {
-                            navController.popBackStack()
+                            val target =
+                                lastApprovedIntegration.value
+                            if (target != null) {
+                                navController.navigate(
+                                    Routes.integrationManage(target)
+                                ) {
+                                    popUpTo(Routes.HOME)
+                                }
+                            } else {
+                                navController.popBackStack()
+                            }
                         }
                     }
 
@@ -893,7 +966,18 @@ fun AppNavigation(
                                 integration = req.integration
                             )
                         },
-                        onApprove = viewModel::approve,
+                        onApprove = { displayCode ->
+                            // Capture the integration before approving
+                            // (which removes the request from the list).
+                            val req = requests.find {
+                                it.displayCode == displayCode
+                            }
+                            if (req != null) {
+                                lastApprovedIntegration.value =
+                                    req.integration
+                            }
+                            viewModel.approve(displayCode)
+                        },
                         onDeny = viewModel::deny
                     )
                 }
