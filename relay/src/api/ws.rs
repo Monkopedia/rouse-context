@@ -514,6 +514,7 @@ mod tests {
             }),
             fcm: Arc::new(StubFcm),
             acme: Arc::new(StubAcme),
+            dns: Arc::new(crate::dns::StubDnsClient),
             firebase_auth: Arc::new(StubFirebaseAuth),
             subdomain_generator: crate::subdomain::SubdomainGenerator::new(),
             rate_limiter: crate::rate_limit::RateLimiter::new(

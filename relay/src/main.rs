@@ -132,12 +132,15 @@ async fn main() {
         Arc<dyn rouse_relay::firebase_auth::FirebaseAuth>,
     ) = build_service_clients(&config);
 
+    let dns: Arc<dyn rouse_relay::dns::DnsClient> = build_dns_client(&config);
+
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
         session_registry: session_registry.clone(),
         firestore: firestore.clone(),
         fcm: fcm.clone(),
         acme: acme.clone(),
+        dns,
         firebase_auth,
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
@@ -480,6 +483,46 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         config.acme.dns_propagation_timeout_secs,
         config.acme.dns_poll_interval_secs,
         &account_key_path,
+    ))
+}
+
+/// Build the DNS client from config.
+///
+/// When Cloudflare credentials are configured, creates a `CloudflareDnsClient` that
+/// can manage CNAME records. Falls back to `StubDnsClient` when credentials are missing.
+fn build_dns_client(config: &RelayConfig) -> Arc<dyn rouse_relay::dns::DnsClient> {
+    let cf = &config.cloudflare;
+
+    if cf.zone_id.is_empty() {
+        info!("No cloudflare.zone_id configured, using stub DNS client");
+        return Arc::new(rouse_relay::dns::StubDnsClient);
+    }
+
+    let api_token = match cf.resolve_api_token() {
+        Ok(token) => token,
+        Err(e) => {
+            warn!("Cloudflare API token not available ({e}), using stub DNS client");
+            return Arc::new(rouse_relay::dns::StubDnsClient);
+        }
+    };
+
+    let base_domain = config
+        .server
+        .relay_hostname
+        .strip_prefix("relay.")
+        .unwrap_or(&config.server.relay_hostname)
+        .to_string();
+
+    info!(
+        zone_id = %cf.zone_id,
+        base_domain = %base_domain,
+        "Wiring Cloudflare DNS client for subdomain management"
+    );
+
+    Arc::new(rouse_relay::dns::CloudflareDnsClient::new(
+        api_token,
+        cf.zone_id.clone(),
+        base_domain,
     ))
 }
 

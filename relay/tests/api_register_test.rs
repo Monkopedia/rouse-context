@@ -361,6 +361,210 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
 }
 
 #[tokio::test]
+async fn force_new_deletes_old_dns_records() {
+    use p256::ecdsa::SigningKey;
+    use p256::pkcs8::EncodePublicKey;
+
+    let signing_key = SigningKey::random(&mut rand::thread_rng());
+    let verifying_key = signing_key.verifying_key();
+    let pub_key_der = verifying_key.to_public_key_der().unwrap();
+    let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
+
+    let firebase_token = "valid-token";
+
+    use p256::ecdsa::{signature::Signer, Signature};
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
+    let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
+
+    let existing_record = DeviceRecord {
+        fcm_token: "old-token".to_string(),
+        firebase_uid: "uid-123".to_string(),
+        public_key: pub_key_b64,
+        cert_expires: SystemTime::now() + Duration::from_secs(86400),
+        registered_at: SystemTime::now() - Duration::from_secs(60 * 86400),
+        last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)),
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        valid_secrets: Vec::new(),
+    };
+    let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
+    let dns = Arc::new(MockDns::new());
+    let acme = MockAcme::new("rotated-cert");
+    let auth = MockFirebaseAuth::new().with_token(firebase_token, "uid-123");
+
+    let state = build_test_state_with_dns(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+        dns.clone(),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": firebase_token,
+                "fcm_token": "new-fcm-token",
+                "signature": sig_b64,
+                "force_new": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // DNS records for old subdomain should have been deleted
+    let deleted = dns.deleted_subdomains.lock().unwrap();
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0], "old-sub");
+}
+
+#[tokio::test]
+async fn force_new_succeeds_even_if_dns_cleanup_fails() {
+    use p256::ecdsa::SigningKey;
+    use p256::pkcs8::EncodePublicKey;
+
+    let signing_key = SigningKey::random(&mut rand::thread_rng());
+    let verifying_key = signing_key.verifying_key();
+    let pub_key_der = verifying_key.to_public_key_der().unwrap();
+    let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
+
+    let firebase_token = "valid-token";
+
+    use p256::ecdsa::{signature::Signer, Signature};
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
+    let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
+
+    let existing_record = DeviceRecord {
+        fcm_token: "old-token".to_string(),
+        firebase_uid: "uid-123".to_string(),
+        public_key: pub_key_b64,
+        cert_expires: SystemTime::now() + Duration::from_secs(86400),
+        registered_at: SystemTime::now() - Duration::from_secs(60 * 86400),
+        last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)),
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        valid_secrets: Vec::new(),
+    };
+    let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
+    // DNS client that always fails
+    let dns = Arc::new(MockDns::failing());
+    let acme = MockAcme::new("rotated-cert");
+    let auth = MockFirebaseAuth::new().with_token(firebase_token, "uid-123");
+
+    let state = build_test_state_with_dns(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+        dns,
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": firebase_token,
+                "fcm_token": "new-fcm-token",
+                "signature": sig_b64,
+                "force_new": true
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    // Registration should still succeed even though DNS cleanup failed
+    assert_eq!(resp.status(), 200);
+
+    // Old Firestore record should still be deleted
+    assert!(firestore.devices.lock().unwrap().get("old-sub").is_none());
+}
+
+#[tokio::test]
+async fn re_register_same_subdomain_does_not_delete_dns() {
+    use p256::ecdsa::SigningKey;
+    use p256::pkcs8::EncodePublicKey;
+
+    let signing_key = SigningKey::random(&mut rand::thread_rng());
+    let verifying_key = signing_key.verifying_key();
+    let pub_key_der = verifying_key.to_public_key_der().unwrap();
+    let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
+
+    let firebase_token = "valid-token";
+
+    use p256::ecdsa::{signature::Signer, Signature};
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
+    let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
+
+    let existing_record = DeviceRecord {
+        fcm_token: "old-token".to_string(),
+        firebase_uid: "uid-123".to_string(),
+        public_key: pub_key_b64,
+        cert_expires: SystemTime::now() + Duration::from_secs(86400),
+        registered_at: SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        valid_secrets: Vec::new(),
+    };
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", existing_record));
+    let dns = Arc::new(MockDns::new());
+    let acme = MockAcme::new("cert");
+    let auth = MockFirebaseAuth::new().with_token(firebase_token, "uid-123");
+
+    let state = build_test_state_with_dns(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+        dns.clone(),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": firebase_token,
+                "fcm_token": "new-fcm-token",
+                "signature": sig_b64,
+                "force_new": false
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["subdomain"].as_str().unwrap(), "brave-falcon");
+
+    // DNS records should NOT be deleted for re-registration (same subdomain)
+    let deleted = dns.deleted_subdomains.lock().unwrap();
+    assert!(
+        deleted.is_empty(),
+        "Re-registration should not delete DNS records, but deleted: {:?}",
+        *deleted
+    );
+}
+
+#[tokio::test]
 async fn register_certs_without_prior_registration_returns_404() {
     let firestore = MockFirestore::new();
     let acme = MockAcme::new("test-cert");

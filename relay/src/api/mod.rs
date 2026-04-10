@@ -171,6 +171,7 @@ pub struct AppState {
     pub firestore: std::sync::Arc<dyn crate::firestore::FirestoreClient>,
     pub fcm: std::sync::Arc<dyn crate::fcm::FcmClient>,
     pub acme: std::sync::Arc<dyn crate::acme::AcmeClient>,
+    pub dns: std::sync::Arc<dyn crate::dns::DnsClient>,
     pub firebase_auth: std::sync::Arc<dyn crate::firebase_auth::FirebaseAuth>,
     pub subdomain_generator: crate::subdomain::SubdomainGenerator,
     pub rate_limiter: crate::rate_limit::RateLimiter,

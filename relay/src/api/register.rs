@@ -138,7 +138,20 @@ pub async fn handle_register(
                 }
             }
 
-            // Delete old subdomain
+            // Delete old subdomain's DNS records (best-effort, log but don't block)
+            if let Err(e) = state
+                .dns
+                .delete_subdomain_records(&existing_subdomain)
+                .await
+            {
+                tracing::warn!(
+                    old_subdomain = %existing_subdomain,
+                    error = %e,
+                    "Failed to delete old DNS records during rotation (non-fatal)"
+                );
+            }
+
+            // Delete old Firestore device record
             if let Err(e) = state.firestore.delete_device(&existing_subdomain).await {
                 return ApiError::internal(format!("Failed to delete old device record: {e}"))
                     .into_response();

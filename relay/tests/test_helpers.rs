@@ -5,6 +5,8 @@ use async_trait::async_trait;
 #[allow(unused_imports)]
 use rouse_relay::acme::{AcmeClient, AcmeError, CertificateBundle};
 #[allow(unused_imports)]
+use rouse_relay::dns::{DnsClient, DnsError};
+#[allow(unused_imports)]
 use rouse_relay::fcm::{FcmClient, FcmData, FcmError};
 #[allow(unused_imports)]
 use rouse_relay::firebase_auth::{FirebaseAuth, FirebaseAuthError, FirebaseClaims};
@@ -229,6 +231,50 @@ impl AcmeClient for MockAcme {
     }
 }
 
+/// Mock DNS client that records deletion calls.
+#[allow(dead_code)]
+pub struct MockDns {
+    pub deleted_subdomains: Mutex<Vec<String>>,
+    pub should_fail: Mutex<bool>,
+}
+
+impl Default for MockDns {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
+impl MockDns {
+    pub fn new() -> Self {
+        Self {
+            deleted_subdomains: Mutex::new(Vec::new()),
+            should_fail: Mutex::new(false),
+        }
+    }
+
+    pub fn failing() -> Self {
+        Self {
+            deleted_subdomains: Mutex::new(Vec::new()),
+            should_fail: Mutex::new(true),
+        }
+    }
+}
+
+#[async_trait]
+impl DnsClient for MockDns {
+    async fn delete_subdomain_records(&self, subdomain: &str) -> Result<(), DnsError> {
+        if *self.should_fail.lock().unwrap() {
+            return Err(DnsError::Http("mock DNS failure".to_string()));
+        }
+        self.deleted_subdomains
+            .lock()
+            .unwrap()
+            .push(subdomain.to_string());
+        Ok(())
+    }
+}
+
 /// Mock Firebase auth that accepts specific tokens.
 #[allow(dead_code)]
 pub struct MockFirebaseAuth {
@@ -279,12 +325,31 @@ pub fn build_test_state(
     acme: Arc<dyn AcmeClient>,
     firebase_auth: Arc<dyn FirebaseAuth>,
 ) -> Arc<rouse_relay::api::AppState> {
+    build_test_state_with_dns(
+        firestore,
+        fcm,
+        acme,
+        firebase_auth,
+        Arc::new(MockDns::new()),
+    )
+}
+
+/// Build test AppState with the given mocks, including a custom DNS client.
+#[allow(dead_code)]
+pub fn build_test_state_with_dns(
+    firestore: Arc<dyn FirestoreClient>,
+    fcm: Arc<dyn FcmClient>,
+    acme: Arc<dyn AcmeClient>,
+    firebase_auth: Arc<dyn FirebaseAuth>,
+    dns: Arc<dyn DnsClient>,
+) -> Arc<rouse_relay::api::AppState> {
     Arc::new(rouse_relay::api::AppState {
         relay_state: Arc::new(rouse_relay::state::RelayState::new()),
         session_registry: Arc::new(rouse_relay::passthrough::SessionRegistry::new()),
         firestore,
         fcm,
         acme,
+        dns,
         firebase_auth,
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
@@ -318,6 +383,7 @@ pub fn build_test_state_with_ca(
         firestore,
         fcm,
         acme,
+        dns: Arc::new(MockDns::new()),
         firebase_auth,
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(

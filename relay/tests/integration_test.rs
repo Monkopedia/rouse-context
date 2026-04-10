@@ -142,6 +142,7 @@ async fn ws_upgrade_with_device_identity() {
         firestore: Arc::new(firestore),
         fcm: Arc::new(MockFcm::new()),
         acme: Arc::new(MockAcme::new("cert")),
+        dns: Arc::new(MockDns::new()),
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
@@ -254,6 +255,7 @@ async fn mux_frame_round_trip_through_ws() {
         firestore: Arc::new(firestore),
         fcm: Arc::new(MockFcm::new()),
         acme: Arc::new(MockAcme::new("cert")),
+        dns: Arc::new(MockDns::new()),
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(

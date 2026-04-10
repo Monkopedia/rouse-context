@@ -15,6 +15,7 @@ fn make_app(relay_state: Arc<RelayState>) -> axum::Router {
         firestore: Arc::new(MockFirestore::new()),
         fcm: Arc::new(MockFcm::new()),
         acme: Arc::new(MockAcme::new("cert")),
+        dns: Arc::new(MockDns::new()),
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
