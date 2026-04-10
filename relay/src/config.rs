@@ -95,6 +95,9 @@ pub struct LimitsConfig {
     /// If no WebSocket message (including Pong) is received within this many seconds,
     /// consider the device connection dead and tear down the session.
     pub ws_read_timeout_secs: u64,
+    /// Days since `registered_at` before a device is considered stale and swept
+    /// from Firestore and DNS. Default: 180.
+    pub stale_device_sweep_days: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -168,6 +171,7 @@ impl Default for LimitsConfig {
             fcm_wakeup_timeout_secs: Some(30),
             ws_ping_interval_secs: 30,
             ws_read_timeout_secs: 60,
+            stale_device_sweep_days: 180,
         }
     }
 }

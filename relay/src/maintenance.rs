@@ -1,17 +1,20 @@
 //! Daily maintenance job.
 //!
-//! Runs once per day (configurable interval for testing). Three tasks:
+//! Runs once per day (configurable interval for testing). Four tasks:
 //!
 //! 1. **Cert expiry nudge**: Find devices with certs expiring within 7 days
 //!    that haven't been nudged yet. Send FCM `type: "renew"` to each.
-//! 2. **Pending cert queue**: If ACME rate limit has reset, process queued
+//! 2. **Subdomain reclamation**: Delete device records (and DNS) where the cert
+//!    has been expired for more than 180 days with no renewal attempts.
+//! 3. **Stale device sweep**: Delete device records (and DNS) where
+//!    `registered_at` is older than the configured threshold (default 180 days).
+//! 4. **Pending cert queue**: If ACME rate limit has reset, process queued
 //!    cert requests and notify devices.
-//! 3. **Subdomain reclamation**: Delete device records where the cert has been
-//!    expired for more than 180 days with no renewal attempts.
 //!
 //! Each task is independently fallible — a failure in one does not block the others.
 
 use crate::acme::AcmeClient;
+use crate::dns::DnsClient;
 use crate::fcm::{renew_payload, FcmClient};
 use crate::firestore::{DeviceRecord, FirestoreClient};
 use crate::shutdown::ShutdownController;
@@ -28,6 +31,8 @@ pub struct MaintenanceConfig {
     pub cert_expiry_nudge_days: u64,
     /// Days after cert expiry before reclaiming the subdomain.
     pub subdomain_reclaim_days: u64,
+    /// Days since `registered_at` before a device is considered stale and swept.
+    pub stale_device_sweep_days: u64,
     /// Relay hostname for FCM payloads.
     pub relay_hostname: String,
 }
@@ -38,6 +43,7 @@ impl Default for MaintenanceConfig {
             interval: Duration::from_secs(86400), // 24 hours
             cert_expiry_nudge_days: 7,
             subdomain_reclaim_days: 180,
+            stale_device_sweep_days: 180,
             relay_hostname: "relay.rousecontext.com".to_string(),
         }
     }
@@ -52,6 +58,8 @@ pub struct MaintenanceReport {
     pub pending_cert_errors: u32,
     pub subdomains_reclaimed: u32,
     pub reclaim_errors: u32,
+    pub stale_devices_swept: u32,
+    pub stale_device_sweep_errors: u32,
 }
 
 /// Check if a device's cert is expiring soon and hasn't been nudged.
@@ -79,6 +87,18 @@ pub fn is_reclaimable(record: &DeviceRecord, now: SystemTime, reclaim_threshold:
     }
 }
 
+/// Check if a device is stale based on `registered_at` age.
+///
+/// A device is stale if it was registered more than `stale_threshold` ago.
+/// This catches devices that registered long ago and never renewed their cert
+/// or otherwise checked in.
+pub fn is_stale_device(record: &DeviceRecord, now: SystemTime, stale_threshold: Duration) -> bool {
+    match now.duration_since(record.registered_at) {
+        Ok(age) => age >= stale_threshold,
+        Err(_) => false, // registered_at is in the future (clock skew)
+    }
+}
+
 /// Run the maintenance loop. This is intended to be spawned as a long-running
 /// tokio task. It runs on the configured interval until shutdown.
 pub async fn run_maintenance_loop(
@@ -86,6 +106,7 @@ pub async fn run_maintenance_loop(
     firestore: Arc<dyn FirestoreClient>,
     fcm: Arc<dyn FcmClient>,
     acme: Arc<dyn AcmeClient>,
+    dns: Arc<dyn DnsClient>,
     shutdown: ShutdownController,
 ) {
     info!(
@@ -96,7 +117,7 @@ pub async fn run_maintenance_loop(
     loop {
         tokio::select! {
             _ = tokio::time::sleep(config.interval) => {
-                let report = run_maintenance_once(&config, &firestore, &fcm, &acme).await;
+                let report = run_maintenance_once(&config, &firestore, &fcm, &acme, &dns).await;
                 info!(?report, "Maintenance run completed");
             }
             _ = shutdown.wait_for_shutdown() => {
@@ -113,13 +134,15 @@ pub async fn run_maintenance_once(
     firestore: &Arc<dyn FirestoreClient>,
     fcm: &Arc<dyn FcmClient>,
     acme: &Arc<dyn AcmeClient>,
+    dns: &Arc<dyn DnsClient>,
 ) -> MaintenanceReport {
     let mut report = MaintenanceReport::default();
     let now = SystemTime::now();
     let nudge_threshold = Duration::from_secs(config.cert_expiry_nudge_days * 86400);
     let reclaim_threshold = Duration::from_secs(config.subdomain_reclaim_days * 86400);
+    let stale_threshold = Duration::from_secs(config.stale_device_sweep_days * 86400);
 
-    // 1. List devices and process nudges + reclamation
+    // 1. List devices and process nudges + reclamation + stale sweep
     match firestore.list_devices().await {
         Ok(devices) => {
             for (subdomain, record) in &devices {
@@ -146,8 +169,11 @@ pub async fn run_maintenance_once(
                     }
                 }
 
-                // Subdomain reclamation
+                // Subdomain reclamation (cert expired for too long)
                 if is_reclaimable(record, now, reclaim_threshold) {
+                    if let Err(e) = dns.delete_subdomain_records(subdomain).await {
+                        warn!(subdomain, error = %e, "Failed to delete DNS records during reclamation");
+                    }
                     match firestore.delete_device(subdomain).await {
                         Ok(()) => {
                             info!(subdomain, "Reclaimed expired subdomain");
@@ -156,6 +182,26 @@ pub async fn run_maintenance_once(
                         Err(e) => {
                             warn!(subdomain, error = %e, "Failed to reclaim subdomain");
                             report.reclaim_errors += 1;
+                        }
+                    }
+                    continue;
+                }
+
+                // Stale device sweep (registered_at too old)
+                if is_stale_device(record, now, stale_threshold) {
+                    if let Err(e) = dns.delete_subdomain_records(subdomain).await {
+                        warn!(subdomain, error = %e, "Failed to delete DNS records for stale device");
+                        report.stale_device_sweep_errors += 1;
+                        continue;
+                    }
+                    match firestore.delete_device(subdomain).await {
+                        Ok(()) => {
+                            info!(subdomain, "Swept stale device (registered_at too old)");
+                            report.stale_devices_swept += 1;
+                        }
+                        Err(e) => {
+                            warn!(subdomain, error = %e, "Failed to delete stale device record");
+                            report.stale_device_sweep_errors += 1;
                         }
                     }
                 }
@@ -218,4 +264,384 @@ pub async fn run_maintenance_once(
     info!(?report, "Maintenance pass completed");
 
     report
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::acme::{AcmeClient, AcmeError, CertificateBundle};
+    use crate::dns::{DnsClient, DnsError};
+    use crate::fcm::{FcmClient, FcmData, FcmError};
+    use crate::firestore::{DeviceRecord, FirestoreClient, FirestoreError, PendingCert};
+    use std::sync::Mutex;
+    use std::time::{Duration, SystemTime};
+
+    // ── Test helpers ──────────────────────────────────────────────────
+
+    fn make_record(registered_days_ago: u64, cert_expires_days_from_now: i64) -> DeviceRecord {
+        let now = SystemTime::now();
+        let registered_at = now - Duration::from_secs(registered_days_ago * 86400);
+        let cert_expires = if cert_expires_days_from_now >= 0 {
+            now + Duration::from_secs(cert_expires_days_from_now as u64 * 86400)
+        } else {
+            now - Duration::from_secs((-cert_expires_days_from_now) as u64 * 86400)
+        };
+        DeviceRecord {
+            fcm_token: "tok".to_string(),
+            firebase_uid: "uid".to_string(),
+            public_key: "key".to_string(),
+            cert_expires,
+            registered_at,
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            valid_secrets: Vec::new(),
+        }
+    }
+
+    struct MockFirestore {
+        devices: Mutex<Vec<(String, DeviceRecord)>>,
+        deleted_devices: Mutex<Vec<String>>,
+    }
+
+    impl MockFirestore {
+        fn new(devices: Vec<(String, DeviceRecord)>) -> Self {
+            Self {
+                devices: Mutex::new(devices),
+                deleted_devices: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FirestoreClient for MockFirestore {
+        async fn get_device(&self, subdomain: &str) -> Result<DeviceRecord, FirestoreError> {
+            let devices = self.devices.lock().unwrap();
+            devices
+                .iter()
+                .find(|(s, _)| s == subdomain)
+                .map(|(_, r)| r.clone())
+                .ok_or_else(|| FirestoreError::NotFound(subdomain.to_string()))
+        }
+        async fn find_device_by_uid(
+            &self,
+            _uid: &str,
+        ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
+            Ok(None)
+        }
+        async fn put_device(
+            &self,
+            _subdomain: &str,
+            _record: &DeviceRecord,
+        ) -> Result<(), FirestoreError> {
+            Ok(())
+        }
+        async fn delete_device(&self, subdomain: &str) -> Result<(), FirestoreError> {
+            self.deleted_devices
+                .lock()
+                .unwrap()
+                .push(subdomain.to_string());
+            Ok(())
+        }
+        async fn put_pending_cert(&self, _s: &str, _p: &PendingCert) -> Result<(), FirestoreError> {
+            Ok(())
+        }
+        async fn get_pending_cert(&self, s: &str) -> Result<PendingCert, FirestoreError> {
+            Err(FirestoreError::NotFound(s.to_string()))
+        }
+        async fn delete_pending_cert(&self, _s: &str) -> Result<(), FirestoreError> {
+            Ok(())
+        }
+        async fn list_devices(&self) -> Result<Vec<(String, DeviceRecord)>, FirestoreError> {
+            Ok(self.devices.lock().unwrap().clone())
+        }
+        async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct MockDns {
+        deleted_subdomains: Mutex<Vec<String>>,
+        should_fail: bool,
+    }
+
+    impl MockDns {
+        fn new() -> Self {
+            Self {
+                deleted_subdomains: Mutex::new(Vec::new()),
+                should_fail: false,
+            }
+        }
+
+        fn failing() -> Self {
+            Self {
+                deleted_subdomains: Mutex::new(Vec::new()),
+                should_fail: true,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl DnsClient for MockDns {
+        async fn delete_subdomain_records(&self, subdomain: &str) -> Result<(), DnsError> {
+            if self.should_fail {
+                return Err(DnsError::Http("mock DNS failure".to_string()));
+            }
+            self.deleted_subdomains
+                .lock()
+                .unwrap()
+                .push(subdomain.to_string());
+            Ok(())
+        }
+    }
+
+    struct StubFcm;
+    #[async_trait::async_trait]
+    impl FcmClient for StubFcm {
+        async fn send_data_message(
+            &self,
+            _t: &str,
+            _d: &FcmData,
+            _h: bool,
+        ) -> Result<(), FcmError> {
+            Ok(())
+        }
+    }
+
+    struct StubAcme;
+    #[async_trait::async_trait]
+    impl AcmeClient for StubAcme {
+        async fn issue_certificate(
+            &self,
+            _s: &str,
+            _csr_der: Option<&[u8]>,
+        ) -> Result<CertificateBundle, AcmeError> {
+            Ok(CertificateBundle {
+                cert_pem: String::new(),
+                private_key_pem: None,
+            })
+        }
+    }
+
+    fn test_config(stale_days: u64) -> MaintenanceConfig {
+        MaintenanceConfig {
+            interval: Duration::from_secs(1),
+            cert_expiry_nudge_days: 7,
+            subdomain_reclaim_days: 180,
+            stale_device_sweep_days: stale_days,
+            relay_hostname: "relay.test".to_string(),
+        }
+    }
+
+    // ── Unit tests for is_stale_device ────────────────────────────────
+
+    #[test]
+    fn stale_device_detected_when_registered_at_exceeds_threshold() {
+        // Registered 200 days ago, threshold is 180 days
+        let record = make_record(200, 30);
+        let now = SystemTime::now();
+        let threshold = Duration::from_secs(180 * 86400);
+        assert!(is_stale_device(&record, now, threshold));
+    }
+
+    #[test]
+    fn fresh_device_not_stale() {
+        // Registered 10 days ago, threshold is 180 days
+        let record = make_record(10, 30);
+        let now = SystemTime::now();
+        let threshold = Duration::from_secs(180 * 86400);
+        assert!(!is_stale_device(&record, now, threshold));
+    }
+
+    #[test]
+    fn device_exactly_at_threshold_is_stale() {
+        // Registered exactly 180 days ago
+        let record = make_record(180, 30);
+        let now = SystemTime::now();
+        let threshold = Duration::from_secs(180 * 86400);
+        assert!(is_stale_device(&record, now, threshold));
+    }
+
+    #[test]
+    fn device_with_future_registered_at_is_not_stale() {
+        let now = SystemTime::now();
+        let future_time = now + Duration::from_secs(86400);
+        let record = DeviceRecord {
+            fcm_token: "tok".to_string(),
+            firebase_uid: "uid".to_string(),
+            public_key: "key".to_string(),
+            cert_expires: now + Duration::from_secs(86400 * 90),
+            registered_at: future_time,
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            valid_secrets: Vec::new(),
+        };
+        let threshold = Duration::from_secs(180 * 86400);
+        assert!(!is_stale_device(&record, now, threshold));
+    }
+
+    // ── Integration tests for run_maintenance_once ────────────────────
+
+    #[tokio::test]
+    async fn stale_device_is_swept_with_dns_and_firestore_deletion() {
+        // Device registered 200 days ago, cert still valid (not reclaimable)
+        let devices = vec![("stale-sub".to_string(), make_record(200, 30))];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.stale_devices_swept, 1);
+        assert_eq!(report.stale_device_sweep_errors, 0);
+        assert_eq!(
+            dns.deleted_subdomains.lock().unwrap().as_slice(),
+            &["stale-sub"]
+        );
+        assert_eq!(
+            firestore.deleted_devices.lock().unwrap().as_slice(),
+            &["stale-sub"]
+        );
+    }
+
+    #[tokio::test]
+    async fn fresh_device_is_not_swept() {
+        // Device registered 10 days ago
+        let devices = vec![("fresh-sub".to_string(), make_record(10, 30))];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.stale_devices_swept, 0);
+        assert!(dns.deleted_subdomains.lock().unwrap().is_empty());
+        assert!(firestore.deleted_devices.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn dns_failure_prevents_firestore_deletion_and_counts_error() {
+        let devices = vec![("stale-sub".to_string(), make_record(200, 30))];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::failing());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.stale_devices_swept, 0);
+        assert_eq!(report.stale_device_sweep_errors, 1);
+        // Firestore record should NOT be deleted if DNS cleanup failed
+        assert!(firestore.deleted_devices.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reclaimable_device_also_gets_dns_deleted() {
+        // Device with cert expired 200 days ago (reclaimable) AND registered 300 days ago (stale).
+        // Reclamation should fire first and prevent double-processing via `continue`.
+        let devices = vec![("old-sub".to_string(), make_record(300, -200))];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        // Should be reclaimed, not swept (reclamation takes priority)
+        assert_eq!(report.subdomains_reclaimed, 1);
+        assert_eq!(report.stale_devices_swept, 0);
+        // DNS should still be deleted as part of reclamation
+        assert_eq!(
+            dns.deleted_subdomains.lock().unwrap().as_slice(),
+            &["old-sub"]
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_fresh_and_stale_devices() {
+        let devices = vec![
+            ("fresh-one".to_string(), make_record(10, 80)),
+            ("stale-one".to_string(), make_record(200, 30)),
+            ("fresh-two".to_string(), make_record(90, 60)),
+            ("stale-two".to_string(), make_record(365, 30)),
+        ];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.stale_devices_swept, 2);
+        let deleted = firestore.deleted_devices.lock().unwrap();
+        assert!(deleted.contains(&"stale-one".to_string()));
+        assert!(deleted.contains(&"stale-two".to_string()));
+        assert!(!deleted.contains(&"fresh-one".to_string()));
+        assert!(!deleted.contains(&"fresh-two".to_string()));
+    }
+
+    #[tokio::test]
+    async fn configurable_threshold_is_respected() {
+        // Registered 30 days ago, threshold set to 20 days (should be swept)
+        let devices = vec![("recent-sub".to_string(), make_record(30, 60))];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(20); // 20 day threshold
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.stale_devices_swept, 1);
+    }
 }

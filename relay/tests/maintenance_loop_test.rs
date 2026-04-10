@@ -12,7 +12,7 @@ use rouse_relay::firestore::{DeviceRecord, PendingCert};
 use rouse_relay::maintenance::{run_maintenance_once, MaintenanceConfig};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use test_helpers::{MockAcme, MockFcm, MockFirestore};
+use test_helpers::{MockAcme, MockDns, MockFcm, MockFirestore};
 
 fn make_device(cert_expires: SystemTime) -> DeviceRecord {
     DeviceRecord {
@@ -43,8 +43,13 @@ fn test_config() -> MaintenanceConfig {
         interval: Duration::from_secs(1),
         cert_expiry_nudge_days: 7,
         subdomain_reclaim_days: 180,
+        stale_device_sweep_days: 180,
         relay_hostname: "test.rousecontext.com".to_string(),
     }
+}
+
+fn stub_dns() -> Arc<dyn rouse_relay::dns::DnsClient> {
+    Arc::new(MockDns::new())
 }
 
 #[tokio::test]
@@ -62,6 +67,7 @@ async fn nudge_sent_for_expiring_device() {
         &(firestore.clone() as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm.clone() as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -95,6 +101,7 @@ async fn no_nudge_for_healthy_device() {
         &(firestore as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm.clone() as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -117,6 +124,7 @@ async fn reclaimable_device_gets_deleted() {
         &(firestore.clone() as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -149,6 +157,7 @@ async fn pending_cert_processed_when_retry_after_passed() {
         &(firestore.clone() as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm.clone() as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -186,6 +195,7 @@ async fn pending_cert_skipped_when_retry_after_in_future() {
         &(firestore.clone() as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm.clone() as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -217,6 +227,7 @@ async fn rate_limited_acme_stops_pending_cert_processing() {
         &(firestore as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm.clone() as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -240,6 +251,7 @@ async fn fcm_failure_counted_as_nudge_error() {
         &(firestore as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 
@@ -274,6 +286,7 @@ async fn mixed_devices_processed_correctly() {
         &(firestore.clone() as Arc<dyn rouse_relay::firestore::FirestoreClient>),
         &(fcm.clone() as Arc<dyn rouse_relay::fcm::FcmClient>),
         &(acme as Arc<dyn rouse_relay::acme::AcmeClient>),
+        &stub_dns(),
     )
     .await;
 

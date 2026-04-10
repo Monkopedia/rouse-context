@@ -140,7 +140,7 @@ async fn main() {
         firestore: firestore.clone(),
         fcm: fcm.clone(),
         acme: acme.clone(),
-        dns,
+        dns: dns.clone(),
         firebase_auth,
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
@@ -162,6 +162,7 @@ async fn main() {
     // Spawn maintenance loop
     let maint_config = MaintenanceConfig {
         relay_hostname: config.server.relay_hostname.clone(),
+        stale_device_sweep_days: config.limits.stale_device_sweep_days,
         ..Default::default()
     };
     let maint_shutdown = shutdown.clone();
@@ -170,6 +171,7 @@ async fn main() {
         firestore.clone(),
         fcm.clone(),
         acme.clone(),
+        dns,
         maint_shutdown,
     ));
 

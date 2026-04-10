@@ -14,7 +14,7 @@ use rouse_relay::maintenance::{self, MaintenanceConfig};
 use rouse_relay::shutdown::{execute_shutdown, ShutdownController};
 use std::sync::Arc;
 use std::time::Duration;
-use test_helpers::{MockAcme, MockFcm, MockFirestore};
+use test_helpers::{MockAcme, MockDns, MockFcm, MockFirestore};
 
 #[tokio::test]
 async fn initially_not_shutting_down() {
@@ -144,7 +144,8 @@ async fn shutdown_stops_maintenance_loop() {
 
     let shutdown = ctrl.clone();
     let loop_handle = tokio::spawn(async move {
-        maintenance::run_maintenance_loop(config, firestore, fcm, acme, shutdown).await;
+        let dns: Arc<dyn rouse_relay::dns::DnsClient> = Arc::new(MockDns::new());
+        maintenance::run_maintenance_loop(config, firestore, fcm, acme, dns, shutdown).await;
     });
 
     // Let it run for a bit
