@@ -36,7 +36,12 @@ class TunnelClientImpl(
     override val errors: SharedFlow<TunnelError> = _errors.asSharedFlow()
 
     override suspend fun connect(url: String) {
-        stateMachine.transition(TunnelState.CONNECTING)
+        if (!stateMachine.transition(TunnelState.CONNECTING)) {
+            println(
+                "TunnelClient: connect() ignored, current state is ${stateMachine.state.value}"
+            )
+            return
+        }
         try {
             val demux = MuxDemux()
             val opened = CompletableDeferred<Unit>()

@@ -30,13 +30,13 @@ class ConnectionStateMachine {
     /**
      * Attempt a state transition.
      *
-     * @return true if the transition was valid and applied
-     * @throws IllegalStateException if the transition is invalid
+     * @return true if the transition was valid and applied, false if invalid (logged as warning)
      */
     fun transition(to: TunnelState): Boolean {
         val from = _state.value
         if (!isValidTransition(from, to)) {
-            throw IllegalStateException("Invalid transition from $from to $to")
+            println("ConnectionStateMachine: ignoring invalid transition from $from to $to")
+            return false
         }
         _state.value = to
         return true

@@ -98,11 +98,16 @@ class TunnelForegroundService : LifecycleService() {
     }
 
     private suspend fun connectToRelay() {
-        if (tunnelClient.state.value == TunnelState.CONNECTING) {
+        val currentState = tunnelClient.state.value
+        if (currentState == TunnelState.CONNECTING) {
             Log.i(TAG, "Already connecting, skipping")
             return
         }
-        if (tunnelClient.state.value == TunnelState.CONNECTED) {
+        if (currentState == TunnelState.ACTIVE) {
+            Log.i(TAG, "Tunnel is active with live streams, skipping reconnect")
+            return
+        }
+        if (currentState == TunnelState.CONNECTED) {
             Log.i(TAG, "Already connected, disconnecting first to refresh")
             // Mark intentional so the state observer doesn't trigger reconnect
             // during the brief DISCONNECTED window before we call connect() below.

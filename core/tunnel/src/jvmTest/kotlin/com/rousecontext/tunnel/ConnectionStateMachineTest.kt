@@ -2,7 +2,7 @@ package com.rousecontext.tunnel
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 class ConnectionStateMachineTest {
 
@@ -98,56 +98,60 @@ class ConnectionStateMachineTest {
     }
 
     @Test
-    fun invalidTransitionDisconnectedToConnectedThrows() {
+    fun invalidTransitionDisconnectedToConnectedReturnsFalse() {
         val sm = ConnectionStateMachine()
-        assertFailsWith<IllegalStateException> {
-            sm.transition(TunnelState.CONNECTED)
-        }
+        assertFalse(sm.transition(TunnelState.CONNECTED))
+        assertEquals(TunnelState.DISCONNECTED, sm.state.value)
     }
 
     @Test
-    fun invalidTransitionDisconnectedToActiveThrows() {
+    fun invalidTransitionDisconnectedToActiveReturnsFalse() {
         val sm = ConnectionStateMachine()
-        assertFailsWith<IllegalStateException> {
-            sm.transition(TunnelState.ACTIVE)
-        }
+        assertFalse(sm.transition(TunnelState.ACTIVE))
+        assertEquals(TunnelState.DISCONNECTED, sm.state.value)
     }
 
     @Test
-    fun invalidTransitionConnectingToActiveThrows() {
+    fun invalidTransitionConnectingToActiveReturnsFalse() {
         val sm = ConnectionStateMachine()
         sm.transition(TunnelState.CONNECTING)
-        assertFailsWith<IllegalStateException> {
-            sm.transition(TunnelState.ACTIVE)
-        }
+        assertFalse(sm.transition(TunnelState.ACTIVE))
+        assertEquals(TunnelState.CONNECTING, sm.state.value)
     }
 
     @Test
-    fun invalidTransitionConnectedToConnectingThrows() {
+    fun invalidTransitionConnectedToConnectingReturnsFalse() {
         val sm = ConnectionStateMachine()
         sm.transition(TunnelState.CONNECTING)
         sm.transition(TunnelState.CONNECTED)
-        assertFailsWith<IllegalStateException> {
-            sm.transition(TunnelState.CONNECTING)
-        }
+        assertFalse(sm.transition(TunnelState.CONNECTING))
+        assertEquals(TunnelState.CONNECTED, sm.state.value)
     }
 
     @Test
-    fun invalidTransitionDisconnectingToActiveThrows() {
+    fun invalidTransitionActiveToConnectingReturnsFalse() {
+        val sm = ConnectionStateMachine()
+        sm.transition(TunnelState.CONNECTING)
+        sm.transition(TunnelState.CONNECTED)
+        sm.transition(TunnelState.ACTIVE)
+        assertFalse(sm.transition(TunnelState.CONNECTING))
+        assertEquals(TunnelState.ACTIVE, sm.state.value)
+    }
+
+    @Test
+    fun invalidTransitionDisconnectingToActiveReturnsFalse() {
         val sm = ConnectionStateMachine()
         sm.transition(TunnelState.CONNECTING)
         sm.transition(TunnelState.CONNECTED)
         sm.transition(TunnelState.DISCONNECTING)
-        assertFailsWith<IllegalStateException> {
-            sm.transition(TunnelState.ACTIVE)
-        }
+        assertFalse(sm.transition(TunnelState.ACTIVE))
+        assertEquals(TunnelState.DISCONNECTING, sm.state.value)
     }
 
     @Test
-    fun transitionToSameStateThrows() {
+    fun transitionToSameStateReturnsFalse() {
         val sm = ConnectionStateMachine()
-        assertFailsWith<IllegalStateException> {
-            sm.transition(TunnelState.DISCONNECTED)
-        }
+        assertFalse(sm.transition(TunnelState.DISCONNECTED))
+        assertEquals(TunnelState.DISCONNECTED, sm.state.value)
     }
 }
