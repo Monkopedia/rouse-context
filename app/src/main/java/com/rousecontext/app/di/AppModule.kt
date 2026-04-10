@@ -206,7 +206,22 @@ val appModule = module {
             tokenStore = get(),
             auditListener = get(),
             hostname = hostname,
-            integration = defaultIntegration
+            integration = defaultIntegration,
+            securityAlertCheck = {
+                val prefs = androidContext().getSharedPreferences(
+                    com.rousecontext.work.SecurityCheckWorker.PREFS_NAME,
+                    android.content.Context.MODE_PRIVATE
+                )
+                val self = prefs.getString(
+                    com.rousecontext.work.SecurityCheckWorker.KEY_SELF_CERT_RESULT,
+                    ""
+                ) ?: ""
+                val ct = prefs.getString(
+                    com.rousecontext.work.SecurityCheckWorker.KEY_CT_LOG_RESULT,
+                    ""
+                ) ?: ""
+                self == "alert" || ct == "alert"
+            }
         ).also { session ->
             session.start(port = 0)
             session.authorizationCodeManager.onNewRequest = { displayCode, integration ->

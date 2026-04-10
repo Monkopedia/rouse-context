@@ -131,6 +131,15 @@ class SettingsViewModel(
         }
     }
 
+    fun acknowledgeAlert() {
+        securityCheckPrefs?.edit()
+            ?.putString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, "")
+            ?.putString(SecurityCheckWorker.KEY_CT_LOG_RESULT, "")
+            ?.putLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L)
+            ?.apply()
+        refresh()
+    }
+
     fun refresh() {
         viewModelScope.launch {
             refreshTrigger.value++

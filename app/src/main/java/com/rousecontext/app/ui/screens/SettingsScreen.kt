@@ -104,6 +104,7 @@ fun SettingsContent(
     onSecurityCheckIntervalChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
+    onAcknowledgeAlert: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -266,7 +267,10 @@ fun SettingsContent(
         if (state.trustStatus != null) {
             Spacer(modifier = Modifier.height(16.dp))
             SectionHeader("Trust Status")
-            TrustStatusSection(state.trustStatus)
+            TrustStatusSection(
+                trustStatus = state.trustStatus,
+                onAcknowledgeAlert = onAcknowledgeAlert
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -305,6 +309,7 @@ fun SettingsScreen(
     onSecurityCheckIntervalChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
+    onAcknowledgeAlert: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -362,6 +367,7 @@ fun SettingsScreen(
             onSecurityCheckIntervalChanged = onSecurityCheckIntervalChanged,
             onGenerateNewAddress = onGenerateNewAddress,
             onFixBatteryOptimization = onFixBatteryOptimization,
+            onAcknowledgeAlert = onAcknowledgeAlert,
             modifier = Modifier.padding(padding)
         )
     }
@@ -370,7 +376,7 @@ fun SettingsScreen(
 private const val FINGERPRINT_TRUNCATE_LENGTH = 23
 
 @Composable
-private fun TrustStatusSection(trustStatus: TrustStatusState) {
+private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert: () -> Unit = {}) {
     val ext = LocalExtendedColors.current
     val (statusIcon, statusColor, statusLabel) = when (trustStatus.overallStatus) {
         TrustOverallStatus.VERIFIED -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
@@ -434,6 +440,29 @@ private fun TrustStatusSection(trustStatus: TrustStatusState) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(12.dp))
                 CertFingerprintRow(trustStatus.certFingerprint)
+            }
+
+            // Acknowledge button when alert is active
+            if (trustStatus.overallStatus == TrustOverallStatus.ALERT) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "MCP requests are blocked while an alert is active.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = statusColor
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onAcknowledgeAlert,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = statusColor
+                    ),
+                    border = BorderStroke(1.dp, statusColor)
+                ) {
+                    Text("Acknowledge")
+                }
             }
         }
     }

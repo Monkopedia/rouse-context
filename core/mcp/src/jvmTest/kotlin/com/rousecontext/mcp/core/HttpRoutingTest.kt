@@ -2,6 +2,7 @@ package com.rousecontext.mcp.core
 
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
@@ -114,5 +115,126 @@ class HttpRoutingTest {
 
         val response = client.get("/.well-known/oauth-authorization-server")
         assertEquals(HttpStatusCode.NotFound, response.status)
+    }
+
+    @Test
+    fun `security alert blocks register with 503`() = testApplication {
+        val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health",
+                securityAlertCheck = { true }
+            )
+        }
+
+        val response = client.post("/register") {
+            header("Content-Type", "application/json")
+        }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("security_alert", json["error"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `security alert blocks token with 503`() = testApplication {
+        val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health",
+                securityAlertCheck = { true }
+            )
+        }
+
+        val response = client.post("/token") {
+            header("Content-Type", "application/json")
+        }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("security_alert", json["error"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `security alert blocks mcp with 503`() = testApplication {
+        val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health",
+                securityAlertCheck = { true }
+            )
+        }
+
+        val response = client.post("/mcp") {
+            header("Content-Type", "application/json")
+            header("Authorization", "Bearer test-token")
+        }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("security_alert", json["error"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `security alert blocks authorize with 503`() = testApplication {
+        val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health",
+                securityAlertCheck = { true }
+            )
+        }
+
+        val response = client.get("/authorize?response_type=code&client_id=x")
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        assertEquals("security_alert", json["error"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `no security alert allows normal request flow`() = testApplication {
+        val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health",
+                securityAlertCheck = { false }
+            )
+        }
+
+        // OAuth metadata should work fine when alert is false
+        val response = client.get("/.well-known/oauth-authorization-server")
+        assertEquals(HttpStatusCode.OK, response.status)
     }
 }

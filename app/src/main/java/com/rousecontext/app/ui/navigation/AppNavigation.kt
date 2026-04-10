@@ -454,7 +454,8 @@ fun AppNavigation(
                         onThemeModeChanged = viewModel::setThemeMode,
                         onSecurityCheckIntervalChanged =
                         viewModel::setSecurityCheckInterval,
-                        onGenerateNewAddress = viewModel::rotateSecret
+                        onGenerateNewAddress = viewModel::rotateSecret,
+                        onAcknowledgeAlert = viewModel::acknowledgeAlert
                     )
                 }
 

@@ -71,6 +71,7 @@ fun Application.configureMcpRouting(
     clock: Clock = SystemClock,
     rateLimiter: RateLimiter? = null,
     mcpRateLimiter: RateLimiter? = null,
+    securityAlertCheck: (() -> Boolean)? = null,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0"
 ) {
@@ -104,6 +105,18 @@ fun Application.configureMcpRouting(
     }
 
     routing {
+        // Helper: if a security alert is active, block the request with 503.
+        suspend fun io.ktor.server.routing.RoutingCall.rejectIfSecurityAlert(): Boolean {
+            if (securityAlertCheck?.invoke() == true) {
+                respond(
+                    HttpStatusCode.ServiceUnavailable,
+                    buildJsonObject { put("error", "security_alert") }
+                )
+                return true
+            }
+            return false
+        }
+
         // RFC 9728: Protected Resource Metadata.
         // Claude's MCP client discovers OAuth by requesting:
         //   GET /.well-known/oauth-protected-resource/mcp
@@ -154,6 +167,7 @@ fun Application.configureMcpRouting(
         // returns a client_id. We don't enforce client authentication for the
         // device code flow, so this is a simple pass-through.
         post("/register") {
+            if (call.rejectIfSecurityAlert()) return@post
             val ri = call.resolveIntegration()
             if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
@@ -289,6 +303,7 @@ fun Application.configureMcpRouting(
 
         // Authorization code flow -- returns HTML page with display code
         get("/authorize") {
+            if (call.rejectIfSecurityAlert()) return@get
             val ri = call.resolveIntegration()
             if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
@@ -391,6 +406,7 @@ fun Application.configureMcpRouting(
 
         // Token exchange -- handles both authorization_code and device_code
         post("/token") {
+            if (call.rejectIfSecurityAlert()) return@post
             val ri = call.resolveIntegration()
             if (registry.providerForPath(ri) == null) {
                 call.respond(HttpStatusCode.NotFound)
@@ -479,6 +495,7 @@ fun Application.configureMcpRouting(
 
         // MCP Streamable HTTP -- Bearer auth required
         post("/mcp") {
+            if (call.rejectIfSecurityAlert()) return@post
             val ri = call.resolveIntegration()
             val provider = registry.providerForPath(ri)
                 ?: run {

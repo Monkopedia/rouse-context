@@ -39,6 +39,7 @@ class McpSession(
     private val integration: String = "health",
     private val rateLimiter: RateLimiter? = null,
     private val mcpRateLimiter: RateLimiter? = null,
+    private val securityAlertCheck: (() -> Boolean)? = null,
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0"
 ) {
@@ -72,6 +73,7 @@ class McpSession(
                 auditListener = auditListener,
                 rateLimiter = rateLimiter,
                 mcpRateLimiter = mcpRateLimiter,
+                securityAlertCheck = securityAlertCheck,
                 serverName = serverName,
                 serverVersion = serverVersion
             )
