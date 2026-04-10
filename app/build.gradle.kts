@@ -131,7 +131,6 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.messaging)
-    implementation(libs.firebase.firestore)
 
     // Health Connect (for HealthConnectIntegration availability check)
     implementation(libs.health.connect)

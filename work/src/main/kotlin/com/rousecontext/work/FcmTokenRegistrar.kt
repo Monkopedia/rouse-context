@@ -1,52 +1,40 @@
 package com.rousecontext.work
 
 import android.util.Log
-import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
-import com.rousecontext.tunnel.CertificateStore
 import kotlinx.coroutines.tasks.await
 
 /**
- * Registers the device's FCM token in Firestore so the relay can send wake messages.
+ * Manages FCM token awareness for the app.
  *
- * The token is written to `devices/{subdomain}` with field `fcm_token`.
+ * The actual delivery of FCM tokens to the relay happens over the tunnel
+ * WebSocket connection (see [TunnelForegroundService.sendFcmToken]).
+ * The relay stores tokens in Firestore using its service account.
+ *
+ * This class only fetches and logs the current token; it does NOT write
+ * directly to Firestore (the app's Firebase client lacks write permissions).
  */
-class FcmTokenRegistrar(
-    private val certificateStore: CertificateStore,
-    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
-) {
+class FcmTokenRegistrar {
 
     /**
-     * Writes [token] to the device's Firestore document.
-     * If no subdomain is configured yet, the write is skipped.
+     * Logs that a new token was received.
+     * Actual delivery to the relay happens via the tunnel WebSocket on next connect.
      */
-    suspend fun registerToken(token: String) {
-        val subdomain = certificateStore.getSubdomain()
-        if (subdomain == null) {
-            Log.w(TAG, "No subdomain configured, skipping FCM token registration")
-            return
-        }
-
-        firestore.collection(COLLECTION)
-            .document(subdomain)
-            .update(FIELD, token)
-            .await()
-
-        Log.i(TAG, "FCM token registered for $subdomain")
+    @Suppress("UnusedParameter")
+    fun registerToken(token: String) {
+        Log.i(TAG, "FCM token refreshed (will be sent to relay on next tunnel connect)")
     }
 
     /**
-     * Fetches the current FCM token and registers it.
-     * Called on app startup to ensure the token is always up to date.
+     * Fetches the current FCM token and logs it.
+     * Called on app startup; the tunnel service sends the token to the relay on connect.
      */
     suspend fun registerCurrentToken() {
         val token = FirebaseMessaging.getInstance().token.await()
-        registerToken(token)
+        Log.d(TAG, "Current FCM token available (length=${token.length})")
     }
 
     companion object {
         private const val TAG = "FcmTokenRegistrar"
-        private const val COLLECTION = "devices"
-        private const val FIELD = "fcm_token"
     }
 }

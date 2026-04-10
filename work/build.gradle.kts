@@ -35,7 +35,6 @@ dependencies {
     implementation(libs.workmanager)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
-    implementation(libs.firebase.firestore)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
