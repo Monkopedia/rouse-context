@@ -57,8 +57,7 @@ class NotificationMcpProvider(
     private fun registerListActive(server: Server) {
         server.addTool(
             name = "list_active_notifications",
-            description = "Returns currently posted notifications on the device." +
-                " Excludes notifications from the Rouse Context app itself.",
+            description = "Returns currently posted notifications on the device.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
@@ -95,7 +94,7 @@ class NotificationMcpProvider(
         server.addTool(
             name = "perform_notification_action",
             description = "Executes an action button on an active notification." +
-                " Cannot act on Rouse Context app notifications.",
+                " Rouse Context's own notifications cannot be acted on.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
@@ -140,8 +139,10 @@ class NotificationMcpProvider(
             val isOwn = activeNotificationSource()
                 .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
             if (isOwn) {
+                val msg = """{"success":false,""" +
+                    """"message":"Cannot act on Rouse Context notifications"}"""
                 return@addTool CallToolResult(
-                    content = listOf(TextContent("""{"success":false,"message":"Cannot act on Rouse Context notifications"}""")),
+                    content = listOf(TextContent(msg)),
                     isError = true
                 )
             }
@@ -166,7 +167,8 @@ class NotificationMcpProvider(
     private fun registerDismiss(server: Server) {
         server.addTool(
             name = "dismiss_notification",
-            description = "Dismisses an active notification by its key.",
+            description = "Dismisses an active notification by its key." +
+                " Rouse Context's own notifications cannot be dismissed.",
             inputSchema = ToolSchema(
                 properties = buildJsonObject {
                     put(
@@ -200,8 +202,10 @@ class NotificationMcpProvider(
             val isOwn = activeNotificationSource()
                 .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
             if (isOwn) {
+                val msg = """{"success":false,""" +
+                    """"message":"Cannot dismiss Rouse Context notifications"}"""
                 return@addTool CallToolResult(
-                    content = listOf(TextContent("""{"success":false,"message":"Cannot dismiss Rouse Context notifications"}""")),
+                    content = listOf(TextContent(msg)),
                     isError = true
                 )
             }

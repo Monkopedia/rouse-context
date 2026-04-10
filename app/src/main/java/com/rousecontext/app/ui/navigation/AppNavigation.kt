@@ -93,7 +93,8 @@ import org.koin.androidx.compose.koinViewModel
 object Routes {
     const val ONBOARDING = "onboarding"
     const val HOME = "home"
-    const val AUDIT = "audit"
+    const val AUDIT = "audit?provider={provider}"
+    const val AUDIT_BASE = "audit"
     const val SETTINGS = "settings"
     const val ADD_INTEGRATION = "add_integration"
     const val INTEGRATION_MANAGE = "integration/{integrationId}"
@@ -107,6 +108,8 @@ object Routes {
     const val AUTH_APPROVAL = "auth_approval"
     const val AUDIT_DETAIL = "audit_detail/{entryId}"
 
+    fun audit(provider: String? = null): String =
+        if (provider != null) "audit?provider=$provider" else "audit"
     fun auditDetail(entryId: Long): String = "audit_detail/$entryId"
     fun integrationManage(id: String): String = "integration/$id"
     fun integrationSetup(id: String): String = "integration_setup/$id"
@@ -117,6 +120,7 @@ object Routes {
 private val TAB_INDEX = mapOf(
     Routes.HOME to 0,
     Routes.AUDIT to 1,
+    Routes.AUDIT_BASE to 1,
     Routes.SETTINGS to 2
 )
 
@@ -217,7 +221,7 @@ fun AppNavigation(
                         NavigationBarItem(
                             selected = selectedTab == 1,
                             onClick = {
-                                navController.navigate(Routes.AUDIT) {
+                                navController.navigate(Routes.AUDIT_BASE) {
                                     popUpTo(Routes.HOME)
                                 }
                             },
@@ -346,13 +350,20 @@ fun AppNavigation(
                             )
                         },
                         onViewAllActivity = {
-                            navController.navigate(Routes.AUDIT)
+                            navController.navigate(Routes.AUDIT_BASE)
                         }
                     )
                 }
 
                 composable(
                     Routes.AUDIT,
+                    arguments = listOf(
+                        navArgument("provider") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        }
+                    ),
                     enterTransition = {
                         val dir = tabSlideDirection(
                             initialState.destination.route,
@@ -371,12 +382,19 @@ fun AppNavigation(
                             targetOffsetX = { -dir * (it / 4) }
                         ) + fadeOut()
                     }
-                ) {
+                ) { backStackEntry ->
                     ConfigureNavBar(
                         title = "Audit History",
                         showBottomBar = true
                     )
                     val viewModel: AuditHistoryViewModel = koinViewModel()
+                    val providerArg = backStackEntry.arguments
+                        ?.getString("provider")
+                    LaunchedEffect(providerArg) {
+                        if (providerArg != null) {
+                            viewModel.setProviderFilter(providerArg)
+                        }
+                    }
                     val state by viewModel.state.collectAsState()
                     AuditHistoryContent(
                         state = state,
@@ -513,6 +531,18 @@ fun AppNavigation(
                             navController.navigate(
                                 Routes.integrationEnabled(integrationId)
                             )
+                        },
+                        onEntryClick = { entryId ->
+                            navController.navigate(
+                                Routes.auditDetail(entryId)
+                            )
+                        },
+                        onViewAllActivity = {
+                            navController.navigate(
+                                Routes.audit(provider = integrationId)
+                            ) {
+                                popUpTo(Routes.HOME)
+                            }
                         },
                         onSettings = {
                             when (integrationId) {

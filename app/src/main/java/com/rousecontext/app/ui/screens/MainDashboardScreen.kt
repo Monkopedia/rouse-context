@@ -71,7 +71,8 @@ data class IntegrationItem(
 data class AuditEntry(
     val time: String,
     val toolName: String,
-    val durationMs: Long
+    val durationMs: Long,
+    val id: Long = 0
 )
 
 sealed interface CertBanner {

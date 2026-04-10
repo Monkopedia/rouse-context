@@ -3,6 +3,7 @@ package com.rousecontext.notifications.audit
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.ToolCallEvent
 import com.rousecontext.notifications.capture.FieldEncryptor
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -22,7 +23,12 @@ class RoomAuditListener(
         scope.launch {
             val argsJson = JsonObject(event.arguments).toString()
             val resultJson = event.result.content
-                .joinToString("\n") { it.toString() }
+                .joinToString("\n") { item ->
+                    when (item) {
+                        is TextContent -> item.text
+                        else -> item.toString()
+                    }
+                }
             dao.insert(
                 AuditEntry(
                     sessionId = event.sessionId,
