@@ -118,7 +118,7 @@ class McpResponseFormatTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        client.post("/health/mcp") {
+        client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(initRequest)
@@ -130,7 +130,7 @@ class McpResponseFormatTest {
             """{"name":"echo","arguments":{"message":"hello"}}""",
             id = 2
         )
-        val response = client.post("/health/mcp") {
+        val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(callRequest)
@@ -175,7 +175,7 @@ class McpResponseFormatTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        client.post("/health/mcp") {
+        client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(initRequest)
@@ -183,7 +183,7 @@ class McpResponseFormatTest {
 
         // List tools
         val listRequest = mcpJsonRpc("tools/list", id = 2)
-        val response = client.post("/health/mcp") {
+        val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(listRequest)
@@ -220,7 +220,7 @@ class McpResponseFormatTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        val response = client.post("/health/mcp") {
+        val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(initRequest)

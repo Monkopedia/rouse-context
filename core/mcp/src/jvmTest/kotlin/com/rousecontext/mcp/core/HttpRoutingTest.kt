@@ -1,6 +1,7 @@
 package com.rousecontext.mcp.core
 
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
@@ -50,20 +51,20 @@ class HttpRoutingTest {
             )
         }
 
-        val response = client.get("/health/.well-known/oauth-authorization-server")
+        val response = client.get("/.well-known/oauth-authorization-server")
         assertEquals(HttpStatusCode.OK, response.status)
 
         val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
         assertEquals(
-            "https://brave-falcon.rousecontext.com/health",
+            "https://brave-falcon.rousecontext.com",
             json["issuer"]?.jsonPrimitive?.content
         )
         assertEquals(
-            "https://brave-falcon.rousecontext.com/health/device/authorize",
+            "https://brave-falcon.rousecontext.com/device/authorize",
             json["device_authorization_endpoint"]?.jsonPrimitive?.content
         )
         assertEquals(
-            "https://brave-falcon.rousecontext.com/health/token",
+            "https://brave-falcon.rousecontext.com/token",
             json["token_endpoint"]?.jsonPrimitive?.content
         )
         val grantTypes = json["grant_types_supported"]?.jsonArray
@@ -87,7 +88,9 @@ class HttpRoutingTest {
             )
         }
 
-        val response = client.get("/unknown/.well-known/oauth-authorization-server")
+        val response = client.get("/.well-known/oauth-authorization-server") {
+            header("Host", "brave-unknown.abc123.rousecontext.com")
+        }
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
 
@@ -109,7 +112,7 @@ class HttpRoutingTest {
             )
         }
 
-        val response = client.get("/health/.well-known/oauth-authorization-server")
+        val response = client.get("/.well-known/oauth-authorization-server")
         assertEquals(HttpStatusCode.NotFound, response.status)
     }
 }
