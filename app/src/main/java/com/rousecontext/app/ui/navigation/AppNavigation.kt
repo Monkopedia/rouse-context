@@ -514,6 +514,27 @@ fun AppNavigation(
                                 Routes.integrationEnabled(integrationId)
                             )
                         },
+                        onSettings = {
+                            when (integrationId) {
+                                HealthConnectSetupViewModel
+                                    .HEALTH_INTEGRATION_ID ->
+                                    navController.navigate(
+                                        Routes.HEALTH_CONNECT_SETUP
+                                    )
+                                NotificationSetupViewModel.INTEGRATION_ID ->
+                                    navController.navigate(
+                                        Routes.NOTIFICATION_SETUP
+                                    )
+                                OutreachSetupViewModel.INTEGRATION_ID ->
+                                    navController.navigate(
+                                        Routes.OUTREACH_SETUP
+                                    )
+                                UsageSetupViewModel.INTEGRATION_ID ->
+                                    navController.navigate(
+                                        Routes.USAGE_SETUP
+                                    )
+                            }
+                        },
                         onDisable = {
                             viewModel.disable()
                             navController.popBackStack()
