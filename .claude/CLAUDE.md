@@ -59,6 +59,14 @@ Skip to step 4 for trivial changes (typos, single-line fixes, obvious bugs).
 - No wildcard imports
 - Structured concurrency — no `GlobalScope`, no unscoped `CoroutineScope()`, no `runBlocking` in production code
 
+## Signing Keystores
+
+- Debug keystore: `.signing/debug.keystore`
+- Release keystore: `.signing/release.keystore`
+- Backups: `~/backups/rouse-context/`
+
+NEVER regenerate these keystores. Regenerating causes signature mismatch, which forces an uninstall (losing all app data) and wastes ACME certificate quota on re-registration.
+
 ## Domain: rousecontext.com
 
 Registered at Squarespace, nameservers pointed to Cloudflare. Each device gets a unique subdomain (e.g. `abc123.rousecontext.com`). Cloudflare DNS API for automated ACME challenge TXT records.
