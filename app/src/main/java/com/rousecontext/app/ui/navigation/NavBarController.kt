@@ -47,10 +47,15 @@ val LocalNavBarController = compositionLocalOf<NavBarController> {
 /**
  * Declaratively configures the persistent app bar from a screen composable.
  * Call at the top of each screen's composition.
+ *
+ * All properties — including [titleContent] — are set atomically inside a
+ * single [LaunchedEffect] keyed on every parameter, which eliminates the
+ * race where `titleContent` from a previous screen is still visible while
+ * the new screen's `LaunchedEffect` hasn't fired yet.
  */
 @Composable
 fun ConfigureNavBar(
-    title: String,
+    title: String = "",
     showBackButton: Boolean = false,
     showBottomBar: Boolean = false,
     showTopBar: Boolean = true,
@@ -58,7 +63,14 @@ fun ConfigureNavBar(
     titleContent: (@Composable () -> Unit)? = null
 ) {
     val controller = LocalNavBarController.current
-    LaunchedEffect(title, showBackButton, showBottomBar, showTopBar) {
+    LaunchedEffect(
+        title,
+        showBackButton,
+        showBottomBar,
+        showTopBar,
+        onBackPressed,
+        titleContent
+    ) {
         controller.title = title
         controller.showBackButton = showBackButton
         controller.showBottomBar = showBottomBar

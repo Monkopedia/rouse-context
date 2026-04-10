@@ -5,6 +5,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -12,6 +13,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -189,67 +191,69 @@ fun AppNavigation(
                 }
             },
             bottomBar = {
-                AnimatedVisibility(
-                    visible = !isOnboarding && controller.showBottomBar,
-                    enter = slideInVertically(
-                        initialOffsetY = { it }
-                    ) + fadeIn(),
-                    exit = slideOutVertically(
-                        targetOffsetY = { it }
-                    ) + fadeOut()
-                ) {
-                    NavigationBar(containerColor = navBarContainerColor()) {
-                        val itemColors = navBarItemColors()
-                        NavigationBarItem(
-                            selected = selectedTab == 0,
-                            onClick = {
-                                navController.navigate(Routes.HOME) {
-                                    popUpTo(Routes.HOME) {
-                                        inclusive = true
+                Column(modifier = Modifier.animateContentSize()) {
+                    AnimatedVisibility(
+                        visible = !isOnboarding && controller.showBottomBar,
+                        enter = slideInVertically(
+                            initialOffsetY = { it }
+                        ) + fadeIn(),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it }
+                        ) + fadeOut()
+                    ) {
+                        NavigationBar(containerColor = navBarContainerColor()) {
+                            val itemColors = navBarItemColors()
+                            NavigationBarItem(
+                                selected = selectedTab == 0,
+                                onClick = {
+                                    navController.navigate(Routes.HOME) {
+                                        popUpTo(Routes.HOME) {
+                                            inclusive = true
+                                        }
                                     }
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    Icons.Default.Home,
-                                    contentDescription = "Home"
-                                )
-                            },
-                            label = { Text("Home") },
-                            colors = itemColors
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 1,
-                            onClick = {
-                                navController.navigate(Routes.AUDIT_BASE) {
-                                    popUpTo(Routes.HOME)
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    Icons.Default.History,
-                                    contentDescription = "Audit"
-                                )
-                            },
-                            label = { Text("Audit") },
-                            colors = itemColors
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == 2,
-                            onClick = {
-                                navController.navigate(Routes.SETTINGS) {
-                                    popUpTo(Routes.HOME)
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    Icons.Default.Settings,
-                                    contentDescription = "Settings"
-                                )
-                            },
-                            label = { Text("Settings") },
-                            colors = itemColors
-                        )
+                                },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Home,
+                                        contentDescription = "Home"
+                                    )
+                                },
+                                label = { Text("Home") },
+                                colors = itemColors
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 1,
+                                onClick = {
+                                    navController.navigate(Routes.AUDIT_BASE) {
+                                        popUpTo(Routes.HOME)
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.History,
+                                        contentDescription = "Audit"
+                                    )
+                                },
+                                label = { Text("Audit") },
+                                colors = itemColors
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 2,
+                                onClick = {
+                                    navController.navigate(Routes.SETTINGS) {
+                                        popUpTo(Routes.HOME)
+                                    }
+                                },
+                                icon = {
+                                    Icon(
+                                        Icons.Default.Settings,
+                                        contentDescription = "Settings"
+                                    )
+                                },
+                                label = { Text("Settings") },
+                                colors = itemColors
+                            )
+                        }
                     }
                 }
             }

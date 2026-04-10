@@ -38,6 +38,7 @@ import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
+import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 @Immutable
@@ -72,29 +73,28 @@ fun IntegrationManageContent(
     onDisable: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
-    val controller = com.rousecontext.app.ui.navigation.LocalNavBarController.current
-    androidx.compose.runtime.LaunchedEffect(state.integrationName, state.status) {
-        controller.title = state.integrationName
-        controller.showBackButton = true
-        controller.showBottomBar = false
-        controller.showTopBar = true
-        controller.onBackPressed = onBack
-    }
-    controller.titleContent = {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(state.integrationName)
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onSettings) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Settings"
-                )
+    ConfigureNavBar(
+        title = state.integrationName,
+        showBackButton = true,
+        showBottomBar = false,
+        showTopBar = true,
+        onBackPressed = onBack,
+        titleContent = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(state.integrationName)
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = onSettings) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings"
+                    )
+                }
             }
         }
-    }
+    )
 
     IntegrationManageBody(
         state = state,
