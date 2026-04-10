@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.RouseApplication
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.SettingsState
@@ -33,7 +34,8 @@ class SettingsViewModel(
     private val relayApiClient: RelayApiClient,
     private val certStore: CertificateStore,
     private val integrations: List<McpIntegration> = emptyList(),
-    private val securityCheckPrefs: SharedPreferences? = null
+    private val securityCheckPrefs: SharedPreferences? = null,
+    private val settingsPrefs: SharedPreferences? = null
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -47,9 +49,14 @@ class SettingsViewModel(
         rotateError
     ) { _, themeMode, rotating, rotateErr ->
         val settings = notificationSettingsProvider.settings
+        val intervalHours = settingsPrefs?.getInt(
+            RouseApplication.KEY_SECURITY_CHECK_INTERVAL_HOURS,
+            RouseApplication.DEFAULT_INTERVAL_HOURS
+        ) ?: RouseApplication.DEFAULT_INTERVAL_HOURS
         SettingsState(
             postSessionMode = settings.postSessionMode.toDisplayString(),
             themeMode = themeMode.toDisplayString(),
+            securityCheckInterval = "$intervalHours hours",
             trustStatus = readTrustStatus(),
             canRotateAddress = !rotating,
             rotationCooldownMessage = rotateErr
@@ -79,6 +86,16 @@ class SettingsViewModel(
         viewModelScope.launch {
             themePreference.setThemeMode(themeMode)
         }
+    }
+
+    fun setSecurityCheckInterval(interval: String) {
+        val hours = interval.replace(" hours", "").toIntOrNull()
+            ?: RouseApplication.DEFAULT_INTERVAL_HOURS
+        settingsPrefs?.edit()?.putInt(
+            RouseApplication.KEY_SECURITY_CHECK_INTERVAL_HOURS,
+            hours
+        )?.apply()
+        refresh()
     }
 
     fun rotateSecret() {

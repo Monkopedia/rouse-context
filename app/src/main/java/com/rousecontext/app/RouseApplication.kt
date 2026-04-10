@@ -1,6 +1,7 @@
 package com.rousecontext.app
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -54,15 +55,18 @@ class RouseApplication : Application() {
     }
 
     private fun scheduleSecurityChecks() {
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val intervalHours = prefs.getInt(KEY_SECURITY_CHECK_INTERVAL_HOURS, DEFAULT_INTERVAL_HOURS)
+        val flexHours = (intervalHours / 4).coerceAtLeast(1)
         val request = PeriodicWorkRequestBuilder<SecurityCheckWorker>(
-            4,
+            intervalHours.toLong(),
             TimeUnit.HOURS,
-            1,
+            flexHours.toLong(),
             TimeUnit.HOURS
         ).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "security-check",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
     }
@@ -89,5 +93,8 @@ class RouseApplication : Application() {
 
     companion object {
         private const val TAG = "RouseApplication"
+        const val PREFS_NAME = "rouse_settings"
+        const val KEY_SECURITY_CHECK_INTERVAL_HOURS = "security_check_interval_hours"
+        const val DEFAULT_INTERVAL_HOURS = 12
     }
 }

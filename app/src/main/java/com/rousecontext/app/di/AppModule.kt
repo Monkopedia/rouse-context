@@ -271,7 +271,23 @@ val appModule = module {
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get(), get()) }
-    viewModel { SettingsViewModel(get(), get(), get(), get(), get()) }
+    viewModel {
+        SettingsViewModel(
+            notificationSettingsProvider = get(),
+            themePreference = get(),
+            relayApiClient = get(),
+            certStore = get(),
+            integrations = get(),
+            securityCheckPrefs = androidContext().getSharedPreferences(
+                com.rousecontext.work.SecurityCheckWorker.PREFS_NAME,
+                android.content.Context.MODE_PRIVATE
+            ),
+            settingsPrefs = androidContext().getSharedPreferences(
+                com.rousecontext.app.RouseApplication.PREFS_NAME,
+                android.content.Context.MODE_PRIVATE
+            )
+        )
+    }
     viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel {
         AuthorizationApprovalViewModel(

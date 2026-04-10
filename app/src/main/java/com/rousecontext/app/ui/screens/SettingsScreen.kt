@@ -81,6 +81,7 @@ data class SettingsState(
     val batteryOptimizationExempt: Boolean = false,
     val postSessionMode: String = "Summary",
     val themeMode: String = "Auto",
+    val securityCheckInterval: String = "12 hours",
     val canRotateAddress: Boolean = true,
     val rotationCooldownMessage: String? = null,
     val showBatteryWarning: Boolean = true,
@@ -100,6 +101,7 @@ fun SettingsContent(
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (String) -> Unit = {},
     onThemeModeChanged: (String) -> Unit = {},
+    onSecurityCheckIntervalChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -182,6 +184,13 @@ fun SettingsContent(
         SectionHeader("Security")
         SettingsSectionCard {
             Column(modifier = Modifier.padding(16.dp)) {
+                SettingsDropdown(
+                    label = "Check interval",
+                    selected = state.securityCheckInterval,
+                    options = listOf("6 hours", "12 hours", "24 hours"),
+                    onSelected = onSecurityCheckIntervalChanged
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -293,6 +302,7 @@ fun SettingsScreen(
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (String) -> Unit = {},
     onThemeModeChanged: (String) -> Unit = {},
+    onSecurityCheckIntervalChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
@@ -349,6 +359,7 @@ fun SettingsScreen(
             onDisableTimeoutToggled = onDisableTimeoutToggled,
             onPostSessionModeChanged = onPostSessionModeChanged,
             onThemeModeChanged = onThemeModeChanged,
+            onSecurityCheckIntervalChanged = onSecurityCheckIntervalChanged,
             onGenerateNewAddress = onGenerateNewAddress,
             onFixBatteryOptimization = onFixBatteryOptimization,
             modifier = Modifier.padding(padding)

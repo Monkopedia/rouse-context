@@ -452,6 +452,8 @@ fun AppNavigation(
                         onPostSessionModeChanged =
                         viewModel::setPostSessionMode,
                         onThemeModeChanged = viewModel::setThemeMode,
+                        onSecurityCheckIntervalChanged =
+                        viewModel::setSecurityCheckInterval,
                         onGenerateNewAddress = viewModel::rotateSecret
                     )
                 }

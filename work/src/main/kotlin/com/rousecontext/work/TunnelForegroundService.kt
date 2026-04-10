@@ -1,5 +1,6 @@
 package com.rousecontext.work
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -9,6 +10,9 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.NotificationChannels
@@ -124,8 +128,27 @@ class TunnelForegroundService : LifecycleService() {
         try {
             tunnelClient.connect(relayUrl)
             sendFcmToken()
+            triggerOpportunisticSecurityCheck()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect to relay", e)
+        }
+    }
+
+    private fun triggerOpportunisticSecurityCheck() {
+        val prefs = getSharedPreferences(
+            SecurityCheckWorker.PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+        val lastCheck = prefs.getLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L)
+        val elapsed = System.currentTimeMillis() - lastCheck
+        if (elapsed > STALE_CHECK_THRESHOLD_MS) {
+            Log.i(TAG, "Last security check was ${elapsed / 3_600_000}h ago, triggering check")
+            val request = OneTimeWorkRequestBuilder<SecurityCheckWorker>().build()
+            WorkManager.getInstance(this).enqueueUniqueWork(
+                SecurityCheckWorker.WORK_NAME + "_opportunistic",
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
         }
     }
 
@@ -247,6 +270,7 @@ class TunnelForegroundService : LifecycleService() {
         private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
         private const val RECONNECT_GIVE_UP_MS = 5 * 60 * 1000L
+        private const val STALE_CHECK_THRESHOLD_MS = 6 * 60 * 60 * 1000L
 
         fun createWakeLock(service: TunnelForegroundService): WakeLockHandle {
             val pm = service.getSystemService(PowerManager::class.java)
