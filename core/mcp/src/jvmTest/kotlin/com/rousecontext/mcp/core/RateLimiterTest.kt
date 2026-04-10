@@ -92,7 +92,7 @@ class RateLimiterTest {
 
         // First two requests should succeed
         repeat(2) {
-            val response = client.post("/health/register") {
+            val response = client.post("/register") {
                 contentType(ContentType.Application.Json)
                 setBody("""{"client_name":"test"}""")
             }
@@ -103,7 +103,7 @@ class RateLimiterTest {
         }
 
         // Third request should be rate limited
-        val response = client.post("/health/register") {
+        val response = client.post("/register") {
             contentType(ContentType.Application.Json)
             setBody("""{"client_name":"test"}""")
         }
@@ -133,11 +133,11 @@ class RateLimiterTest {
         }
 
         // First request should succeed (returns 400 because missing params, but not 429)
-        val first = client.get("/health/authorize")
+        val first = client.get("/authorize")
         assertTrue(first.status != HttpStatusCode.TooManyRequests)
 
         // Second request should be rate limited
-        val second = client.get("/health/authorize")
+        val second = client.get("/authorize")
         assertEquals(HttpStatusCode.TooManyRequests, second.status)
     }
 
@@ -164,14 +164,14 @@ class RateLimiterTest {
         }
 
         // First request
-        val first = client.post("/health/token") {
+        val first = client.post("/token") {
             contentType(ContentType.Application.Json)
             setBody("""{"grant_type":"authorization_code","code":"x","code_verifier":"y"}""")
         }
         assertTrue(first.status != HttpStatusCode.TooManyRequests)
 
         // Second should be rate limited
-        val second = client.post("/health/token") {
+        val second = client.post("/token") {
             contentType(ContentType.Application.Json)
             setBody("""{"grant_type":"authorization_code","code":"x","code_verifier":"y"}""")
         }

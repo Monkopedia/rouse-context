@@ -66,7 +66,7 @@ class SessionHandlerTest {
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
         val responseBody = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
         }
 
         val json = mcpJson.parseToJsonElement(responseBody).jsonObject
@@ -113,13 +113,13 @@ class SessionHandlerTest {
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
         withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
         }
 
         // tools/list
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val listResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", listRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", listRequest, token)
         }
         val tools = mcpJson.parseToJsonElement(listResponse).jsonObject["result"]
             ?.jsonObject?.get("tools")?.jsonArray
@@ -133,7 +133,7 @@ class SessionHandlerTest {
             id = 3
         )
         val callResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", callRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", callRequest, token)
         }
         val content = mcpJson.parseToJsonElement(callResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -176,14 +176,24 @@ class SessionHandlerTest {
 
         val (clientIn, clientOut) = withTimeout(10_000) { clientIo.await() }
 
-        // Initialize health provider
+        // Initialize health provider (using Host header to resolve integration)
         val initRequest = mcpJsonRpc(
             "initialize",
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
+        val healthHost = "brave-health.abc123.rousecontext.com"
+        val testHost = "brave-test.abc123.rousecontext.com"
+
         withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/health/mcp", initRequest, healthToken)
+            httpPost(
+                clientIn,
+                clientOut,
+                "/mcp",
+                initRequest,
+                healthToken,
+                host = healthHost
+            )
         }
 
         // Call health tool
@@ -193,7 +203,14 @@ class SessionHandlerTest {
             id = 2
         )
         val healthResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/health/mcp", healthCall, healthToken)
+            httpPost(
+                clientIn,
+                clientOut,
+                "/mcp",
+                healthCall,
+                healthToken,
+                host = healthHost
+            )
         }
         val healthContent = mcpJson.parseToJsonElement(healthResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -202,9 +219,16 @@ class SessionHandlerTest {
             healthContent?.get(0)?.jsonObject?.get("text")?.jsonPrimitive?.content
         )
 
-        // Initialize test provider on the same stream
+        // Initialize test provider on the same stream (different Host)
         withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, testToken)
+            httpPost(
+                clientIn,
+                clientOut,
+                "/mcp",
+                initRequest,
+                testToken,
+                host = testHost
+            )
         }
 
         // Call echo tool
@@ -214,7 +238,14 @@ class SessionHandlerTest {
             id = 3
         )
         val echoResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", echoCall, testToken)
+            httpPost(
+                clientIn,
+                clientOut,
+                "/mcp",
+                echoCall,
+                testToken,
+                host = testHost
+            )
         }
         val echoContent = mcpJson.parseToJsonElement(echoResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -264,14 +295,14 @@ class SessionHandlerTest {
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
         val unauthorizedStatus = withTimeout(10_000) {
-            httpPostStatus(clientIn, clientOut, "/test/mcp", initRequest, bearerToken = null)
+            httpPostStatus(clientIn, clientOut, "/mcp", initRequest, bearerToken = null)
         }
         assertEquals(401, unauthorizedStatus)
 
         // Step 2: Start device code flow
         val authorizeBody = """{"client_id":"test-client"}"""
         val authorizeResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/device/authorize", authorizeBody)
+            httpPost(clientIn, clientOut, "/device/authorize", authorizeBody)
         }
         val authorizeJson = mcpJson.parseToJsonElement(authorizeResponse).jsonObject
         val deviceCode = authorizeJson["device_code"]?.jsonPrimitive?.content
@@ -283,7 +314,7 @@ class SessionHandlerTest {
         val grantType = "urn:ietf:params:oauth:grant-type:device_code"
         val pollBody = """{"device_code":"$deviceCode","grant_type":"$grantType"}"""
         val pendingResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/token", pollBody)
+            httpPost(clientIn, clientOut, "/token", pollBody)
         }
         assertTrue(
             pendingResponse.contains("authorization_pending"),
@@ -295,7 +326,7 @@ class SessionHandlerTest {
 
         // Step 5: Poll again should get token
         val approvedResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/token", pollBody)
+            httpPost(clientIn, clientOut, "/token", pollBody)
         }
         val approvedJson = mcpJson.parseToJsonElement(approvedResponse).jsonObject
         val accessToken = approvedJson["access_token"]?.jsonPrimitive?.content
@@ -303,7 +334,7 @@ class SessionHandlerTest {
 
         // Step 6: Use token to make MCP request
         val responseBody = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/test/mcp", initRequest, accessToken)
+            httpPost(clientIn, clientOut, "/mcp", initRequest, accessToken)
         }
         val result = mcpJson.parseToJsonElement(responseBody).jsonObject["result"]?.jsonObject
         assertTrue(result != null, "Expected result")
@@ -349,9 +380,10 @@ class SessionHandlerTest {
         output: OutputStream,
         path: String,
         body: String,
-        bearerToken: String? = null
+        bearerToken: String? = null,
+        host: String = "test.rousecontext.com"
     ): String {
-        val (_, responseBody) = httpPostRaw(input, output, path, body, bearerToken)
+        val (_, responseBody) = httpPostRaw(input, output, path, body, bearerToken, host)
         return responseBody
     }
 
@@ -360,9 +392,10 @@ class SessionHandlerTest {
         output: OutputStream,
         path: String,
         body: String,
-        bearerToken: String? = null
+        bearerToken: String? = null,
+        host: String = "test.rousecontext.com"
     ): Int {
-        val (statusCode, _) = httpPostRaw(input, output, path, body, bearerToken)
+        val (statusCode, _) = httpPostRaw(input, output, path, body, bearerToken, host)
         return statusCode
     }
 
@@ -371,12 +404,13 @@ class SessionHandlerTest {
         output: OutputStream,
         path: String,
         body: String,
-        bearerToken: String? = null
+        bearerToken: String? = null,
+        host: String = "test.rousecontext.com"
     ): Pair<Int, String> {
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         val sb = StringBuilder()
         sb.append("POST $path HTTP/1.1\r\n")
-        sb.append("Host: test.rousecontext.com\r\n")
+        sb.append("Host: $host\r\n")
         sb.append("Content-Type: application/json\r\n")
         sb.append("Content-Length: ${bodyBytes.size}\r\n")
         sb.append("Connection: keep-alive\r\n")

@@ -47,13 +47,13 @@ class AuthMiddlewareTest {
             )
         }
 
-        val response = client.post("/health/mcp")
+        val response = client.post("/mcp")
         assertEquals(HttpStatusCode.Unauthorized, response.status)
         val wwwAuth = response.headers["WWW-Authenticate"]
         assertTrue(wwwAuth != null && wwwAuth.contains("Bearer"))
         assertTrue(
             wwwAuth != null && wwwAuth.contains(
-                "https://test.rousecontext.com/health/.well-known/oauth-authorization-server"
+                "https://test.rousecontext.com/.well-known/oauth-protected-resource"
             )
         )
     }
@@ -76,7 +76,7 @@ class AuthMiddlewareTest {
         }
 
         // MCP endpoint with valid token should not return 401
-        val response = client.post("/health/mcp") {
+        val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
         }
         // It won't return a full MCP response in this test setup,
@@ -102,7 +102,7 @@ class AuthMiddlewareTest {
             )
         }
 
-        val response = client.post("/health/mcp") {
+        val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
         }
         assertEquals(HttpStatusCode.Unauthorized, response.status)
@@ -129,7 +129,7 @@ class AuthMiddlewareTest {
             )
         }
 
-        val response = client.post("/health/mcp") {
+        val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
         }
         assertEquals(HttpStatusCode.Unauthorized, response.status)
@@ -152,15 +152,15 @@ class AuthMiddlewareTest {
         }
 
         // OAuth metadata - no auth required
-        val metadataResp = client.get("/health/.well-known/oauth-authorization-server")
+        val metadataResp = client.get("/.well-known/oauth-authorization-server")
         assertEquals(HttpStatusCode.OK, metadataResp.status)
 
         // Device authorize - no auth required
-        val authorizeResp = client.post("/health/device/authorize")
+        val authorizeResp = client.post("/device/authorize")
         assertEquals(HttpStatusCode.OK, authorizeResp.status)
 
         // Token endpoint - no auth required (it checks device_code instead)
-        val tokenResp = client.post("/health/token")
+        val tokenResp = client.post("/token")
         // May return 400 (bad request due to missing params) but NOT 401
         assertTrue(tokenResp.status != HttpStatusCode.Unauthorized)
     }

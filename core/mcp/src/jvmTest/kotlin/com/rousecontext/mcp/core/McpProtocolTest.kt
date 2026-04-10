@@ -117,7 +117,7 @@ class McpProtocolTest {
         token: String,
         body: String
     ): io.ktor.client.statement.HttpResponse {
-        return post("/health/mcp") {
+        return post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(body)

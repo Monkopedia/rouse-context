@@ -67,7 +67,7 @@ class AuthPageCspTest {
         }
 
         val response = client.get(
-            "/health/authorize?" +
+            "/authorize?" +
                 "response_type=code&" +
                 "client_id=test-client&" +
                 "code_challenge=$validChallenge&" +
@@ -142,7 +142,7 @@ class AuthPageCspTest {
         }
 
         val response = client.get(
-            "/health/authorize?" +
+            "/authorize?" +
                 "response_type=code&" +
                 "client_id=test-client&" +
                 "code_challenge=$validChallenge&" +
@@ -183,7 +183,7 @@ class AuthPageCspTest {
         }
 
         val response = client.get(
-            "/health/authorize?" +
+            "/authorize?" +
                 "response_type=code&" +
                 "client_id=test-client&" +
                 "code_challenge=$validChallenge&" +
@@ -228,7 +228,7 @@ class AuthPageCspTest {
         }
 
         val response = client.get(
-            "/health/authorize?" +
+            "/authorize?" +
                 "response_type=code&" +
                 "client_id=test-client&" +
                 "code_challenge=$validChallenge&" +

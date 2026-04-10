@@ -21,16 +21,15 @@ class KtorMcpSessionFactory(
 ) : McpSessionFactory {
 
     override suspend fun create(): McpSessionHandle {
+        val defaultIntegration = registry.enabledPaths().firstOrNull() ?: "unknown"
         val server = embeddedServer(CIO, port = 0) {
-            for (integration in registry.enabledPaths()) {
-                configureMcpRouting(
-                    registry = registry,
-                    tokenStore = tokenStore,
-                    deviceCodeManager = deviceCodeManager,
-                    hostname = "test.rousecontext.com",
-                    integration = integration
-                )
-            }
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com",
+                integration = defaultIntegration
+            )
         }
         server.start(wait = false)
         val port = server.engine.resolvedConnectors().first().port
