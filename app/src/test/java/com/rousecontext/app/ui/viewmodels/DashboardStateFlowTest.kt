@@ -10,12 +10,15 @@ import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.tunnel.TunnelState
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -36,6 +39,9 @@ import org.junit.Test
 class DashboardStateFlowTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val fakeTunnelClient = mockk<TunnelClient> {
+        every { state } returns MutableStateFlow(TunnelState.DISCONNECTED)
+    }
 
     @Before
     fun setup() {
@@ -74,7 +80,8 @@ class DashboardStateFlowTest {
                     coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
-            )
+            ),
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -119,7 +126,8 @@ class DashboardStateFlowTest {
                     coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
-            )
+            ),
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -176,7 +184,8 @@ class DashboardStateFlowTest {
                     coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
-            )
+            ),
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -237,7 +246,8 @@ class DashboardStateFlowTest {
                     coEvery { getSecretForIntegration(any()) } returns "test-secret"
                 },
                 "rousecontext.com"
-            )
+            ),
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {

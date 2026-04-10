@@ -14,10 +14,11 @@ import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
+import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.tunnel.TunnelState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -33,10 +34,11 @@ class MainDashboardViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
-    private val urlProvider: McpUrlProvider
+    private val urlProvider: McpUrlProvider,
+    tunnelClient: TunnelClient
 ) : ViewModel() {
 
-    private val connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
+    private val tunnelStateFlow = tunnelClient.state
 
     private val recentAuditFlow = auditDao.observeRecent(
         startMillis = System.currentTimeMillis() - RECENT_WINDOW_MS,
@@ -45,10 +47,15 @@ class MainDashboardViewModel(
     )
 
     val state: StateFlow<DashboardState> = combine(
-        connectionStatus,
+        tunnelStateFlow,
         stateStore.observeChanges().onStart { emit(Unit) },
         recentAuditFlow
-    ) { connection, _, recentEntries ->
+    ) { tunnelState, _, recentEntries ->
+        val connection = when (tunnelState) {
+            TunnelState.CONNECTED, TunnelState.ACTIVE -> ConnectionStatus.CONNECTED
+            else -> ConnectionStatus.DISCONNECTED
+        }
+        val sessionCount = if (tunnelState == TunnelState.ACTIVE) 1 else 0
         val items = integrations.mapNotNull { integration ->
             val derived = deriveIntegrationState(
                 userEnabled = stateStore.isUserEnabled(integration.id),
@@ -92,6 +99,7 @@ class MainDashboardViewModel(
 
         DashboardState(
             connectionStatus = connection,
+            activeSessionCount = sessionCount,
             integrations = items,
             recentActivity = recent,
             hasMoreIntegrationsToAdd = hasMoreToAdd
@@ -108,10 +116,6 @@ class MainDashboardViewModel(
      */
     fun refresh() {
         // Currently a no-op; kept for future non-reactive state.
-    }
-
-    fun setConnectionStatus(status: ConnectionStatus) {
-        connectionStatus.value = status
     }
 
     companion object {

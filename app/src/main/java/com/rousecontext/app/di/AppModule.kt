@@ -280,7 +280,8 @@ val appModule = module {
             stateStore = get(),
             tokenStore = get(),
             auditDao = get(),
-            urlProvider = get()
+            urlProvider = get(),
+            tunnelClient = get()
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }

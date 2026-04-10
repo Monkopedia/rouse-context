@@ -11,12 +11,15 @@ import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.tunnel.TunnelState
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -32,6 +35,10 @@ import org.junit.Test
 class MainDashboardViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val tunnelStateFlow = MutableStateFlow(TunnelState.DISCONNECTED)
+    private val fakeTunnelClient = mockk<TunnelClient> {
+        every { state } returns tunnelStateFlow
+    }
     private val fakeUrlProvider = McpUrlProvider(
         mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "test-device"
@@ -43,6 +50,7 @@ class MainDashboardViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        tunnelStateFlow.value = TunnelState.DISCONNECTED
     }
 
     @After
@@ -83,7 +91,8 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            urlProvider = fakeUrlProvider
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -117,7 +126,8 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            urlProvider = fakeUrlProvider
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -158,7 +168,8 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            urlProvider = fakeUrlProvider
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -191,7 +202,8 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            urlProvider = fakeUrlProvider
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
         )
 
         vm.state.test {
@@ -205,6 +217,35 @@ class MainDashboardViewModelTest {
             val updated = awaitItem()
             assertEquals(1, updated.integrations.size)
             assertEquals(IntegrationStatus.ACTIVE, updated.integrations[0].status)
+        }
+    }
+
+    @Test
+    fun `connection status reflects tunnel state`() = runTest(testDispatcher) {
+        val vm = createViewModel()
+        vm.state.test {
+            // Initial: DISCONNECTED
+            assertEquals(ConnectionStatus.DISCONNECTED, awaitItem().connectionStatus)
+
+            // Tunnel becomes CONNECTED
+            tunnelStateFlow.value = TunnelState.CONNECTED
+            assertEquals(ConnectionStatus.CONNECTED, awaitItem().connectionStatus)
+
+            // Tunnel becomes ACTIVE (has streams)
+            tunnelStateFlow.value = TunnelState.ACTIVE
+            val active = awaitItem()
+            assertEquals(ConnectionStatus.CONNECTED, active.connectionStatus)
+            assertEquals(1, active.activeSessionCount)
+
+            // Tunnel goes back to CONNECTED (streams closed)
+            tunnelStateFlow.value = TunnelState.CONNECTED
+            val connected = awaitItem()
+            assertEquals(ConnectionStatus.CONNECTED, connected.connectionStatus)
+            assertEquals(0, connected.activeSessionCount)
+
+            // Tunnel disconnects
+            tunnelStateFlow.value = TunnelState.DISCONNECTED
+            assertEquals(ConnectionStatus.DISCONNECTED, awaitItem().connectionStatus)
         }
     }
 
@@ -226,7 +267,8 @@ class MainDashboardViewModelTest {
             stateStore = stateStore,
             tokenStore = tokenStore,
             auditDao = auditDao,
-            urlProvider = fakeUrlProvider
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
         )
     }
 
