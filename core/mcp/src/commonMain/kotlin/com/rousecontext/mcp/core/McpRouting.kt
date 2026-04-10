@@ -94,7 +94,10 @@ fun Application.configureMcpRouting(
     // e.g. "exact-health.abc123.rousecontext.com" -> "health"
     // Falls back to the configured integration parameter.
     fun io.ktor.server.routing.RoutingCall.resolveIntegration(): String {
-        val host = request.headers["Host"] ?: return integration
+        val host = request.headers["Host"]
+            ?.substringBefore(":") // strip port if present
+            ?.takeIf { it.isNotEmpty() }
+            ?: return integration
         val firstLabel = host.split(".").firstOrNull() ?: return integration
         val parts = firstLabel.split("-", limit = 2)
         return if (parts.size == 2) parts[1] else integration

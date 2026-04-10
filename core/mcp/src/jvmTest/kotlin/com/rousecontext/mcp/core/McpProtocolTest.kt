@@ -516,6 +516,98 @@ class McpProtocolTest {
     }
 
     @Test
+    fun `audit event records integration from Host header not default`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        registry.register("health", FullProvider())
+        registry.setEnabled("health", true)
+        registry.register(
+            "notifications",
+            object : McpServerProvider {
+                override val id = "notifications"
+                override val displayName = "Notifications"
+                override fun register(server: Server) {
+                    server.addTool(
+                        name = "send_notification",
+                        description = "Send a notification",
+                        inputSchema = ToolSchema(
+                            properties = buildJsonObject {
+                                put(
+                                    "message",
+                                    buildJsonObject {
+                                        put("type", JsonPrimitive("string"))
+                                    }
+                                )
+                            },
+                            required = listOf("message")
+                        )
+                    ) { _ ->
+                        CallToolResult(content = listOf(TextContent("sent")))
+                    }
+                }
+            }
+        )
+        registry.setEnabled("notifications", true)
+
+        val tokenStore = InMemoryTokenStore()
+        // Create tokens for both integrations
+        tokenStore.createTokenPair("health", "test-client")
+        val notifToken = tokenStore.createTokenPair("notifications", "test-client").accessToken
+
+        val events = mutableListOf<ToolCallEvent>()
+
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-health.abc123.rousecontext.com",
+                integration = "health",
+                auditListener = object : AuditListener {
+                    override fun onToolCall(event: ToolCallEvent) {
+                        events.add(event)
+                    }
+                }
+            )
+        }
+
+        // Initialize with notifications Host header
+        val initRequest = mcpJsonRpc(
+            "initialize",
+            """{"protocolVersion":"2025-03-26","capabilities":{}""" +
+                ""","clientInfo":{"name":"test","version":"1.0"}}"""
+        )
+        client.post("/mcp") {
+            header("Authorization", "Bearer $notifToken")
+            header("Host", "brave-notifications.abc123.rousecontext.com")
+            contentType(ContentType.Application.Json)
+            setBody(initRequest)
+        }
+
+        // Tool call with notifications Host header
+        val callRequest = mcpJsonRpc(
+            "tools/call",
+            """{"name":"send_notification","arguments":{"message":"hello"}}""",
+            id = 2
+        )
+        val response = client.post("/mcp") {
+            header("Authorization", "Bearer $notifToken")
+            header("Host", "brave-notifications.abc123.rousecontext.com")
+            contentType(ContentType.Application.Json)
+            setBody(callRequest)
+        }
+
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("Expected exactly one audit event", 1, events.size)
+
+        val event = events[0]
+        assertEquals("send_notification", event.toolName)
+        // The audit event must record "notifications", NOT the default "health"
+        assertEquals("notifications", event.providerId)
+        assertEquals("notifications", event.sessionId)
+    }
+
+    @Test
     fun `null audit listener does not break tool calls`() = testApplication {
         val (registry, tokenStore, token) = buildTestEnv()
         configureTestApp(registry, tokenStore, auditListener = null).invoke(this)
