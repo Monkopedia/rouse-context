@@ -67,6 +67,7 @@ fun IntegrationManageContent(
     onViewAllActivity: () -> Unit = {},
     onViewAllClients: () -> Unit = {},
     onRevokeClient: (String) -> Unit = {},
+    onEntryClick: (Long) -> Unit = {},
     onSettings: () -> Unit = {},
     onDisable: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -101,6 +102,7 @@ fun IntegrationManageContent(
         onViewAllActivity = onViewAllActivity,
         onViewAllClients = onViewAllClients,
         onRevokeClient = onRevokeClient,
+        onEntryClick = onEntryClick,
         onDisable = onDisable
     )
 }
@@ -113,6 +115,7 @@ fun IntegrationManageScreen(
     onViewAllActivity: () -> Unit = {},
     onViewAllClients: () -> Unit = {},
     onRevokeClient: (String) -> Unit = {},
+    onEntryClick: (Long) -> Unit = {},
     onSettings: () -> Unit = {},
     onDisable: () -> Unit = {},
     onBack: () -> Unit = {}
@@ -141,6 +144,7 @@ fun IntegrationManageScreen(
             onViewAllActivity = onViewAllActivity,
             onViewAllClients = onViewAllClients,
             onRevokeClient = onRevokeClient,
+            onEntryClick = onEntryClick,
             onDisable = onDisable,
             modifier = Modifier.padding(padding)
         )
@@ -154,6 +158,7 @@ private fun IntegrationManageBody(
     onViewAllActivity: () -> Unit = {},
     onViewAllClients: () -> Unit = {},
     onRevokeClient: (String) -> Unit = {},
+    onEntryClick: (Long) -> Unit = {},
     onDisable: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -293,7 +298,9 @@ private fun IntegrationManageBody(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         visibleActivity.forEachIndexed { index, entry ->
-                            ListRow {
+                            ListRow(
+                                onClick = { onEntryClick(entry.id) }
+                            ) {
                                 Text(
                                     entry.toolName,
                                     style = MaterialTheme.typography.bodyMedium,

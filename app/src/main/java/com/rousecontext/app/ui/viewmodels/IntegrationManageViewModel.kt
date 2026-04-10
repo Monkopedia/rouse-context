@@ -55,6 +55,7 @@ class IntegrationManageViewModel(
                 provider = id
             ).takeLast(RECENT_LIMIT).map { entry ->
                 AuditEntry(
+                    id = entry.id,
                     time = TIME_FORMAT.format(Date(entry.timestampMillis)),
                     toolName = entry.toolName,
                     durationMs = entry.durationMillis
