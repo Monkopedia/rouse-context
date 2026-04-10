@@ -12,9 +12,9 @@ import kotlinx.coroutines.flow.first
  * completion and [com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel]
  * can wait for it.
  */
-class DeviceRegistrationStatus {
+class DeviceRegistrationStatus(initiallyRegistered: Boolean = false) {
 
-    private val _complete = MutableStateFlow(false)
+    private val _complete = MutableStateFlow(initiallyRegistered)
     val complete: StateFlow<Boolean> = _complete.asStateFlow()
 
     fun markComplete() {

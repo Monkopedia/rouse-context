@@ -90,7 +90,13 @@ val appModule = module {
     single { McpUrlProvider(get()) }
 
     // --- Device registration status ---
-    single { DeviceRegistrationStatus() }
+    single {
+        val certStore: CertificateStore = get()
+        val alreadyRegistered = kotlinx.coroutines.runBlocking {
+            certStore.getSubdomain() != null
+        }
+        DeviceRegistrationStatus(initiallyRegistered = alreadyRegistered)
+    }
 
     // --- Onboarding ---
     single { CsrGenerator() }
