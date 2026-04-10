@@ -184,7 +184,7 @@ class OutreachMcpProvider(
         message: String,
         priority: String?
     ): NotificationCompat.Builder = NotificationCompat.Builder(context, CHANNEL_ID)
-        .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
+        .setSmallIcon(com.rousecontext.api.R.drawable.ic_stat_rouse)
         .setContentTitle(title)
         .setContentText(message)
         .setAutoCancel(true)

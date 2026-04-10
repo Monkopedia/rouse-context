@@ -30,7 +30,7 @@ android {
 
 dependencies {
     implementation(project(":core:mcp"))
-    implementation(project(":notifications"))
+    implementation(project(":api"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)

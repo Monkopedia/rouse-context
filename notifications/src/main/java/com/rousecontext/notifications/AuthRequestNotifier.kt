@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import com.rousecontext.api.R as ApiR
 
 /**
  * Posts high-priority notifications for authorization requests.
@@ -76,7 +77,7 @@ class AuthRequestNotifier(
             context,
             NotificationChannels.AUTH_REQUEST_CHANNEL_ID
         )
-            .setSmallIcon(R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setColor(0xFFea4335.toInt())
             .setContentTitle("Approval Required")
             .setContentText("Code: $displayCode - Tap to approve or deny")

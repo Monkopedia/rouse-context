@@ -3,6 +3,7 @@ package com.rousecontext.notifications
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.rousecontext.api.R as ApiR
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -11,7 +12,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 
 /**
- * Verifies that every notification type uses [R.drawable.ic_stat_rouse]
+ * Verifies that every notification type uses [ApiR.drawable.ic_stat_rouse]
  * as the small icon, not a system drawable or placeholder.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -32,7 +33,7 @@ class NotificationIconTest {
     @Test
     fun `foreground notification uses ic_stat_rouse`() {
         val notification = createForegroundNotification(context, "Connected")
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -41,7 +42,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.getNotification(NotificationAdapter.FOREGROUND_ID)
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -50,7 +51,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -59,7 +60,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -68,7 +69,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -77,7 +78,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -86,7 +87,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -95,7 +96,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -104,7 +105,7 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
@@ -120,6 +121,6 @@ class NotificationIconTest {
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.getNotification(AuthRequestNotifier.BASE_ID)
-        assertEquals(R.drawable.ic_stat_rouse, notification.smallIcon.resId)
+        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 }

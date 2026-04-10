@@ -3,6 +3,7 @@ package com.rousecontext.notifications
 import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
+import com.rousecontext.api.R as ApiR
 
 /**
  * Translates [NotificationAction]s into Android [NotificationManager] calls.
@@ -80,7 +81,7 @@ class NotificationAdapter(private val context: Context) {
         NotificationCompat.Builder(context, NotificationChannels.SESSION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
@@ -89,7 +90,7 @@ class NotificationAdapter(private val context: Context) {
         NotificationCompat.Builder(context, NotificationChannels.ERROR_CHANNEL_ID)
             .setContentTitle("Error")
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
@@ -98,7 +99,7 @@ class NotificationAdapter(private val context: Context) {
         NotificationCompat.Builder(context, NotificationChannels.ALERT_CHANNEL_ID)
             .setContentTitle("Security Alert")
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()

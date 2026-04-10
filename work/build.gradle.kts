@@ -24,6 +24,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":api"))
     implementation(project(":core:tunnel"))
     implementation(project(":core:bridge"))
     implementation(project(":notifications"))

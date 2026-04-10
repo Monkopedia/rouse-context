@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.rousecontext.api.R as ApiR
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.createForegroundNotification
 import org.junit.Rule
@@ -300,7 +301,7 @@ class NotificationScreenshotTest {
             PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(context, NotificationChannels.AUTH_REQUEST_CHANNEL_ID)
-            .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setColor(0xFFea4335.toInt())
             .setContentTitle("Approval Required")
             .setContentText("Code: AB3X-9K2F \u2014 Tap to approve or deny")
@@ -317,7 +318,7 @@ class NotificationScreenshotTest {
         NotificationCompat.Builder(context, NotificationChannels.SESSION_CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
@@ -326,7 +327,7 @@ class NotificationScreenshotTest {
         NotificationCompat.Builder(context, NotificationChannels.ERROR_CHANNEL_ID)
             .setContentTitle("Error")
             .setContentText(text)
-            .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
@@ -335,7 +336,7 @@ class NotificationScreenshotTest {
         NotificationCompat.Builder(context, NotificationChannels.ALERT_CHANNEL_ID)
             .setContentTitle("Security Alert")
             .setContentText(text)
-            .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
+            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
