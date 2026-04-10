@@ -5,9 +5,12 @@ import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -36,7 +39,7 @@ class AuditHistoryViewModelTest {
     @Test
     fun `initial state has empty groups and default filters`() = runTest(testDispatcher) {
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
         }
         val vm = AuditHistoryViewModel(auditDao)
 
@@ -56,7 +59,7 @@ class AuditHistoryViewModelTest {
             createEntry(2, now - 2000, "get_heart_rate")
         )
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns entries
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(entries)
         }
 
         val vm = AuditHistoryViewModel(auditDao)
@@ -72,7 +75,7 @@ class AuditHistoryViewModelTest {
     @Test
     fun `changing provider filter queries with correct provider`() = runTest(testDispatcher) {
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
         }
 
         val vm = AuditHistoryViewModel(auditDao)
@@ -84,13 +87,13 @@ class AuditHistoryViewModelTest {
             assertEquals("health", state.providerFilter)
         }
 
-        coVerify { auditDao.queryByDateRange(any(), any(), "health") }
+        verify { auditDao.observeByDateRange(any(), any(), "health") }
     }
 
     @Test
     fun `clearHistory deletes all entries`() = runTest(testDispatcher) {
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
             coEvery { deleteOlderThan(any()) } returns 5
         }
 

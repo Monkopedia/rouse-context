@@ -24,7 +24,7 @@ interface AuditDao {
         "SELECT * FROM audit_entries " +
             "WHERE timestampMillis >= :startMillis AND timestampMillis <= :endMillis " +
             "AND (:provider IS NULL OR provider = :provider) " +
-            "ORDER BY timestampMillis ASC"
+            "ORDER BY timestampMillis DESC"
     )
     suspend fun queryByDateRange(
         startMillis: Long,
@@ -43,6 +43,21 @@ interface AuditDao {
             "LIMIT :limit"
     )
     fun observeRecent(startMillis: Long, endMillis: Long, limit: Int): Flow<List<AuditEntry>>
+
+    /**
+     * Reactive version of [queryByDateRange] - Room re-emits whenever the table changes.
+     */
+    @Query(
+        "SELECT * FROM audit_entries " +
+            "WHERE timestampMillis >= :startMillis AND timestampMillis <= :endMillis " +
+            "AND (:provider IS NULL OR provider = :provider) " +
+            "ORDER BY timestampMillis DESC"
+    )
+    fun observeByDateRange(
+        startMillis: Long,
+        endMillis: Long,
+        provider: String? = null
+    ): Flow<List<AuditEntry>>
 
     @Query("DELETE FROM audit_entries WHERE timestampMillis < :cutoffMillis")
     suspend fun deleteOlderThan(cutoffMillis: Long): Int

@@ -805,7 +805,7 @@ internal fun buildAuthorizePage(
                     } catch (e) {
                         // Ignore transient fetch errors
                     }
-                }, 3000);
+                }, 1000);
             </script>
         </body>
         </html>

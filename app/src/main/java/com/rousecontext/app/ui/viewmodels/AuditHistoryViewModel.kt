@@ -15,10 +15,13 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -34,21 +37,24 @@ class AuditHistoryViewModel(
     private val dateFilter = MutableStateFlow("Today")
     private val refreshTrigger = MutableStateFlow(0)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<AuditHistoryState> = combine(
         providerFilter,
         dateFilter,
         refreshTrigger
     ) { provider, date, _ ->
+        Triple(provider, date, Unit)
+    }.flatMapLatest { (provider, date, _) ->
         val (startMillis, endMillis) = dateRangeFor(date)
         val providerArg = if (provider == "All providers") null else provider
-        val entries = auditDao.queryByDateRange(startMillis, endMillis, providerArg)
-        val groups = groupByDate(entries, fieldEncryptor)
-
-        AuditHistoryState(
-            groups = groups,
-            providerFilter = provider,
-            dateFilter = date
-        )
+        auditDao.observeByDateRange(startMillis, endMillis, providerArg).map { entries ->
+            val groups = groupByDate(entries, fieldEncryptor)
+            AuditHistoryState(
+                groups = groups,
+                providerFilter = provider,
+                dateFilter = date
+            )
+        }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
