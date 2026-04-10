@@ -78,9 +78,7 @@ fun IntegrationManageContent(
         controller.showBottomBar = false
         controller.showTopBar = true
         controller.onBackPressed = onBack
-        controller.titleContent = null
     }
-    // Set custom title content with gear action
     controller.titleContent = {
         Row(
             verticalAlignment = Alignment.CenterVertically,
