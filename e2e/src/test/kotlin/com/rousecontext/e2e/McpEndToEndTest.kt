@@ -131,6 +131,37 @@ class McpEndToEndTest {
     }
 
     @Test
+    @Order(0)
+    fun `00 - unauthenticated POST returns 401 with WWW-Authenticate`() {
+        val body = buildJsonObject {
+            put("method", "initialize")
+            put("jsonrpc", "2.0")
+            put("id", 1)
+        }
+
+        val request = Request.Builder()
+            .url(mcpUrl)
+            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            assertEquals(401, response.code, "Expected 401 for unauthenticated request")
+            val wwwAuth = response.header("WWW-Authenticate")
+            assertNotNull(wwwAuth, "Missing WWW-Authenticate header on 401 response")
+            assertTrue(
+                wwwAuth!!.contains("resource_metadata"),
+                "WWW-Authenticate should contain 'resource_metadata', got: $wwwAuth"
+            )
+            assertTrue(
+                wwwAuth.contains("/.well-known/oauth-protected-resource"),
+                "WWW-Authenticate should reference " +
+                    "'/.well-known/oauth-protected-resource', got: $wwwAuth"
+            )
+            println("401 WWW-Authenticate: $wwwAuth")
+        }
+    }
+
+    @Test
     @Order(1)
     fun `01 - discover OAuth protected resource`() {
         val request = Request.Builder()
