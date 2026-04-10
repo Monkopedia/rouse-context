@@ -67,6 +67,8 @@ class OAuthEndToEndTest {
     companion object {
         private const val RELAY_HOSTNAME = "localhost"
         private const val DEVICE_SUBDOMAIN = "test-device"
+        private const val INTEGRATION = "test"
+        private const val INTEGRATION_HOST = "exact-$INTEGRATION.$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
     }
 
     private lateinit var tempDir: File
@@ -119,7 +121,7 @@ class OAuthEndToEndTest {
      *
      * 1. Device connects via TunnelClientImpl with mTLS
      * 2. AI client connects via TLS to device subdomain through relay
-     * 3. POST /mcp without auth -> 401 Unauthorized
+     * 3. POST /mcp without auth -> 401 Unauthorized (Host header routes to integration)
      * 4. GET /.well-known/oauth-authorization-server -> OAuth metadata
      * 5. POST /register -> dynamic client registration -> client_id
      * 6. GET /authorize with PKCE challenge -> HTML with display code
@@ -165,12 +167,12 @@ class OAuthEndToEndTest {
             val input = aiSocket.inputStream
             val output = aiSocket.outputStream
 
-            // --- Step 1: POST /test/mcp without auth -> 401 ---
+            // --- Step 1: POST /mcp without auth -> 401 ---
             val unauthResponse = httpRequest(
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc("initialize", initializeParams())
             )
             assertEquals(
@@ -184,7 +186,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/test/.well-known/oauth-authorization-server"
+                path = "/.well-known/oauth-authorization-server"
             )
             assertEquals(200, metadataResponse.statusCode)
             val metadata = mcpJson.parseToJsonElement(metadataResponse.body).jsonObject
@@ -206,7 +208,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/register",
+                path = "/register",
                 body = registerBody
             )
             assertEquals(
@@ -224,7 +226,7 @@ class OAuthEndToEndTest {
 
             // --- Step 5: GET /authorize with PKCE ---
             val state = "test-state-${System.nanoTime()}"
-            val authorizePath = "/test/authorize" +
+            val authorizePath = "/authorize" +
                 "?response_type=code" +
                 "&client_id=$clientId" +
                 "&code_challenge=$codeChallenge" +
@@ -264,7 +266,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/test/authorize/status?request_id=$requestId"
+                path = "/authorize/status?request_id=$requestId"
             )
             assertEquals(200, pendingResponse.statusCode)
             val pendingJson = mcpJson.parseToJsonElement(pendingResponse.body).jsonObject
@@ -282,7 +284,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "GET",
-                path = "/test/authorize/status?request_id=$requestId"
+                path = "/authorize/status?request_id=$requestId"
             )
             assertEquals(200, approvedResponse.statusCode)
             val approvedJson = mcpJson.parseToJsonElement(approvedResponse.body).jsonObject
@@ -304,7 +306,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/token",
+                path = "/token",
                 body = tokenBody,
                 contentType = "application/x-www-form-urlencoded"
             )
@@ -321,12 +323,12 @@ class OAuthEndToEndTest {
                 tokenJson["token_type"]?.jsonPrimitive?.content
             )
 
-            // --- Step 10: POST /test/mcp with Bearer token + initialize ---
+            // --- Step 10: POST /mcp with Bearer token + initialize ---
             val initResponse = httpRequest(
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc("initialize", initializeParams()),
                 bearerToken = accessToken
             )
@@ -349,7 +351,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = """{"jsonrpc":"2.0","method":"notifications/initialized"}""",
                 bearerToken = accessToken
             )
@@ -359,7 +361,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc("tools/list", id = 2),
                 bearerToken = accessToken
             )
@@ -378,7 +380,7 @@ class OAuthEndToEndTest {
                 input,
                 output,
                 method = "POST",
-                path = "/test/mcp",
+                path = "/mcp",
                 body = mcpJsonRpc(
                     "tools/call",
                     """{"name":"echo","arguments":{"message":"hello through OAuth relay"}}""",
@@ -460,8 +462,8 @@ class OAuthEndToEndTest {
                         tokenStore = tokenStore,
                         deviceCodeManager = deviceCodeManager,
                         authorizationCodeManager = authorizationCodeManager,
-                        hostname = "$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME",
-                        integration = "test"
+                        hostname = INTEGRATION_HOST,
+                        integration = INTEGRATION
                     )
                 }
                 server.start(wait = false)
@@ -535,7 +537,7 @@ class OAuthEndToEndTest {
     ): HttpResponse {
         val sb = StringBuilder()
         sb.append("$method $path HTTP/1.1\r\n")
-        sb.append("Host: $DEVICE_SUBDOMAIN.$RELAY_HOSTNAME\r\n")
+        sb.append("Host: $INTEGRATION_HOST\r\n")
 
         if (body != null) {
             val bodyBytes = body.toByteArray(Charsets.UTF_8)
