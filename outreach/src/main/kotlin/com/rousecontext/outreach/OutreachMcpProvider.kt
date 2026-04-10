@@ -7,6 +7,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -163,6 +164,7 @@ class OutreachMcpProvider(
                 ?: return@addTool errorResult("Missing title")
             val message = request.params.arguments?.get("message")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing message")
+            val priority = request.params.arguments?.get("priority")?.jsonPrimitive?.content
 
             if (!notificationRateLimiter.tryAcquire("send_notification")) {
                 return@addTool errorResult(
@@ -171,7 +173,7 @@ class OutreachMcpProvider(
             }
 
             val notificationId = notificationIdCounter.getAndIncrement()
-            val builder = buildNotification(title, message)
+            val builder = buildNotification(title, message, priority)
             addNotificationActions(builder, request, notificationId)
 
             val nm = context.getSystemService(NotificationManager::class.java)
@@ -186,13 +188,16 @@ class OutreachMcpProvider(
         }
     }
 
-    private fun buildNotification(title: String, message: String): NotificationCompat.Builder =
-        NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+    private fun buildNotification(
+        title: String,
+        message: String,
+        priority: String?
+    ): NotificationCompat.Builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        .setSmallIcon(com.rousecontext.notifications.R.drawable.ic_stat_rouse)
+        .setContentTitle(title)
+        .setContentText(message)
+        .setAutoCancel(true)
+        .setPriority(parsePriority(priority))
 
     private fun addNotificationActions(
         builder: NotificationCompat.Builder,
@@ -225,13 +230,13 @@ class OutreachMcpProvider(
     private fun registerListInstalledApps(server: Server) {
         server.addTool(
             name = "list_installed_apps",
-            description = "List installed apps that can be launched",
+            description = "List installed apps on the device",
             inputSchema = optionalStringSchema("filter", "Optional text to filter apps by name")
         ) { request ->
             val filter = request.params.arguments?.get(
                 "filter"
             )?.jsonPrimitive?.content?.lowercase()
-            val apps = queryLaunchableApps(filter)
+            val apps = queryInstalledApps(filter)
             CallToolResult(
                 content = listOf(TextContent("[${apps.joinToString(",")}]"))
             )
@@ -239,26 +244,30 @@ class OutreachMcpProvider(
     }
 
     @Suppress("DEPRECATION")
-    private fun queryLaunchableApps(filter: String?): List<String> {
+    private fun queryInstalledApps(filter: String?): List<String> {
         val pm = context.packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-        val activities = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pm.queryIntentActivities(
-                mainIntent,
-                android.content.pm.PackageManager.ResolveInfoFlags.of(0)
+        val allApps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            pm.getInstalledApplications(
+                android.content.pm.PackageManager.ApplicationInfoFlags.of(0)
             )
         } else {
-            pm.queryIntentActivities(mainIntent, 0)
+            pm.getInstalledApplications(0)
         }
-        return activities.mapNotNull { resolveInfo ->
-            val appName = resolveInfo.loadLabel(pm).toString()
-            val packageName = resolveInfo.activityInfo.packageName
+        return allApps.mapNotNull { appInfo ->
+            // Filter out system apps that aren't user-visible (no launcher intent, not updated)
+            val isSystem = appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0
+            val isUpdatedSystem = appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0
+            val hasLauncher = pm.getLaunchIntentForPackage(appInfo.packageName) != null
+            if (isSystem && !isUpdatedSystem && !hasLauncher) return@mapNotNull null
+
+            val appName = pm.getApplicationLabel(appInfo).toString()
             if (filter != null && !appName.lowercase().contains(filter)) {
                 null
             } else {
-                """{"package":"$packageName","name":"${appName.escapeJson()}"}"""
+                val systemFlag = isSystem && !isUpdatedSystem
+                """{"package":"${appInfo.packageName}",""" +
+                    """"name":"${appName.escapeJson()}",""" +
+                    """"system":$systemFlag}"""
             }
         }.sorted()
     }
@@ -340,6 +349,12 @@ class OutreachMcpProvider(
         private const val RATE_LIMIT_WINDOW_MS = 60_000L
         private const val MAX_NOTIFICATION_ACTIONS = 3
     }
+}
+
+private fun parsePriority(priority: String?): Int = when (priority?.lowercase()) {
+    "low" -> NotificationCompat.PRIORITY_LOW
+    "high" -> NotificationCompat.PRIORITY_HIGH
+    else -> NotificationCompat.PRIORITY_DEFAULT
 }
 
 private fun filterToMode(filter: Int): String = when (filter) {
@@ -459,6 +474,26 @@ private fun notificationSchema() = ToolSchema(
             buildJsonObject {
                 put("type", JsonPrimitive("string"))
                 put("description", JsonPrimitive("Notification body text"))
+            }
+        )
+        put(
+            "priority",
+            buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put(
+                    "description",
+                    JsonPrimitive("Notification priority: low, default, or high")
+                )
+                put(
+                    "enum",
+                    kotlinx.serialization.json.JsonArray(
+                        listOf(
+                            JsonPrimitive("low"),
+                            JsonPrimitive("default"),
+                            JsonPrimitive("high")
+                        )
+                    )
+                )
             }
         )
         put(
