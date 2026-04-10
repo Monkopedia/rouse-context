@@ -907,8 +907,10 @@ fun AppNavigation(
                             url = mcpUrl
                         ),
                         onCancel = {
-                            navController.navigate(Routes.HOME) {
-                                popUpTo(Routes.HOME) { inclusive = true }
+                            navController.navigate(
+                                Routes.integrationManage(integrationId)
+                            ) {
+                                popUpTo(Routes.HOME)
                             }
                         }
                     )
