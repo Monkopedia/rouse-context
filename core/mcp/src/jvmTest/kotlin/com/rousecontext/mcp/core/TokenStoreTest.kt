@@ -156,6 +156,22 @@ class TokenStoreTest {
     }
 
     @Test
+    fun `refresh token revokes old access token`() {
+        val store = InMemoryTokenStore()
+        val pair = store.createTokenPair("health", "client-1")
+
+        assertTrue(store.validateToken("health", pair.accessToken))
+
+        val newPair = store.refreshToken("health", pair.refreshToken)
+        assertNotNull(newPair)
+
+        // Old access token should be revoked after refresh
+        assertFalse(store.validateToken("health", pair.accessToken))
+        // New access token should work
+        assertTrue(store.validateToken("health", newPair!!.accessToken))
+    }
+
+    @Test
     fun `unknown refresh token returns null`() {
         val store = InMemoryTokenStore()
         val result = store.refreshToken("health", "nonexistent-token")

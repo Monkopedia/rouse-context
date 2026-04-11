@@ -65,6 +65,7 @@ class McpEndToEndTest {
     private var codeChallenge: String? = null
     private var authCode: String? = null
     private var accessToken: String? = null
+    private var refreshToken: String? = null
 
     @BeforeAll
     fun setup() {
@@ -337,8 +338,11 @@ class McpEndToEndTest {
             assertEquals(200, response.code, "Token exchange failed: $bodyText")
             val body = json.parseToJsonElement(bodyText).jsonObject
             accessToken = body["access_token"]?.jsonPrimitive?.content
+            refreshToken = body["refresh_token"]?.jsonPrimitive?.content
             assertNotNull(accessToken, "Missing access_token")
+            assertNotNull(refreshToken, "Missing refresh_token")
             println("Access token obtained: ${accessToken!!.take(10)}...")
+            println("Refresh token obtained: ${refreshToken!!.take(10)}...")
         }
     }
 
@@ -450,6 +454,210 @@ class McpEndToEndTest {
             val text = content!![0].jsonObject["text"]?.jsonPrimitive?.content
             assertEquals("hello from e2e test", text, "Echo tool returned wrong content")
             println("Echo response: $text")
+        }
+    }
+
+    @Test
+    @Order(9)
+    fun `09 - refresh token returns new access token`() {
+        val oldAccessToken = accessToken!!
+
+        val formBody = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", refreshToken!!)
+            .add("client_id", clientId!!)
+            .apply { clientSecret?.let { add("client_secret", it) } }
+            .build()
+
+        val request = Request.Builder()
+            .url("$baseUrl/token")
+            .post(formBody)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "Refresh token exchange failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
+            val newAccessToken = body["access_token"]?.jsonPrimitive?.content
+            val newRefreshToken = body["refresh_token"]?.jsonPrimitive?.content
+            assertNotNull(newAccessToken, "Missing access_token in refresh response")
+            assertNotNull(newRefreshToken, "Missing refresh_token in refresh response")
+            assertTrue(
+                newAccessToken != oldAccessToken,
+                "Refresh should return a different access token"
+            )
+            accessToken = newAccessToken
+            refreshToken = newRefreshToken
+            println("New access token: ${newAccessToken!!.take(10)}...")
+            println("New refresh token: ${newRefreshToken!!.take(10)}...")
+        }
+    }
+
+    @Test
+    @Order(10)
+    fun `10 - new access token works for MCP calls`() {
+        val callBody = buildJsonObject {
+            put("method", "tools/call")
+            put("jsonrpc", "2.0")
+            put("id", 4)
+            put(
+                "params",
+                buildJsonObject {
+                    put("name", "echo")
+                    put(
+                        "arguments",
+                        buildJsonObject {
+                            put("message", "hello after refresh")
+                        }
+                    )
+                }
+            )
+        }
+
+        val request = Request.Builder()
+            .url(mcpUrl)
+            .post(callBody.toString().toRequestBody("application/json".toMediaType()))
+            .header("Authorization", "Bearer $accessToken")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "MCP call with new access token failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
+            val text = body["result"]?.jsonObject
+                ?.get("content")?.jsonArray
+                ?.get(0)?.jsonObject
+                ?.get("text")?.jsonPrimitive?.content
+            assertEquals("hello after refresh", text, "Echo tool returned wrong content")
+            println("Echo with refreshed token: $text")
+        }
+    }
+
+    @Test
+    @Order(11)
+    fun `11 - old access token is revoked after refresh`() {
+        // We saved oldAccessToken in step 09 via the accessToken field before overwrite,
+        // but we need to use a token we know is old. Re-derive from the flow:
+        // After step 09, accessToken was updated to the new one. The old one was the
+        // value before the refresh. We need to track it separately.
+        // Actually, we don't have the old token saved — let's do a second refresh
+        // and verify the previous token stops working.
+
+        // Current accessToken is from the refresh in step 09.
+        val tokenBeforeRefresh = accessToken!!
+
+        // Do another refresh to get yet another new token
+        val formBody = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", refreshToken!!)
+            .add("client_id", clientId!!)
+            .apply { clientSecret?.let { add("client_secret", it) } }
+            .build()
+
+        val request = Request.Builder()
+            .url("$baseUrl/token")
+            .post(formBody)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "Second refresh failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
+            accessToken = body["access_token"]?.jsonPrimitive?.content
+            refreshToken = body["refresh_token"]?.jsonPrimitive?.content
+            assertNotNull(accessToken, "Missing access_token")
+            assertNotNull(refreshToken, "Missing refresh_token")
+        }
+
+        // Now try using the old access token — should be revoked
+        val callBody = buildJsonObject {
+            put("method", "tools/call")
+            put("jsonrpc", "2.0")
+            put("id", 5)
+            put(
+                "params",
+                buildJsonObject {
+                    put("name", "echo")
+                    put(
+                        "arguments",
+                        buildJsonObject {
+                            put("message", "should fail")
+                        }
+                    )
+                }
+            )
+        }
+
+        val oldRequest = Request.Builder()
+            .url(mcpUrl)
+            .post(callBody.toString().toRequestBody("application/json".toMediaType()))
+            .header("Authorization", "Bearer $tokenBeforeRefresh")
+            .build()
+
+        client.newCall(oldRequest).execute().use { response ->
+            assertEquals(
+                401,
+                response.code,
+                "Old access token should be revoked after refresh, but got ${response.code}"
+            )
+            println("Old access token correctly rejected with 401")
+        }
+    }
+
+    @Test
+    @Order(12)
+    fun `12 - used refresh token cannot be reused`() {
+        // The refresh token from step 09 was already used in step 11.
+        // We need to test with a known-consumed refresh token.
+        // The current refreshToken is from step 11's refresh. Let's use it,
+        // then try to use it again.
+        val currentRefresh = refreshToken!!
+
+        // First use — should succeed
+        val formBody = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", currentRefresh)
+            .add("client_id", clientId!!)
+            .apply { clientSecret?.let { add("client_secret", it) } }
+            .build()
+
+        val request = Request.Builder()
+            .url("$baseUrl/token")
+            .post(formBody)
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val bodyText = response.body?.string() ?: ""
+            assertEquals(200, response.code, "First refresh use failed: $bodyText")
+            val body = json.parseToJsonElement(bodyText).jsonObject
+            accessToken = body["access_token"]?.jsonPrimitive?.content
+            refreshToken = body["refresh_token"]?.jsonPrimitive?.content
+        }
+
+        // Second use of same refresh token — should fail (rotation)
+        val replayBody = FormBody.Builder()
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", currentRefresh)
+            .add("client_id", clientId!!)
+            .apply { clientSecret?.let { add("client_secret", it) } }
+            .build()
+
+        val replayRequest = Request.Builder()
+            .url("$baseUrl/token")
+            .post(replayBody)
+            .build()
+
+        client.newCall(replayRequest).execute().use { response ->
+            assertEquals(
+                400,
+                response.code,
+                "Reused refresh token should be rejected, but got ${response.code}"
+            )
+            val bodyText = response.body?.string() ?: ""
+            val body = json.parseToJsonElement(bodyText).jsonObject
+            val error = body["error"]?.jsonPrimitive?.content
+            assertEquals("invalid_grant", error, "Expected invalid_grant error")
+            println("Reused refresh token correctly rejected: $error")
         }
     }
 

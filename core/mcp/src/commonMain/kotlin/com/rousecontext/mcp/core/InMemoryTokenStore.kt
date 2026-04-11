@@ -109,8 +109,13 @@ class InMemoryTokenStore(
             if (stored.integrationId != integrationId) return null
             if (clock.currentTimeMillis() > stored.expiresAt) return null
 
-            // Rotate: invalidate old refresh token
+            // Rotate: invalidate old refresh token and revoke existing access tokens
             stored.revoked = true
+            tokens.filter {
+                it.integrationId == integrationId &&
+                    it.clientId == stored.clientId &&
+                    !it.revoked
+            }.forEach { it.revoked = true }
 
             return createTokenPair(integrationId, stored.clientId, stored.clientName)
         }
