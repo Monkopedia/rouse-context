@@ -133,7 +133,7 @@ fun SettingsContent(
         // Connection section
         SectionHeader("Connection")
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                 SettingsDropdown(
                     label = "Idle timeout",
                     selected = "${state.idleTimeoutMinutes} min",
@@ -143,19 +143,18 @@ fun SettingsContent(
                         onIdleTimeoutChanged(minutes)
                     }
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                SwitchRow(
-                    title = "Disable timeout",
-                    subtitle = if (!state.batteryOptimizationExempt) {
-                        "(requires battery exemption)"
-                    } else {
-                        null
-                    },
-                    checked = state.idleTimeoutDisabled,
-                    onCheckedChange = onDisableTimeoutToggled,
-                    enabled = state.batteryOptimizationExempt
-                )
             }
+            SwitchRow(
+                title = "Disable timeout",
+                subtitle = if (!state.batteryOptimizationExempt) {
+                    "(requires battery exemption)"
+                } else {
+                    null
+                },
+                checked = state.idleTimeoutDisabled,
+                onCheckedChange = onDisableTimeoutToggled,
+                enabled = state.batteryOptimizationExempt
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))

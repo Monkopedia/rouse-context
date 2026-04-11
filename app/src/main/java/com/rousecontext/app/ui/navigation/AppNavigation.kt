@@ -59,7 +59,6 @@ import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditHistoryContent
 import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
 import com.rousecontext.app.ui.screens.AuthorizationApprovalScreen
-import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
 import com.rousecontext.app.ui.screens.HealthConnectSetupContent
 import com.rousecontext.app.ui.screens.HomeDashboardContent
 import com.rousecontext.app.ui.screens.IntegrationEnabledContent
@@ -77,7 +76,6 @@ import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
-import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupState
@@ -108,7 +106,6 @@ object Routes {
     const val OUTREACH_SETUP = "outreach_setup/{mode}"
     const val USAGE_SETUP = "usage_setup/{mode}"
     const val INTEGRATION_ENABLED = "integration_enabled/{integrationId}"
-    const val DEVICE_CODE = "device_code/{integrationId}"
     const val AUTH_APPROVAL = "auth_approval"
     const val ALL_CLIENTS = "all_clients/{integrationId}"
     const val AUDIT_DETAIL = "audit_detail/{entryId}"
@@ -120,7 +117,6 @@ object Routes {
     fun integrationManage(id: String): String = "integration/$id"
     fun integrationSetup(id: String): String = "integration_setup/$id"
     fun integrationEnabled(id: String): String = "integration_enabled/$id"
-    fun deviceCode(id: String): String = "device_code/$id"
     fun healthConnectSetup(mode: SetupMode): String = "health_connect_setup/${mode.name}"
     fun notificationSetup(mode: SetupMode): String = "notification_setup/${mode.name}"
     fun outreachSetup(mode: SetupMode): String = "outreach_setup/${mode.name}"
@@ -1123,29 +1119,6 @@ fun AppNavigation(
                                 popUpTo(Routes.HOME)
                             }
                         }
-                    )
-                }
-
-                composable(
-                    route = Routes.DEVICE_CODE,
-                    arguments = listOf(
-                        navArgument("integrationId") {
-                            type = NavType.StringType
-                        }
-                    )
-                ) {
-                    ConfigureNavBar(
-                        title = "Approve Connection",
-                        showTopBar = false
-                    )
-                    val viewModel: DeviceCodeApprovalViewModel =
-                        koinViewModel()
-                    val state by viewModel.state.collectAsState()
-                    DeviceCodeApprovalScreen(
-                        state = state,
-                        onCodeChanged = viewModel::onCodeChanged,
-                        onApprove = viewModel::approve,
-                        onDeny = viewModel::deny
                     )
                 }
 

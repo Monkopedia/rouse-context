@@ -26,7 +26,6 @@ import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
-import com.rousecontext.app.ui.viewmodels.DeviceCodeApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
@@ -304,7 +303,6 @@ val appModule = module {
             )
         )
     }
-    viewModel { DeviceCodeApprovalViewModel(get()) }
     viewModel {
         AuthorizationApprovalViewModel(
             get<McpSession>().authorizationCodeManager,

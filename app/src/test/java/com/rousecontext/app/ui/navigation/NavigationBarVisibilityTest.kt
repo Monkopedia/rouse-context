@@ -113,14 +113,6 @@ class NavigationBarVisibilityTest {
     }
 
     @Test
-    fun `DEVICE_CODE route hides navigation bars`() {
-        assertFalse(
-            "DEVICE_CODE should hide bars",
-            shouldShowBars(Routes.DEVICE_CODE)
-        )
-    }
-
-    @Test
     fun `AUTH_APPROVAL route hides navigation bars`() {
         assertFalse(
             "AUTH_APPROVAL should hide bars",
@@ -183,14 +175,6 @@ class NavigationBarVisibilityTest {
         assertFalse(
             "Resolved audit_detail/42 should hide bars",
             shouldShowBars(Routes.auditDetail(42))
-        )
-    }
-
-    @Test
-    fun `resolved device code route hides navigation bars`() {
-        assertFalse(
-            "Resolved device_code/health should hide bars",
-            shouldShowBars(Routes.deviceCode("health"))
         )
     }
 

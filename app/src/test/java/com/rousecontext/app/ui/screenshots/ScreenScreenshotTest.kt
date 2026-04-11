@@ -19,8 +19,6 @@ import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionConfirmedScreen
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
-import com.rousecontext.app.ui.screens.DeviceCodeApprovalScreen
-import com.rousecontext.app.ui.screens.DeviceCodeApprovalState
 import com.rousecontext.app.ui.screens.HealthConnectSettingsScreen
 import com.rousecontext.app.ui.screens.HealthConnectSettingsState
 import com.rousecontext.app.ui.screens.HealthConnectSetupScreen
@@ -357,30 +355,6 @@ class ScreenScreenshotTest {
     @Test
     fun authorizationApprovalRequestsLight() = captureLight("22_authorization_approval_requests") {
         AuthorizationApprovalScreen(pendingRequests = authApprovalRequests())
-    }
-
-    @Test
-    fun deviceCodeApprovalEmptyDark() = captureDark("23_device_code_approval_empty") {
-        DeviceCodeApprovalScreen()
-    }
-
-    @Test
-    fun deviceCodeApprovalEmptyLight() = captureLight("23_device_code_approval_empty") {
-        DeviceCodeApprovalScreen()
-    }
-
-    @Test
-    fun deviceCodeApprovalFilledDark() = captureDark("24_device_code_approval_filled") {
-        DeviceCodeApprovalScreen(
-            state = DeviceCodeApprovalState(enteredCode = "ABCD1234")
-        )
-    }
-
-    @Test
-    fun deviceCodeApprovalFilledLight() = captureLight("24_device_code_approval_filled") {
-        DeviceCodeApprovalScreen(
-            state = DeviceCodeApprovalState(enteredCode = "ABCD1234")
-        )
     }
 
     // =========================================================================
