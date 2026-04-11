@@ -285,9 +285,7 @@ class RealRelayIntegrationTest {
             webSocket: WebSocket,
             statusCode: Int,
             reason: String
-        ): CompletionStage<*> {
-            return CompletableFuture.completedFuture(null)
-        }
+        ): CompletionStage<*> = CompletableFuture.completedFuture(null)
 
         override fun onError(webSocket: WebSocket, error: Throwable) {
             errors.add(error)

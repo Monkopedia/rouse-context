@@ -16,7 +16,4 @@ expect class CsrGenerator() {
 /**
  * Result of CSR generation, containing the PEM-encoded CSR and private key.
  */
-data class CsrResult(
-    val csrPem: String,
-    val privateKeyPem: String
-)
+data class CsrResult(val csrPem: String, val privateKeyPem: String)

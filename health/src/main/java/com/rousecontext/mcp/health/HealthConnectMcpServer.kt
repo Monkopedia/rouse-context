@@ -27,9 +27,7 @@ import kotlinx.serialization.json.put
  * - `query_health_data` -- generic query by record type and time range
  * - `get_health_summary` -- high-level summary across types for a period
  */
-class HealthConnectMcpServer(
-    private val repository: HealthConnectRepository
-) : McpServerProvider {
+class HealthConnectMcpServer(private val repository: HealthConnectRepository) : McpServerProvider {
 
     override val id = "health-connect"
     override val displayName = "Health Connect"

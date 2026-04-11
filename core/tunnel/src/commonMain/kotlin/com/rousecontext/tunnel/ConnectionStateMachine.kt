@@ -46,11 +46,13 @@ class ConnectionStateMachine {
         TunnelState.DISCONNECTED -> to == TunnelState.CONNECTING
         TunnelState.CONNECTING -> to == TunnelState.CONNECTED || to == TunnelState.DISCONNECTED
         TunnelState.CONNECTED ->
-            to == TunnelState.ACTIVE || to == TunnelState.DISCONNECTING ||
+            to == TunnelState.ACTIVE ||
+                to == TunnelState.DISCONNECTING ||
                 to == TunnelState.DISCONNECTED
 
         TunnelState.ACTIVE ->
-            to == TunnelState.DISCONNECTING || to == TunnelState.CONNECTED ||
+            to == TunnelState.DISCONNECTING ||
+                to == TunnelState.CONNECTED ||
                 to == TunnelState.DISCONNECTED
 
         TunnelState.DISCONNECTING -> to == TunnelState.DISCONNECTED

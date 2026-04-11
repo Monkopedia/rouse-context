@@ -20,9 +20,7 @@ import kotlinx.coroutines.CompletableDeferred
  * certificates during TLS handshake, making it suitable for connecting
  * to the relay as a device.
  */
-class MtlsWebSocketFactory(
-    private val sslContext: SSLContext
-) : WebSocketFactory {
+class MtlsWebSocketFactory(private val sslContext: SSLContext) : WebSocketFactory {
 
     override fun connect(url: String, listener: WebSocketListener): WebSocketHandle {
         val handle = JavaWebSocketHandle()

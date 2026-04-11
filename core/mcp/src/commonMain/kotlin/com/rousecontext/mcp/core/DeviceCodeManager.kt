@@ -25,10 +25,7 @@ data class DeviceCodeResponse(
 /**
  * Result of [DeviceCodeManager.poll].
  */
-data class DeviceCodePollResult(
-    val status: DeviceCodeStatus,
-    val tokenPair: TokenPair? = null
-)
+data class DeviceCodePollResult(val status: DeviceCodeStatus, val tokenPair: TokenPair? = null)
 
 private const val DEFAULT_POLL_INTERVAL_SECONDS = 5
 private const val DEVICE_CODE_TTL_MS = 10L * 60 * 1000 // 10 minutes
@@ -199,8 +196,4 @@ class DeviceCodeManager(
 /**
  * A pending device code awaiting user approval, for display in the UI.
  */
-data class PendingDeviceCode(
-    val userCode: String,
-    val integrationId: String,
-    val createdAt: Long
-)
+data class PendingDeviceCode(val userCode: String, val integrationId: String, val createdAt: Long)

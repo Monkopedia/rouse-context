@@ -22,16 +22,12 @@ private val Context.integrationDataStore: DataStore<Preferences>
  * internally for reads. This is acceptable because DataStore reads from a
  * cached in-memory snapshot after the first access.
  */
-class DataStoreIntegrationStateStore(
-    private val context: Context
-) : IntegrationStateStore {
+class DataStoreIntegrationStateStore(private val context: Context) : IntegrationStateStore {
 
     private val dataStore get() = context.integrationDataStore
 
-    override fun isUserEnabled(integrationId: String): Boolean {
-        return runBlocking {
-            dataStore.data.first()[enabledKey(integrationId)] ?: false
-        }
+    override fun isUserEnabled(integrationId: String): Boolean = runBlocking {
+        dataStore.data.first()[enabledKey(integrationId)] ?: false
     }
 
     override fun setUserEnabled(integrationId: String, enabled: Boolean) {
@@ -45,21 +41,16 @@ class DataStoreIntegrationStateStore(
         }
     }
 
-    override fun observeUserEnabled(integrationId: String): Flow<Boolean> {
-        return dataStore.data.map { prefs ->
+    override fun observeUserEnabled(integrationId: String): Flow<Boolean> =
+        dataStore.data.map { prefs ->
             prefs[enabledKey(integrationId)] ?: false
         }
+
+    override fun wasEverEnabled(integrationId: String): Boolean = runBlocking {
+        dataStore.data.first()[everEnabledKey(integrationId)] ?: false
     }
 
-    override fun wasEverEnabled(integrationId: String): Boolean {
-        return runBlocking {
-            dataStore.data.first()[everEnabledKey(integrationId)] ?: false
-        }
-    }
-
-    override fun observeChanges(): Flow<Unit> {
-        return dataStore.data.map { }
-    }
+    override fun observeChanges(): Flow<Unit> = dataStore.data.map { }
 
     companion object {
         private fun enabledKey(id: String) = booleanPreferencesKey("enabled_$id")

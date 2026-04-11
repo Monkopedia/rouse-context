@@ -15,9 +15,7 @@ import com.rousecontext.mcp.health.HealthConnectMcpServer
  *
  * Health Connect requires API 28+. On older devices [isAvailable] returns false.
  */
-class HealthConnectIntegration(
-    private val context: Context
-) : McpIntegration {
+class HealthConnectIntegration(private val context: Context) : McpIntegration {
 
     override val id = "health"
     override val displayName = "Health Connect"

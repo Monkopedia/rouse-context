@@ -99,37 +99,35 @@ class AuditHistoryViewModel(
         internal fun groupByDate(
             entries: List<AuditEntry>,
             fieldEncryptor: FieldEncryptor? = null
-        ): List<AuditHistoryGroup> {
-            return entries
-                .groupBy { entry ->
-                    Instant.ofEpochMilli(entry.timestampMillis)
-                        .atZone(ZoneId.systemDefault())
-                        .toLocalDate()
-                }
-                .entries
-                .sortedByDescending { it.key }
-                .map { (date, dayEntries) ->
-                    AuditHistoryGroup(
-                        dateLabel = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")),
-                        entries = dayEntries.map { entry ->
-                            val decryptedArgs = fieldEncryptor?.decrypt(entry.argumentsJson)
-                                ?: entry.argumentsJson
-                            val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
-                                ?: entry.resultJson
-                            AuditHistoryEntry(
-                                id = entry.id,
-                                time = TIME_FORMAT.format(Date(entry.timestampMillis)),
-                                toolName = entry.toolName,
-                                provider = entry.provider,
-                                durationMs = entry.durationMillis,
-                                arguments = decryptedArgs ?: "",
-                                timestampMillis = entry.timestampMillis,
-                                argumentsJson = decryptedArgs,
-                                resultJson = decryptedResult
-                            )
-                        }
-                    )
-                }
-        }
+        ): List<AuditHistoryGroup> = entries
+            .groupBy { entry ->
+                Instant.ofEpochMilli(entry.timestampMillis)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate()
+            }
+            .entries
+            .sortedByDescending { it.key }
+            .map { (date, dayEntries) ->
+                AuditHistoryGroup(
+                    dateLabel = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")),
+                    entries = dayEntries.map { entry ->
+                        val decryptedArgs = fieldEncryptor?.decrypt(entry.argumentsJson)
+                            ?: entry.argumentsJson
+                        val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
+                            ?: entry.resultJson
+                        AuditHistoryEntry(
+                            id = entry.id,
+                            time = TIME_FORMAT.format(Date(entry.timestampMillis)),
+                            toolName = entry.toolName,
+                            provider = entry.provider,
+                            durationMs = entry.durationMillis,
+                            arguments = decryptedArgs ?: "",
+                            timestampMillis = entry.timestampMillis,
+                            argumentsJson = decryptedArgs,
+                            resultJson = decryptedResult
+                        )
+                    }
+                )
+            }
     }
 }

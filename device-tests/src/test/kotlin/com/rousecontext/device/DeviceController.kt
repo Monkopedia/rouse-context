@@ -48,21 +48,17 @@ class DeviceController(
     /**
      * Launch the app's main activity.
      */
-    fun launchApp(): AdbResult {
-        return executeAdb(
-            "shell", "am", "start",
-            "-n", "$packageName/com.rousecontext.app.MainActivity",
-            "-a", "android.intent.action.MAIN",
-            "-c", "android.intent.category.LAUNCHER"
-        )
-    }
+    fun launchApp(): AdbResult = executeAdb(
+        "shell", "am", "start",
+        "-n", "$packageName/com.rousecontext.app.MainActivity",
+        "-a", "android.intent.action.MAIN",
+        "-c", "android.intent.category.LAUNCHER"
+    )
 
     /**
      * Force stop the app.
      */
-    fun forceStop(): AdbResult {
-        return executeAdb("shell", "am", "force-stop", packageName)
-    }
+    fun forceStop(): AdbResult = executeAdb("shell", "am", "force-stop", packageName)
 
     /**
      * Take a screenshot and pull it to a local file.
@@ -99,9 +95,7 @@ class DeviceController(
     /**
      * Clear the logcat buffer.
      */
-    fun clearLogcat(): AdbResult {
-        return executeAdb("shell", "logcat", "-c")
-    }
+    fun clearLogcat(): AdbResult = executeAdb("shell", "logcat", "-c")
 
     /**
      * Check if the app process is currently running on the device.
@@ -142,15 +136,13 @@ class DeviceController(
      * receiver demands. ADB shell broadcasts run as uid 2000 and lack that
      * permission, so targeting the Firebase receiver directly would fail.
      */
-    fun sendWakeBroadcast(): AdbResult {
-        return executeAdb(
-            "shell", "am", "broadcast",
-            "-n",
-            "$packageName/com.rousecontext.app.debug.TestWakeReceiver",
-            "-a", "com.rousecontext.action.TEST_WAKE",
-            "--es", "type", "wake"
-        )
-    }
+    fun sendWakeBroadcast(): AdbResult = executeAdb(
+        "shell", "am", "broadcast",
+        "-n",
+        "$packageName/com.rousecontext.app.debug.TestWakeReceiver",
+        "-a", "com.rousecontext.action.TEST_WAKE",
+        "--es", "type", "wake"
+    )
 
     /**
      * Execute an ADB command and return the result.
@@ -184,10 +176,7 @@ class DeviceController(
 /**
  * Result of an ADB command execution.
  */
-data class AdbResult(
-    val exitCode: Int,
-    val output: String
-) {
+data class AdbResult(val exitCode: Int, val output: String) {
     val isSuccess: Boolean get() = exitCode == 0
 
     fun requireSuccess(context: String = ""): AdbResult {

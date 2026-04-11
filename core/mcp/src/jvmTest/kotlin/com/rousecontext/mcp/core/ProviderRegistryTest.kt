@@ -8,10 +8,8 @@ import org.junit.Test
 
 class ProviderRegistryTest {
 
-    private class StubProvider(
-        override val id: String,
-        override val displayName: String
-    ) : McpServerProvider {
+    private class StubProvider(override val id: String, override val displayName: String) :
+        McpServerProvider {
         override fun register(server: Server) {
             // no-op for registry tests
         }

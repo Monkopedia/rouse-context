@@ -28,10 +28,8 @@ class CertRenewalException(message: String, cause: Throwable? = null) :
  * The [certificateStore] must be set before [doWork] is called. In production,
  * this is done via a custom WorkerFactory. In tests, set it directly.
  */
-class CertRenewalWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
+class CertRenewalWorker(context: Context, params: WorkerParameters) :
+    CoroutineWorker(context, params) {
 
     /** Injected by WorkerFactory in production, set directly in tests. */
     lateinit var certificateStore: CertRenewalStore

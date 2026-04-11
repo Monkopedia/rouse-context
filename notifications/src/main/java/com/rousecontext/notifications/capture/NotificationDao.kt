@@ -69,7 +69,4 @@ interface NotificationDao {
 /**
  * Projection for package-level notification counts.
  */
-data class PackageCount(
-    val packageName: String,
-    val count: Int
-)
+data class PackageCount(val packageName: String, val count: Int)

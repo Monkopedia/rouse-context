@@ -12,7 +12,9 @@ import org.koin.core.component.inject
  * Handles Approve/Deny actions from authorization request notifications.
  * Retrieves the [McpSession] via Koin and delegates to the authorization code manager.
  */
-class AuthApprovalReceiver : BroadcastReceiver(), KoinComponent {
+class AuthApprovalReceiver :
+    BroadcastReceiver(),
+    KoinComponent {
 
     private val mcpSession: McpSession by inject()
 

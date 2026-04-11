@@ -15,10 +15,7 @@ sealed interface NotificationAction {
     data class PostWarning(val message: String) : NotificationAction
 
     /** Post an error notification. */
-    data class PostError(
-        val message: String,
-        val streamId: Int? = null
-    ) : NotificationAction
+    data class PostError(val message: String, val streamId: Int? = null) : NotificationAction
 
     /** Post a per-tool-call usage notification. */
     data class PostToolUsage(val toolName: String, val provider: String) : NotificationAction

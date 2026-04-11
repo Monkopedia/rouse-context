@@ -17,13 +17,12 @@ import org.junit.Test
 
 class HttpRoutingTest {
 
-    private fun stubProvider(id: String, displayName: String): McpServerProvider {
-        return object : McpServerProvider {
+    private fun stubProvider(id: String, displayName: String): McpServerProvider =
+        object : McpServerProvider {
             override val id = id
             override val displayName = displayName
             override fun register(server: Server) = Unit
         }
-    }
 
     private fun testRegistry(
         vararg enabled: Pair<String, McpServerProvider>

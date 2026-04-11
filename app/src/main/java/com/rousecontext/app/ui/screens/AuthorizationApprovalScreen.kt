@@ -30,10 +30,7 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
 
 @Immutable
-data class AuthorizationApprovalItem(
-    val displayCode: String,
-    val integration: String
-)
+data class AuthorizationApprovalItem(val displayCode: String, val integration: String)
 
 @Composable
 fun AuthorizationApprovalScreen(

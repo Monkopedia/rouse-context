@@ -21,9 +21,8 @@ private val Context.notificationDataStore: DataStore<Preferences>
 /**
  * [NotificationSettingsProvider] backed by Preferences DataStore.
  */
-class DataStoreNotificationSettingsProvider(
-    private val context: Context
-) : NotificationSettingsProvider {
+class DataStoreNotificationSettingsProvider(private val context: Context) :
+    NotificationSettingsProvider {
 
     private val dataStore get() = context.notificationDataStore
 

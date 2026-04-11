@@ -8,9 +8,7 @@ import kotlin.random.Random
  * Tokens are generated as 32-byte base64url strings. The app layer will provide
  * its own implementation backed by Room with hashed tokens.
  */
-class InMemoryTokenStore(
-    private val clock: Clock = SystemClock
-) : TokenStore {
+class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
 
     private data class StoredToken(
         val integrationId: String,

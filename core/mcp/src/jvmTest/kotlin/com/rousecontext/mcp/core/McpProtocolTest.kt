@@ -116,12 +116,10 @@ class McpProtocolTest {
     private suspend fun io.ktor.client.HttpClient.mcpPost(
         token: String,
         body: String
-    ): io.ktor.client.statement.HttpResponse {
-        return post("/mcp") {
-            header("Authorization", "Bearer $token")
-            contentType(ContentType.Application.Json)
-            setBody(body)
-        }
+    ): io.ktor.client.statement.HttpResponse = post("/mcp") {
+        header("Authorization", "Bearer $token")
+        contentType(ContentType.Application.Json)
+        setBody(body)
     }
 
     private suspend fun io.ktor.client.HttpClient.initialize(token: String): String {

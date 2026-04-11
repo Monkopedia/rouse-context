@@ -41,15 +41,10 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.mcp.health.RecordTypeRegistry
 
 @Immutable
-data class HealthPermission(
-    val name: String,
-    val granted: Boolean
-)
+data class HealthPermission(val name: String, val granted: Boolean)
 
 @Immutable
-data class HealthConnectSettingsState(
-    val permissions: List<HealthPermission> = emptyList()
-)
+data class HealthConnectSettingsState(val permissions: List<HealthPermission> = emptyList())
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

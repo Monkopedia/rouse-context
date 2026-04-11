@@ -21,16 +21,11 @@ import kotlinx.coroutines.withContext
  * The MCP client connecting through the relay is the TLS client.
  * After the handshake completes, plaintext bytes flow through the returned streams.
  */
-class TlsAcceptor(
-    private val sslContext: SSLContext
-) {
+class TlsAcceptor(private val sslContext: SSLContext) {
     /**
      * Result of a successful TLS accept: plaintext I/O streams.
      */
-    data class TlsSession(
-        val input: InputStream,
-        val output: OutputStream
-    )
+    data class TlsSession(val input: InputStream, val output: OutputStream)
 
     /**
      * Perform TLS server-side handshake over the given [MuxStream].
@@ -317,10 +312,8 @@ internal class TlsInputStream(
 /**
  * An [OutputStream] that encrypts plaintext and writes TLS data to a [MuxStream].
  */
-internal class TlsOutputStream(
-    private val engine: SSLEngine,
-    private val stream: MuxStream
-) : OutputStream() {
+internal class TlsOutputStream(private val engine: SSLEngine, private val stream: MuxStream) :
+    OutputStream() {
     private val netOut = java.nio.ByteBuffer.allocate(engine.session.packetBufferSize)
     private val writeLock = java.util.concurrent.locks.ReentrantLock()
 

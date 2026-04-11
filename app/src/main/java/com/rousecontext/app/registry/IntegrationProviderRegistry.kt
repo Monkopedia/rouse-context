@@ -25,10 +25,8 @@ class IntegrationProviderRegistry(
         return integration.provider
     }
 
-    override fun enabledPaths(): Set<String> {
-        return integrationsByPath.entries
-            .filter { stateStore.isUserEnabled(it.value.id) }
-            .map { it.key }
-            .toSet()
-    }
+    override fun enabledPaths(): Set<String> = integrationsByPath.entries
+        .filter { stateStore.isUserEnabled(it.value.id) }
+        .map { it.key }
+        .toSet()
 }

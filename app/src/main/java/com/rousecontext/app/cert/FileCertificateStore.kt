@@ -24,9 +24,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * [CertificateStore] implementation that stores PEM certs in filesDir
  * and the private key in Android Keystore (hardware-backed HSM).
  */
-class FileCertificateStore(
-    private val context: Context
-) : CertificateStore {
+class FileCertificateStore(private val context: Context) : CertificateStore {
 
     private val filesDir get() = context.filesDir
     private val certFile get() = File(filesDir, CERT_PEM_FILE)
@@ -39,9 +37,8 @@ class FileCertificateStore(
         certFile.writeText(pemChain)
     }
 
-    override suspend fun getCertificate(): String? {
-        return if (certFile.exists()) certFile.readText() else null
-    }
+    override suspend fun getCertificate(): String? =
+        if (certFile.exists()) certFile.readText() else null
 
     override suspend fun storeClientCertificate(pemChain: String) {
         File(filesDir, CLIENT_CERT_PEM_FILE).writeText(pemChain)
@@ -65,9 +62,8 @@ class FileCertificateStore(
         subdomainFile.writeText(subdomain)
     }
 
-    override suspend fun getSubdomain(): String? {
-        return if (subdomainFile.exists()) subdomainFile.readText().trim() else null
-    }
+    override suspend fun getSubdomain(): String? =
+        if (subdomainFile.exists()) subdomainFile.readText().trim() else null
 
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {
         val json = JsonObject(secrets.mapValues { (_, v) -> JsonPrimitive(v) })

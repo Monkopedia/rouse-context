@@ -11,9 +11,7 @@ import com.rousecontext.usage.UsageMcpProvider
  * Always available in the integration picker. The PACKAGE_USAGE_STATS
  * permission is requested during the setup flow, not at availability time.
  */
-class UsageIntegration(
-    private val context: Context
-) : McpIntegration {
+class UsageIntegration(private val context: Context) : McpIntegration {
 
     override val id = "usage"
     override val displayName = "Usage Stats"

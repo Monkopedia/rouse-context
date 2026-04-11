@@ -57,11 +57,8 @@ sealed class MuxFrame {
     data class Open(override val streamId: UInt) : MuxFrame()
     data class Close(override val streamId: UInt) : MuxFrame()
 
-    data class Error(
-        override val streamId: UInt,
-        val errorCode: UInt,
-        val message: String
-    ) : MuxFrame()
+    data class Error(override val streamId: UInt, val errorCode: UInt, val message: String) :
+        MuxFrame()
 
     companion object
 }

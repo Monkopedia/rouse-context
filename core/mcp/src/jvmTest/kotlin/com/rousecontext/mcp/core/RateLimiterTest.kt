@@ -60,12 +60,10 @@ class RateLimiterTest {
 
     // -- Integration tests with Ktor --
 
-    private fun stubProvider(): McpServerProvider {
-        return object : McpServerProvider {
-            override val id = "health"
-            override val displayName = "Health Connect"
-            override fun register(server: Server) = Unit
-        }
+    private fun stubProvider(): McpServerProvider = object : McpServerProvider {
+        override val id = "health"
+        override val displayName = "Health Connect"
+        override fun register(server: Server) = Unit
     }
 
     @Test

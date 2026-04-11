@@ -280,9 +280,7 @@ object MtlsWebSocketFactory {
  * OkHttp's WebSocket uses JSSE for TLS, which correctly presents client certificates
  * configured via [SSLContext]/[javax.net.ssl.KeyManager] during the mTLS handshake.
  */
-internal class OkHttpWebSocketFactory(
-    private val client: OkHttpClient
-) : WebSocketFactory {
+internal class OkHttpWebSocketFactory(private val client: OkHttpClient) : WebSocketFactory {
 
     override fun connect(url: String, listener: WebSocketListener): WebSocketHandle {
         val request = Request.Builder()
@@ -317,13 +315,9 @@ internal class OkHttpWebSocketFactory(
 
 private class OkHttpWebSocketHandle(private val ws: WebSocket) : WebSocketHandle {
 
-    override suspend fun sendBinary(data: ByteArray): Boolean {
-        return ws.send(data.toByteString())
-    }
+    override suspend fun sendBinary(data: ByteArray): Boolean = ws.send(data.toByteString())
 
-    override suspend fun sendText(text: String): Boolean {
-        return ws.send(text)
-    }
+    override suspend fun sendText(text: String): Boolean = ws.send(text)
 
     override suspend fun close(code: Int, reason: String) {
         ws.close(code, reason)

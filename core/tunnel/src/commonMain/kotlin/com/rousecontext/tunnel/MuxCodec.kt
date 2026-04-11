@@ -92,14 +92,12 @@ object MuxCodec {
         buf[offset + 3] = value.toByte()
     }
 
-    private fun getUInt32BE(buf: ByteArray, offset: Int): UInt {
-        return (
-            (buf[offset].toUByte().toUInt() shl 24) or
-                (buf[offset + 1].toUByte().toUInt() shl 16) or
-                (buf[offset + 2].toUByte().toUInt() shl 8) or
-                buf[offset + 3].toUByte().toUInt()
-            )
-    }
+    private fun getUInt32BE(buf: ByteArray, offset: Int): UInt = (
+        (buf[offset].toUByte().toUInt() shl 24) or
+            (buf[offset + 1].toUByte().toUInt() shl 16) or
+            (buf[offset + 2].toUByte().toUInt() shl 8) or
+            buf[offset + 3].toUByte().toUInt()
+        )
 }
 
 /** Exception thrown when mux protocol framing is violated. */

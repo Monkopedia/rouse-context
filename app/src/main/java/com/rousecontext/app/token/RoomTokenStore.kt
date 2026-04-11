@@ -16,9 +16,7 @@ import java.util.Base64
  * Tokens are generated as 32 random bytes encoded as base64url.
  * Only the SHA-256 hash of the token is persisted.
  */
-class RoomTokenStore(
-    private val dao: TokenDao
-) : TokenStore {
+class RoomTokenStore(private val dao: TokenDao) : TokenStore {
 
     override fun validateToken(integrationId: String, token: String): Boolean {
         val hash = hashToken(token)
@@ -80,8 +78,8 @@ class RoomTokenStore(
         return createTokenPair(integrationId, entity.clientId, entity.label)
     }
 
-    override fun listTokens(integrationId: String): List<TokenInfo> {
-        return dao.listByIntegration(integrationId).map { entity ->
+    override fun listTokens(integrationId: String): List<TokenInfo> =
+        dao.listByIntegration(integrationId).map { entity ->
             TokenInfo(
                 integrationId = entity.integrationId,
                 clientId = entity.clientId,
@@ -90,11 +88,9 @@ class RoomTokenStore(
                 label = entity.label
             )
         }
-    }
 
-    override fun hasTokens(integrationId: String): Boolean {
-        return dao.countByIntegration(integrationId) > 0
-    }
+    override fun hasTokens(integrationId: String): Boolean =
+        dao.countByIntegration(integrationId) > 0
 
     private fun generateRawToken(): ByteArray {
         val bytes = ByteArray(TOKEN_BYTES)

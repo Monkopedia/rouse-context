@@ -20,17 +20,14 @@ private val Context.integrationSettingsDataStore: DataStore<Preferences>
  * This is separate from [DataStoreIntegrationStateStore] which only tracks
  * the enabled/disabled state. Each setting is keyed by integration ID + name.
  */
-class IntegrationSettingsStore(
-    private val context: Context
-) {
+class IntegrationSettingsStore(private val context: Context) {
 
     private val dataStore get() = context.integrationSettingsDataStore
 
-    fun getBoolean(integrationId: String, key: String, default: Boolean = false): Boolean {
-        return runBlocking {
+    fun getBoolean(integrationId: String, key: String, default: Boolean = false): Boolean =
+        runBlocking {
             dataStore.data.first()[booleanKey(integrationId, key)] ?: default
         }
-    }
 
     fun setBoolean(integrationId: String, key: String, value: Boolean) {
         runBlocking {
@@ -40,10 +37,8 @@ class IntegrationSettingsStore(
         }
     }
 
-    fun getInt(integrationId: String, key: String, default: Int): Int {
-        return runBlocking {
-            dataStore.data.first()[intKey(integrationId, key)] ?: default
-        }
+    fun getInt(integrationId: String, key: String, default: Int): Int = runBlocking {
+        dataStore.data.first()[intKey(integrationId, key)] ?: default
     }
 
     fun setInt(integrationId: String, key: String, value: Int) {

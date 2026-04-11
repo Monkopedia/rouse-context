@@ -44,6 +44,5 @@ class McpUrlProvider(
  *
  * The path is always /mcp -- the integration is identified by hostname.
  */
-fun buildMcpUrl(integrationSecret: String, subdomain: String, baseDomain: String): String {
-    return "https://$integrationSecret.$subdomain.$baseDomain/mcp"
-}
+fun buildMcpUrl(integrationSecret: String, subdomain: String, baseDomain: String): String =
+    "https://$integrationSecret.$subdomain.$baseDomain/mcp"

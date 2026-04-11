@@ -228,10 +228,7 @@ class TestCertificateAuthority(
 /**
  * Manages the real Rust relay binary as a subprocess.
  */
-class TestRelayManager(
-    private val tempDir: File,
-    private val relayHostname: String
-) {
+class TestRelayManager(private val tempDir: File, private val relayHostname: String) {
     var process: Process? = null
         private set
 

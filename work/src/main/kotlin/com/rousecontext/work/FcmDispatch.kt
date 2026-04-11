@@ -9,12 +9,10 @@ object FcmDispatch {
     /**
      * Resolve an FCM data payload to an [FcmAction].
      */
-    fun resolve(data: Map<String, String>): FcmAction {
-        return when (val type = data["type"]) {
-            "wake" -> FcmAction.StartService
-            "renew" -> FcmAction.EnqueueRenewal
-            else -> FcmAction.Ignore(type)
-        }
+    fun resolve(data: Map<String, String>): FcmAction = when (val type = data["type"]) {
+        "wake" -> FcmAction.StartService
+        "renew" -> FcmAction.EnqueueRenewal
+        else -> FcmAction.Ignore(type)
     }
 }
 

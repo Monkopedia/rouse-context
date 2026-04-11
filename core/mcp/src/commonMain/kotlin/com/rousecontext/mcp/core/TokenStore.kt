@@ -61,11 +61,7 @@ interface TokenStore {
 /**
  * A token pair returned from [TokenStore.createTokenPair] and [TokenStore.refreshToken].
  */
-data class TokenPair(
-    val accessToken: String,
-    val refreshToken: String,
-    val expiresIn: Long
-)
+data class TokenPair(val accessToken: String, val refreshToken: String, val expiresIn: Long)
 
 /** Access token lifetime: 1 hour. */
 const val ACCESS_TOKEN_TTL_MS: Long = 60L * 60 * 1000

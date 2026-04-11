@@ -10,9 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-data class UsageSetupState(
-    val permissionGranted: Boolean = false
-)
+data class UsageSetupState(val permissionGranted: Boolean = false)
 
 /**
  * Manages the Usage Stats integration setup flow: checks usage access

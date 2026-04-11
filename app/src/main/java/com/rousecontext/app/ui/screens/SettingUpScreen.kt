@@ -37,9 +37,7 @@ sealed interface SettingUpVariant {
 }
 
 @Immutable
-data class SettingUpState(
-    val variant: SettingUpVariant = SettingUpVariant.Requesting
-)
+data class SettingUpState(val variant: SettingUpVariant = SettingUpVariant.Requesting)
 
 /**
  * Content-only variant used inside the persistent Scaffold in AppNavigation.

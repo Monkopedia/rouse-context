@@ -205,7 +205,4 @@ data class MockRenewResponse(
     val retryAfter: Long? = null
 )
 
-data class MockUpdateSecretsResponse(
-    val status: Int = 200,
-    val body: UpdateSecretsResponse? = null
-)
+data class MockUpdateSecretsResponse(val status: Int = 200, val body: UpdateSecretsResponse? = null)

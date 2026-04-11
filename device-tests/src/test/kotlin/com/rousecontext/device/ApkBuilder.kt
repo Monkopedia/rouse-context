@@ -9,9 +9,7 @@ import java.util.concurrent.TimeUnit
  * Runs the Gradle build from the repo root, passing relay connection parameters
  * as project properties that get embedded into BuildConfig.
  */
-class ApkBuilder(
-    private val repoRoot: File
-) {
+class ApkBuilder(private val repoRoot: File) {
     companion object {
         private const val BUILD_TIMEOUT_MINUTES = 5L
         private const val JAVA_HOME = "/usr/lib/jvm/java-21-openjdk"

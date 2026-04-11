@@ -480,29 +480,27 @@ class OutreachMcpProvider(
      * silently dropped on API 29+; PendingIntent.send() works reliably from background.
      */
     @Suppress("TooGenericExceptionCaught")
-    private fun launchActivitySafely(intent: Intent, description: String): CallToolResult {
-        return try {
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                intent.hashCode(),
-                intent,
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-            pendingIntent.send()
-            successResult("Launched: $description")
-        } catch (e: android.content.ActivityNotFoundException) {
-            Log.e(TAG, "No activity found to $description", e)
-            errorResult("No app found to $description: ${e.message}")
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Permission denied to $description", e)
-            errorResult("Permission denied to $description: ${e.message}")
-        } catch (e: PendingIntent.CanceledException) {
-            Log.e(TAG, "PendingIntent cancelled for $description", e)
-            errorResult("Failed to $description: activity launch was cancelled")
-        } catch (e: Exception) {
-            Log.e(TAG, "Unexpected error trying to $description", e)
-            errorResult("Failed to $description: ${e.javaClass.simpleName} - ${e.message}")
-        }
+    private fun launchActivitySafely(intent: Intent, description: String): CallToolResult = try {
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            intent.hashCode(),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        pendingIntent.send()
+        successResult("Launched: $description")
+    } catch (e: android.content.ActivityNotFoundException) {
+        Log.e(TAG, "No activity found to $description", e)
+        errorResult("No app found to $description: ${e.message}")
+    } catch (e: SecurityException) {
+        Log.e(TAG, "Permission denied to $description", e)
+        errorResult("Permission denied to $description: ${e.message}")
+    } catch (e: PendingIntent.CanceledException) {
+        Log.e(TAG, "PendingIntent cancelled for $description", e)
+        errorResult("Failed to $description: activity launch was cancelled")
+    } catch (e: Exception) {
+        Log.e(TAG, "Unexpected error trying to $description", e)
+        errorResult("Failed to $description: ${e.javaClass.simpleName} - ${e.message}")
     }
 
     companion object {

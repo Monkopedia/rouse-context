@@ -39,9 +39,7 @@ private typealias QueryHandler =
  * Lives in `:app` because it needs an Android [Context] to obtain the
  * [HealthConnectClient] instance.
  */
-class RealHealthConnectRepository(
-    private val context: Context
-) : HealthConnectRepository {
+class RealHealthConnectRepository(private val context: Context) : HealthConnectRepository {
 
     private val client: HealthConnectClient by lazy {
         val status = HealthConnectClient.getSdkStatus(context)

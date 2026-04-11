@@ -21,9 +21,7 @@ class AuthorizationCodeFlowTest {
     private fun createManager(
         clock: Clock = FakeClock(),
         tokenStore: TokenStore = InMemoryTokenStore()
-    ): AuthorizationCodeManager {
-        return AuthorizationCodeManager(tokenStore = tokenStore, clock = clock)
-    }
+    ): AuthorizationCodeManager = AuthorizationCodeManager(tokenStore = tokenStore, clock = clock)
 
     /** Registers a client with the default redirect URI and returns the clientId. */
     private fun AuthorizationCodeManager.registerTestClient(

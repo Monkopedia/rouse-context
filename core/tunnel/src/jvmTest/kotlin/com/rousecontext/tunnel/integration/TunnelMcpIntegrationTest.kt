@@ -89,9 +89,7 @@ class TunnelMcpIntegrationTest {
     /**
      * Wraps [TestCertificateStore] as a [TlsCertProvider] for [SessionHandler].
      */
-    private class TestCertAdapter(
-        private val certStore: TestCertificateStore
-    ) : TlsCertProvider {
+    private class TestCertAdapter(private val certStore: TestCertificateStore) : TlsCertProvider {
         override fun serverSslContext(): SSLContext = certStore.sslContext
     }
 
@@ -123,12 +121,10 @@ class TunnelMcpIntegrationTest {
         certStore: TestCertificateStore,
         registry: InMemoryProviderRegistry,
         tokenStore: InMemoryTokenStore
-    ): SessionHandler {
-        return SessionHandler(
-            certProvider = TestCertAdapter(certStore),
-            mcpSessionFactory = TestMcpSessionFactory(registry, tokenStore)
-        )
-    }
+    ): SessionHandler = SessionHandler(
+        certProvider = TestCertAdapter(certStore),
+        mcpSessionFactory = TestMcpSessionFactory(registry, tokenStore)
+    )
 
     /**
      * Creates a connected pair of ChannelMuxStreams simulating a mux pipe.

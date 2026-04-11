@@ -7,9 +7,7 @@ import com.rousecontext.api.IntegrationStateStore
  * Manages the Health Connect setup flow: tracks permission grant result
  * and enables the integration in the state store on success.
  */
-class HealthConnectSetupViewModel(
-    private val stateStore: IntegrationStateStore
-) : ViewModel() {
+class HealthConnectSetupViewModel(private val stateStore: IntegrationStateStore) : ViewModel() {
 
     /**
      * Called after the Health Connect permission request completes.

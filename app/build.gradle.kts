@@ -9,7 +9,7 @@ plugins {
 
 android {
     namespace = "com.rousecontext.app"
-    compileSdk = 35
+    compileSdk = 36
 
     signingConfigs {
         create("release") {

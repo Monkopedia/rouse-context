@@ -67,10 +67,7 @@ data class AuditHistoryEntry(
 )
 
 @Immutable
-data class AuditHistoryGroup(
-    val dateLabel: String,
-    val entries: List<AuditHistoryEntry>
-)
+data class AuditHistoryGroup(val dateLabel: String, val entries: List<AuditHistoryEntry>)
 
 @Immutable
 data class AuditHistoryState(

@@ -162,12 +162,10 @@ class FailingCertificateStore : CertificateStore {
     override suspend fun getPrivateKeyBytes(): ByteArray? = null
     override suspend fun storeCertChain(chain: List<ByteArray>) {}
     override suspend fun getCertExpiry(): Long? = null
-    override suspend fun getKnownFingerprints(): Set<String> {
+    override suspend fun getKnownFingerprints(): Set<String> =
         throw java.io.IOException("Storage unavailable")
-    }
-    override suspend fun storeFingerprint(fingerprint: String) {
+    override suspend fun storeFingerprint(fingerprint: String): Unit =
         throw java.io.IOException("Storage unavailable")
-    }
     override suspend fun storeCertificate(pemChain: String) {}
     override suspend fun getCertificate(): String? = null
     override suspend fun storeClientCertificate(pemChain: String) {}

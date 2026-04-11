@@ -18,10 +18,7 @@ class RateLimiter(
     private val clock: Clock = SystemClock
 ) {
 
-    private data class Window(
-        var startMs: Long,
-        var count: Int
-    )
+    private data class Window(var startMs: Long, var count: Int)
 
     private val windows = ConcurrentHashMap<String, Window>()
 

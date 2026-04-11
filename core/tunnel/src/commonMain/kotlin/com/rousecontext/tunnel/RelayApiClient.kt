@@ -199,9 +199,7 @@ data class UpdateSecretsRequest(
 )
 
 @Serializable
-data class UpdateSecretsResponse(
-    @SerialName("status") val status: String = "ok"
-)
+data class UpdateSecretsResponse(@SerialName("status") val status: String = "ok")
 
 @Serializable
 data class CertRequest(
@@ -228,6 +226,4 @@ data class RenewRequest(
 )
 
 @Serializable
-data class RenewResponse(
-    val certificatePem: String
-)
+data class RenewResponse(val certificatePem: String)

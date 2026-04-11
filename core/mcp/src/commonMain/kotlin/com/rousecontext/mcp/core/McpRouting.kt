@@ -41,10 +41,7 @@ private val mcpJson = Json {
 /**
  * Per-integration server state: the SDK Server and its HTTP transport.
  */
-private data class IntegrationServer(
-    val server: Server,
-    val transport: HttpTransport
-)
+private data class IntegrationServer(val server: Server, val transport: HttpTransport)
 
 /**
  * Configures Ktor routing for MCP Streamable HTTP with per-integration OAuth.
@@ -86,9 +83,10 @@ fun Application.configureMcpRouting(
     // Resolve the public hostname from the request's Host header, falling back
     // to the configured hostname. This allows a single MCP session to serve
     // multiple integration hostnames correctly.
-    fun io.ktor.server.routing.RoutingCall.resolveHostname(): String {
-        return request.headers["Host"]?.takeIf { it.isNotEmpty() } ?: hostname
-    }
+    fun io.ktor.server.routing.RoutingCall.resolveHostname(): String =
+        request.headers["Host"]?.takeIf {
+            it.isNotEmpty()
+        } ?: hostname
 
     // Resolve the integration name from the Host header.
     // Hostname format: {adjective}-{integration}.{subdomain}.{domain}
@@ -322,8 +320,10 @@ fun Application.configureMcpRouting(
             val state = call.request.queryParameters["state"]
 
             val validRequest = responseType == "code" && codeChallengeMethod == "S256"
-            val allParamsPresent = clientId != null && codeChallenge != null &&
-                redirectUri != null && state != null
+            val allParamsPresent = clientId != null &&
+                codeChallenge != null &&
+                redirectUri != null &&
+                state != null
             if (!validRequest || !allParamsPresent) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@get
@@ -696,20 +696,18 @@ internal suspend fun dispatchJsonRpc(transport: HttpTransport, requestBody: Stri
  */
 private suspend fun parseTokenRequestParams(
     call: io.ktor.server.routing.RoutingCall
-): Map<String, String?>? {
-    return try {
-        if (call.request.contentType().match(ContentType.Application.FormUrlEncoded)) {
-            val params = call.receiveParameters()
-            params.names().associateWith { params[it] }
-        } else {
-            val body = mcpJson.parseToJsonElement(call.receiveText()).jsonObject
-            body.mapValues { (_, v) ->
-                if (v is JsonNull) null else v.jsonPrimitive.content
-            }
+): Map<String, String?>? = try {
+    if (call.request.contentType().match(ContentType.Application.FormUrlEncoded)) {
+        val params = call.receiveParameters()
+        params.names().associateWith { params[it] }
+    } else {
+        val body = mcpJson.parseToJsonElement(call.receiveText()).jsonObject
+        body.mapValues { (_, v) ->
+            if (v is JsonNull) null else v.jsonPrimitive.content
         }
-    } catch (_: Exception) {
-        null
     }
+} catch (_: Exception) {
+    null
 }
 
 /**
@@ -930,16 +928,14 @@ private fun jsonRpcError(
     id: kotlinx.serialization.json.JsonElement,
     code: Int,
     message: String
-): JsonObject {
-    return buildJsonObject {
-        put("jsonrpc", "2.0")
-        put(
-            "error",
-            buildJsonObject {
-                put("code", code)
-                put("message", message)
-            }
-        )
-        put("id", id)
-    }
+): JsonObject = buildJsonObject {
+    put("jsonrpc", "2.0")
+    put(
+        "error",
+        buildJsonObject {
+            put("code", code)
+            put("message", message)
+        }
+    )
+    put("id", id)
 }

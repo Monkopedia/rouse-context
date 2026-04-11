@@ -10,9 +10,7 @@ import java.util.concurrent.TimeUnit
  * Generates test certificates, writes relay.toml, starts the relay on a random port,
  * and waits for it to accept connections before returning.
  */
-class RelayProcess(
-    private val repoRoot: File
-) {
+class RelayProcess(private val repoRoot: File) {
     companion object {
         private const val STARTUP_TIMEOUT_MS = 15_000L
     }

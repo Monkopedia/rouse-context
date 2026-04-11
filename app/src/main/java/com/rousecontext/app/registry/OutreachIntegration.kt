@@ -12,9 +12,7 @@ import com.rousecontext.outreach.OutreachMcpProvider
  * Basic tools are always available. DND tools require ACCESS_NOTIFICATION_POLICY permission,
  * checked at construction time and re-evaluated via [isAvailable].
  */
-class OutreachIntegration(
-    private val context: Context
-) : McpIntegration {
+class OutreachIntegration(private val context: Context) : McpIntegration {
 
     override val id = "outreach"
     override val displayName = "Outreach"

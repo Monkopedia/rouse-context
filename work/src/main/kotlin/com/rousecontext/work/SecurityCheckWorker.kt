@@ -26,10 +26,8 @@ interface SecurityCheckSource {
  * Alerts produce high-priority notifications; warnings produce info notifications.
  * Always returns [Result.success] since the checks handle their own graceful degradation.
  */
-class SecurityCheckWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
+class SecurityCheckWorker(context: Context, params: WorkerParameters) :
+    CoroutineWorker(context, params) {
 
     /** Injected by WorkerFactory in production, set directly in tests. */
     lateinit var selfCertVerifier: SecurityCheckSource

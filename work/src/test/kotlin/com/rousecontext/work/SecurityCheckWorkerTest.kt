@@ -106,8 +106,6 @@ class SecurityCheckWorkerTest {
     }
 }
 
-private class StubSecurityCheck(
-    private val result: SecurityCheckResult
-) : SecurityCheckSource {
+private class StubSecurityCheck(private val result: SecurityCheckResult) : SecurityCheckSource {
     override suspend fun check(): SecurityCheckResult = result
 }

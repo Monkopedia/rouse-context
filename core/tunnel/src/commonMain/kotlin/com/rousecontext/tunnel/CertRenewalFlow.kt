@@ -166,7 +166,4 @@ open class CertInspector {
     open fun inspect(pemCertificate: String): CertInfo = CertInfo()
 }
 
-data class CertInfo(
-    val commonName: String? = null,
-    val isExpired: Boolean = false
-)
+data class CertInfo(val commonName: String? = null, val isExpired: Boolean = false)

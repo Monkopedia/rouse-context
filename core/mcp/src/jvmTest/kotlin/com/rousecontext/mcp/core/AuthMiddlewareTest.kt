@@ -12,12 +12,10 @@ import org.junit.Test
 
 class AuthMiddlewareTest {
 
-    private fun stubProvider(id: String): McpServerProvider {
-        return object : McpServerProvider {
-            override val id = id
-            override val displayName = id
-            override fun register(server: Server) = Unit
-        }
+    private fun stubProvider(id: String): McpServerProvider = object : McpServerProvider {
+        override val id = id
+        override val displayName = id
+        override fun register(server: Server) = Unit
     }
 
     private fun testRegistry(
@@ -52,9 +50,10 @@ class AuthMiddlewareTest {
         val wwwAuth = response.headers["WWW-Authenticate"]
         assertTrue(wwwAuth != null && wwwAuth.contains("Bearer"))
         assertTrue(
-            wwwAuth != null && wwwAuth.contains(
-                "https://test.rousecontext.com/.well-known/oauth-protected-resource"
-            )
+            wwwAuth != null &&
+                wwwAuth.contains(
+                    "https://test.rousecontext.com/.well-known/oauth-protected-resource"
+                )
         )
     }
 

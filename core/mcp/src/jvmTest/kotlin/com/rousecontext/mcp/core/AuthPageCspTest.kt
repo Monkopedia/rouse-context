@@ -23,23 +23,19 @@ class AuthPageCspTest {
     private val validChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
     private val defaultRedirectUri = "http://localhost:3000/callback"
 
-    private fun stubProvider(): McpServerProvider {
-        return object : McpServerProvider {
-            override val id = "health"
-            override val displayName = "Health Connect"
-            override fun register(server: Server) = Unit
-        }
+    private fun stubProvider(): McpServerProvider = object : McpServerProvider {
+        override val id = "health"
+        override val displayName = "Health Connect"
+        override fun register(server: Server) = Unit
     }
 
-    private fun parseCspDirectives(csp: String): Map<String, String> {
-        return csp.split(";")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .associate { directive ->
-                val parts = directive.split(" ", limit = 2)
-                parts[0] to (parts.getOrNull(1) ?: "")
-            }
-    }
+    private fun parseCspDirectives(csp: String): Map<String, String> = csp.split(";")
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .associate { directive ->
+            val parts = directive.split(" ", limit = 2)
+            parts[0] to (parts.getOrNull(1) ?: "")
+        }
 
     @Test
     fun `authorize page returns CSP header allowing inline styles`() = testApplication {

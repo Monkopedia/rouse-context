@@ -42,11 +42,7 @@ import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
 @Immutable
-data class AuthorizedClient(
-    val name: String,
-    val authorizedDate: String,
-    val lastUsed: String
-)
+data class AuthorizedClient(val name: String, val authorizedDate: String, val lastUsed: String)
 
 @Immutable
 data class IntegrationManageState(

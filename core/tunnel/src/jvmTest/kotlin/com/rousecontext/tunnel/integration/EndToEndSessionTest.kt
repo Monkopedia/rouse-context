@@ -899,10 +899,7 @@ class EndToEndSessionTest {
     // Helper: Raw WebSocket connection (for relay-specific tests)
     // =========================================================================
 
-    private data class DeviceConnection(
-        val ws: WebSocket,
-        val listener: CollectingListener
-    )
+    private data class DeviceConnection(val ws: WebSocket, val listener: CollectingListener)
 
     private class CollectingListener : WebSocket.Listener {
         val binaryMessages = CopyOnWriteArrayList<ByteArray>()

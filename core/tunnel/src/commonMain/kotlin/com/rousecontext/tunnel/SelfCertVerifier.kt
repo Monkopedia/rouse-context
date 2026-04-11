@@ -13,9 +13,7 @@ import java.security.MessageDigest
  * If the store is unreachable (I/O error), the result is a [SecurityCheckResult.Warning]
  * rather than an [SecurityCheckResult.Alert], since the check could not be completed.
  */
-class SelfCertVerifier(
-    private val certificateStore: CertificateStore
-) {
+class SelfCertVerifier(private val certificateStore: CertificateStore) {
 
     /**
      * Verify that the leaf certificate in [certChainDer] (DER-encoded, leaf first)

@@ -12,10 +12,7 @@ sealed interface SessionEvent {
     data class StreamOpened(val streamCount: Int) : SessionEvent
     data class StreamClosed(val streamCount: Int) : SessionEvent
 
-    data class ErrorOccurred(
-        val message: String,
-        val streamId: Int? = null
-    ) : SessionEvent
+    data class ErrorOccurred(val message: String, val streamId: Int? = null) : SessionEvent
 
     data class ToolCallCompleted(val event: ToolCallEvent) : SessionEvent
 

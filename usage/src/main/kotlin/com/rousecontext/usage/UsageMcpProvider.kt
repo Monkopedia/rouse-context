@@ -29,9 +29,7 @@ import kotlinx.serialization.json.buildJsonObject
  * - `get_usage_events` -- Raw usage events (app opened/closed)
  * - `compare_usage` -- Compare two periods, show biggest changes
  */
-class UsageMcpProvider(
-    private val context: Context
-) : McpServerProvider {
+class UsageMcpProvider(private val context: Context) : McpServerProvider {
 
     override val id = "usage"
     override val displayName = "Usage Stats"

@@ -30,9 +30,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * 2. Executes an ADB broadcast to deliver the message to the device
  * 3. Returns a success response to the caller (relay)
  */
-class FakeFcmServer(
-    private val deviceController: DeviceController
-) {
+class FakeFcmServer(private val deviceController: DeviceController) {
     val port: Int = findFreePort()
     val receivedMessages = CopyOnWriteArrayList<Map<String, String>>()
 

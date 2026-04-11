@@ -634,10 +634,9 @@ class OAuthEndToEndTest {
         return """{"jsonrpc":"2.0","method":"$method"$paramsStr,"id":$id}"""
     }
 
-    private fun initializeParams(): String {
-        return """{"protocolVersion":"2025-03-26","capabilities":{},""" +
+    private fun initializeParams(): String =
+        """{"protocolVersion":"2025-03-26","capabilities":{},""" +
             """"clientInfo":{"name":"oauth-e2e-test","version":"1.0"}}"""
-    }
 
     // =========================================================================
     // PKCE helpers
@@ -655,7 +654,5 @@ class OAuthEndToEndTest {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
     }
 
-    private fun urlEncode(value: String): String {
-        return java.net.URLEncoder.encode(value, "UTF-8")
-    }
+    private fun urlEncode(value: String): String = java.net.URLEncoder.encode(value, "UTF-8")
 }
