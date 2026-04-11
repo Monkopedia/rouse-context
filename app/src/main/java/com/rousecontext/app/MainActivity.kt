@@ -1,7 +1,9 @@
 package com.rousecontext.app
 
+import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.os.Bundle
+import android.view.animation.DecelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -48,10 +50,16 @@ class MainActivity : ComponentActivity() {
             startDestination = if (hasSubdomain) Routes.HOME else Routes.ONBOARDING
         }
 
-        // Animated exit: cross-fade the splash screen out, then fix status bar
+        // Animated exit: fade + scale the splash screen out, then fix status bar
         splashScreen.setOnExitAnimationListener { splashScreenView ->
-            ObjectAnimator.ofFloat(splashScreenView.view, "alpha", 1f, 0f).apply {
-                duration = SPLASH_FADE_DURATION_MS
+            val view = splashScreenView.view
+            val fade = ObjectAnimator.ofFloat(view, "alpha", 1f, 0f)
+            val scaleX = ObjectAnimator.ofFloat(view, "scaleX", 1f, SPLASH_EXIT_SCALE)
+            val scaleY = ObjectAnimator.ofFloat(view, "scaleY", 1f, SPLASH_EXIT_SCALE)
+            AnimatorSet().apply {
+                playTogether(fade, scaleX, scaleY)
+                duration = SPLASH_EXIT_DURATION_MS
+                interpolator = DecelerateInterpolator()
                 doOnEnd {
                     splashScreenView.remove()
                     // Navy bars = always white status bar icons
@@ -73,6 +81,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
-        private const val SPLASH_FADE_DURATION_MS = 300L
+        private const val SPLASH_EXIT_DURATION_MS = 400L
+        private const val SPLASH_EXIT_SCALE = 1.15f
     }
 }
