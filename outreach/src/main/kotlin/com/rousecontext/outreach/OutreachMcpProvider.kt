@@ -56,6 +56,9 @@ class OutreachMcpProvider(
         registerCopyToClipboard(server)
         registerSendNotification(server)
         registerListInstalledApps(server)
+        registerCreateNotificationChannel(server)
+        registerListNotificationChannels(server)
+        registerDeleteNotificationChannel(server)
         if (dndEnabled) {
             registerGetDndState(server)
             registerSetDndState(server)
@@ -156,6 +159,7 @@ class OutreachMcpProvider(
             val message = request.params.arguments?.get("message")?.jsonPrimitive?.content
                 ?: return@addTool errorResult("Missing message")
             val priority = request.params.arguments?.get("priority")?.jsonPrimitive?.content
+            val channelId = request.params.arguments?.get("channel_id")?.jsonPrimitive?.content
 
             if (!notificationRateLimiter.tryAcquire("send_notification")) {
                 return@addTool errorResult(
@@ -163,8 +167,9 @@ class OutreachMcpProvider(
                 )
             }
 
+            val resolvedChannel = resolveChannelId(channelId)
             val notificationId = notificationIdCounter.getAndIncrement()
-            val builder = buildNotification(title, message, priority)
+            val builder = buildNotification(title, message, priority, resolvedChannel)
             addNotificationActions(builder, request, notificationId)
 
             val nm = context.getSystemService(NotificationManager::class.java)
@@ -179,11 +184,25 @@ class OutreachMcpProvider(
         }
     }
 
+    /**
+     * Resolve a channel_id parameter to an actual channel ID.
+     * If provided, ensures it has the AI prefix. If omitted, uses default.
+     */
+    private fun resolveChannelId(channelId: String?): String {
+        if (channelId == null) return CHANNEL_ID
+        return if (channelId.startsWith(AI_CHANNEL_PREFIX)) {
+            channelId
+        } else {
+            "$AI_CHANNEL_PREFIX$channelId"
+        }
+    }
+
     private fun buildNotification(
         title: String,
         message: String,
-        priority: String?
-    ): NotificationCompat.Builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        priority: String?,
+        channelId: String = CHANNEL_ID
+    ): NotificationCompat.Builder = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(com.rousecontext.api.R.drawable.ic_stat_rouse)
         .setContentTitle(title)
         .setContentText(message)
@@ -216,6 +235,129 @@ class OutreachMcpProvider(
                     builder.addAction(0, label, pi)
                 }
             }
+    }
+
+    private fun registerCreateNotificationChannel(server: Server) {
+        server.addTool(
+            name = "create_notification_channel",
+            description = "Create a notification channel for sending categorized notifications",
+            inputSchema = createChannelSchema()
+        ) { request ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                return@addTool successResult(
+                    "Channel creation not supported on this Android version (API < 26). " +
+                        "Notifications will still work with default settings."
+                )
+            }
+
+            val rawId = request.params.arguments?.get("id")?.jsonPrimitive?.content
+                ?: return@addTool errorResult("Missing id")
+            val name = request.params.arguments?.get("name")?.jsonPrimitive?.content
+                ?: return@addTool errorResult("Missing name")
+            val description = request.params.arguments?.get("description")?.jsonPrimitive?.content
+            val importance = request.params.arguments?.get("importance")?.jsonPrimitive?.content
+                ?: "default"
+            val vibrate = request.params.arguments?.get("vibrate")?.jsonPrimitive?.content
+                ?.toBooleanStrictOrNull()
+            val sound = request.params.arguments?.get("sound")?.jsonPrimitive?.content
+                ?.toBooleanStrictOrNull() ?: true
+            val showBadge = request.params.arguments?.get("show_badge")?.jsonPrimitive?.content
+                ?.toBooleanStrictOrNull()
+
+            val channelId = if (rawId.startsWith(AI_CHANNEL_PREFIX)) {
+                rawId
+            } else {
+                "$AI_CHANNEL_PREFIX$rawId"
+            }
+            val level = parseImportance(importance)
+
+            val channel = NotificationChannel(channelId, name, level).apply {
+                if (description != null) this.description = description
+                if (vibrate != null) enableVibration(vibrate)
+                if (!sound) setSound(null, null)
+                if (showBadge != null) setShowBadge(showBadge)
+            }
+
+            val nm = context.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(channel)
+
+            CallToolResult(
+                content = listOf(
+                    TextContent(
+                        buildChannelJson(nm.getNotificationChannel(channelId))
+                    )
+                )
+            )
+        }
+    }
+
+    private fun registerListNotificationChannels(server: Server) {
+        server.addTool(
+            name = "list_notification_channels",
+            description = "List AI-created notification channels on the device",
+            inputSchema = ToolSchema(properties = buildJsonObject {}, required = emptyList())
+        ) { _ ->
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                return@addTool CallToolResult(
+                    content = listOf(TextContent("[]"))
+                )
+            }
+
+            val nm = context.getSystemService(NotificationManager::class.java)
+            val channels = nm.notificationChannels
+                .filter { it.id.startsWith(AI_CHANNEL_PREFIX) }
+                .joinToString(",") { buildChannelJson(it) }
+
+            CallToolResult(
+                content = listOf(TextContent("[$channels]"))
+            )
+        }
+    }
+
+    private fun registerDeleteNotificationChannel(server: Server) {
+        server.addTool(
+            name = "delete_notification_channel",
+            description = "Delete an AI-created notification channel",
+            inputSchema = stringParamSchema("id", "Channel ID to delete")
+        ) { request ->
+            val rawId = request.params.arguments?.get("id")?.jsonPrimitive?.content
+                ?: return@addTool errorResult("Missing id")
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                return@addTool successResult(
+                    "Channel deletion not supported on this Android version (API < 26)"
+                )
+            }
+
+            val channelId = if (rawId.startsWith(AI_CHANNEL_PREFIX)) {
+                rawId
+            } else {
+                "$AI_CHANNEL_PREFIX$rawId"
+            }
+
+            val nm = context.getSystemService(NotificationManager::class.java)
+            val existing = nm.getNotificationChannel(channelId)
+                ?: return@addTool errorResult("Channel not found: $channelId")
+
+            nm.deleteNotificationChannel(channelId)
+            successResult("Deleted channel: ${existing.name}")
+        }
+    }
+
+    @Suppress("MagicNumber")
+    private fun buildChannelJson(channel: NotificationChannel): String {
+        val imp = when (channel.importance) {
+            NotificationManager.IMPORTANCE_MIN -> "min"
+            NotificationManager.IMPORTANCE_LOW -> "low"
+            NotificationManager.IMPORTANCE_HIGH -> "high"
+            else -> "default"
+        }
+        val desc = channel.description?.escapeJson() ?: ""
+        return """{"id":"${channel.id}","name":"${channel.name.toString().escapeJson()}",""" +
+            """"description":"$desc","importance":"$imp",""" +
+            """"vibration":${channel.shouldVibrate()},""" +
+            """"sound":${channel.sound != null},""" +
+            """"show_badge":${channel.canShowBadge()}}"""
     }
 
     private fun registerListInstalledApps(server: Server) {
@@ -365,6 +507,7 @@ class OutreachMcpProvider(
 
     companion object {
         const val CHANNEL_ID = "outreach"
+        const val AI_CHANNEL_PREFIX = "rouse_ai_"
         private const val CHANNEL_NAME = "AI Outreach"
         private const val NOTIFICATION_ID_BASE = 10000
         private const val MAX_NOTIFICATIONS_PER_MINUTE = 10
@@ -372,6 +515,13 @@ class OutreachMcpProvider(
         private const val MAX_NOTIFICATION_ACTIONS = 3
         private const val TAG = "OutreachMcp"
     }
+}
+
+private fun parseImportance(importance: String?): Int = when (importance?.lowercase()) {
+    "min" -> NotificationManager.IMPORTANCE_MIN
+    "low" -> NotificationManager.IMPORTANCE_LOW
+    "high" -> NotificationManager.IMPORTANCE_HIGH
+    else -> NotificationManager.IMPORTANCE_DEFAULT
 }
 
 private fun parsePriority(priority: String?): Int = when (priority?.lowercase()) {
@@ -520,6 +670,19 @@ private fun notificationSchema() = ToolSchema(
             }
         )
         put(
+            "channel_id",
+            buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put(
+                    "description",
+                    JsonPrimitive(
+                        "Optional channel ID created via create_notification_channel. " +
+                            "Uses default channel if omitted."
+                    )
+                )
+            }
+        )
+        put(
             "actions",
             buildJsonObject {
                 put("type", JsonPrimitive("array"))
@@ -557,6 +720,76 @@ private fun notificationSchema() = ToolSchema(
         )
     },
     required = listOf("title", "message")
+)
+
+@Suppress("LongMethod")
+private fun createChannelSchema() = ToolSchema(
+    properties = buildJsonObject {
+        put(
+            "id",
+            buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put("description", JsonPrimitive("Unique channel identifier"))
+            }
+        )
+        put(
+            "name",
+            buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put("description", JsonPrimitive("User-visible channel name"))
+            }
+        )
+        put(
+            "description",
+            buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put("description", JsonPrimitive("Optional channel description"))
+            }
+        )
+        put(
+            "importance",
+            buildJsonObject {
+                put("type", JsonPrimitive("string"))
+                put(
+                    "description",
+                    JsonPrimitive("Channel importance: min, low, default, or high")
+                )
+                put(
+                    "enum",
+                    kotlinx.serialization.json.JsonArray(
+                        listOf(
+                            JsonPrimitive("min"),
+                            JsonPrimitive("low"),
+                            JsonPrimitive("default"),
+                            JsonPrimitive("high")
+                        )
+                    )
+                )
+            }
+        )
+        put(
+            "vibrate",
+            buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("Whether the channel should vibrate"))
+            }
+        )
+        put(
+            "sound",
+            buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("Whether to play sound (default true)"))
+            }
+        )
+        put(
+            "show_badge",
+            buildJsonObject {
+                put("type", JsonPrimitive("boolean"))
+                put("description", JsonPrimitive("Whether to show badge on app icon"))
+            }
+        )
+    },
+    required = listOf("id", "name")
 )
 
 private fun dndSchema() = ToolSchema(
