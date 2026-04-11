@@ -673,21 +673,6 @@ class ScreenScreenshotTest {
             "notifications",
             "Notifications",
             "Let AI clients read your notifications",
-            PickerIntegrationState.UNAVAILABLE
-        )
-    )
-
-    private fun pickerIntegrationsDisabled() = listOf(
-        PickerIntegration(
-            "health",
-            "Health Connect",
-            "Share step count, heart rate, and sleep data with AI clients",
-            PickerIntegrationState.AVAILABLE
-        ),
-        PickerIntegration(
-            "notifications",
-            "Notifications",
-            "Let AI clients read your notifications",
             PickerIntegrationState.AVAILABLE
         )
     )

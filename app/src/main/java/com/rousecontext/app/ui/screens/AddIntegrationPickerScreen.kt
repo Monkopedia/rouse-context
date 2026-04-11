@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
-enum class PickerIntegrationState { AVAILABLE, UNAVAILABLE }
+enum class PickerIntegrationState { AVAILABLE }
 
 @Immutable
 data class PickerIntegration(
@@ -47,8 +47,6 @@ fun AddIntegrationPickerContent(
     onSetUp: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val available = integrations.filter { it.state == PickerIntegrationState.AVAILABLE }
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -56,7 +54,7 @@ fun AddIntegrationPickerContent(
     ) {
         Spacer(modifier = Modifier.height(8.dp))
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(available) { integration ->
+            items(integrations) { integration ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()

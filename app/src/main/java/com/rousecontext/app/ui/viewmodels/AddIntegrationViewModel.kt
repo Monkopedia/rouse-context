@@ -37,19 +37,20 @@ class AddIntegrationViewModel(
                     isAvailable = integration.isAvailable(),
                     hasTokens = tokenStore.hasTokens(integration.id)
                 )
-                // Only show integrations that are not already enabled
-                val pickerState = when (derived) {
+                // Only show integrations that can actually be set up
+                when (derived) {
                     IntegrationState.Available,
-                    IntegrationState.Disabled -> PickerIntegrationState.AVAILABLE
-                    IntegrationState.Unavailable -> PickerIntegrationState.UNAVAILABLE
-                    // Active and Pending integrations are already enabled
-                    IntegrationState.Active, IntegrationState.Pending -> return@mapNotNull null
+                    IntegrationState.Disabled -> Unit
+                    // Unavailable, Active, and Pending integrations are hidden
+                    IntegrationState.Unavailable,
+                    IntegrationState.Active,
+                    IntegrationState.Pending -> return@mapNotNull null
                 }
                 PickerIntegration(
                     id = integration.id,
                     name = integration.displayName,
                     description = integration.description,
-                    state = pickerState
+                    state = PickerIntegrationState.AVAILABLE
                 )
             }
         }
