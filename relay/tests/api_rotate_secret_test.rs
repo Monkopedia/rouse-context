@@ -65,7 +65,7 @@ async fn rotate_secret_returns_new_prefix() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-    assert_eq!(json["success"].as_bool().unwrap(), true);
+    assert!(json["success"].as_bool().unwrap());
 
     // Verify Firestore was updated with client-provided secrets
     let devices = fs.devices.lock().unwrap();
