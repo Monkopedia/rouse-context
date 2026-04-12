@@ -519,7 +519,7 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit) {
                 Text(integration.name, style = MaterialTheme.typography.bodyLarge)
                 if (integration.status == IntegrationStatus.PENDING) {
                     Text(
-                        "Waiting for client",
+                        "Waiting for AI client",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

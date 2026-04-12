@@ -179,7 +179,7 @@ private fun IntegrationEnabledBody(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Waiting for connection...",
+                    text = "Waiting for AI client...",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

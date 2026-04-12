@@ -1164,7 +1164,7 @@ fun AppNavigation(
 
                 composable(Routes.AUTH_APPROVAL) {
                     ConfigureNavBar(
-                        title = "Approve Connection",
+                        title = "Approve AI Client",
                         showTopBar = false
                     )
                     val viewModel: AuthorizationApprovalViewModel =

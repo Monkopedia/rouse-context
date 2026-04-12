@@ -30,7 +30,7 @@ object NotificationChannels {
                 "Foreground Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Ongoing notification while the MCP server is active"
+                description = "Ongoing notification while an integration is active"
             },
             NotificationChannel(
                 SESSION_CHANNEL_ID,
@@ -58,7 +58,7 @@ object NotificationChannels {
                 "Authorization Requests",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Approval requests for new client connections"
+                description = "Approval requests for new AI clients"
             }
         )
 
