@@ -41,6 +41,7 @@ import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsScreen
 import com.rousecontext.app.ui.screens.SettingsState
+import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.app.ui.screens.UsageSetupScreen
@@ -468,6 +469,75 @@ class ScreenScreenshotTest {
     @Test
     fun usageSetupGrantedLight() = captureLight("33_usage_setup_granted") {
         UsageSetupScreen(state = UsageSetupState(permissionGranted = true))
+    }
+
+    // =========================================================================
+    // Settings-mode variants (floating Save bar — #59)
+    // These render the same screens in SETTINGS mode with dirty state so the
+    // pinned FloatingSaveBar is visible at the bottom.
+    // =========================================================================
+
+    @Test
+    fun notificationSettingsDirtyDark() = captureDark("33a_notification_settings_dirty") {
+        NotificationSetupScreen(
+            state = NotificationSetupState(
+                permissionGranted = true,
+                retentionDays = 30,
+                allowActions = true
+            ),
+            mode = SetupMode.SETTINGS,
+            isDirty = true
+        )
+    }
+
+    @Test
+    fun notificationSettingsDirtyLight() = captureLight("33a_notification_settings_dirty") {
+        NotificationSetupScreen(
+            state = NotificationSetupState(
+                permissionGranted = true,
+                retentionDays = 30,
+                allowActions = true
+            ),
+            mode = SetupMode.SETTINGS,
+            isDirty = true
+        )
+    }
+
+    @Test
+    fun notificationSettingsCleanDark() = captureDark("33b_notification_settings_clean") {
+        NotificationSetupScreen(
+            state = NotificationSetupState(
+                permissionGranted = true,
+                retentionDays = 7,
+                allowActions = false
+            ),
+            mode = SetupMode.SETTINGS,
+            isDirty = false
+        )
+    }
+
+    @Test
+    fun outreachSettingsDirtyDark() = captureDark("33c_outreach_settings_dirty") {
+        OutreachSetupScreen(
+            state = OutreachSetupState(
+                dndToggled = true,
+                dndPermissionGranted = true
+            ),
+            mode = SetupMode.SETTINGS,
+            isDirty = true
+        )
+    }
+
+    @Test
+    fun outreachSettingsDirtyLight() = captureLight("33c_outreach_settings_dirty") {
+        OutreachSetupScreen(
+            state = OutreachSetupState(
+                dndToggled = true,
+                dndPermissionGranted = true
+            ),
+            mode = SetupMode.SETTINGS,
+            isDirty = true
+        )
     }
 
     // =========================================================================

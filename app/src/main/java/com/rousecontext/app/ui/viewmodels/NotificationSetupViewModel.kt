@@ -4,13 +4,17 @@ import android.content.ComponentName
 import android.content.Context
 import android.provider.Settings
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.notifications.capture.NotificationCaptureService
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
 data class NotificationSetupState(
@@ -37,22 +41,47 @@ class NotificationSetupViewModel(
     private val _state = MutableStateFlow(NotificationSetupState())
     val state: StateFlow<NotificationSetupState> = _state.asStateFlow()
 
+    /**
+     * Snapshot of the persisted values the last time settings were loaded or
+     * saved. Used to compute [isDirty] so the floating Save bar only appears
+     * when the user has actually changed something.
+     */
+    private val savedSnapshot = MutableStateFlow(
+        SavedSnapshot(
+            retentionDays = NotificationSetupState.DEFAULT_RETENTION_DAYS,
+            allowActions = false
+        )
+    )
+
+    /**
+     * Emits `true` when the in-memory state differs from the last loaded or
+     * saved snapshot. Drives the floating Save bar visibility.
+     */
+    val isDirty: StateFlow<Boolean> = combine(_state, savedSnapshot) { current, saved ->
+        current.retentionDays != saved.retentionDays ||
+            current.allowActions != saved.allowActions
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = false
+    )
+
     /** Load persisted settings when opening in SETTINGS mode. */
     fun initForMode(mode: SetupMode) {
         if (mode == SetupMode.SETTINGS) {
+            val retention = settingsStore.getInt(
+                INTEGRATION_ID,
+                IntegrationSettingsStore.KEY_RETENTION_DAYS,
+                NotificationSetupState.DEFAULT_RETENTION_DAYS
+            )
+            val allow = settingsStore.getBoolean(
+                INTEGRATION_ID,
+                IntegrationSettingsStore.KEY_ALLOW_ACTIONS
+            )
             _state.update {
-                it.copy(
-                    retentionDays = settingsStore.getInt(
-                        INTEGRATION_ID,
-                        IntegrationSettingsStore.KEY_RETENTION_DAYS,
-                        NotificationSetupState.DEFAULT_RETENTION_DAYS
-                    ),
-                    allowActions = settingsStore.getBoolean(
-                        INTEGRATION_ID,
-                        IntegrationSettingsStore.KEY_ALLOW_ACTIONS
-                    )
-                )
+                it.copy(retentionDays = retention, allowActions = allow)
             }
+            savedSnapshot.value = SavedSnapshot(retentionDays = retention, allowActions = allow)
         }
     }
 
@@ -97,6 +126,10 @@ class NotificationSetupViewModel(
             IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
             s.allowActions
         )
+        savedSnapshot.value = SavedSnapshot(
+            retentionDays = s.retentionDays,
+            allowActions = s.allowActions
+        )
     }
 
     private fun isListenerEnabled(): Boolean {
@@ -107,6 +140,8 @@ class NotificationSetupViewModel(
         val component = ComponentName(context, NotificationCaptureService::class.java)
         return flat.contains(component.flattenToString())
     }
+
+    private data class SavedSnapshot(val retentionDays: Int, val allowActions: Boolean)
 
     companion object {
         const val INTEGRATION_ID = "notifications"

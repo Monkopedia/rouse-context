@@ -910,6 +910,7 @@ fun AppNavigation(
                         viewModel.initForMode(mode)
                     }
                     val state by viewModel.state.collectAsState()
+                    val isDirty by viewModel.isDirty.collectAsState()
                     val lifecycleOwner = LocalLifecycleOwner.current
                     val lifecycle = lifecycleOwner.lifecycle
                     DisposableEffect(lifecycle) {
@@ -925,6 +926,7 @@ fun AppNavigation(
                     NotificationSetupContent(
                         state = state,
                         mode = mode,
+                        isDirty = isDirty,
                         onGrantAccess = {
                             val intent = Intent(
                                 Settings
@@ -935,23 +937,21 @@ fun AppNavigation(
                         onRetentionChanged = viewModel::setRetentionDays,
                         onAllowActionsChanged = viewModel::setAllowActions,
                         onEnable = {
-                            if (mode == SetupMode.SETTINGS) {
-                                viewModel.saveSettings()
-                                navController.popBackStack()
-                            } else {
-                                if (viewModel.enable()) {
-                                    navController.navigate(
-                                        Routes.integrationSetup(
-                                            NotificationSetupViewModel
-                                                .INTEGRATION_ID
-                                        )
-                                    ) {
-                                        popUpTo(Routes.ADD_INTEGRATION) {
-                                            inclusive = true
-                                        }
+                            if (viewModel.enable()) {
+                                navController.navigate(
+                                    Routes.integrationSetup(
+                                        NotificationSetupViewModel
+                                            .INTEGRATION_ID
+                                    )
+                                ) {
+                                    popUpTo(Routes.ADD_INTEGRATION) {
+                                        inclusive = true
                                     }
                                 }
                             }
+                        },
+                        onSave = {
+                            viewModel.saveSettings()
                         },
                         onCancel = {
                             if (mode == SetupMode.SETTINGS) {
@@ -1000,6 +1000,7 @@ fun AppNavigation(
                         viewModel.initForMode(mode)
                     }
                     val state by viewModel.state.collectAsState()
+                    val isDirty by viewModel.isDirty.collectAsState()
                     val lifecycleOwner = LocalLifecycleOwner.current
                     val lifecycle = lifecycleOwner.lifecycle
                     DisposableEffect(lifecycle) {
@@ -1015,6 +1016,7 @@ fun AppNavigation(
                     OutreachSetupContent(
                         state = state,
                         mode = mode,
+                        isDirty = isDirty,
                         onDndToggled = viewModel::setDndToggled,
                         onGrantDnd = {
                             val intent = Intent(
@@ -1024,22 +1026,20 @@ fun AppNavigation(
                             navController.context.startActivity(intent)
                         },
                         onEnable = {
-                            if (mode == SetupMode.SETTINGS) {
-                                viewModel.saveSettings()
-                                navController.popBackStack()
-                            } else {
-                                viewModel.enable()
-                                navController.navigate(
-                                    Routes.integrationSetup(
-                                        OutreachSetupViewModel
-                                            .INTEGRATION_ID
-                                    )
-                                ) {
-                                    popUpTo(Routes.ADD_INTEGRATION) {
-                                        inclusive = true
-                                    }
+                            viewModel.enable()
+                            navController.navigate(
+                                Routes.integrationSetup(
+                                    OutreachSetupViewModel
+                                        .INTEGRATION_ID
+                                )
+                            ) {
+                                popUpTo(Routes.ADD_INTEGRATION) {
+                                    inclusive = true
                                 }
                             }
+                        },
+                        onSave = {
+                            viewModel.saveSettings()
                         },
                         onCancel = {
                             if (mode == SetupMode.SETTINGS) {

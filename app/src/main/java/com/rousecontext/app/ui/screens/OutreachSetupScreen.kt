@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.screens
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.FloatingSaveBar
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.SwitchRow
 import com.rousecontext.app.ui.components.appBarColors
@@ -44,18 +46,22 @@ import com.rousecontext.app.ui.viewmodels.OutreachSetupState
 fun OutreachSetupContent(
     state: OutreachSetupState = OutreachSetupState(),
     mode: SetupMode = SetupMode.SETUP,
+    isDirty: Boolean = false,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
     onEnable: () -> Unit = {},
+    onSave: () -> Unit = {},
     onCancel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     OutreachSetupBody(
         state = state,
         mode = mode,
+        isDirty = isDirty,
         onDndToggled = onDndToggled,
         onGrantDnd = onGrantDnd,
         onEnable = onEnable,
+        onSave = onSave,
         onCancel = onCancel,
         modifier = modifier
     )
@@ -65,9 +71,12 @@ fun OutreachSetupContent(
 @Composable
 fun OutreachSetupScreen(
     state: OutreachSetupState = OutreachSetupState(),
+    mode: SetupMode = SetupMode.SETUP,
+    isDirty: Boolean = false,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
     onEnable: () -> Unit = {},
+    onSave: () -> Unit = {},
     onCancel: () -> Unit = {}
 ) {
     Scaffold(
@@ -85,9 +94,12 @@ fun OutreachSetupScreen(
     ) { padding ->
         OutreachSetupBody(
             state = state,
+            mode = mode,
+            isDirty = isDirty,
             onDndToggled = onDndToggled,
             onGrantDnd = onGrantDnd,
             onEnable = onEnable,
+            onSave = onSave,
             onCancel = onCancel,
             modifier = Modifier.padding(padding)
         )
@@ -98,126 +110,141 @@ fun OutreachSetupScreen(
 private fun OutreachSetupBody(
     state: OutreachSetupState,
     mode: SetupMode = SetupMode.SETUP,
+    isDirty: Boolean = false,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
     onEnable: () -> Unit = {},
+    onSave: () -> Unit = {},
     onCancel: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .verticalScroll(rememberScrollState())
-    ) {
-        Spacer(modifier = Modifier.height(16.dp))
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "Allow AI clients to take actions on your device: launch apps, " +
-                "open links, copy to clipboard, and send you notifications.",
-            style = MaterialTheme.typography.bodyLarge
-        )
+            Text(
+                text = "Allow AI clients to take actions on your device: launch apps, " +
+                    "open links, copy to clipboard, and send you notifications.",
+                style = MaterialTheme.typography.bodyLarge
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-        Text(
-            text = "No special permissions are needed for basic tools.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            Text(
+                text = "No special permissions are needed for basic tools.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Text(
-            text = "Every action is logged in the app's audit history.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+            Text(
+                text = "Every action is logged in the app's audit history.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-        // DND section
-        SectionHeader("Do Not Disturb Control")
+            // DND section
+            SectionHeader("Do Not Disturb Control")
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            SwitchRow(
-                title = "Allow DND changes",
-                subtitle = "This is a sensitive permission. When enabled, " +
-                    "AI clients can change your Do Not Disturb settings.",
-                checked = state.dndToggled,
-                onCheckedChange = onDndToggled,
-                expandedContent = {
-                    Column(
-                        modifier = Modifier.padding(
-                            start = 16.dp,
-                            end = 16.dp,
-                            bottom = 16.dp
-                        )
-                    ) {
-                        if (state.dndPermissionGranted) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.CheckCircle,
-                                    contentDescription = "Granted",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = SuccessGreen
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Permission granted",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                        } else {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer
-                                )
-                            ) {
-                                Text(
-                                    text = "DND access requires a special permission. " +
-                                        "You'll be taken to system settings to grant it.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.padding(12.dp)
-                                )
-                            }
+            Card(modifier = Modifier.fillMaxWidth()) {
+                SwitchRow(
+                    title = "Allow DND changes",
+                    subtitle = "This is a sensitive permission. When enabled, " +
+                        "AI clients can change your Do Not Disturb settings.",
+                    checked = state.dndToggled,
+                    onCheckedChange = onDndToggled,
+                    expandedContent = {
+                        Column(
+                            modifier = Modifier.padding(
+                                start = 16.dp,
+                                end = 16.dp,
+                                bottom = 16.dp
+                            )
+                        ) {
+                            if (state.dndPermissionGranted) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Granted",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = SuccessGreen
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Permission granted",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            } else {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor =
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    )
+                                ) {
+                                    Text(
+                                        text = "DND access requires a special permission. " +
+                                            "You'll be taken to system settings to grant it.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
-                            OutlinedButton(
-                                onClick = onGrantDnd,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Grant DND Access")
+                                OutlinedButton(
+                                    onClick = onGrantDnd,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Grant DND Access")
+                                }
                             }
                         }
                     }
+                )
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            // In SETUP mode keep the inline Enable / Cancel buttons for the
+            // onboarding flow. In SETTINGS mode they are replaced by the
+            // pinned, dirty-state-aware FloatingSaveBar (back nav discards).
+            if (mode == SetupMode.SETUP) {
+                Button(
+                    onClick = onEnable,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Enable")
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Cancel")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+        if (mode == SetupMode.SETTINGS) {
+            FloatingSaveBar(
+                visible = isDirty,
+                onSave = onSave,
+                modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        val buttonText = if (mode == SetupMode.SETTINGS) "Save" else "Enable"
-
-        Button(
-            onClick = onEnable,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(buttonText)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedButton(
-            onClick = onCancel,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Cancel")
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
