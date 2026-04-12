@@ -19,10 +19,8 @@ import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
-import com.rousecontext.app.ui.screens.HealthConnectSettingsScreen
-import com.rousecontext.app.ui.screens.HealthConnectSettingsState
+import com.rousecontext.app.ui.screens.HealthConnectSetupContent
 import com.rousecontext.app.ui.screens.HealthConnectSetupScreen
-import com.rousecontext.app.ui.screens.HealthPermission
 import com.rousecontext.app.ui.screens.IntegrationEnabledScreen
 import com.rousecontext.app.ui.screens.IntegrationEnabledState
 import com.rousecontext.app.ui.screens.IntegrationItem
@@ -50,7 +48,6 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.viewmodels.NotificationSetupState
 import com.rousecontext.app.ui.viewmodels.OutreachSetupState
 import com.rousecontext.app.ui.viewmodels.UsageSetupState
-import com.rousecontext.mcp.health.RecordCategory
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -365,12 +362,12 @@ class ScreenScreenshotTest {
 
     @Test
     fun healthConnectSettingsDark() = captureDark("26_health_connect_settings") {
-        HealthConnectSettingsScreen(state = healthConnectSettingsState())
+        HealthConnectSetupContent(mode = SetupMode.SETTINGS, historicalAccessGranted = true)
     }
 
     @Test
     fun healthConnectSettingsLight() = captureLight("26_health_connect_settings") {
-        HealthConnectSettingsScreen(state = healthConnectSettingsState())
+        HealthConnectSetupContent(mode = SetupMode.SETTINGS, historicalAccessGranted = true)
     }
 
     // =========================================================================
@@ -761,22 +758,6 @@ class ScreenScreenshotTest {
         AuthorizationApprovalItem(
             displayCode = "7YMN-4HPQ",
             integration = "Notifications"
-        )
-    )
-
-    private fun healthConnectSettingsState() = HealthConnectSettingsState(
-        permissions = listOf(
-            HealthPermission("Steps", granted = true, category = RecordCategory.ACTIVITY),
-            HealthPermission(
-                "Workout history",
-                granted = false,
-                category = RecordCategory.ACTIVITY
-            ),
-            HealthPermission("Weight", granted = true, category = RecordCategory.BODY),
-            HealthPermission("Sleep", granted = true, category = RecordCategory.SLEEP),
-            HealthPermission("Heart rate", granted = true, category = RecordCategory.VITALS),
-            HealthPermission("HRV", granted = false, category = RecordCategory.VITALS),
-            HealthPermission("Hydration", granted = false, category = RecordCategory.NUTRITION)
         )
     )
 

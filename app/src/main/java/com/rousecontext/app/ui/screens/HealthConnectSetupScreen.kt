@@ -1,9 +1,14 @@
 package com.rousecontext.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,6 +33,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.mcp.health.RecordCategory
 import com.rousecontext.mcp.health.RecordTypeRegistry
 
 /**
@@ -119,30 +129,43 @@ private fun HealthConnectSetupBody(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Per-category expanded state. Default: all collapsed, so the full
+        // permission list does not overwhelm the user on first view (#60).
+        val expandedState = remember { mutableStateMapOf<RecordCategory, Boolean>() }
+
         typesByCategory.forEach { (category, types) ->
-            Text(
-                text = category.value.replaceFirstChar { it.uppercase() },
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+            val expanded = expandedState[category] ?: false
+            CategoryHeader(
+                category = category,
+                count = types.size,
+                expanded = expanded,
+                onToggle = { expandedState[category] = !expanded }
             )
-            types.forEach { recordType ->
-                Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
-                    Text(
-                        text = "\u2022",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = recordType.displayName,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = recordType.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    types.forEach { recordType ->
+                        Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
+                            Text(
+                                text = "\u2022",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = recordType.displayName,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = recordType.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -280,6 +303,41 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
                 Text("Grant historical access")
             }
         }
+    }
+}
+
+@Composable
+private fun CategoryHeader(
+    category: RecordCategory,
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .defaultMinSize(minHeight = 48.dp)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = category.value.replaceFirstChar { it.uppercase() },
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = "$count",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "Collapse $category" else "Expand $category",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
