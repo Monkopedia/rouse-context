@@ -13,7 +13,7 @@ import com.rousecontext.tunnel.CertificateStore
  */
 class McpUrlProvider(
     private val certStore: CertificateStore,
-    private val baseDomain: String = BuildConfig.RELAY_HOST.removePrefix("relay.")
+    private val baseDomain: String = BuildConfig.BASE_DOMAIN
 ) {
 
     /**

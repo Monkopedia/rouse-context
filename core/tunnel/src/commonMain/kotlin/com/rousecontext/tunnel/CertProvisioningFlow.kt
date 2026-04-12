@@ -12,7 +12,8 @@ package com.rousecontext.tunnel
 class CertProvisioningFlow(
     private val csrGenerator: CsrGenerator,
     private val relayApiClient: RelayApiClient,
-    private val certificateStore: CertificateStore
+    private val certificateStore: CertificateStore,
+    private val defaultBaseDomain: String = "rousecontext.com"
 ) {
 
     /**
@@ -21,11 +22,12 @@ class CertProvisioningFlow(
      * Requires that [CertificateStore.getSubdomain] is non-null (device is onboarded).
      *
      * @param firebaseToken Fresh Firebase ID token for relay authentication.
-     * @param baseDomain The base domain for FQDN construction (default: rousecontext.com).
+     * @param baseDomain The base domain for FQDN construction. Defaults to the value
+     *   passed to the constructor (which callers typically wire from BuildConfig).
      */
     suspend fun execute(
         firebaseToken: String,
-        baseDomain: String = "rousecontext.com"
+        baseDomain: String = defaultBaseDomain
     ): CertProvisioningResult {
         // Already provisioned?
         if (certificateStore.getCertificate() != null &&

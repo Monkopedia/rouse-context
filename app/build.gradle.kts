@@ -35,9 +35,14 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val relayHost = project.findProperty("relay.host")?.toString() ?: "relay.rousecontext.com"
+        // Base domain. Override with `-Pdomain=yourdomain.example` for self-hosting forks.
+        // All relay/device/OAuth hostnames derive from this.
+        val baseDomain = project.findProperty("domain")?.toString() ?: "rousecontext.com"
+        // Relay host defaults to "relay.{baseDomain}" but can be overridden directly.
+        val relayHost = project.findProperty("relay.host")?.toString() ?: "relay.$baseDomain"
         val relayPort = project.findProperty("relay.port")?.toString() ?: "443"
         val relayScheme = project.findProperty("relay.scheme")?.toString() ?: "wss"
+        buildConfigField("String", "BASE_DOMAIN", "\"$baseDomain\"")
         buildConfigField("String", "RELAY_HOST", "\"$relayHost\"")
         buildConfigField("int", "RELAY_PORT", "$relayPort")
         buildConfigField("String", "RELAY_SCHEME", "\"$relayScheme\"")

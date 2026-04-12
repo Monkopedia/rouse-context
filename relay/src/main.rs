@@ -176,10 +176,7 @@ async fn main() {
     ));
 
     let relay_hostname = config.server.relay_hostname.clone();
-    let base_domain = relay_hostname
-        .strip_prefix("relay.")
-        .unwrap_or(&relay_hostname)
-        .to_string();
+    let base_domain = config.server.resolved_base_domain();
     let fcm_timeout = Duration::from_secs(config.limits.fcm_wakeup_timeout_secs.unwrap_or(20));
 
     // Bot protection: rate limiters for passthrough connections
@@ -450,13 +447,8 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         }
     };
 
-    // Derive the base domain from the relay hostname (e.g. "relay.rousecontext.com" -> "rousecontext.com")
-    let base_domain = config
-        .server
-        .relay_hostname
-        .strip_prefix("relay.")
-        .unwrap_or(&config.server.relay_hostname)
-        .to_string();
+    // Derive the base domain from config (falls back to stripping "relay." from relay_hostname).
+    let base_domain = config.server.resolved_base_domain();
 
     // Resolve ACME directory URL: config file > env var > Let's Encrypt production
     let directory_url = if !config.acme.directory_url.is_empty() {
@@ -508,12 +500,7 @@ fn build_dns_client(config: &RelayConfig) -> Arc<dyn rouse_relay::dns::DnsClient
         }
     };
 
-    let base_domain = config
-        .server
-        .relay_hostname
-        .strip_prefix("relay.")
-        .unwrap_or(&config.server.relay_hostname)
-        .to_string();
+    let base_domain = config.server.resolved_base_domain();
 
     info!(
         zone_id = %cf.zone_id,

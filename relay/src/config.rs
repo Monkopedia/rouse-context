@@ -57,6 +57,28 @@ fn default_integrations() -> Vec<String> {
 pub struct ServerConfig {
     pub bind_addr: String,
     pub relay_hostname: String,
+    /// Base domain under which all devices are provisioned. Every device gets a
+    /// unique subdomain `{subdomain}.{base_domain}`, and per-integration hostnames
+    /// take the form `{secret}.{subdomain}.{base_domain}`.
+    ///
+    /// If empty, derived from `relay_hostname` by stripping a leading `"relay."`
+    /// (so `relay_hostname = "relay.example.com"` yields `base_domain = "example.com"`).
+    /// Set explicitly when your relay hostname doesn't follow that convention.
+    pub base_domain: String,
+}
+
+impl ServerConfig {
+    /// Resolve the effective base domain. Falls back to stripping `"relay."` from
+    /// `relay_hostname` when `base_domain` is empty.
+    pub fn resolved_base_domain(&self) -> String {
+        if !self.base_domain.is_empty() {
+            return self.base_domain.clone();
+        }
+        self.relay_hostname
+            .strip_prefix("relay.")
+            .unwrap_or(&self.relay_hostname)
+            .to_string()
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -149,6 +171,7 @@ impl Default for ServerConfig {
         Self {
             bind_addr: "0.0.0.0:443".to_string(),
             relay_hostname: "relay.rousecontext.com".to_string(),
+            base_domain: String::new(),
         }
     }
 }
@@ -198,6 +221,9 @@ impl RelayConfig {
         }
         if let Ok(val) = std::env::var("RELAY_HOSTNAME") {
             self.server.relay_hostname = val;
+        }
+        if let Ok(val) = std::env::var("RELAY_BASE_DOMAIN") {
+            self.server.base_domain = val;
         }
         if let Ok(val) = std::env::var("RELAY_TLS_CERT_PATH") {
             self.tls.cert_path = val;
