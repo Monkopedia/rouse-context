@@ -3,6 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!--
+      Health Connect: optional permission to read data recorded before
+      the app was installed / granted access. Without this, Health Connect
+      only returns records written after the user grants access.
+      See issue #61.
+    -->
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
+
     <application
         android:name=".RouseApplication"
         android:allowBackup="false"

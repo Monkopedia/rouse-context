@@ -761,6 +761,11 @@ fun AppNavigation(
                     )
                     val viewModel: HealthConnectSetupViewModel =
                         koinViewModel()
+                    LaunchedEffect(Unit) {
+                        viewModel.refreshHistoricalAccess()
+                    }
+                    val historicalGranted by viewModel.historicalAccessGranted
+                        .collectAsState()
                     val requestPermissions =
                         rememberLauncherForActivityResult(
                             contract = PermissionController
@@ -783,6 +788,13 @@ fun AppNavigation(
                                 navController.popBackStack()
                             }
                         }
+                    val requestHistoricalPermission =
+                        rememberLauncherForActivityResult(
+                            contract = PermissionController
+                                .createRequestPermissionResultContract()
+                        ) { granted ->
+                            viewModel.onHistoricalPermissionResult(granted)
+                        }
                     HealthConnectSetupContent(
                         mode = mode,
                         onGrantAccess = {
@@ -803,6 +815,15 @@ fun AppNavigation(
                                     popUpTo(Routes.HOME)
                                 }
                             }
+                        },
+                        historicalAccessGranted = historicalGranted,
+                        onRequestHistoricalAccess = {
+                            requestHistoricalPermission.launch(
+                                setOf(
+                                    HealthConnectSetupViewModel
+                                        .HISTORY_PERMISSION
+                                )
+                            )
                         }
                     )
                 }

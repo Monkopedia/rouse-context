@@ -17,6 +17,9 @@ class FakeHealthConnectRepository : HealthConnectRepository {
     /** Set of record type names that have permission granted. */
     var grantedPermissions: MutableSet<String> = mutableSetOf()
 
+    /** Whether the historical data read permission is granted. */
+    var historicalReadGranted: Boolean = false
+
     /** Canned summary response. */
     var summaryResponse: JsonObject = JsonObject(emptyMap())
 
@@ -37,6 +40,11 @@ class FakeHealthConnectRepository : HealthConnectRepository {
     override suspend fun getGrantedPermissions(): Set<String> {
         shouldThrow?.let { throw it }
         return grantedPermissions.toSet()
+    }
+
+    override suspend fun isHistoricalReadGranted(): Boolean {
+        shouldThrow?.let { throw it }
+        return historicalReadGranted
     }
 
     override suspend fun getSummary(from: Instant, to: Instant): JsonObject {
