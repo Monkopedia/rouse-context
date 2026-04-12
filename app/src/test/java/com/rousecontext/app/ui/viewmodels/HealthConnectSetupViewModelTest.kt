@@ -116,6 +116,70 @@ class HealthConnectSetupViewModelTest {
         )
     }
 
+    @Test
+    fun `onHistoricalPermissionResult with history perm sets flag true`() =
+        runTest(testDispatcher) {
+            val vm = HealthConnectSetupViewModel(FakeStore(), FakeRepo())
+            assertFalse(vm.historicalAccessGranted.value)
+
+            vm.onHistoricalPermissionResult(setOf(HEALTH_DATA_HISTORY_PERMISSION))
+
+            assertTrue(vm.historicalAccessGranted.value)
+        }
+
+    @Test
+    fun `onHistoricalPermissionResult with empty set sets flag false`() = runTest(testDispatcher) {
+        val vm = HealthConnectSetupViewModel(FakeStore(), FakeRepo())
+        // Seed flag to true so the empty-set call has something to flip.
+        vm.onHistoricalPermissionResult(setOf(HEALTH_DATA_HISTORY_PERMISSION))
+        assertTrue(vm.historicalAccessGranted.value)
+
+        vm.onHistoricalPermissionResult(emptySet())
+
+        assertFalse(vm.historicalAccessGranted.value)
+    }
+
+    @Test
+    fun `onHistoricalPermissionResult without history perm sets flag false`() =
+        runTest(testDispatcher) {
+            val vm = HealthConnectSetupViewModel(FakeStore(), FakeRepo())
+            vm.onHistoricalPermissionResult(setOf(HEALTH_DATA_HISTORY_PERMISSION))
+            assertTrue(vm.historicalAccessGranted.value)
+
+            vm.onHistoricalPermissionResult(setOf("android.permission.health.READ_STEPS"))
+
+            assertFalse(vm.historicalAccessGranted.value)
+        }
+
+    /**
+     * Documents an intentional edge case: if the user previously granted the
+     * historical-read permission via the dedicated history flow, and then
+     * subsequently opens the main grant dialog and denies everything,
+     * [HealthConnectSetupViewModel.onPermissionsResult] unconditionally
+     * re-derives the flag from the granted set it receives, flipping
+     * `historicalAccessGranted` back to `false`.
+     *
+     * This is by design: the main-grant result is treated as the
+     * authoritative snapshot of currently-granted permissions. The flag is
+     * not "sticky" across a denial.
+     */
+    @Test
+    fun `onPermissionsResult with empty set overrides prior historical grant`() =
+        runTest(testDispatcher) {
+            val vm = HealthConnectSetupViewModel(FakeStore(), FakeRepo())
+            // Simulate: user granted history via the history-specific flow.
+            vm.onHistoricalPermissionResult(setOf(HEALTH_DATA_HISTORY_PERMISSION))
+            assertTrue(vm.historicalAccessGranted.value)
+
+            // Now the user opens the main grant dialog and denies everything.
+            val enabled = vm.onPermissionsResult(emptySet())
+
+            assertFalse(enabled)
+            // Historical flag is re-derived from the (empty) granted set,
+            // so it flips to false even though the user previously granted it.
+            assertFalse(vm.historicalAccessGranted.value)
+        }
+
     private class FakeRepo : HealthConnectRepository {
         var historicalReadGranted: Boolean = false
         override suspend fun queryRecords(
