@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.SwitchRow
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -106,7 +107,7 @@ private fun OutreachSetupBody(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState())
     ) {
         Spacer(modifier = Modifier.height(16.dp))
@@ -136,13 +137,7 @@ private fun OutreachSetupBody(
         Spacer(modifier = Modifier.height(24.dp))
 
         // DND section
-        Text(
-            text = "Do Not Disturb Control",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
+        SectionHeader("Do Not Disturb Control")
 
         Card(modifier = Modifier.fillMaxWidth()) {
             SwitchRow(
