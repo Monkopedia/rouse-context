@@ -5,7 +5,6 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.health.HEALTH_DATA_HISTORY_PERMISSION
 import com.rousecontext.mcp.health.HealthConnectRepository
 import java.time.Instant
-import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -16,6 +15,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.JsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -132,16 +132,13 @@ class HealthConnectSetupViewModelTest {
 
     private class FakeStore : IntegrationStateStore {
         val enabled = mutableMapOf<String, Boolean>()
-        override fun isUserEnabled(integrationId: String): Boolean =
-            enabled[integrationId] == true
+        override fun isUserEnabled(integrationId: String): Boolean = enabled[integrationId] == true
         override fun setUserEnabled(integrationId: String, enabled: Boolean) {
             this.enabled[integrationId] = enabled
         }
         override fun observeUserEnabled(integrationId: String) =
             MutableStateFlow(enabled[integrationId] == true)
-        override fun wasEverEnabled(integrationId: String): Boolean =
-            enabled[integrationId] == true
-        override fun observeChanges(): Flow<Unit> =
-            MutableStateFlow(0).map { }
+        override fun wasEverEnabled(integrationId: String): Boolean = enabled[integrationId] == true
+        override fun observeChanges(): Flow<Unit> = MutableStateFlow(0).map { }
     }
 }
