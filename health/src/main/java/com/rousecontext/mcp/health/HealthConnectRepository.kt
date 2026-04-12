@@ -36,6 +36,15 @@ interface HealthConnectRepository {
     suspend fun getGrantedPermissions(): Set<String>
 
     /**
+     * Check whether the user has granted permission to read historical health data
+     * (data recorded before the app was installed/granted access).
+     *
+     * Corresponds to `HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY`
+     * (i.e. `android.permission.health.READ_HEALTH_DATA_HISTORY`).
+     */
+    suspend fun isHistoricalReadGranted(): Boolean
+
+    /**
      * Aggregate summary across record types for the given time range.
      *
      * Returns a JSON object with keys like "steps_total", "avg_heart_rate",
@@ -44,6 +53,13 @@ interface HealthConnectRepository {
      */
     suspend fun getSummary(from: Instant, to: Instant): JsonObject
 }
+
+/**
+ * Health Connect permission granting access to historical data
+ * (records written before the app was installed or granted access).
+ */
+const val HEALTH_DATA_HISTORY_PERMISSION: String =
+    "android.permission.health.READ_HEALTH_DATA_HISTORY"
 
 /**
  * Thrown when the Health Connect SDK is not available on this device.

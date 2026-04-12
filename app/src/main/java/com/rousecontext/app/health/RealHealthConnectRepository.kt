@@ -18,6 +18,7 @@ import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import com.rousecontext.mcp.health.HEALTH_DATA_HISTORY_PERMISSION
 import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.mcp.health.HealthConnectUnavailableException
 import com.rousecontext.mcp.health.RecordTypeRegistry
@@ -85,6 +86,11 @@ class RealHealthConnectRepository(private val context: Context) : HealthConnectR
             .filter { info -> granted.contains(info.readPermission) }
             .map { it.name }
             .toSet()
+    }
+
+    override suspend fun isHistoricalReadGranted(): Boolean {
+        val granted = client.permissionController.getGrantedPermissions()
+        return HEALTH_DATA_HISTORY_PERMISSION in granted
     }
 
     override suspend fun getSummary(from: Instant, to: Instant): JsonObject {

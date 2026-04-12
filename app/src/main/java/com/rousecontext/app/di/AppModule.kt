@@ -309,7 +309,7 @@ val appModule = module {
             androidContext().getSystemService(android.app.NotificationManager::class.java)
         )
     }
-    viewModel { HealthConnectSetupViewModel(get()) }
+    viewModel { HealthConnectSetupViewModel(get(), get()) }
     viewModel { NotificationSetupViewModel(androidContext(), get(), get()) }
     viewModel { OutreachSetupViewModel(androidContext(), get(), get()) }
     viewModel { UsageSetupViewModel(androidContext(), get()) }
