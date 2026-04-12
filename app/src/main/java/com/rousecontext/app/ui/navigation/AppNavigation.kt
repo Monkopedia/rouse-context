@@ -4,17 +4,14 @@ import android.content.Intent
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.History
@@ -157,6 +154,13 @@ fun AppNavigation(
 
     CompositionLocalProvider(LocalNavBarController provides controller) {
         Scaffold(
+            // Explicitly use safeDrawing insets so the content PaddingValues
+            // always include the bottom gesture-navigation inset, even when
+            // the bottom NavigationBar is hidden (e.g. on detail screens with
+            // a bottom-anchored action button). Without this the default
+            // behaviour dropped the bottom inset whenever bottomBar measured
+            // as 0-height, clipping buttons behind the gesture bar.
+            contentWindowInsets = WindowInsets.safeDrawing,
             topBar = {
                 if (!isOnboarding && controller.showTopBar) {
                     TopAppBar(
@@ -195,69 +199,65 @@ fun AppNavigation(
                 }
             },
             bottomBar = {
-                Column(modifier = Modifier.animateContentSize()) {
-                    AnimatedVisibility(
-                        visible = !isOnboarding && controller.showBottomBar,
-                        enter = slideInVertically(
-                            initialOffsetY = { it }
-                        ) + fadeIn(),
-                        exit = slideOutVertically(
-                            targetOffsetY = { it }
-                        ) + fadeOut()
-                    ) {
-                        NavigationBar(containerColor = navBarContainerColor()) {
-                            val itemColors = navBarItemColors()
-                            NavigationBarItem(
-                                selected = selectedTab == 0,
-                                onClick = {
-                                    navController.navigate(Routes.HOME) {
-                                        popUpTo(Routes.HOME) {
-                                            inclusive = true
-                                        }
+                // Only populate the bottomBar slot when the navigation bar is
+                // actually shown. A populated-but-zero-height bottomBar (e.g.
+                // an AnimatedVisibility that is hidden) causes Material3
+                // Scaffold to ignore the system bottom inset when computing
+                // content padding, which clipped bottom-anchored buttons
+                // behind the gesture bar on gesture-nav devices.
+                if (!isOnboarding && controller.showBottomBar) {
+                    NavigationBar(containerColor = navBarContainerColor()) {
+                        val itemColors = navBarItemColors()
+                        NavigationBarItem(
+                            selected = selectedTab == 0,
+                            onClick = {
+                                navController.navigate(Routes.HOME) {
+                                    popUpTo(Routes.HOME) {
+                                        inclusive = true
                                     }
-                                },
-                                icon = {
-                                    Icon(
-                                        Icons.Default.Home,
-                                        contentDescription = "Home"
-                                    )
-                                },
-                                label = { Text("Home") },
-                                colors = itemColors
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 1,
-                                onClick = {
-                                    navController.navigate(Routes.AUDIT_BASE) {
-                                        popUpTo(Routes.HOME)
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        Icons.Default.History,
-                                        contentDescription = "Audit"
-                                    )
-                                },
-                                label = { Text("Audit") },
-                                colors = itemColors
-                            )
-                            NavigationBarItem(
-                                selected = selectedTab == 2,
-                                onClick = {
-                                    navController.navigate(Routes.SETTINGS) {
-                                        popUpTo(Routes.HOME)
-                                    }
-                                },
-                                icon = {
-                                    Icon(
-                                        Icons.Default.Settings,
-                                        contentDescription = "Settings"
-                                    )
-                                },
-                                label = { Text("Settings") },
-                                colors = itemColors
-                            )
-                        }
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    Icons.Default.Home,
+                                    contentDescription = "Home"
+                                )
+                            },
+                            label = { Text("Home") },
+                            colors = itemColors
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = {
+                                navController.navigate(Routes.AUDIT_BASE) {
+                                    popUpTo(Routes.HOME)
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = "Audit"
+                                )
+                            },
+                            label = { Text("Audit") },
+                            colors = itemColors
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = {
+                                navController.navigate(Routes.SETTINGS) {
+                                    popUpTo(Routes.HOME)
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    Icons.Default.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            },
+                            label = { Text("Settings") },
+                            colors = itemColors
+                        )
                     }
                 }
             }
