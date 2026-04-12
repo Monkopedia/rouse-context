@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.Card
@@ -65,11 +66,23 @@ fun IntegrationEnabledContent(
 fun IntegrationEnabledScreen(
     state: IntegrationEnabledState = IntegrationEnabledState(),
     onCopyUrl: () -> Unit = {},
-    onCancel: () -> Unit = {}
+    onCancel: () -> Unit = {},
+    onBack: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("${state.integrationName} Ready") }, colors = appBarColors())
+            TopAppBar(
+                title = { Text("${state.integrationName} Ready") },
+                colors = appBarColors(),
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            )
         }
     ) { padding ->
         IntegrationEnabledBody(

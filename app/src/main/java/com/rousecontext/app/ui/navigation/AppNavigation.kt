@@ -1115,7 +1115,9 @@ fun AppNavigation(
                     val integrationName = integration?.displayName
                         ?: integrationId
                     ConfigureNavBar(
-                        title = "$integrationName Ready"
+                        title = "$integrationName Ready",
+                        showBackButton = true,
+                        onBackPressed = { navController.popBackStack() }
                     )
 
                     // Auto-navigate to approval when a client auth request arrives
@@ -1205,7 +1207,8 @@ fun AppNavigation(
                             }
                             viewModel.approve(displayCode)
                         },
-                        onDeny = viewModel::deny
+                        onDeny = viewModel::deny,
+                        onBack = { navController.popBackStack() }
                     )
                 }
 
