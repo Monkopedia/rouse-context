@@ -8,71 +8,59 @@ import com.rousecontext.app.ui.screens.AuthorizationApprovalUiState
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.PendingAuthRequest
 import com.rousecontext.notifications.AuthRequestNotifier
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 /**
- * Drives the authorization approval screen by polling the [AuthorizationCodeManager]
- * for pending requests and exposing approve/deny actions.
+ * Drives the authorization approval screen by observing
+ * [AuthorizationCodeManager.pendingRequestsFlow] and exposing approve/deny actions.
+ *
+ * The previous implementation used a `while (isActive) { … delay(POLL_INTERVAL_MS) }`
+ * loop, which hung under `kotlinx-coroutines-test` because the real-time delay loop
+ * is not driven by the test scheduler. The Flow-based design cooperates cleanly with
+ * virtual time and doesn't need periodic wakeups.
  */
 class AuthorizationApprovalViewModel(
     private val authorizationCodeManager: AuthorizationCodeManager,
     private val notificationManager: NotificationManager
 ) : ViewModel() {
 
-    private val _pendingRequests = MutableStateFlow<List<PendingAuthRequest>>(emptyList())
-    val pendingRequests: StateFlow<List<PendingAuthRequest>> = _pendingRequests.asStateFlow()
+    val pendingRequests: StateFlow<List<PendingAuthRequest>> =
+        authorizationCodeManager.pendingRequestsFlow
 
-    private val _uiState = MutableStateFlow<AuthorizationApprovalUiState>(
-        AuthorizationApprovalUiState.Loading
-    )
-    val uiState: StateFlow<AuthorizationApprovalUiState> = _uiState.asStateFlow()
-
-    init {
-        viewModelScope.launch {
-            while (isActive) {
-                try {
-                    val requests = authorizationCodeManager.pendingRequests()
-                    _pendingRequests.value = requests
-                    _uiState.value = AuthorizationApprovalUiState.Loaded(
-                        requests.map { it.toUiItem() }
-                    )
-                } catch (e: IllegalStateException) {
-                    _uiState.value = AuthorizationApprovalUiState.Error(
-                        e.message ?: "Could not load pending requests."
-                    )
-                }
-                delay(POLL_INTERVAL_MS)
+    /**
+     * UI state derived from [pendingRequests]. Starts as [AuthorizationApprovalUiState.Loading]
+     * and becomes [AuthorizationApprovalUiState.Loaded] as soon as the collector is active.
+     * The manager's `pendingRequestsFlow` cannot error, so there is no error branch here.
+     * [retry] exists for API stability with #65.
+     */
+    val uiState: StateFlow<AuthorizationApprovalUiState> =
+        authorizationCodeManager.pendingRequestsFlow
+            .map { list ->
+                AuthorizationApprovalUiState.Loaded(list.map { it.toUiItem() })
+                    as AuthorizationApprovalUiState
             }
-        }
-    }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.Eagerly,
+                initialValue = AuthorizationApprovalUiState.Loading
+            )
 
+    /** No-op retained for API compatibility with #65. The flow is always live. */
     fun retry() {
-        _uiState.value = AuthorizationApprovalUiState.Loading
+        // No-op: pendingRequestsFlow cannot enter an error state.
     }
 
     fun approve(displayCode: String) {
         authorizationCodeManager.approve(displayCode)
         cancelAuthNotifications()
-        val requests = authorizationCodeManager.pendingRequests()
-        _pendingRequests.value = requests
-        _uiState.value = AuthorizationApprovalUiState.Loaded(
-            requests.map { it.toUiItem() }
-        )
     }
 
     fun deny(displayCode: String) {
         authorizationCodeManager.deny(displayCode)
         cancelAuthNotifications()
-        val requests = authorizationCodeManager.pendingRequests()
-        _pendingRequests.value = requests
-        _uiState.value = AuthorizationApprovalUiState.Loaded(
-            requests.map { it.toUiItem() }
-        )
     }
 
     private fun PendingAuthRequest.toUiItem(): AuthorizationApprovalItem =
@@ -93,7 +81,6 @@ class AuthorizationApprovalViewModel(
     }
 
     companion object {
-        private const val POLL_INTERVAL_MS = 2_000L
         private const val MAX_NOTIFICATIONS = 50
     }
 }

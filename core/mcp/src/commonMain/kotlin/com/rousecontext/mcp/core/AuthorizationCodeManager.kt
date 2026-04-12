@@ -5,8 +5,11 @@ import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Status of an authorization request, returned by [AuthorizationCodeManager.getStatus].
@@ -85,6 +88,16 @@ class AuthorizationCodeManager(
 
     /** Emits each new auth request as it arrives. Observe from UI to auto-navigate. */
     val newRequestFlow: SharedFlow<PendingAuthRequest> = _newRequestFlow.asSharedFlow()
+
+    private val _pendingRequestsFlow = MutableStateFlow<List<PendingAuthRequest>>(emptyList())
+
+    /**
+     * Observable list of pending authorization requests. Updates whenever requests
+     * are created, approved, denied, exchanged, or expire. Drives the phone
+     * approval UI reactively so it doesn't need to poll.
+     */
+    val pendingRequestsFlow: StateFlow<List<PendingAuthRequest>> =
+        _pendingRequestsFlow.asStateFlow()
 
     private data class PendingRequest(
         val requestId: String,
@@ -185,6 +198,7 @@ class AuthorizationCodeManager(
                     createdAt = now
                 )
             )
+            publishPendingRequestsLocked(now)
         }
 
         onNewRequest?.invoke(displayCode, integration)
@@ -211,15 +225,21 @@ class AuthorizationCodeManager(
      */
     fun getStatus(requestId: String): AuthorizationRequestStatus {
         synchronized(this) {
-            cleanup(clock.currentTimeMillis())
+            val now = clock.currentTimeMillis()
+            cleanup(now)
             val request = requests.find { it.requestId == requestId }
-                ?: return AuthorizationRequestStatus.Expired
-
-            val elapsed = clock.currentTimeMillis() - request.createdAt
-            if (elapsed > AUTH_REQUEST_TTL_MS) {
-                requests.remove(request)
+            if (request == null) {
+                publishPendingRequestsLocked(now)
                 return AuthorizationRequestStatus.Expired
             }
+
+            val elapsed = now - request.createdAt
+            if (elapsed > AUTH_REQUEST_TTL_MS) {
+                requests.remove(request)
+                publishPendingRequestsLocked(now)
+                return AuthorizationRequestStatus.Expired
+            }
+            publishPendingRequestsLocked(now)
 
             return when (request.approved) {
                 null -> AuthorizationRequestStatus.Pending
@@ -239,18 +259,21 @@ class AuthorizationCodeManager(
      */
     fun approve(displayCode: String): Boolean {
         synchronized(this) {
+            val now = clock.currentTimeMillis()
             val request = requests.find {
                 it.displayCode == displayCode && it.approved == null
             } ?: return false
 
-            val elapsed = clock.currentTimeMillis() - request.createdAt
+            val elapsed = now - request.createdAt
             if (elapsed > AUTH_REQUEST_TTL_MS) {
                 requests.remove(request)
+                publishPendingRequestsLocked(now)
                 return false
             }
 
             request.approved = true
             request.authorizationCode = generateAuthorizationCode()
+            publishPendingRequestsLocked(now)
             return true
         }
     }
@@ -267,6 +290,7 @@ class AuthorizationCodeManager(
             } ?: return false
 
             request.approved = false
+            publishPendingRequestsLocked(clock.currentTimeMillis())
             return true
         }
     }
@@ -287,6 +311,7 @@ class AuthorizationCodeManager(
 
             // Consume the code (single-use)
             requests.remove(request)
+            publishPendingRequestsLocked(clock.currentTimeMillis())
 
             // Validate PKCE
             if (!validatePkce(codeVerifier, request.codeChallenge)) {
@@ -337,6 +362,24 @@ class AuthorizationCodeManager(
      */
     private fun cleanup(now: Long) {
         requests.removeAll { (now - it.createdAt) > AUTH_REQUEST_TTL_MS }
+    }
+
+    /**
+     * Publishes the current pending request snapshot to [pendingRequestsFlow].
+     * Must be called inside synchronized(this).
+     */
+    private fun publishPendingRequestsLocked(now: Long) {
+        _pendingRequestsFlow.value = requests
+            .filter { it.approved == null && (now - it.createdAt) <= AUTH_REQUEST_TTL_MS }
+            .map {
+                PendingAuthRequest(
+                    displayCode = it.displayCode,
+                    integration = it.integration,
+                    clientId = it.clientId,
+                    clientName = clientNames[it.clientId],
+                    createdAt = it.createdAt
+                )
+            }
     }
 
     private fun generateDisplayCode(): String {
