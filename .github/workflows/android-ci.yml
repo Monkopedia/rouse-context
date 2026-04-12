@@ -40,6 +40,8 @@ jobs:
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: Lint
         run: ./gradlew ktlintCheck
+      - name: Check for zombie screen files
+        run: bash scripts/check-zombie-screens.sh
       - name: Build
         run: ./gradlew assembleDebug
       - name: Test

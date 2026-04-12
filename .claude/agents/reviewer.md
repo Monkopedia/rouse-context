@@ -41,6 +41,17 @@ If ANY item from the prompt is missing, DO NOT MERGE. Instead:
 - Fix it yourself if it's small (< 20 lines)
 - If it's large, report back that the task is incomplete
 
+### Step 4b: Render-path check for UI edits (BLOCKS MERGE)
+If any edited file is under `app/src/main/java/com/rousecontext/app/ui/screens/` or `app/src/main/java/com/rousecontext/app/ui/components/`, verify the edited composable(s) are actually rendered. For each modified file:
+
+1. Extract the public `@Composable` function names declared in the file.
+2. `grep -rlE "\b<FuncName>\b" --include='*.kt' app/src/main` — exclude the file itself.
+3. Confirm at least one hit is in `app/src/main/java/com/rousecontext/app/ui/navigation/AppNavigation.kt` OR another production composable that IS reachable from AppNavigation.
+
+If zero non-self production references exist, the edit landed in a dead file (e.g. issue #60 v1 edited `HealthConnectSettingsScreen.kt` which was never wired — on-device behavior unchanged). DO NOT MERGE. Report back that the fix hit dead code and needs to target the actually-rendered composable (usually the corresponding `*Content` in the matching `*SetupScreen.kt`).
+
+You can also run `bash scripts/check-zombie-screens.sh` — it fails CI on the same condition.
+
 ### Step 5: Code Review (ADDS TO BACKLOG, DOES NOT BLOCK)
 Review the code for:
 
