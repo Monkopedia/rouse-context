@@ -60,6 +60,22 @@ class BackStackFlowTest {
             stack.removeLast()
             return true
         }
+
+        /**
+         * Mirrors `navController.popBackStack(route, inclusive)`. Pops
+         * entries until [route] is at the top (or removed, if inclusive).
+         * Returns true if anything was popped.
+         */
+        fun popUpTo(route: String, inclusive: Boolean): Boolean {
+            val idx = stack.indexOfLast { it == route }
+            if (idx < 0) return false
+            val keep = if (inclusive) idx else idx + 1
+            if (stack.size <= keep) return false
+            while (stack.size > keep) {
+                stack.removeLast()
+            }
+            return true
+        }
     }
 
     // ---------- Onboarding ----------
@@ -204,6 +220,82 @@ class BackStackFlowTest {
         stack.navigate(Routes.INTEGRATION_ENABLED)
 
         // #62 fix back handler
+        stack.navigate(
+            route = Routes.INTEGRATION_MANAGE,
+            popTarget = Routes.HOME,
+            inclusive = false
+        )
+
+        assertEquals(
+            listOf(Routes.HOME, Routes.INTEGRATION_MANAGE),
+            stack.asList
+        )
+    }
+
+    // ---------- IntegrationSetup terminal-state cancel (#76) ----------
+
+    /**
+     * When setup reaches the Failed state (cert provisioning failed before
+     * registration), cancel must land on HOME — the integration is not
+     * registered, so IntegrationManage would render a non-existent
+     * integration.
+     */
+    @Test
+    fun `setup failed - cancel lands on home not manage`() {
+        val stack = FakeBackStack(Routes.HOME)
+
+        stack.navigate(Routes.ADD_INTEGRATION)
+        stack.navigate(
+            route = Routes.INTEGRATION_SETUP,
+            popTarget = Routes.ADD_INTEGRATION,
+            inclusive = true
+        )
+
+        // #76 fix: cancel from Failed performs
+        // popBackStack(HOME, inclusive=false) rather than navigating to
+        // IntegrationManage for a potentially-unregistered integration.
+        stack.popUpTo(Routes.HOME, inclusive = false)
+
+        assertEquals(listOf(Routes.HOME), stack.asList)
+    }
+
+    /**
+     * Same as above but for the RateLimited terminal state.
+     */
+    @Test
+    fun `setup rate limited - cancel lands on home not manage`() {
+        val stack = FakeBackStack(Routes.HOME)
+
+        stack.navigate(Routes.ADD_INTEGRATION)
+        stack.navigate(
+            route = Routes.INTEGRATION_SETUP,
+            popTarget = Routes.ADD_INTEGRATION,
+            inclusive = true
+        )
+
+        stack.popUpTo(Routes.HOME, inclusive = false)
+
+        assertEquals(listOf(Routes.HOME), stack.asList)
+    }
+
+    /**
+     * Locks in the pre-fix behaviour for Provisioning: cancel while the
+     * flow is still in progress continues to navigate to
+     * IntegrationManage (per #76 we only change the terminal
+     * Failed/RateLimited paths).
+     */
+    @Test
+    fun `setup provisioning - cancel still navigates to manage`() {
+        val stack = FakeBackStack(Routes.HOME)
+
+        stack.navigate(Routes.ADD_INTEGRATION)
+        stack.navigate(
+            route = Routes.INTEGRATION_SETUP,
+            popTarget = Routes.ADD_INTEGRATION,
+            inclusive = true
+        )
+
+        // Current Provisioning cancel handler
         stack.navigate(
             route = Routes.INTEGRATION_MANAGE,
             popTarget = Routes.HOME,

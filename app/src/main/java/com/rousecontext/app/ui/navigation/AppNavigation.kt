@@ -704,14 +704,14 @@ fun AppNavigation(
                                             ).message
                                     )
                                 ),
+                                // #76: integration may not be registered
+                                // if provisioning failed pre-Complete, so
+                                // avoid IntegrationManage and pop to HOME.
                                 onCancel = {
-                                    navController.navigate(
-                                        Routes.integrationManage(
-                                            integrationId
-                                        )
-                                    ) {
-                                        popUpTo(Routes.HOME)
-                                    }
+                                    navController.popBackStack(
+                                        Routes.HOME,
+                                        inclusive = false
+                                    )
                                 }
                             )
                         }
@@ -726,14 +726,12 @@ fun AppNavigation(
                                             ).retryDate
                                     )
                                 ),
+                                // #76: same reasoning as Failed above.
                                 onCancel = {
-                                    navController.navigate(
-                                        Routes.integrationManage(
-                                            integrationId
-                                        )
-                                    ) {
-                                        popUpTo(Routes.HOME)
-                                    }
+                                    navController.popBackStack(
+                                        Routes.HOME,
+                                        inclusive = false
+                                    )
                                 }
                             )
                         }
