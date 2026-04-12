@@ -16,7 +16,6 @@ import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
 import com.rousecontext.app.ui.screens.AuthorizationApprovalScreen
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.CertBanner
-import com.rousecontext.app.ui.screens.ConnectionConfirmedScreen
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.HealthConnectSettingsScreen
@@ -146,16 +145,6 @@ class ScreenScreenshotTest {
         OnboardingErrorScreen(
             message = "Network error. Check your connection and try again."
         )
-    }
-
-    @Test
-    fun connectionConfirmedDark() = captureDark("06_connection_confirmed") {
-        ConnectionConfirmedScreen()
-    }
-
-    @Test
-    fun connectionConfirmedLight() = captureLight("06_connection_confirmed") {
-        ConnectionConfirmedScreen()
     }
 
     // =========================================================================
