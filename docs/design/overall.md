@@ -611,7 +611,7 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 174. Rate limited during onboarding → rate_limited surfaced with retry_after
 175. Partial failure (keypair generated, /register fails) → no partial state, clean retry
 
-### :notifications — NotificationModel + audit
+### :notifications — notification behavior + audit
 176. MuxConnected → ShowForeground
 177. MuxDisconnected with tool calls + setting=Summary → PostSummary
 178. MuxDisconnected with tool calls + setting=Each usage → individual PostToolUsage per call

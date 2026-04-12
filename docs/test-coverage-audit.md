@@ -108,14 +108,13 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 ### 5. Notifications (Unit tests: `notifications/src/test/`)
 
-**Files:** 7 test classes
+**Files:** 6 test classes
 
 | Test Class | Coverage | Status |
 |---|---|---|
 | `NotificationChannelsTest` | Channel creation and importance | ✓ Good |
 | `NotificationAdapterTest` | Action -> notification posting | ✓ Good |
 | `AuthRequestNotifierTest` | Auth request notification | ✓ Good |
-| `NotificationModelTest` | Notification data models | ✓ Good |
 | `AuditDaoTest` | Audit database persistence | ✓ Good |
 | `NotificationDaoTest` | Capture database persistence | ✓ Good |
 | `NotificationScreenshotTest` | Screenshot previews | ⚠ Limited |
