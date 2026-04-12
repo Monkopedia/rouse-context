@@ -447,7 +447,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "MCP requests are blocked while an alert is active.",
+                    text = "Integration requests are blocked while an alert is active.",
                     style = MaterialTheme.typography.bodySmall,
                     color = statusColor
                 )

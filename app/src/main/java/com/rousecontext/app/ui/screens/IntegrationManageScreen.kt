@@ -187,14 +187,14 @@ private fun IntegrationManageBody(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Waiting for first client",
+                        text = "Waiting for first AI client",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Tap \"Add Client\" to get the connection URL",
+                        text = "Tap \"Add AI Client\" to get the integration URL",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -256,7 +256,7 @@ private fun IntegrationManageBody(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Client")
+                Text("Add AI Client")
             }
         }
 
