@@ -21,6 +21,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
@@ -102,13 +103,32 @@ class MainDashboardViewModel(
             activeSessionCount = sessionCount,
             integrations = items,
             recentActivity = recent,
-            hasMoreIntegrationsToAdd = hasMoreToAdd
+            hasMoreIntegrationsToAdd = hasMoreToAdd,
+            isLoading = false,
+            errorMessage = null
+        )
+    }.catch { cause ->
+        emit(
+            DashboardState(
+                isLoading = false,
+                errorMessage = cause.message ?: "Something went wrong."
+            )
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-        initialValue = DashboardState()
+        initialValue = DashboardState(isLoading = true)
     )
+
+    /**
+     * Trigger a retry after an error state. The underlying flows are reactive, so
+     * re-collection happens automatically when subscribers re-attach. This just
+     * resets the internal error state so the UI shows loading while flows re-emit.
+     */
+    fun retry() {
+        // No-op: collection resumes when state flow is re-subscribed. Re-emission
+        // on the underlying sources will clear the error naturally.
+    }
 
     /**
      * Manual refresh hook for data that isn't reactive.

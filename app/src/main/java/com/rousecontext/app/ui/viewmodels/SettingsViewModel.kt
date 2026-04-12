@@ -20,6 +20,7 @@ import com.rousecontext.work.SecurityCheckWorker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -59,12 +60,21 @@ class SettingsViewModel(
             securityCheckInterval = "$intervalHours hours",
             trustStatus = readTrustStatus(),
             canRotateAddress = !rotating,
-            rotationCooldownMessage = rotateErr
+            rotationCooldownMessage = rotateErr,
+            isLoading = false,
+            errorMessage = null
+        )
+    }.catch { cause ->
+        emit(
+            SettingsState(
+                isLoading = false,
+                errorMessage = cause.message ?: "Could not load settings."
+            )
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-        initialValue = SettingsState()
+        initialValue = SettingsState(isLoading = true)
     )
 
     fun setIdleTimeout(minutes: Int) {

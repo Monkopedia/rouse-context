@@ -10,6 +10,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -17,6 +18,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -44,10 +47,34 @@ class AuditHistoryViewModelTest {
         val vm = AuditHistoryViewModel(auditDao)
 
         vm.state.test {
-            val state = awaitItem()
-            assertTrue(state.groups.isEmpty())
-            assertEquals("All providers", state.providerFilter)
-            assertEquals("Today", state.dateFilter)
+            // First emission is the Loading initial value
+            val loading = awaitItem()
+            assertTrue(loading.isLoading)
+            // Second emission is the loaded empty state
+            val loaded = awaitItem()
+            assertFalse(loaded.isLoading)
+            assertTrue(loaded.groups.isEmpty())
+            assertEquals("All providers", loaded.providerFilter)
+            assertEquals("Today", loaded.dateFilter)
+        }
+    }
+
+    @Test
+    fun `state transitions to error when dao throws`() = runTest(testDispatcher) {
+        val auditDao = mockk<AuditDao> {
+            every { observeByDateRange(any(), any(), any()) } returns flow {
+                error("db unavailable")
+            }
+        }
+        val vm = AuditHistoryViewModel(auditDao)
+
+        vm.state.test {
+            val loading = awaitItem()
+            assertTrue(loading.isLoading)
+            val error = awaitItem()
+            assertFalse(error.isLoading)
+            assertNotNull(error.errorMessage)
+            assertEquals("db unavailable", error.errorMessage)
         }
     }
 

@@ -45,8 +45,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
+import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
@@ -75,7 +77,9 @@ data class AuditHistoryState(
     val providerFilter: String = "All providers",
     val dateFilter: String = "Today",
     val availableProviders: List<String> = listOf("All providers", "health"),
-    val availableDates: List<String> = listOf("Today", "Yesterday", "Last 7 days", "Last 30 days")
+    val availableDates: List<String> = listOf("Today", "Yesterday", "Last 7 days", "Last 30 days"),
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
 )
 
 /**
@@ -90,8 +94,21 @@ fun AuditHistoryContent(
     onDateFilterChanged: (String) -> Unit = {},
     onClearHistory: () -> Unit = {},
     onEntryClick: (Long) -> Unit = {},
+    onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    if (state.isLoading) {
+        LoadingIndicator(modifier = modifier)
+        return
+    }
+    if (state.errorMessage != null) {
+        ErrorState(
+            message = state.errorMessage,
+            modifier = modifier,
+            onRetry = onRetry
+        )
+        return
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -256,6 +273,7 @@ fun AuditHistoryScreen(
     onDateFilterChanged: (String) -> Unit = {},
     onClearHistory: () -> Unit = {},
     onEntryClick: (Long) -> Unit = {},
+    onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -310,6 +328,7 @@ fun AuditHistoryScreen(
             onDateFilterChanged = onDateFilterChanged,
             onClearHistory = onClearHistory,
             onEntryClick = onEntryClick,
+            onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
     }

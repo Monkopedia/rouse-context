@@ -7,6 +7,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditDetailScreen
 import com.rousecontext.app.ui.screens.AuditDetailState
+import com.rousecontext.app.ui.screens.AuditDetailUiState
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
@@ -578,12 +579,22 @@ class ScreenScreenshotTest {
 
     @Test
     fun auditDetailPopulatedDark() = captureDark("43_audit_detail_populated") {
-        AuditDetailScreen(state = auditDetailPopulatedState())
+        AuditDetailScreen(uiState = AuditDetailUiState.Loaded(auditDetailPopulatedState()))
     }
 
     @Test
     fun auditDetailPopulatedLight() = captureLight("43_audit_detail_populated") {
-        AuditDetailScreen(state = auditDetailPopulatedState())
+        AuditDetailScreen(uiState = AuditDetailUiState.Loaded(auditDetailPopulatedState()))
+    }
+
+    @Test
+    fun auditDetailNotFoundDark() = captureDark("44_audit_detail_not_found") {
+        AuditDetailScreen(uiState = AuditDetailUiState.NotFound)
+    }
+
+    @Test
+    fun auditDetailNotFoundLight() = captureLight("44_audit_detail_not_found") {
+        AuditDetailScreen(uiState = AuditDetailUiState.NotFound)
     }
 
     // =========================================================================
@@ -756,8 +767,7 @@ class ScreenScreenshotTest {
         timestampMillis = 1_712_400_000_000L,
         durationMs = 142,
         argumentsJson = """{"days":7,"metric":"steps"}""",
-        resultJson = """{"total":52340,"average":7477}""",
-        isLoading = false
+        resultJson = """{"total":52340,"average":7477}"""
     )
 
     private fun settingsTrustState(overall: TrustOverallStatus, ctResult: String) = SettingsState(

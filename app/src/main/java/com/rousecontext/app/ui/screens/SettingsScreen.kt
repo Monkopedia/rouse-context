@@ -50,6 +50,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.ErrorState
+import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.SwitchRow
 import com.rousecontext.app.ui.components.appBarColors
@@ -86,7 +88,9 @@ data class SettingsState(
     val rotationCooldownMessage: String? = null,
     val showBatteryWarning: Boolean = true,
     val versionName: String = "0.1.0",
-    val trustStatus: TrustStatusState? = null
+    val trustStatus: TrustStatusState? = null,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
 )
 
 /**
@@ -105,8 +109,21 @@ fun SettingsContent(
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
+    onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    if (state.isLoading) {
+        LoadingIndicator(modifier = modifier)
+        return
+    }
+    if (state.errorMessage != null) {
+        ErrorState(
+            message = state.errorMessage,
+            modifier = modifier,
+            onRetry = onRetry
+        )
+        return
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -309,6 +326,7 @@ fun SettingsScreen(
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
+    onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -367,6 +385,7 @@ fun SettingsScreen(
             onGenerateNewAddress = onGenerateNewAddress,
             onFixBatteryOptimization = onFixBatteryOptimization,
             onAcknowledgeAlert = onAcknowledgeAlert,
+            onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
     }

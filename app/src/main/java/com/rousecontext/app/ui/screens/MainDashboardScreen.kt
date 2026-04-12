@@ -47,8 +47,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.BuildConfig
+import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
+import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
@@ -95,7 +97,9 @@ data class DashboardState(
     val integrations: List<IntegrationItem> = emptyList(),
     val recentActivity: List<AuditEntry> = emptyList(),
     val certBanner: CertBanner? = null,
-    val hasMoreIntegrationsToAdd: Boolean = true
+    val hasMoreIntegrationsToAdd: Boolean = true,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
 )
 
 /**
@@ -109,8 +113,21 @@ fun HomeDashboardContent(
     onIntegrationClick: (String) -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
+    onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    if (state.isLoading) {
+        LoadingIndicator(modifier = modifier)
+        return
+    }
+    if (state.errorMessage != null) {
+        ErrorState(
+            message = state.errorMessage,
+            modifier = modifier,
+            onRetry = onRetry
+        )
+        return
+    }
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -217,6 +234,7 @@ fun MainDashboardScreen(
     onIntegrationClick: (String) -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
+    onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
     Scaffold(
@@ -267,6 +285,7 @@ fun MainDashboardScreen(
             onIntegrationClick = onIntegrationClick,
             onViewAllActivity = onViewAllActivity,
             onRetryRenewal = onRetryRenewal,
+            onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
     }
