@@ -15,13 +15,14 @@ class CertRenewalFlow(
     private val certificateStore: CertificateStore,
     private val certInspector: CertInspector = CertInspector(),
     private val maxRetries: Int = 3,
-    private val baseRetryDelayMs: Long = 1000L
+    private val baseRetryDelayMs: Long = 1000L,
+    private val defaultBaseDomain: String = "rousecontext.com"
 ) {
 
     /**
      * Renew the device certificate using mTLS authentication (cert still valid).
      */
-    suspend fun renewWithMtls(baseDomain: String = "rousecontext.com"): RenewalResult {
+    suspend fun renewWithMtls(baseDomain: String = defaultBaseDomain): RenewalResult {
         val currentCert = certificateStore.getCertificate()
             ?: return RenewalResult.NoCertificate
         val subdomain = certificateStore.getSubdomain()
@@ -53,7 +54,7 @@ class CertRenewalFlow(
     suspend fun renewWithFirebase(
         firebaseToken: String,
         signature: String,
-        baseDomain: String = "rousecontext.com"
+        baseDomain: String = defaultBaseDomain
     ): RenewalResult {
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate

@@ -1,6 +1,10 @@
 [server]
 bind_addr = "0.0.0.0:443"
 relay_hostname = "relay.rousecontext.com"
+# Base domain under which all devices are provisioned. If omitted, derived from
+# `relay_hostname` by stripping a leading "relay." prefix. Set explicitly when
+# your relay hostname doesn't follow that convention.
+# base_domain = "rousecontext.com"
 
 [tls]
 cert_path = "/etc/relay/cert.pem"

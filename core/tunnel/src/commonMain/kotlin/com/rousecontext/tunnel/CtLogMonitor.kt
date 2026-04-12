@@ -26,7 +26,8 @@ interface CtLogFetcher {
 class CtLogMonitor(
     private val certificateStore: CertificateStore,
     private val ctLogFetcher: CtLogFetcher,
-    private val expectedIssuers: Set<String>
+    private val expectedIssuers: Set<String>,
+    private val baseDomain: String = "rousecontext.com"
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -48,7 +49,7 @@ class CtLogMonitor(
             return SecurityCheckResult.Warning("No subdomain configured")
         }
 
-        val domain = "$subdomain.rousecontext.com"
+        val domain = "$subdomain.$baseDomain"
         val responseBody: String
         try {
             responseBody = ctLogFetcher.fetch(domain)

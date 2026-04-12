@@ -88,7 +88,7 @@ val appModule = module {
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
 
     // --- URL provider ---
-    single { McpUrlProvider(get()) }
+    single { McpUrlProvider(get(), BuildConfig.BASE_DOMAIN) }
 
     // --- Device registration status ---
     single {
@@ -112,7 +112,7 @@ val appModule = module {
             integrationIds = get<List<McpIntegration>>().map { it.id }
         )
     }
-    single { CertProvisioningFlow(get(), get(), get()) }
+    single { CertProvisioningFlow(get(), get(), get(), BuildConfig.BASE_DOMAIN) }
 
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class
@@ -185,7 +185,7 @@ val appModule = module {
     // For now, create a single session for the first enabled integration.
     single {
         val certStore: CertificateStore = get()
-        val baseDomain = BuildConfig.RELAY_HOST.removePrefix("relay.")
+        val baseDomain = BuildConfig.BASE_DOMAIN
         val notifier: AuthRequestNotifier = get()
         val integrations: List<McpIntegration> = get()
         // Default to first integration id

@@ -171,14 +171,9 @@ pub async fn handle_renew(
         }
     };
 
-    let base_domain = state
-        .config
-        .server
-        .relay_hostname
-        .strip_prefix("relay.")
-        .unwrap_or(&state.config.server.relay_hostname);
+    let base_domain = state.config.server.resolved_base_domain();
 
-    let client_bundle = match device_ca.sign_client_cert(&public_key_der, &subdomain, base_domain) {
+    let client_bundle = match device_ca.sign_client_cert(&public_key_der, &subdomain, &base_domain) {
         Ok(b) => b,
         Err(e) => {
             return ApiError::internal(format!("Failed to sign client cert: {e}")).into_response()
