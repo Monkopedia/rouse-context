@@ -7,7 +7,7 @@
 :core:mcp            — KMP (jvm + android), McpSession, ProviderRegistry, TokenStore, OAuth, HTTP routing
 :api                 — provider registration contract: McpIntegration interface, UI contracts
 :health              — implements :api for Health Connect
-:notifications       — NotificationModel state machine, audit persistence, notification channels,
+:notifications       — audit persistence, notification channels,
                        provides createForegroundNotification() for :work
 :work                — foreground service, WorkManager cert renewal, FCM receiver, wakelock management
 :app                 — Compose shell, Koin graph, navigation, registers providers, ties everything together
@@ -82,7 +82,7 @@ interface IntegrationStateStore {
     fun observeUserEnabled(integrationId: String): Flow<Boolean>
 }
 
-/** Notification preference access for NotificationModel. */
+/** Notification preference access. */
 interface NotificationSettingsProvider {
     val settings: NotificationSettings
 }
@@ -151,40 +151,12 @@ Manages the Android lifecycle around `:core:tunnel`. Does NOT know about MCP.
 
 ## :notifications — Notification & Audit
 
-### NotificationModel (pure state machine)
+### Notification behavior
 
-```kotlin
-sealed interface SessionEvent {
-    data object MuxConnected : SessionEvent
-    data object MuxDisconnected : SessionEvent
-    data class StreamOpened(val streamId: Int, val integration: String) : SessionEvent
-    data class StreamClosed(val streamId: Int) : SessionEvent
-    data class ToolCallCompleted(val streamId: Int, val toolName: String) : SessionEvent
-    data class ErrorOccurred(val streamId: Int?, val error: TunnelError) : SessionEvent
-}
-
-sealed interface NotificationAction {
-    data class ShowForeground(val message: String) : NotificationAction
-    data object DismissForeground : NotificationAction
-    data class PostSummary(val toolCallCount: Int, val sessionId: String) : NotificationAction
-    data class PostToolUsage(val toolName: String, val sessionId: String) : NotificationAction
-    data class PostWarning(val message: String, val sessionId: String) : NotificationAction
-    data class PostError(val message: String, val details: String) : NotificationAction
-}
-
-data class NotificationSettings(
-    val postSessionMode: PostSessionMode,  // SUMMARY, EACH_USAGE, SUPPRESS
-    val notificationPermissionGranted: Boolean,
-)
-
-class NotificationModel(private val settingsProvider: NotificationSettingsProvider) {
-    fun onEvent(event: SessionEvent): List<NotificationAction>
-}
-```
-
-Pure function: events + settings → notification actions. Fully unit-testable.
-
-A thin Android adapter in this module maps `NotificationAction` to `NotificationManager` calls.
+The module maps tunnel/session events to notifications, honoring user-configurable
+post-session modes (summary / each-usage / suppress) and notification permission state.
+A thin Android adapter maps decisions to `NotificationManager` calls. The foreground
+notification is always posted while the service is running, regardless of mode.
 
 ### Foreground Notification
 
@@ -228,7 +200,7 @@ Notification taps deep-link into audit history filtered by session ID. Uses Comp
 - Screen orchestration (onboarding, main, settings, integration setup, audit, authorized clients)
 - Registers all `McpIntegration` implementations with `ProviderRegistry`
 - Creates the shared `McpSession` singleton
-- Observes tunnel events and feeds them to `NotificationModel`
+- Observes tunnel events and dispatches notifications via `:notifications`
 - Binds `CertificateStore` implementation (reads PEM files, accesses Keystore)
 
 ### Koin Graph (key bindings)
@@ -237,7 +209,6 @@ val appModule = module {
     // Core singletons
     single { TunnelClientImpl(get<CertificateStore>()) } bind TunnelClient::class
     single { McpSession(get(), get(), get()) }
-    single { NotificationModel(get<NotificationSettingsProvider>()) }
 
     // Interfaces → implementations
     single<CertificateStore> { FileCertificateStore(get()) }
