@@ -62,6 +62,7 @@ import com.rousecontext.app.ui.screens.HomeDashboardContent
 import com.rousecontext.app.ui.screens.IntegrationEnabledContent
 import com.rousecontext.app.ui.screens.IntegrationEnabledState
 import com.rousecontext.app.ui.screens.IntegrationManageContent
+import com.rousecontext.app.ui.screens.NotificationPreferencesScreen
 import com.rousecontext.app.ui.screens.NotificationSetupContent
 import com.rousecontext.app.ui.screens.OutreachSetupContent
 import com.rousecontext.app.ui.screens.SettingUpContent
@@ -79,6 +80,7 @@ import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupState
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
+import com.rousecontext.app.ui.viewmodels.NotificationPreferencesViewModel
 import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.OnboardingState
 import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
@@ -92,6 +94,7 @@ import org.koin.androidx.compose.koinViewModel
 
 object Routes {
     const val ONBOARDING = "onboarding"
+    const val NOTIFICATION_PREFERENCES = "onboarding/notification_preferences"
     const val HOME = "home"
     const val AUDIT = "audit?provider={provider}"
     const val AUDIT_BASE = "audit"
@@ -138,7 +141,10 @@ private fun tabSlideDirection(initialRoute: String?, targetRoute: String?): Int 
     return if (to > from) 1 else -1
 }
 
-private val ONBOARDING_ROUTES = setOf(Routes.ONBOARDING)
+private val ONBOARDING_ROUTES = setOf(
+    Routes.ONBOARDING,
+    Routes.NOTIFICATION_PREFERENCES
+)
 
 @Suppress("CyclomaticComplexity", "LongMethod")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -279,12 +285,13 @@ fun AppNavigation(
                     val state by onboardingViewModel.state.collectAsState()
 
                     LaunchedEffect(state) {
+                        // If the device is already onboarded when this
+                        // composable enters (e.g. returning user whose cert
+                        // store has a subdomain), skip straight past the
+                        // NotificationPreferences step to HOME. First-time
+                        // users see Welcome and then advance via the Get
+                        // Started button to NOTIFICATION_PREFERENCES.
                         if (state is OnboardingState.Onboarded) {
-                            // popUpTo ONBOARDING (inclusive) so back from HOME
-                            // does not re-enter onboarding. If HOME was the
-                            // original start destination (user already had a
-                            // subdomain), popping ONBOARDING is a no-op and
-                            // HOME is simply made current.
                             navController.navigate(Routes.HOME) {
                                 popUpTo(Routes.ONBOARDING) {
                                     inclusive = true
@@ -299,7 +306,9 @@ fun AppNavigation(
                         is OnboardingState.NotOnboarded -> {
                             WelcomeScreen(
                                 onGetStarted = {
-                                    onboardingViewModel.startOnboarding()
+                                    navController.navigate(
+                                        Routes.NOTIFICATION_PREFERENCES
+                                    )
                                 }
                             )
                         }
@@ -311,6 +320,39 @@ fun AppNavigation(
                             // Show nothing while navigation is in flight.
                         }
                     }
+                }
+
+                composable(Routes.NOTIFICATION_PREFERENCES) {
+                    ConfigureNavBar(
+                        title = "",
+                        showTopBar = false,
+                        showBottomBar = false
+                    )
+                    val prefsViewModel: NotificationPreferencesViewModel =
+                        koinViewModel()
+                    val onboardingViewModel: OnboardingViewModel =
+                        koinViewModel()
+                    val state by prefsViewModel.state.collectAsState()
+                    NotificationPreferencesScreen(
+                        state = state,
+                        onModeSelected = prefsViewModel::select,
+                        onContinue = {
+                            prefsViewModel.persistSelection()
+                            // Kick off relay/FCM registration in the
+                            // background now that the user has completed the
+                            // one-time onboarding preferences. This mirrors
+                            // the old Get-Started behaviour but delayed
+                            // until after preferences are set.
+                            onboardingViewModel.startOnboarding()
+                            navController.navigate(Routes.HOME) {
+                                popUpTo(Routes.ONBOARDING) {
+                                    inclusive = true
+                                }
+                                launchSingleTop = true
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
+                    )
                 }
 
                 // Tab routes with horizontal slide transitions

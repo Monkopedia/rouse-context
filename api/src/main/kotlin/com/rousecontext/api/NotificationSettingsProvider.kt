@@ -10,6 +10,13 @@ interface NotificationSettingsProvider {
 
     /** Current notification settings. */
     val settings: NotificationSettings
+
+    /**
+     * Persist a new post-session notification mode. Called from the
+     * onboarding NotificationPreferences screen and from the global
+     * Settings screen when the user picks a different option.
+     */
+    suspend fun setPostSessionMode(mode: PostSessionMode)
 }
 
 /**
