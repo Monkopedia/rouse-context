@@ -79,6 +79,9 @@ class OutreachMcpProviderTest {
             "open_link",
             "copy_to_clipboard",
             "send_notification",
+            "create_notification_channel",
+            "list_notification_channels",
+            "delete_notification_channel",
             "list_installed_apps",
             "get_dnd_state",
             "set_dnd_state"
