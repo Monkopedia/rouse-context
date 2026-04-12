@@ -279,8 +279,16 @@ fun AppNavigation(
 
                     LaunchedEffect(state) {
                         if (state is OnboardingState.Onboarded) {
+                            // popUpTo ONBOARDING (inclusive) so back from HOME
+                            // does not re-enter onboarding. If HOME was the
+                            // original start destination (user already had a
+                            // subdomain), popping ONBOARDING is a no-op and
+                            // HOME is simply made current.
                             navController.navigate(Routes.HOME) {
-                                popUpTo(Routes.HOME) { inclusive = true }
+                                popUpTo(Routes.ONBOARDING) {
+                                    inclusive = true
+                                }
+                                launchSingleTop = true
                             }
                         }
                     }
@@ -1114,10 +1122,27 @@ fun AppNavigation(
                         }.value
                     val integrationName = integration?.displayName
                         ?: integrationId
+                    // Back from IntegrationEnabled MUST land on IntegrationManage
+                    // with the intermediate setup screens popped. A naive
+                    // popBackStack() would reveal IntegrationSetup (whose state
+                    // has already transitioned to Complete) or an abandoned
+                    // permission-setup screen, either flashing blank or looping
+                    // forward (see #62). Using the same destination +
+                    // popUpTo(HOME) as "Finish Later" guarantees we land on
+                    // [HOME, IntegrationManage] regardless of whether we
+                    // arrived here via fresh setup or the Add Client action on
+                    // an existing integration's manage screen.
+                    val finishToManage: () -> Unit = {
+                        navController.navigate(
+                            Routes.integrationManage(integrationId)
+                        ) {
+                            popUpTo(Routes.HOME)
+                        }
+                    }
                     ConfigureNavBar(
                         title = "$integrationName Ready",
                         showBackButton = true,
-                        onBackPressed = { navController.popBackStack() }
+                        onBackPressed = finishToManage
                     )
 
                     // Auto-navigate to approval when a client auth request arrives
@@ -1135,13 +1160,7 @@ fun AppNavigation(
                             integrationName = integrationName,
                             url = mcpUrl
                         ),
-                        onCancel = {
-                            navController.navigate(
-                                Routes.integrationManage(integrationId)
-                            ) {
-                                popUpTo(Routes.HOME)
-                            }
-                        }
+                        onCancel = finishToManage
                     )
                 }
 
