@@ -172,6 +172,7 @@ private fun HealthConnectSetupBody(
         )
 
         Spacer(modifier = Modifier.weight(1f))
+        Spacer(modifier = Modifier.height(32.dp))
 
         val buttonText = if (mode == SetupMode.SETTINGS) {
             "Update Health Access"
