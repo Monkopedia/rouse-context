@@ -24,6 +24,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
@@ -51,12 +52,7 @@ fun AllClientsContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         if (integrationName.isNotEmpty()) {
-            Text(
-                text = integrationName,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            SectionHeader(integrationName)
         }
 
         if (clients.isEmpty()) {

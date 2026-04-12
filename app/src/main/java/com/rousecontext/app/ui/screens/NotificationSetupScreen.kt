@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.PrivacyWarningCard
+import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.SwitchRow
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -121,7 +122,7 @@ private fun NotificationSetupBody(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp)
+            .padding(horizontal = 16.dp)
             .verticalScroll(rememberScrollState())
     ) {
         Spacer(modifier = Modifier.height(16.dp))
@@ -143,13 +144,7 @@ private fun NotificationSetupBody(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Permission status
-        Text(
-            text = "Permission",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
+        SectionHeader("Permission")
 
         if (state.permissionGranted) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -177,13 +172,7 @@ private fun NotificationSetupBody(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Retention picker
-        Text(
-            text = "Keep notification history for",
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
+        SectionHeader("Keep notification history for")
 
         RetentionDropdown(
             selectedDays = state.retentionDays,
