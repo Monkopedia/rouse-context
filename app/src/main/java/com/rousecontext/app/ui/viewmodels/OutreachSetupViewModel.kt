@@ -3,12 +3,16 @@ package com.rousecontext.app.ui.viewmodels
 import android.app.NotificationManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.ui.screens.SetupMode
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 
 data class OutreachSetupState(
@@ -29,17 +33,34 @@ class OutreachSetupViewModel(
     private val _state = MutableStateFlow(OutreachSetupState())
     val state: StateFlow<OutreachSetupState> = _state.asStateFlow()
 
+    /**
+     * Last persisted value of [OutreachSetupState.dndToggled]. Used to compute
+     * [isDirty] so the floating Save bar only appears when the user changes
+     * the DND toggle away from its saved value.
+     */
+    private val savedDndToggled = MutableStateFlow(false)
+
+    /**
+     * Emits `true` when the in-memory DND toggle differs from the last loaded
+     * or saved value. Drives the floating Save bar visibility in SETTINGS mode.
+     */
+    val isDirty: StateFlow<Boolean> = combine(_state, savedDndToggled) { current, saved ->
+        current.dndToggled != saved
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.Eagerly,
+        initialValue = false
+    )
+
     /** Load persisted settings when opening in SETTINGS mode. */
     fun initForMode(mode: SetupMode) {
         if (mode == SetupMode.SETTINGS) {
-            _state.update {
-                it.copy(
-                    dndToggled = settingsStore.getBoolean(
-                        INTEGRATION_ID,
-                        IntegrationSettingsStore.KEY_DND_TOGGLED
-                    )
-                )
-            }
+            val toggled = settingsStore.getBoolean(
+                INTEGRATION_ID,
+                IntegrationSettingsStore.KEY_DND_TOGGLED
+            )
+            _state.update { it.copy(dndToggled = toggled) }
+            savedDndToggled.value = toggled
         }
     }
 
@@ -64,11 +85,13 @@ class OutreachSetupViewModel(
     }
 
     private fun persistSettings() {
+        val toggled = _state.value.dndToggled
         settingsStore.setBoolean(
             INTEGRATION_ID,
             IntegrationSettingsStore.KEY_DND_TOGGLED,
-            _state.value.dndToggled
+            toggled
         )
+        savedDndToggled.value = toggled
     }
 
     /**

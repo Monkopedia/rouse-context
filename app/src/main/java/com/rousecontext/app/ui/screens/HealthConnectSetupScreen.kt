@@ -187,13 +187,19 @@ private fun HealthConnectSetupBody(
             Text(buttonText)
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        // The Cancel button only appears during initial SETUP. In SETTINGS
+        // mode the user dismisses via the top-bar back arrow (the "Update
+        // Health Access" action is a system-permission launch, not an
+        // in-app save — there is no dirty state to discard). See #59.
+        if (mode == SetupMode.SETUP) {
+            Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedButton(
-            onClick = onCancel,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Cancel")
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cancel")
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))

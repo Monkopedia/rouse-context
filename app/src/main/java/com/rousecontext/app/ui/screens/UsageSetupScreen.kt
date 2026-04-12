@@ -158,23 +158,28 @@ private fun UsageSetupBody(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        val buttonText = if (mode == SetupMode.SETTINGS) "Save" else "Enable"
+        // Usage Stats has no in-app editable state in SETTINGS mode — the
+        // only control is the system-level permission grant, which is shown
+        // inline above. So the "Enable"/"Cancel" buttons only appear during
+        // the initial SETUP flow; in SETTINGS mode the user dismisses via
+        // the top-bar back arrow. See #59.
+        if (mode == SetupMode.SETUP) {
+            Button(
+                onClick = onEnable,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = state.permissionGranted
+            ) {
+                Text("Enable")
+            }
 
-        Button(
-            onClick = onEnable,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = state.permissionGranted
-        ) {
-            Text(buttonText)
-        }
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        OutlinedButton(
-            onClick = onCancel,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Cancel")
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Cancel")
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
