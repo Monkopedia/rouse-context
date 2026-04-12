@@ -180,7 +180,7 @@ async fn ws_upgrade_with_device_identity() {
         payload: b"test-device.rousecontext.com".to_vec(),
     };
     ws_stream
-        .send(tungstenite::Message::Binary(open_frame.encode().into()))
+        .send(tungstenite::Message::Binary(open_frame.encode()))
         .await
         .unwrap();
 
@@ -220,7 +220,7 @@ async fn ws_upgrade_with_device_identity() {
         payload: b"hello from device".to_vec(),
     };
     ws_stream
-        .send(tungstenite::Message::Binary(device_data.encode().into()))
+        .send(tungstenite::Message::Binary(device_data.encode()))
         .await
         .unwrap();
 
@@ -313,7 +313,7 @@ async fn mux_frame_round_trip_through_ws() {
         payload: b"device response data".to_vec(),
     };
     ws_stream
-        .send(tungstenite::Message::Binary(response.encode().into()))
+        .send(tungstenite::Message::Binary(response.encode()))
         .await
         .unwrap();
 
