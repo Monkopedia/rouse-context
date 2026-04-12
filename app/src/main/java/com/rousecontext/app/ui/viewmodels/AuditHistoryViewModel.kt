@@ -19,6 +19,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -52,14 +53,31 @@ class AuditHistoryViewModel(
             AuditHistoryState(
                 groups = groups,
                 providerFilter = provider,
-                dateFilter = date
+                dateFilter = date,
+                isLoading = false,
+                errorMessage = null
             )
         }
+    }.catch { cause ->
+        emit(
+            AuditHistoryState(
+                isLoading = false,
+                errorMessage = cause.message ?: "Could not load audit history."
+            )
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-        initialValue = AuditHistoryState()
+        initialValue = AuditHistoryState(isLoading = true)
     )
+
+    /**
+     * Trigger re-collection. Underlying Room flow is reactive; this just bumps
+     * the refresh trigger so the flatMapLatest restarts.
+     */
+    fun retry() {
+        refreshTrigger.value++
+    }
 
     fun setProviderFilter(provider: String) {
         providerFilter.value = provider

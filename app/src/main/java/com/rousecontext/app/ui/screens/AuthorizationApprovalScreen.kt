@@ -33,6 +33,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.ErrorState
+import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
@@ -40,12 +42,39 @@ import com.rousecontext.app.ui.theme.SuccessGreen
 @Immutable
 data class AuthorizationApprovalItem(val displayCode: String, val integration: String)
 
+/**
+ * UI state for the authorization approval screen.
+ */
+sealed interface AuthorizationApprovalUiState {
+    data object Loading : AuthorizationApprovalUiState
+    data class Loaded(val pendingRequests: List<AuthorizationApprovalItem>) :
+        AuthorizationApprovalUiState
+    data class Error(val message: String) : AuthorizationApprovalUiState
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthorizationApprovalScreen(
     pendingRequests: List<AuthorizationApprovalItem> = emptyList(),
     onApprove: (String) -> Unit = {},
     onDeny: (String) -> Unit = {},
+    onBack: () -> Unit = {}
+) {
+    AuthorizationApprovalScreen(
+        uiState = AuthorizationApprovalUiState.Loaded(pendingRequests),
+        onApprove = onApprove,
+        onDeny = onDeny,
+        onBack = onBack
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AuthorizationApprovalScreen(
+    uiState: AuthorizationApprovalUiState,
+    onApprove: (String) -> Unit = {},
+    onDeny: (String) -> Unit = {},
+    onRetry: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
     Scaffold(
@@ -65,50 +94,70 @@ fun AuthorizationApprovalScreen(
         }
     ) { padding ->
         Surface(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (pendingRequests.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = "No Pending Requests",
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Authorization requests from AI clients will appear here.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                val request = pendingRequests.first()
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    if (pendingRequests.size > 1) {
-                        Text(
-                            text = "1 of ${pendingRequests.size}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                    AuthorizationRequestCard(
-                        request = request,
-                        onApprove = onApprove,
-                        onDeny = onDeny
-                    )
-                }
+            when (uiState) {
+                is AuthorizationApprovalUiState.Loading -> LoadingIndicator()
+                is AuthorizationApprovalUiState.Error -> ErrorState(
+                    message = uiState.message,
+                    onRetry = onRetry
+                )
+                is AuthorizationApprovalUiState.Loaded -> LoadedAuthorizationApproval(
+                    pendingRequests = uiState.pendingRequests,
+                    onApprove = onApprove,
+                    onDeny = onDeny
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun LoadedAuthorizationApproval(
+    pendingRequests: List<AuthorizationApprovalItem>,
+    onApprove: (String) -> Unit,
+    onDeny: (String) -> Unit
+) {
+    if (pendingRequests.isEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "No Pending Requests",
+                style = MaterialTheme.typography.headlineMedium
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Authorization requests from AI clients will appear here.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        val request = pendingRequests.first()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (pendingRequests.size > 1) {
+                Text(
+                    text = "1 of ${pendingRequests.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            AuthorizationRequestCard(
+                request = request,
+                onApprove = onApprove,
+                onDeny = onDeny
+            )
         }
     }
 }
@@ -190,6 +239,26 @@ private fun AuthorizationRequestCard(
 fun AuthorizationApprovalEmptyPreview() {
     RouseContextTheme(darkTheme = true) {
         AuthorizationApprovalScreen()
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun AuthorizationApprovalLoadingPreview() {
+    RouseContextTheme(darkTheme = true) {
+        AuthorizationApprovalScreen(uiState = AuthorizationApprovalUiState.Loading)
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun AuthorizationApprovalErrorPreview() {
+    RouseContextTheme(darkTheme = true) {
+        AuthorizationApprovalScreen(
+            uiState = AuthorizationApprovalUiState.Error(
+                "Could not load pending requests."
+            )
+        )
     }
 }
 

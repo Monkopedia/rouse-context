@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -27,6 +28,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -66,6 +69,70 @@ class MainDashboardViewModelTest {
             assertEquals(ConnectionStatus.DISCONNECTED, state.connectionStatus)
             assertTrue(state.integrations.isEmpty())
             assertTrue(state.recentActivity.isEmpty())
+        }
+    }
+
+    @Test
+    fun `initial state emits loading before first data emission`() = runTest(testDispatcher) {
+        val stateStore = mockk<IntegrationStateStore> {
+            every { isUserEnabled(any()) } returns false
+            every { wasEverEnabled(any()) } returns false
+            every { observeChanges() } returns flowOf(Unit)
+        }
+        val tokenStore = mockk<TokenStore> {
+            every { hasTokens(any()) } returns false
+        }
+        val auditDao = mockk<AuditDao> {
+            every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
+        }
+        val vm = MainDashboardViewModel(
+            integrations = emptyList(),
+            stateStore = stateStore,
+            tokenStore = tokenStore,
+            auditDao = auditDao,
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
+        )
+        vm.state.test {
+            val loading = awaitItem()
+            assertTrue(loading.isLoading)
+            val loaded = awaitItem()
+            assertFalse(loaded.isLoading)
+        }
+    }
+
+    @Test
+    fun `audit dao failure surfaces error state`() = runTest(testDispatcher) {
+        val stateStore = mockk<IntegrationStateStore> {
+            every { isUserEnabled(any()) } returns false
+            every { wasEverEnabled(any()) } returns false
+            every { observeChanges() } returns flowOf(Unit)
+        }
+        val tokenStore = mockk<TokenStore> {
+            every { hasTokens(any()) } returns false
+        }
+        val auditDao = mockk<AuditDao> {
+            every { observeRecent(any(), any(), any()) } returns flow {
+                error("db down")
+            }
+        }
+
+        val vm = MainDashboardViewModel(
+            integrations = emptyList(),
+            stateStore = stateStore,
+            tokenStore = tokenStore,
+            auditDao = auditDao,
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient
+        )
+
+        vm.state.test {
+            val loading = awaitItem()
+            assertTrue(loading.isLoading)
+            val error = awaitItem()
+            assertFalse(error.isLoading)
+            assertNotNull(error.errorMessage)
+            assertEquals("db down", error.errorMessage)
         }
     }
 

@@ -3,6 +3,8 @@ package com.rousecontext.app.ui.viewmodels
 import android.app.NotificationManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
+import com.rousecontext.app.ui.screens.AuthorizationApprovalUiState
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.PendingAuthRequest
 import com.rousecontext.notifications.AuthRequestNotifier
@@ -25,26 +27,59 @@ class AuthorizationApprovalViewModel(
     private val _pendingRequests = MutableStateFlow<List<PendingAuthRequest>>(emptyList())
     val pendingRequests: StateFlow<List<PendingAuthRequest>> = _pendingRequests.asStateFlow()
 
+    private val _uiState = MutableStateFlow<AuthorizationApprovalUiState>(
+        AuthorizationApprovalUiState.Loading
+    )
+    val uiState: StateFlow<AuthorizationApprovalUiState> = _uiState.asStateFlow()
+
     init {
         viewModelScope.launch {
             while (isActive) {
-                _pendingRequests.value = authorizationCodeManager.pendingRequests()
+                try {
+                    val requests = authorizationCodeManager.pendingRequests()
+                    _pendingRequests.value = requests
+                    _uiState.value = AuthorizationApprovalUiState.Loaded(
+                        requests.map { it.toUiItem() }
+                    )
+                } catch (e: IllegalStateException) {
+                    _uiState.value = AuthorizationApprovalUiState.Error(
+                        e.message ?: "Could not load pending requests."
+                    )
+                }
                 delay(POLL_INTERVAL_MS)
             }
         }
     }
 
+    fun retry() {
+        _uiState.value = AuthorizationApprovalUiState.Loading
+    }
+
     fun approve(displayCode: String) {
         authorizationCodeManager.approve(displayCode)
         cancelAuthNotifications()
-        _pendingRequests.value = authorizationCodeManager.pendingRequests()
+        val requests = authorizationCodeManager.pendingRequests()
+        _pendingRequests.value = requests
+        _uiState.value = AuthorizationApprovalUiState.Loaded(
+            requests.map { it.toUiItem() }
+        )
     }
 
     fun deny(displayCode: String) {
         authorizationCodeManager.deny(displayCode)
         cancelAuthNotifications()
-        _pendingRequests.value = authorizationCodeManager.pendingRequests()
+        val requests = authorizationCodeManager.pendingRequests()
+        _pendingRequests.value = requests
+        _uiState.value = AuthorizationApprovalUiState.Loaded(
+            requests.map { it.toUiItem() }
+        )
     }
+
+    private fun PendingAuthRequest.toUiItem(): AuthorizationApprovalItem =
+        AuthorizationApprovalItem(
+            displayCode = displayCode,
+            integration = integration
+        )
 
     /**
      * Cancel all auth request notifications. The notifier uses incrementing IDs

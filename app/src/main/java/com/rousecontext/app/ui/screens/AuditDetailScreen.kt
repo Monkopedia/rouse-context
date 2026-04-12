@@ -27,11 +27,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.ui.components.ErrorState
+import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * UI state for the audit detail screen: loading from Room, loaded with details,
+ * or not found (entry was deleted or id is invalid).
+ */
+sealed interface AuditDetailUiState {
+    data object Loading : AuditDetailUiState
+    data object NotFound : AuditDetailUiState
+    data class Loaded(val data: AuditDetailState) : AuditDetailUiState
+}
 
 @Immutable
 data class AuditDetailState(
@@ -40,8 +52,7 @@ data class AuditDetailState(
     val timestampMillis: Long = 0L,
     val durationMs: Long = 0L,
     val argumentsJson: String? = null,
-    val resultJson: String? = null,
-    val isLoading: Boolean = true
+    val resultJson: String? = null
 )
 
 /**
@@ -49,15 +60,18 @@ data class AuditDetailState(
  */
 @Composable
 fun AuditDetailContent(
-    state: AuditDetailState = AuditDetailState(),
+    uiState: AuditDetailUiState = AuditDetailUiState.Loading,
     modifier: Modifier = Modifier
 ) {
-    AuditDetailBody(state = state, modifier = modifier)
+    AuditDetailBody(uiState = uiState, modifier = modifier)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AuditDetailScreen(state: AuditDetailState = AuditDetailState(), onBack: () -> Unit = {}) {
+fun AuditDetailScreen(
+    uiState: AuditDetailUiState = AuditDetailUiState.Loading,
+    onBack: () -> Unit = {}
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -71,82 +85,83 @@ fun AuditDetailScreen(state: AuditDetailState = AuditDetailState(), onBack: () -
             )
         }
     ) { padding ->
-        AuditDetailBody(state = state, modifier = Modifier.padding(padding))
+        AuditDetailBody(uiState = uiState, modifier = Modifier.padding(padding))
     }
 }
 
 @Composable
-private fun AuditDetailBody(state: AuditDetailState, modifier: Modifier = Modifier) {
-    if (state.isLoading) {
-        Column(
+private fun AuditDetailBody(uiState: AuditDetailUiState, modifier: Modifier = Modifier) {
+    when (uiState) {
+        is AuditDetailUiState.Loading -> LoadingIndicator(modifier = modifier)
+        is AuditDetailUiState.NotFound -> ErrorState(
+            message = "This entry is no longer available.",
             modifier = modifier
-                .fillMaxSize()
-                .padding(24.dp)
-        ) {
+        )
+        is AuditDetailUiState.Loaded -> LoadedAuditDetail(
+            state = uiState.data,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+private fun LoadedAuditDetail(state: AuditDetailState, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState())
+    ) {
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Tool name & provider
+        DetailSection(label = "Tool") {
             Text(
-                text = "Loading...",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = state.toolName,
+                style = MaterialTheme.typography.headlineSmall
             )
         }
-    } else {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Spacer(modifier = Modifier.height(16.dp))
 
-            // Tool name & provider
-            DetailSection(label = "Tool") {
-                Text(
-                    text = state.toolName,
-                    style = MaterialTheme.typography.headlineSmall
-                )
-            }
-
-            DetailSection(label = "Provider") {
-                Text(
-                    text = state.provider,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-
-            // Timestamp
-            DetailSection(label = "Timestamp") {
-                Text(
-                    text = formatTimestamp(state.timestampMillis),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-
-            // Duration
-            DetailSection(label = "Duration") {
-                Text(
-                    text = "${state.durationMs}ms",
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-
-            // Arguments
-            DetailSection(label = "Arguments") {
-                CodeBlock(
-                    text = formatJsonOrRaw(state.argumentsJson),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            // Result
-            DetailSection(label = "Result") {
-                CodeBlock(
-                    text = formatJsonOrRaw(state.resultJson),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
+        DetailSection(label = "Provider") {
+            Text(
+                text = state.provider,
+                style = MaterialTheme.typography.bodyLarge
+            )
         }
+
+        // Timestamp
+        DetailSection(label = "Timestamp") {
+            Text(
+                text = formatTimestamp(state.timestampMillis),
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        // Duration
+        DetailSection(label = "Duration") {
+            Text(
+                text = "${state.durationMs}ms",
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+
+        // Arguments
+        DetailSection(label = "Arguments") {
+            CodeBlock(
+                text = formatJsonOrRaw(state.argumentsJson),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // Result
+        DetailSection(label = "Result") {
+            CodeBlock(
+                text = formatJsonOrRaw(state.resultJson),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
@@ -261,16 +276,33 @@ private fun appendStructural(sb: StringBuilder, ch: Char, indent: Int): Int {
 fun AuditDetailPreview() {
     RouseContextTheme(darkTheme = true) {
         AuditDetailScreen(
-            state = AuditDetailState(
-                toolName = "health/get_steps",
-                provider = "health",
-                timestampMillis = System.currentTimeMillis(),
-                durationMs = 142,
-                argumentsJson = """{"days":7,"metric":"steps"}""",
-                resultJson = """{"total":52340,"average":7477}""",
-                isLoading = false
+            uiState = AuditDetailUiState.Loaded(
+                AuditDetailState(
+                    toolName = "health/get_steps",
+                    provider = "health",
+                    timestampMillis = System.currentTimeMillis(),
+                    durationMs = 142,
+                    argumentsJson = """{"days":7,"metric":"steps"}""",
+                    resultJson = """{"total":52340,"average":7477}"""
+                )
             )
         )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun AuditDetailLoadingPreview() {
+    RouseContextTheme(darkTheme = true) {
+        AuditDetailScreen(uiState = AuditDetailUiState.Loading)
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun AuditDetailNotFoundPreview() {
+    RouseContextTheme(darkTheme = true) {
+        AuditDetailScreen(uiState = AuditDetailUiState.NotFound)
     }
 }
 
@@ -283,14 +315,15 @@ fun AuditDetailPreview() {
 fun AuditDetailLightPreview() {
     RouseContextTheme(darkTheme = false) {
         AuditDetailScreen(
-            state = AuditDetailState(
-                toolName = "health/get_heart_rate",
-                provider = "health",
-                timestampMillis = System.currentTimeMillis(),
-                durationMs = 201,
-                argumentsJson = """{"days":7}""",
-                resultJson = null,
-                isLoading = false
+            uiState = AuditDetailUiState.Loaded(
+                AuditDetailState(
+                    toolName = "health/get_heart_rate",
+                    provider = "health",
+                    timestampMillis = System.currentTimeMillis(),
+                    durationMs = 201,
+                    argumentsJson = """{"days":7}""",
+                    resultJson = null
+                )
             )
         )
     }

@@ -53,6 +53,7 @@ import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
 import com.rousecontext.app.ui.screens.AllClientsContent
 import com.rousecontext.app.ui.screens.AuditDetailContent
 import com.rousecontext.app.ui.screens.AuditDetailState
+import com.rousecontext.app.ui.screens.AuditDetailUiState
 import com.rousecontext.app.ui.screens.AuditHistoryContent
 import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
 import com.rousecontext.app.ui.screens.AuthorizationApprovalScreen
@@ -367,7 +368,8 @@ fun AppNavigation(
                         },
                         onViewAllActivity = {
                             navController.navigate(Routes.AUDIT_BASE)
-                        }
+                        },
+                        onRetry = { viewModel.retry() }
                     )
                 }
 
@@ -422,7 +424,8 @@ fun AppNavigation(
                             navController.navigate(
                                 Routes.auditDetail(entryId)
                             )
-                        }
+                        },
+                        onRetry = { viewModel.retry() }
                     )
                 }
 
@@ -462,7 +465,8 @@ fun AppNavigation(
                         onSecurityCheckIntervalChanged =
                         viewModel::setSecurityCheckInterval,
                         onGenerateNewAddress = viewModel::rotateSecret,
-                        onAcknowledgeAlert = viewModel::acknowledgeAlert
+                        onAcknowledgeAlert = viewModel::acknowledgeAlert,
+                        onRetry = viewModel::refresh
                     )
                 }
 
@@ -1251,32 +1255,31 @@ fun AppNavigation(
                         .capture.FieldEncryptor =
                         org.koin.compose.koinInject()
                     var detailState by remember {
-                        mutableStateOf(
-                            AuditDetailState(isLoading = true)
-                        )
+                        mutableStateOf<AuditDetailUiState>(AuditDetailUiState.Loading)
                     }
                     LaunchedEffect(entryId) {
                         val entry = auditDao.getById(entryId)
                         detailState = if (entry != null) {
-                            AuditDetailState(
-                                toolName = entry.toolName,
-                                provider = entry.provider,
-                                timestampMillis = entry.timestampMillis,
-                                durationMs = entry.durationMillis,
-                                argumentsJson = fieldEncryptor.decrypt(
-                                    entry.argumentsJson
-                                ) ?: entry.argumentsJson,
-                                resultJson = fieldEncryptor.decrypt(
-                                    entry.resultJson
-                                ) ?: entry.resultJson,
-                                isLoading = false
+                            AuditDetailUiState.Loaded(
+                                AuditDetailState(
+                                    toolName = entry.toolName,
+                                    provider = entry.provider,
+                                    timestampMillis = entry.timestampMillis,
+                                    durationMs = entry.durationMillis,
+                                    argumentsJson = fieldEncryptor.decrypt(
+                                        entry.argumentsJson
+                                    ) ?: entry.argumentsJson,
+                                    resultJson = fieldEncryptor.decrypt(
+                                        entry.resultJson
+                                    ) ?: entry.resultJson
+                                )
                             )
                         } else {
-                            AuditDetailState(isLoading = false)
+                            AuditDetailUiState.NotFound
                         }
                     }
                     AuditDetailContent(
-                        state = detailState
+                        uiState = detailState
                     )
                 }
             }

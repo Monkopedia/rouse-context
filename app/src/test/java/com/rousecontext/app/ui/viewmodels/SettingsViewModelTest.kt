@@ -20,8 +20,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -47,6 +49,18 @@ class SettingsViewModelTest {
             val state = awaitItem()
             assertEquals(5, state.idleTimeoutMinutes)
             assertEquals("Summary", state.postSessionMode)
+        }
+    }
+
+    @Test
+    fun `initial state emits loading then loaded`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY)
+        vm.state.test {
+            val loading = awaitItem()
+            assertTrue(loading.isLoading)
+            val loaded = awaitItem()
+            assertFalse(loaded.isLoading)
+            assertNull(loaded.errorMessage)
         }
     }
 
