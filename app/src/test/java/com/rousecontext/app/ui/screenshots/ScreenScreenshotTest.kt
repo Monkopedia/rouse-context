@@ -49,6 +49,7 @@ import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.viewmodels.NotificationSetupState
 import com.rousecontext.app.ui.viewmodels.OutreachSetupState
 import com.rousecontext.app.ui.viewmodels.UsageSetupState
+import com.rousecontext.mcp.health.RecordCategory
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -695,11 +696,17 @@ class ScreenScreenshotTest {
 
     private fun healthConnectSettingsState() = HealthConnectSettingsState(
         permissions = listOf(
-            HealthPermission("Steps", granted = true),
-            HealthPermission("Heart rate", granted = true),
-            HealthPermission("Sleep", granted = true),
-            HealthPermission("Workout history", granted = false),
-            HealthPermission("HRV", granted = false)
+            HealthPermission("Steps", granted = true, category = RecordCategory.ACTIVITY),
+            HealthPermission(
+                "Workout history",
+                granted = false,
+                category = RecordCategory.ACTIVITY
+            ),
+            HealthPermission("Weight", granted = true, category = RecordCategory.BODY),
+            HealthPermission("Sleep", granted = true, category = RecordCategory.SLEEP),
+            HealthPermission("Heart rate", granted = true, category = RecordCategory.VITALS),
+            HealthPermission("HRV", granted = false, category = RecordCategory.VITALS),
+            HealthPermission("Hydration", granted = false, category = RecordCategory.NUTRITION)
         )
     )
 
