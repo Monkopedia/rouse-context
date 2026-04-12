@@ -166,6 +166,9 @@ fn load_or_create_account_key(key_path: &Path) -> SigningKey {
     }
 }
 
+/// Default Cloudflare API base URL. Overridden in tests.
+const CLOUDFLARE_API_BASE: &str = "https://api.cloudflare.com";
+
 /// Real ACME client that performs DNS-01 challenges via Cloudflare.
 pub struct RealAcmeClient {
     http: reqwest::Client,
@@ -173,6 +176,9 @@ pub struct RealAcmeClient {
     account_key: SigningKey,
     cf_api_token: String,
     cf_zone_id: String,
+    /// Base URL for Cloudflare API calls. Defaults to [`CLOUDFLARE_API_BASE`].
+    /// Overridden in tests to point at a local mock server.
+    cf_api_base: String,
     base_domain: String,
     dns_propagation_timeout_secs: u64,
     dns_poll_interval_secs: u64,
@@ -212,6 +218,7 @@ impl RealAcmeClient {
             account_key,
             cf_api_token,
             cf_zone_id,
+            cf_api_base: CLOUDFLARE_API_BASE.to_string(),
             base_domain,
             dns_propagation_timeout_secs,
             dns_poll_interval_secs,
@@ -241,6 +248,7 @@ impl RealAcmeClient {
             account_key,
             cf_api_token,
             cf_zone_id,
+            cf_api_base: CLOUDFLARE_API_BASE.to_string(),
             base_domain,
             dns_propagation_timeout_secs,
             dns_poll_interval_secs,
@@ -475,11 +483,85 @@ impl RealAcmeClient {
         Ok((order, order_url, nonce))
     }
 
+    /// List IDs of TXT records at the given name.
+    ///
+    /// Cloudflare rejects creating a TXT record that is identical to an
+    /// existing one with a 400 "An identical record already exists." error.
+    /// Callers use this together with [`Self::cleanup_existing_txt_records`]
+    /// to remove stale records left behind by previous challenge attempts
+    /// before creating a new one.
+    async fn list_txt_records_by_name(&self, name: &str) -> Result<Vec<String>, AcmeError> {
+        let url = format!(
+            "{}/client/v4/zones/{}/dns_records?type=TXT&name={}",
+            self.cf_api_base, self.cf_zone_id, name
+        );
+
+        let resp = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.cf_api_token)
+            .send()
+            .await
+            .map_err(|e| AcmeError::Http(format!("Cloudflare list TXT records: {e}")))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AcmeError::Http(format!(
+                "Cloudflare list TXT records failed ({status}): {body}"
+            )));
+        }
+
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| AcmeError::Http(format!("Cloudflare list TXT parse: {e}")))?;
+
+        let ids = body["result"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|r| r["id"].as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(ids)
+    }
+
+    /// Delete any existing TXT records at `name`.
+    ///
+    /// This is a no-op if no records exist. Returns an error only if a
+    /// list or delete call fails unexpectedly; individual 404s during
+    /// deletion are tolerated.
+    async fn cleanup_existing_txt_records(&self, name: &str) -> Result<(), AcmeError> {
+        let ids = self.list_txt_records_by_name(name).await?;
+        if ids.is_empty() {
+            debug!(txt_name = %name, "No existing TXT records to clean up");
+            return Ok(());
+        }
+
+        info!(
+            txt_name = %name,
+            count = ids.len(),
+            "Deleting stale ACME TXT records before creating new one"
+        );
+
+        for id in ids {
+            // delete_dns_txt is best-effort and does not return errors.
+            // That is the right behavior here too: if the record was
+            // already deleted by another actor we should still proceed.
+            self.delete_dns_txt(&id).await;
+        }
+
+        Ok(())
+    }
+
     /// Set a DNS TXT record via Cloudflare API. Returns the record ID.
     async fn set_dns_txt(&self, name: &str, value: &str) -> Result<String, AcmeError> {
         let url = format!(
-            "https://api.cloudflare.com/client/v4/zones/{}/dns_records",
-            self.cf_zone_id
+            "{}/client/v4/zones/{}/dns_records",
+            self.cf_api_base, self.cf_zone_id
         );
 
         info!(
@@ -628,8 +710,8 @@ impl RealAcmeClient {
     /// Delete a DNS TXT record via Cloudflare API.
     async fn delete_dns_txt(&self, record_id: &str) {
         let url = format!(
-            "https://api.cloudflare.com/client/v4/zones/{}/dns_records/{record_id}",
-            self.cf_zone_id
+            "{}/client/v4/zones/{}/dns_records/{record_id}",
+            self.cf_api_base, self.cf_zone_id
         );
 
         match self
@@ -815,6 +897,14 @@ impl AcmeClient for RealAcmeClient {
             txt_value = %dns_value,
             "Setting DNS TXT record for ACME challenge"
         );
+
+        // Delete any stale TXT records at this name before creating a new one.
+        // Cloudflare returns 400 "An identical record already exists." if we
+        // try to POST a record that duplicates an existing (name, content)
+        // pair. Stale records can be left behind by a previous challenge
+        // attempt that failed before `delete_dns_txt` ran. See issue #56.
+        self.cleanup_existing_txt_records(&txt_name).await?;
+
         let record_id = self.set_dns_txt(&txt_name, &dns_value).await?;
 
         // 7. Verify DNS propagation by polling public DNS resolvers
@@ -1194,5 +1284,336 @@ mod tests {
 
         let _key = load_or_create_account_key(&key_path);
         assert!(key_path.exists());
+    }
+
+    // -------------------------------------------------------------------
+    // Cloudflare TXT record cleanup tests (issue #56)
+    //
+    // Cloudflare rejects creating a TXT record that is identical to an
+    // existing one with "An identical record already exists." We therefore
+    // list and delete any existing records at `_acme-challenge.{subdomain}`
+    // before creating a new one.
+    // -------------------------------------------------------------------
+
+    use axum::extract::{Path, Query, State};
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+    use axum::routing::{delete, get};
+    use axum::{Json, Router};
+    use std::collections::HashMap;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use tokio::net::TcpListener;
+
+    /// In-memory Cloudflare TXT record store used by the mock API server below.
+    #[derive(Default)]
+    struct MockCfRecords {
+        /// record id -> (name, content)
+        records: HashMap<String, (String, String)>,
+        /// monotonically increasing counter used to generate record ids
+        next_id: u64,
+        /// captured calls for assertion purposes
+        list_calls: Vec<String>,
+        delete_calls: Vec<String>,
+        create_calls: Vec<(String, String)>,
+        /// if true, creating a record whose (name, content) already exists
+        /// returns a Cloudflare-style 400 "identical record" error
+        enforce_identical_record_check: bool,
+    }
+
+    #[derive(Clone)]
+    struct MockCfState {
+        inner: Arc<Mutex<MockCfRecords>>,
+    }
+
+    impl MockCfState {
+        fn new() -> Self {
+            Self {
+                inner: Arc::new(Mutex::new(MockCfRecords::default())),
+            }
+        }
+
+        fn with_existing_record(name: &str, content: &str) -> Self {
+            let state = Self::new();
+            {
+                let mut g = state.inner.lock().unwrap();
+                let id = format!("rec-{}", g.next_id);
+                g.next_id += 1;
+                g.records
+                    .insert(id, (name.to_string(), content.to_string()));
+            }
+            state
+        }
+
+        fn enforce_identical_record_check(self) -> Self {
+            self.inner.lock().unwrap().enforce_identical_record_check = true;
+            self
+        }
+    }
+
+    async fn mock_list_records(
+        State(state): State<MockCfState>,
+        Path(_zone): Path<String>,
+        Query(params): Query<HashMap<String, String>>,
+    ) -> impl IntoResponse {
+        let mut g = state.inner.lock().unwrap();
+        let name = params.get("name").cloned().unwrap_or_default();
+        let record_type = params.get("type").cloned().unwrap_or_default();
+        g.list_calls.push(name.clone());
+
+        let results: Vec<serde_json::Value> = g
+            .records
+            .iter()
+            .filter(|(_, (rname, _))| rname == &name)
+            .filter(|_| record_type.is_empty() || record_type == "TXT")
+            .map(|(id, (rname, rcontent))| {
+                serde_json::json!({
+                    "id": id,
+                    "name": rname,
+                    "type": "TXT",
+                    "content": rcontent,
+                })
+            })
+            .collect();
+
+        Json(serde_json::json!({
+            "success": true,
+            "errors": [],
+            "messages": [],
+            "result": results,
+        }))
+    }
+
+    async fn mock_delete_record(
+        State(state): State<MockCfState>,
+        Path((_zone, record_id)): Path<(String, String)>,
+    ) -> impl IntoResponse {
+        let mut g = state.inner.lock().unwrap();
+        g.delete_calls.push(record_id.clone());
+        if g.records.remove(&record_id).is_some() {
+            Json(serde_json::json!({
+                "success": true,
+                "errors": [],
+                "messages": [],
+                "result": {"id": record_id},
+            }))
+            .into_response()
+        } else {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "success": false,
+                    "errors": [{"code": 81044, "message": "Record not found"}],
+                    "messages": [],
+                    "result": null,
+                })),
+            )
+                .into_response()
+        }
+    }
+
+    async fn mock_create_record(
+        State(state): State<MockCfState>,
+        Path(_zone): Path<String>,
+        Json(body): Json<serde_json::Value>,
+    ) -> impl IntoResponse {
+        let mut g = state.inner.lock().unwrap();
+        let name = body["name"].as_str().unwrap_or("").to_string();
+        let content = body["content"].as_str().unwrap_or("").to_string();
+        g.create_calls.push((name.clone(), content.clone()));
+
+        if g.enforce_identical_record_check
+            && g.records
+                .values()
+                .any(|(rname, rcontent)| rname == &name && rcontent == &content)
+        {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "errors": [{
+                        "code": 81057,
+                        "message": "An identical record already exists."
+                    }],
+                    "messages": [],
+                    "result": null,
+                })),
+            )
+                .into_response();
+        }
+
+        let id = format!("rec-{}", g.next_id);
+        g.next_id += 1;
+        g.records
+            .insert(id.clone(), (name.clone(), content.clone()));
+
+        Json(serde_json::json!({
+            "success": true,
+            "errors": [],
+            "messages": [],
+            "result": {
+                "id": id,
+                "name": name,
+                "type": "TXT",
+                "content": content,
+            },
+        }))
+        .into_response()
+    }
+
+    /// Spawn an axum mock Cloudflare API server. Returns the base URL
+    /// (e.g. "http://127.0.0.1:45617"). The caller retains the state
+    /// handle (which is [`Clone`] because [`MockCfState`] wraps an `Arc`).
+    async fn spawn_mock_cloudflare(state: MockCfState) -> String {
+        let app = Router::new()
+            .route(
+                "/client/v4/zones/{zone}/dns_records",
+                get(mock_list_records).post(mock_create_record),
+            )
+            .route(
+                "/client/v4/zones/{zone}/dns_records/{record_id}",
+                delete(mock_delete_record),
+            )
+            .with_state(state);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr: SocketAddr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    fn test_client(base: String) -> RealAcmeClient {
+        let mut c = RealAcmeClient::with_dns_settings(
+            "unused".to_string(),
+            "test-token".to_string(),
+            "test-zone".to_string(),
+            "rousecontext.com".to_string(),
+            1,
+            1,
+        );
+        c.cf_api_base = base;
+        c
+    }
+
+    #[tokio::test]
+    async fn list_txt_records_returns_empty_when_none_exist() {
+        let state = MockCfState::new();
+        let base = spawn_mock_cloudflare(state.clone()).await;
+        let client = test_client(base);
+
+        let ids = client
+            .list_txt_records_by_name("_acme-challenge.abc.rousecontext.com")
+            .await
+            .expect("list should succeed");
+
+        assert!(ids.is_empty(), "expected no records, got {ids:?}");
+        let g = state.inner.lock().unwrap();
+        assert_eq!(g.list_calls.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_txt_records_returns_ids_for_matching_name() {
+        let state =
+            MockCfState::with_existing_record("_acme-challenge.abc.rousecontext.com", "old-value");
+        let base = spawn_mock_cloudflare(state.clone()).await;
+        let client = test_client(base);
+
+        let ids = client
+            .list_txt_records_by_name("_acme-challenge.abc.rousecontext.com")
+            .await
+            .expect("list should succeed");
+
+        assert_eq!(ids.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_existing_txt_records_deletes_all_matches() {
+        let state = MockCfState::with_existing_record(
+            "_acme-challenge.abc.rousecontext.com",
+            "stale-value",
+        );
+        // Add a second stale record at the same name.
+        {
+            let mut g = state.inner.lock().unwrap();
+            let id = format!("rec-{}", g.next_id);
+            g.next_id += 1;
+            g.records.insert(
+                id,
+                (
+                    "_acme-challenge.abc.rousecontext.com".to_string(),
+                    "another-stale".to_string(),
+                ),
+            );
+        }
+        let base = spawn_mock_cloudflare(state.clone()).await;
+        let client = test_client(base);
+
+        client
+            .cleanup_existing_txt_records("_acme-challenge.abc.rousecontext.com")
+            .await
+            .expect("cleanup should succeed");
+
+        let g = state.inner.lock().unwrap();
+        assert_eq!(g.delete_calls.len(), 2, "expected 2 deletes");
+        assert!(
+            g.records.is_empty(),
+            "expected all matching records removed"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_existing_txt_records_is_noop_when_none_exist() {
+        let state = MockCfState::new();
+        let base = spawn_mock_cloudflare(state.clone()).await;
+        let client = test_client(base);
+
+        client
+            .cleanup_existing_txt_records("_acme-challenge.abc.rousecontext.com")
+            .await
+            .expect("cleanup should succeed when no records");
+
+        let g = state.inner.lock().unwrap();
+        assert_eq!(g.list_calls.len(), 1);
+        assert_eq!(g.delete_calls.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn set_dns_txt_after_cleanup_succeeds_when_identical_record_existed() {
+        // Seed an existing identical record so that a naive create would 400
+        // with "An identical record already exists."
+        let state = MockCfState::with_existing_record(
+            "_acme-challenge.abc.rousecontext.com",
+            "duplicate-value",
+        )
+        .enforce_identical_record_check();
+        let base = spawn_mock_cloudflare(state.clone()).await;
+        let client = test_client(base);
+
+        // Baseline: without cleanup, create fails.
+        let direct = client
+            .set_dns_txt("_acme-challenge.abc.rousecontext.com", "duplicate-value")
+            .await;
+        assert!(
+            direct.is_err(),
+            "expected identical-record 400 from mock Cloudflare"
+        );
+
+        // With cleanup first, create succeeds.
+        client
+            .cleanup_existing_txt_records("_acme-challenge.abc.rousecontext.com")
+            .await
+            .expect("cleanup");
+
+        let new_id = client
+            .set_dns_txt("_acme-challenge.abc.rousecontext.com", "duplicate-value")
+            .await
+            .expect("create after cleanup should succeed");
+
+        assert!(!new_id.is_empty());
+        let g = state.inner.lock().unwrap();
+        assert!(!g.delete_calls.is_empty(), "expected at least one delete");
     }
 }
