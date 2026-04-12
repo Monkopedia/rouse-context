@@ -145,6 +145,14 @@ class NavigationBarVisibilityTest {
     }
 
     @Test
+    fun `NOTIFICATION_PREFERENCES route hides navigation bars`() {
+        assertFalse(
+            "NOTIFICATION_PREFERENCES should hide bars",
+            shouldShowBars(Routes.NOTIFICATION_PREFERENCES)
+        )
+    }
+
+    @Test
     fun `null route hides navigation bars`() {
         assertFalse(
             "null route should hide bars",

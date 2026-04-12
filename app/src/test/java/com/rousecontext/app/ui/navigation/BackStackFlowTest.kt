@@ -104,6 +104,48 @@ class BackStackFlowTest {
     }
 
     /**
+     * First-time onboarding flow with #69 global notification preferences:
+     * Welcome -> NotificationPreferences -> Home. The preferences step
+     * must pop the entire onboarding stack (inclusive of ONBOARDING) so
+     * back from HOME exits rather than re-entering onboarding.
+     */
+    @Test
+    fun `onboarding visits notification preferences before home`() {
+        val stack = FakeBackStack(Routes.ONBOARDING)
+
+        // Welcome "Get Started" -> NotificationPreferences (plain navigate)
+        stack.navigate(Routes.NOTIFICATION_PREFERENCES)
+        assertEquals(
+            listOf(Routes.ONBOARDING, Routes.NOTIFICATION_PREFERENCES),
+            stack.asList
+        )
+
+        // NotificationPreferences "Continue" -> HOME, popping ONBOARDING inclusive
+        stack.navigate(
+            route = Routes.HOME,
+            popTarget = Routes.ONBOARDING,
+            inclusive = true,
+            launchSingleTop = true
+        )
+        assertEquals(listOf(Routes.HOME), stack.asList)
+        // Back from HOME should exit the app (stack is empty beneath HOME)
+        assertEquals(false, stack.popBackStack())
+    }
+
+    /**
+     * The user taps Back on NotificationPreferences — this should take
+     * them back to Welcome, not out of the app.
+     */
+    @Test
+    fun `back from notification preferences returns to welcome`() {
+        val stack = FakeBackStack(Routes.ONBOARDING)
+        stack.navigate(Routes.NOTIFICATION_PREFERENCES)
+
+        assertEquals(true, stack.popBackStack())
+        assertEquals(listOf(Routes.ONBOARDING), stack.asList)
+    }
+
+    /**
      * If the user was already onboarded, HOME is the start destination.
      * The LaunchedEffect still fires via launchSingleTop=true but must
      * not create a duplicate entry.

@@ -30,6 +30,7 @@ import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
+import com.rousecontext.app.ui.viewmodels.NotificationPreferencesViewModel
 import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
 import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import com.rousecontext.app.ui.viewmodels.OutreachSetupViewModel
@@ -315,4 +316,5 @@ val appModule = module {
     viewModel { UsageSetupViewModel(androidContext(), get()) }
     viewModel { IntegrationSetupViewModel(get(), get(), get(), get()) }
     viewModel { OnboardingViewModel(get(), get(), get()) }
+    viewModel { NotificationPreferencesViewModel(get()) }
 }

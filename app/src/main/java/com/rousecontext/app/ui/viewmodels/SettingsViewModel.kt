@@ -83,8 +83,16 @@ class SettingsViewModel(
     }
 
     fun setPostSessionMode(mode: String) {
-        // TODO: persist to notification settings DataStore
-        refresh()
+        val parsed = when (mode) {
+            "Summary" -> PostSessionMode.SUMMARY
+            "Each usage" -> PostSessionMode.EACH_USAGE
+            "Suppress" -> PostSessionMode.SUPPRESS
+            else -> return
+        }
+        viewModelScope.launch {
+            notificationSettingsProvider.setPostSessionMode(parsed)
+            refresh()
+        }
     }
 
     fun setThemeMode(mode: String) {

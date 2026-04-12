@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.rousecontext.api.NotificationSettings
@@ -53,6 +54,12 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
                 notificationPermissionGranted = permissionGranted
             )
         }
+
+    override suspend fun setPostSessionMode(mode: PostSessionMode) {
+        dataStore.edit { prefs ->
+            prefs[POST_SESSION_MODE_KEY] = mode.name
+        }
+    }
 
     companion object {
         private val POST_SESSION_MODE_KEY = stringPreferencesKey("post_session_mode")
