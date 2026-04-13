@@ -47,15 +47,21 @@ import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.notifications.capture.FieldEncryptor
 import com.rousecontext.notifications.capture.NotificationDatabase
 import com.rousecontext.tunnel.CertProvisioningFlow
+import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.CsrGenerator
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.work.CertRenewalFlowRenewer
+import com.rousecontext.work.CertRenewalWorker
+import com.rousecontext.work.CertRenewer
 import com.rousecontext.work.FcmTokenRegistrar
+import com.rousecontext.work.FirebaseRenewalAuthProvider
 import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.RealWakeLockHandle
+import com.rousecontext.work.RenewalAuthProvider
 import com.rousecontext.work.SessionHandler
 import com.rousecontext.work.WakelockManager
 import org.koin.android.ext.koin.androidContext
@@ -113,6 +119,18 @@ val appModule = module {
         )
     }
     single { CertProvisioningFlow(get(), get(), get(), BuildConfig.BASE_DOMAIN) }
+
+    // --- Cert renewal (periodic worker) ---
+    single<String>(named(CertRenewalWorker.KOIN_BASE_DOMAIN_NAME)) { BuildConfig.BASE_DOMAIN }
+    single {
+        CertRenewalFlow(
+            csrGenerator = get(),
+            relayApiClient = get(),
+            certificateStore = get()
+        )
+    }
+    single<CertRenewer> { CertRenewalFlowRenewer(get()) }
+    single<RenewalAuthProvider> { FirebaseRenewalAuthProvider() }
 
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class
