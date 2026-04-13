@@ -16,9 +16,7 @@ ZOMBIES=()
 
 # Tracked-but-known zombies. Remove entries here once the corresponding issue
 # is resolved (delete the file or wire it into navigation).
-KNOWN_EXEMPT=(
-  "OnboardingErrorScreen.kt"  # issue #85 — wire or delete
-)
+KNOWN_EXEMPT=()
 
 is_exempt() {
   local base="$1"

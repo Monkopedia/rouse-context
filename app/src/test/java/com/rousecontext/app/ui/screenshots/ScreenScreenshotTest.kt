@@ -30,7 +30,6 @@ import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.app.ui.screens.MainDashboardScreen
 import com.rousecontext.app.ui.screens.NotificationPreferencesScreen
 import com.rousecontext.app.ui.screens.NotificationSetupScreen
-import com.rousecontext.app.ui.screens.OnboardingErrorScreen
 import com.rousecontext.app.ui.screens.OutreachSetupScreen
 import com.rousecontext.app.ui.screens.PickerIntegration
 import com.rousecontext.app.ui.screens.PickerIntegrationState
@@ -131,20 +130,6 @@ class ScreenScreenshotTest {
     @Test
     fun settingUpRateLimitedLight() = captureLight("04_setting_up_rate_limited") {
         SettingUpScreen(state = SettingUpState(SettingUpVariant.RateLimited("Apr 11")))
-    }
-
-    @Test
-    fun onboardingErrorDark() = captureDark("05_onboarding_error") {
-        OnboardingErrorScreen(
-            message = "Network error. Check your connection and try again."
-        )
-    }
-
-    @Test
-    fun onboardingErrorLight() = captureLight("05_onboarding_error") {
-        OnboardingErrorScreen(
-            message = "Network error. Check your connection and try again."
-        )
     }
 
     // =========================================================================
