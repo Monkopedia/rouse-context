@@ -3,6 +3,7 @@ package com.rousecontext.app.token
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Data access object for token persistence.
@@ -41,6 +42,13 @@ interface TokenDao {
 
     @Query("SELECT * FROM tokens WHERE integrationId = :integrationId ORDER BY createdAt DESC")
     fun listByIntegration(integrationId: String): List<TokenEntity>
+
+    /**
+     * Reactive version of [listByIntegration]. Room re-emits whenever the tokens
+     * table changes, allowing UI to live-update the authorized clients list.
+     */
+    @Query("SELECT * FROM tokens WHERE integrationId = :integrationId ORDER BY createdAt DESC")
+    fun observeByIntegration(integrationId: String): Flow<List<TokenEntity>>
 
     @Query("SELECT COUNT(*) FROM tokens WHERE integrationId = :integrationId")
     fun countByIntegration(integrationId: String): Int

@@ -1,5 +1,7 @@
 package com.rousecontext.mcp.core
 
+import kotlinx.coroutines.flow.Flow
+
 /**
  * Token verification and management, scoped per integration.
  *
@@ -50,6 +52,13 @@ interface TokenStore {
      * Lists all active tokens for the given integration.
      */
     fun listTokens(integrationId: String): List<TokenInfo>
+
+    /**
+     * Observes the list of active tokens for [integrationId]. Emits the current
+     * list immediately and re-emits whenever tokens are issued, rotated, or revoked.
+     * Used by UI layers that need live updates (e.g. the authorized clients list).
+     */
+    fun tokensFlow(integrationId: String): Flow<List<TokenInfo>>
 
     /**
      * Returns true if there is at least one active token for [integrationId].
