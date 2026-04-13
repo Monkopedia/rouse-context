@@ -13,6 +13,7 @@ import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
+import com.rousecontext.app.ui.screens.NotificationBanner
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.tunnel.TunnelClient
@@ -40,7 +41,8 @@ class MainDashboardViewModel(
     private val auditDao: AuditDao,
     private val urlProvider: McpUrlProvider,
     tunnelClient: TunnelClient,
-    certRenewalBanner: Flow<CertBanner?> = flowOf(null)
+    certRenewalBanner: Flow<CertBanner?> = flowOf(null),
+    notificationsEnabled: Flow<Boolean> = flowOf(true)
 ) : ViewModel() {
 
     private val tunnelStateFlow = tunnelClient.state
@@ -52,13 +54,15 @@ class MainDashboardViewModel(
     )
 
     private val certRenewalBannerFlow = certRenewalBanner.onStart<CertBanner?> { emit(null) }
+    private val notificationsEnabledFlow = notificationsEnabled.onStart { emit(true) }
 
     val state: StateFlow<DashboardState> = combine(
         tunnelStateFlow,
         stateStore.observeChanges().onStart { emit(Unit) },
         recentAuditFlow,
-        certRenewalBannerFlow
-    ) { tunnelState, _, recentEntries, certBanner ->
+        certRenewalBannerFlow,
+        notificationsEnabledFlow
+    ) { tunnelState, _, recentEntries, certBanner, notifsEnabled ->
         val connection = when (tunnelState) {
             TunnelState.CONNECTED, TunnelState.ACTIVE -> ConnectionStatus.CONNECTED
             else -> ConnectionStatus.DISCONNECTED
@@ -111,6 +115,7 @@ class MainDashboardViewModel(
             integrations = items,
             recentActivity = recent,
             certBanner = certBanner,
+            notificationBanner = if (notifsEnabled) null else NotificationBanner,
             hasMoreIntegrationsToAdd = hasMoreToAdd,
             isLoading = false,
             errorMessage = null

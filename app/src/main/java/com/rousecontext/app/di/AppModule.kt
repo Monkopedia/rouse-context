@@ -20,7 +20,9 @@ import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.state.IntegrationSettingsStore
+import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
@@ -118,6 +120,9 @@ val appModule = module {
 
     // --- Field encryption ---
     single { FieldEncryptor(androidContext()) }
+
+    // --- Notification permission refresher ---
+    single { NotificationPermissionRefresher() }
 
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class
@@ -344,6 +349,7 @@ val appModule = module {
             com.rousecontext.work.CertRenewalWorker.PREFS_NAME,
             android.content.Context.MODE_PRIVATE
         )
+        val refresher: NotificationPermissionRefresher = get()
         MainDashboardViewModel(
             integrations = get(),
             stateStore = get(),
@@ -351,7 +357,11 @@ val appModule = module {
             auditDao = get(),
             urlProvider = get(),
             tunnelClient = get(),
-            certRenewalBanner = com.rousecontext.app.cert.certRenewalBannerFlow(certRenewalPrefs)
+            certRenewalBanner = com.rousecontext.app.cert.certRenewalBannerFlow(certRenewalPrefs),
+            notificationsEnabled = notificationPermissionFlow(
+                context = androidContext(),
+                triggers = refresher.ticks
+            )
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }

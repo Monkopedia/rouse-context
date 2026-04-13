@@ -32,6 +32,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -343,6 +344,49 @@ class MainDashboardViewModelTest {
     }
 
     @Test
+    fun `notification banner appears when notifications are denied`() = runTest(testDispatcher) {
+        val vm = createViewModel(notificationsEnabledFlow = flowOf(false))
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading || state.notificationBanner == null) {
+                state = awaitItem()
+            }
+            assertNotNull(state.notificationBanner)
+        }
+    }
+
+    @Test
+    fun `notification banner absent when notifications are granted`() = runTest(testDispatcher) {
+        val vm = createViewModel(notificationsEnabledFlow = flowOf(true))
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.notificationBanner)
+        }
+    }
+
+    @Test
+    fun `notification banner appears reactively when permission is revoked`() =
+        runTest(testDispatcher) {
+            val notifFlow = MutableStateFlow(true)
+            val vm = createViewModel(notificationsEnabledFlow = notifFlow)
+            vm.state.test {
+                var state = awaitItem()
+                while (state.isLoading) {
+                    state = awaitItem()
+                }
+                assertNull(state.notificationBanner)
+
+                // User revokes notifications via system settings.
+                notifFlow.value = false
+                state = awaitItem()
+                assertNotNull(state.notificationBanner)
+            }
+        }
+
+    @Test
     fun `connection status reflects tunnel state`() = runTest(testDispatcher) {
         val vm = createViewModel()
         vm.state.test {
@@ -372,7 +416,8 @@ class MainDashboardViewModelTest {
     }
 
     private fun createViewModel(
-        certRenewalFlow: kotlinx.coroutines.flow.Flow<CertBanner?> = flowOf(null)
+        certRenewalFlow: kotlinx.coroutines.flow.Flow<CertBanner?> = flowOf(null),
+        notificationsEnabledFlow: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(true)
     ): MainDashboardViewModel {
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
@@ -393,7 +438,8 @@ class MainDashboardViewModelTest {
             auditDao = auditDao,
             urlProvider = fakeUrlProvider,
             tunnelClient = fakeTunnelClient,
-            certRenewalBanner = certRenewalFlow
+            certRenewalBanner = certRenewalFlow,
+            notificationsEnabled = notificationsEnabledFlow
         )
     }
 

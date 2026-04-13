@@ -1,8 +1,11 @@
 package com.rousecontext.app.ui.navigation
 
+import android.Manifest
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,6 +38,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -332,9 +336,34 @@ fun AppNavigation(
                     val onboardingViewModel: OnboardingViewModel =
                         koinViewModel()
                     val state by prefsViewModel.state.collectAsState()
+                    val refresher: com.rousecontext.app.state
+                        .NotificationPermissionRefresher =
+                        org.koin.compose.koinInject()
+                    val notificationPermissionLauncher =
+                        rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.RequestPermission()
+                        ) { _ ->
+                            // Don't block on result. Refresh so the dashboard
+                            // banner reflects the new state on next render.
+                            refresher.refresh()
+                        }
                     NotificationPreferencesScreen(
                         state = state,
                         onModeSelected = prefsViewModel::select,
+                        onRequestNotificationPermission = {
+                            // Only request on Android 13+ where the runtime
+                            // permission exists. On older devices the
+                            // permission is implicit and the launcher would
+                            // immediately resolve granted, but we skip the
+                            // round-trip.
+                            if (Build.VERSION.SDK_INT >=
+                                Build.VERSION_CODES.TIRAMISU
+                            ) {
+                                notificationPermissionLauncher.launch(
+                                    Manifest.permission.POST_NOTIFICATIONS
+                                )
+                            }
+                        },
                         onContinue = {
                             prefsViewModel.persistSelection()
                             // Kick off relay/FCM registration in the
@@ -389,6 +418,25 @@ fun AppNavigation(
                     )
                     val viewModel: MainDashboardViewModel = koinViewModel()
                     val state by viewModel.state.collectAsState()
+                    val context = LocalContext.current
+                    val refresher: com.rousecontext.app.state
+                        .NotificationPermissionRefresher =
+                        org.koin.compose.koinInject()
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    DisposableEffect(lifecycleOwner) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            if (event == Lifecycle.Event.ON_RESUME) {
+                                // Re-check on resume so revoking notifications
+                                // from system settings updates the dashboard
+                                // banner immediately when the user comes back.
+                                refresher.refresh()
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose {
+                            lifecycleOwner.lifecycle.removeObserver(observer)
+                        }
+                    }
 
                     LaunchedEffect(
                         navController.currentBackStackEntry
@@ -409,6 +457,22 @@ fun AppNavigation(
                         },
                         onViewAllActivity = {
                             navController.navigate(Routes.AUDIT_BASE)
+                        },
+                        onOpenNotificationSettings = {
+                            // Open the per-app notification settings so the
+                            // user can re-enable. If the runtime permission
+                            // was permanently denied, this is the only path
+                            // back to a working state.
+                            val intent = Intent(
+                                Settings.ACTION_APP_NOTIFICATION_SETTINGS
+                            ).apply {
+                                putExtra(
+                                    Settings.EXTRA_APP_PACKAGE,
+                                    context.packageName
+                                )
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
                         },
                         onRetry = { viewModel.retry() }
                     )
@@ -1216,6 +1280,34 @@ fun AppNavigation(
                     )
                     val viewModel: AuthorizationApprovalViewModel =
                         koinViewModel()
+
+                    // Re-prompt for notifications if the user landed here
+                    // without having granted them. They've clearly opted into
+                    // the approval flow, so don't strand them: the screen
+                    // remains usable whether they accept or deny. Issue #93.
+                    val approvalContext = LocalContext.current
+                    val approvalRefresher: com.rousecontext.app.state
+                        .NotificationPermissionRefresher =
+                        org.koin.compose.koinInject()
+                    val approvalPermissionLauncher =
+                        rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.RequestPermission()
+                        ) { _ ->
+                            approvalRefresher.refresh()
+                        }
+                    LaunchedEffect(Unit) {
+                        if (Build.VERSION.SDK_INT >=
+                            Build.VERSION_CODES.TIRAMISU &&
+                            !com.rousecontext.app.state
+                                .NotificationPermissionMonitor
+                                .areNotificationsEnabled(approvalContext)
+                        ) {
+                            approvalPermissionLauncher.launch(
+                                Manifest.permission.POST_NOTIFICATIONS
+                            )
+                        }
+                    }
+
                     val requests by viewModel.pendingRequests
                         .collectAsState()
                     val uiState by viewModel.uiState.collectAsState()
