@@ -55,8 +55,7 @@ import com.rousecontext.app.ui.screens.AuditDetailContent
 import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditDetailUiState
 import com.rousecontext.app.ui.screens.AuditHistoryContent
-import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
-import com.rousecontext.app.ui.screens.AuthorizationApprovalScreen
+import com.rousecontext.app.ui.screens.AuthorizationApprovalContent
 import com.rousecontext.app.ui.screens.HealthConnectSetupContent
 import com.rousecontext.app.ui.screens.HomeDashboardContent
 import com.rousecontext.app.ui.screens.IntegrationEnabledContent
@@ -1211,12 +1210,15 @@ fun AppNavigation(
                 composable(Routes.AUTH_APPROVAL) {
                     ConfigureNavBar(
                         title = "Approve AI Client",
-                        showTopBar = false
+                        showTopBar = true,
+                        showBackButton = true,
+                        onBackPressed = { navController.popBackStack() }
                     )
                     val viewModel: AuthorizationApprovalViewModel =
                         koinViewModel()
                     val requests by viewModel.pendingRequests
                         .collectAsState()
+                    val uiState by viewModel.uiState.collectAsState()
 
                     // Track the integration from the last approved request
                     // so we can navigate to its manage page.
@@ -1251,13 +1253,8 @@ fun AppNavigation(
                         }
                     }
 
-                    AuthorizationApprovalScreen(
-                        pendingRequests = requests.map { req ->
-                            AuthorizationApprovalItem(
-                                displayCode = req.displayCode,
-                                integration = req.integration
-                            )
-                        },
+                    AuthorizationApprovalContent(
+                        uiState = uiState,
                         onApprove = { displayCode ->
                             // Capture the integration before approving
                             // (which removes the request from the list).
@@ -1271,7 +1268,7 @@ fun AppNavigation(
                             viewModel.approve(displayCode)
                         },
                         onDeny = viewModel::deny,
-                        onBack = { navController.popBackStack() }
+                        onRetry = viewModel::retry
                     )
                 }
 
