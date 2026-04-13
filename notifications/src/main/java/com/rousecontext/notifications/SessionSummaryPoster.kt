@@ -17,9 +17,10 @@ import kotlinx.coroutines.flow.Flow
  * Posts a session-end summary notification when a tunnel session ends.
  *
  * Observes [TunnelState] transitions. When the tunnel enters [TunnelState.ACTIVE]
- * we capture the current high-watermark id of the audit log; when the tunnel
- * enters [TunnelState.DISCONNECTED] we query entries inserted after that id
- * and post a notification per [PostSessionMode]:
+ * for the first time in a connection cycle we capture the current high-watermark
+ * id of the audit log; when streams drain back to [TunnelState.CONNECTED] we
+ * query entries inserted after that id and post a notification per
+ * [PostSessionMode]:
  *
  * - [PostSessionMode.SUMMARY]: one notification summarizing counts per provider.
  * - [PostSessionMode.SUPPRESS]: nothing.
@@ -29,6 +30,23 @@ import kotlinx.coroutines.flow.Flow
  * The notification taps through to the audit history, optionally filtered to the
  * session's time window (handled via intent extras keyed on [EXTRA_START_MILLIS]
  * and [EXTRA_END_MILLIS]).
+ *
+ * ## Why post on ACTIVE -> CONNECTED (stream drain) rather than DISCONNECTED?
+ *
+ * Fix #100: The foreground service calls `stopSelf()` on DISCONNECTED, which
+ * cancels its `lifecycleScope`. If we post on DISCONNECTED, the suspending DAO
+ * query races against the scope cancellation and almost always loses — the
+ * notification never appears in production. Posting on stream drain fires while
+ * the service is still alive (the service only stops on full DISCONNECTED),
+ * so the DB query runs to completion.
+ *
+ * ## Repeated drains in one connection cycle
+ *
+ * We post at most once per connection cycle (from DISCONNECTED to DISCONNECTED).
+ * If an AI client reopens streams after draining, we do NOT re-capture a cursor
+ * and do NOT re-post. The cursor is re-armed only after the tunnel fully
+ * disconnects and reconnects. This prevents notification spam when clients
+ * churn streams and matches the user-visible notion of "one session".
  *
  * TODO(#95): EachUsage mode is intentionally deferred here — per-entry posting
  * requires wrapping [com.rousecontext.notifications.audit.RoomAuditListener]
@@ -50,31 +68,42 @@ class SessionSummaryPoster(
     suspend fun observe(states: Flow<TunnelState>) {
         var cursorId: Long? = null
         var sessionStartMillis: Long = 0
+        var posted = false
+        var previousState: TunnelState? = null
 
         states.collect { state ->
-            when (state) {
-                TunnelState.ACTIVE -> {
-                    // Start-of-session snapshot. Only capture if we don't already
-                    // have one — multiple streams can toggle ACTIVE/CONNECTED
-                    // within a single logical session.
-                    if (cursorId == null) {
-                        cursorId = auditDao.latestId() ?: 0L
-                        sessionStartMillis = System.currentTimeMillis()
-                    }
+            when {
+                // Capture cursor on first ACTIVE of a connection cycle.
+                // Once we've posted for this cycle, don't re-arm until the
+                // tunnel fully disconnects.
+                state == TunnelState.ACTIVE && cursorId == null && !posted -> {
+                    cursorId = auditDao.latestId() ?: 0L
+                    sessionStartMillis = System.currentTimeMillis()
                 }
-                TunnelState.DISCONNECTED -> {
-                    val startCursor = cursorId
-                    if (startCursor != null) {
-                        val sessionEndMillis = System.currentTimeMillis()
-                        val entries = auditDao.queryCreatedAfter(startCursor)
-                        postForMode(entries, sessionStartMillis, sessionEndMillis)
-                        cursorId = null
-                    }
+                // Post on ACTIVE -> CONNECTED (all streams drained).
+                // The foreground service is still alive at this point, so the
+                // suspending DAO query below completes before stopSelf() cancels
+                // our scope. See class docs for the rationale (fix #100).
+                previousState == TunnelState.ACTIVE &&
+                    state == TunnelState.CONNECTED &&
+                    cursorId != null -> {
+                    val startCursor = cursorId!!
+                    val sessionEndMillis = System.currentTimeMillis()
+                    val entries = auditDao.queryCreatedAfter(startCursor)
+                    postForMode(entries, sessionStartMillis, sessionEndMillis)
+                    cursorId = null
+                    posted = true
                 }
-                else -> {
-                    // CONNECTING / CONNECTED / DISCONNECTING: no-op.
+                // Reset when the tunnel fully disconnects. Defensive: if we
+                // went ACTIVE -> DISCONNECTED without a CONNECTED drain, we
+                // drop the cursor rather than post (the service is tearing
+                // down and our scope is about to be cancelled anyway).
+                state == TunnelState.DISCONNECTED -> {
+                    cursorId = null
+                    posted = false
                 }
             }
+            previousState = state
         }
     }
 
@@ -127,6 +156,7 @@ class SessionSummaryPoster(
             .setStyle(NotificationCompat.BigTextStyle().bigText(breakdown))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
             .build()
 

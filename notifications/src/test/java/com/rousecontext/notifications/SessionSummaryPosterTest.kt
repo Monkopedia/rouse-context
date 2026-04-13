@@ -74,7 +74,9 @@ class SessionSummaryPosterTest {
         dao.insert(entry(provider = "health", toolName = "get_hr"))
         dao.insert(entry(provider = "usage", toolName = "get_app_usage"))
 
-        states.emit(TunnelState.DISCONNECTED)
+        // Post fires on stream drain (ACTIVE -> CONNECTED), NOT on DISCONNECTED.
+        // See fix #100 — DISCONNECTED races with service teardown.
+        states.emit(TunnelState.CONNECTED)
 
         withTimeout(TIMEOUT_MS) { posted.await() }
 
@@ -108,7 +110,7 @@ class SessionSummaryPosterTest {
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
         dao.insert(entry(provider = "health", toolName = "get_steps"))
-        states.emit(TunnelState.DISCONNECTED)
+        states.emit(TunnelState.CONNECTED)
 
         withTimeout(TIMEOUT_MS) { queried.await() }
 
@@ -134,7 +136,7 @@ class SessionSummaryPosterTest {
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
         dao.insert(entry(provider = "health", toolName = "get_steps"))
-        states.emit(TunnelState.DISCONNECTED)
+        states.emit(TunnelState.CONNECTED)
 
         withTimeout(TIMEOUT_MS) { queried.await() }
 
@@ -159,7 +161,7 @@ class SessionSummaryPosterTest {
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
-        states.emit(TunnelState.DISCONNECTED)
+        states.emit(TunnelState.CONNECTED)
 
         withTimeout(TIMEOUT_MS) { queried.await() }
 
@@ -192,7 +194,7 @@ class SessionSummaryPosterTest {
         // Only new calls during the session
         dao.insert(entry(provider = "notifications", toolName = "read_latest"))
 
-        states.emit(TunnelState.DISCONNECTED)
+        states.emit(TunnelState.CONNECTED)
 
         withTimeout(TIMEOUT_MS) { queried.await() }
 
@@ -210,6 +212,128 @@ class SessionSummaryPosterTest {
         assertTrue(
             "Should not reference 'health' provider (was a prior session), was: $all",
             !all.contains("health")
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `No post when tunnel goes ACTIVE to DISCONNECTED without stream drain`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+
+        val job = launch { poster.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps"))
+
+        // No CONNECTED drain — tunnel dies straight from ACTIVE.
+        states.emit(TunnelState.DISCONNECTED)
+
+        // Flush: start a second session and wait for its latestId read.
+        // That proves the collector has processed the DISCONNECTED emission
+        // (and re-armed its cursor).
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+
+        val shadow = Shadows.shadowOf(manager)
+        assertNull(
+            "No notification should be posted when we skip the drain transition",
+            shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+        )
+        assertEquals(
+            "queryCreatedAfter should never be called when there is no drain",
+            0,
+            dao.queryCreatedAfterCount
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Summary mode posts once per connection cycle even with repeated drains`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val firstPosted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { firstPosted.complete(Unit) }
+
+        val job = launch { poster.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps"))
+
+        // First drain — fires the post.
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { firstPosted.await() }
+
+        val shadow = Shadows.shadowOf(manager)
+        assertNotNull(shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID))
+
+        // Client reopens streams and drains again within the same connection
+        // cycle. Design choice (fix #100): cursor resets only on the first drain;
+        // subsequent drains in the same connection cycle do NOT re-post. This
+        // avoids notification spam when clients churn streams.
+        states.emit(TunnelState.ACTIVE)
+        dao.insert(entry(provider = "health", toolName = "get_hr"))
+        states.emit(TunnelState.CONNECTED)
+
+        // Flush: emit a DISCONNECTED -> ACTIVE cycle and wait for the new cursor
+        // capture. If the poster had re-fired mid-cycle, the count would be > 1.
+        states.emit(TunnelState.DISCONNECTED)
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+
+        assertEquals(
+            "Should post exactly once within a single connection cycle",
+            1,
+            dao.queryCreatedAfterCount
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Summary mode posts again on a new connection cycle`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val firstPosted = CompletableDeferred<Unit>()
+        val secondPosted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = {
+            if (!firstPosted.isCompleted) {
+                firstPosted.complete(Unit)
+            } else if (!secondPosted.isCompleted) {
+                secondPosted.complete(Unit)
+            }
+        }
+
+        val job = launch { poster.observe(states) }
+
+        // Cycle 1
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps"))
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { firstPosted.await() }
+
+        // Full tunnel disconnect + reconnect.
+        states.emit(TunnelState.DISCONNECTED)
+
+        // Cycle 2
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "usage", toolName = "get_app_usage"))
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { secondPosted.await() }
+
+        assertEquals(
+            "Should post once per connection cycle",
+            2,
+            dao.queryCreatedAfterCount
         )
 
         job.cancel()
@@ -292,8 +416,12 @@ class SessionSummaryPosterTest {
             return value
         }
 
+        @Volatile
+        var queryCreatedAfterCount: Int = 0
+
         override suspend fun queryCreatedAfter(sinceId: Long): List<AuditEntry> {
             val result = entries.filter { it.id > sinceId }.sortedBy { it.id }
+            queryCreatedAfterCount += 1
             onQueryCreatedAfter?.invoke()
             return result
         }
