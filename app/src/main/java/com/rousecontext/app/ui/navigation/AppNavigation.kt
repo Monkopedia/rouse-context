@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -879,8 +880,24 @@ fun AppNavigation(
                     LaunchedEffect(Unit) {
                         viewModel.refreshHistoricalAccess()
                     }
+                    // In SETTINGS mode the user may toggle individual permissions
+                    // inside Health Connect and return; re-query so the
+                    // historical-access card reflects the latest state (#94).
+                    val lifecycleOwner = LocalLifecycleOwner.current
+                    val lifecycle = lifecycleOwner.lifecycle
+                    DisposableEffect(lifecycle) {
+                        val observer =
+                            LifecycleEventObserver { _, event ->
+                                if (event == Lifecycle.Event.ON_RESUME) {
+                                    viewModel.refreshHistoricalAccess()
+                                }
+                            }
+                        lifecycle.addObserver(observer)
+                        onDispose { lifecycle.removeObserver(observer) }
+                    }
                     val historicalGranted by viewModel.historicalAccessGranted
                         .collectAsState()
+                    val context = LocalContext.current
                     val requestPermissions =
                         rememberLauncherForActivityResult(
                             contract = PermissionController
@@ -913,9 +930,21 @@ fun AppNavigation(
                     HealthConnectSetupContent(
                         mode = mode,
                         onGrantAccess = {
-                            requestPermissions.launch(
-                                HEALTH_CONNECT_PERMISSIONS
-                            )
+                            if (mode == SetupMode.SETTINGS) {
+                                // Launch Health Connect's own permission
+                                // management UI so the user can revoke or
+                                // toggle individual record-type grants. The
+                                // in-app request contract (used in SETUP mode)
+                                // can only *request* additional grants; it
+                                // cannot revoke (#94).
+                                val intent = HealthConnectClient
+                                    .getHealthConnectManageDataIntent(context)
+                                context.startActivity(intent)
+                            } else {
+                                requestPermissions.launch(
+                                    HEALTH_CONNECT_PERMISSIONS
+                                )
+                            }
                         },
                         onCancel = {
                             if (mode == SetupMode.SETTINGS) {
