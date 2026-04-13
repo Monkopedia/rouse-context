@@ -52,6 +52,41 @@ sealed interface AuthorizationApprovalUiState {
     data class Error(val message: String) : AuthorizationApprovalUiState
 }
 
+/**
+ * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ *
+ * Previously this screen nested its own Scaffold + TopAppBar inside the
+ * persistent Scaffold from AppNavigation, which double-applied window insets
+ * and produced a stale title (#68 renamed "Approve Connection" to
+ * "Approve AI Client" but #64 later added the inner Scaffold with the old
+ * string). Following the pattern used by every other screen, the Content
+ * composable renders only the body; the wrapper Screen composable is kept
+ * for @Preview usage.
+ */
+@Composable
+fun AuthorizationApprovalContent(
+    uiState: AuthorizationApprovalUiState,
+    onApprove: (String) -> Unit = {},
+    onDeny: (String) -> Unit = {},
+    onRetry: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    Surface(modifier = modifier.fillMaxSize()) {
+        when (uiState) {
+            is AuthorizationApprovalUiState.Loading -> LoadingIndicator()
+            is AuthorizationApprovalUiState.Error -> ErrorState(
+                message = uiState.message,
+                onRetry = onRetry
+            )
+            is AuthorizationApprovalUiState.Loaded -> LoadedAuthorizationApproval(
+                pendingRequests = uiState.pendingRequests,
+                onApprove = onApprove,
+                onDeny = onDeny
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AuthorizationApprovalScreen(
@@ -80,7 +115,7 @@ fun AuthorizationApprovalScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Approve Connection") },
+                title = { Text("Approve AI Client") },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -93,20 +128,13 @@ fun AuthorizationApprovalScreen(
             )
         }
     ) { padding ->
-        Surface(modifier = Modifier.fillMaxSize().padding(padding)) {
-            when (uiState) {
-                is AuthorizationApprovalUiState.Loading -> LoadingIndicator()
-                is AuthorizationApprovalUiState.Error -> ErrorState(
-                    message = uiState.message,
-                    onRetry = onRetry
-                )
-                is AuthorizationApprovalUiState.Loaded -> LoadedAuthorizationApproval(
-                    pendingRequests = uiState.pendingRequests,
-                    onApprove = onApprove,
-                    onDeny = onDeny
-                )
-            }
-        }
+        AuthorizationApprovalContent(
+            uiState = uiState,
+            onApprove = onApprove,
+            onDeny = onDeny,
+            onRetry = onRetry,
+            modifier = Modifier.padding(padding)
+        )
     }
 }
 
