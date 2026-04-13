@@ -44,6 +44,7 @@ import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.AuthRequestNotifier
+import com.rousecontext.notifications.SessionSummaryPoster
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.notifications.capture.FieldEncryptor
@@ -229,6 +230,16 @@ val appModule = module {
             activityClass = MainActivity::class.java,
             extraDisplayCode = AuthApprovalReceiver.EXTRA_DISPLAY_CODE,
             extraNotificationId = AuthApprovalReceiver.EXTRA_NOTIFICATION_ID
+        )
+    }
+
+    // --- Session summary poster ---
+    single {
+        SessionSummaryPoster(
+            context = androidContext(),
+            auditDao = get(),
+            settingsProvider = get(),
+            activityClass = MainActivity::class.java
         )
     }
 
