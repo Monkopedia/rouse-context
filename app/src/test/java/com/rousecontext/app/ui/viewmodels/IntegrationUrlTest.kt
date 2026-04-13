@@ -6,6 +6,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.McpServerProvider
+import com.rousecontext.mcp.core.TokenInfo
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.tunnel.CertificateStore
@@ -14,6 +15,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -54,13 +56,15 @@ class IntegrationUrlTest {
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true
             every { wasEverEnabled("health") } returns true
+            every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
             every { hasTokens("health") } returns true
             every { listTokens("health") } returns emptyList()
+            every { tokensFlow("health") } returns flowOf(emptyList())
         }
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
         }
 
         val vm = IntegrationManageViewModel(
@@ -109,13 +113,22 @@ class IntegrationUrlTest {
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("notifications") } returns true
             every { wasEverEnabled("notifications") } returns true
+            every { observeChanges() } returns flowOf(Unit)
         }
+        val sampleToken = TokenInfo(
+            integrationId = "notifications",
+            clientId = "c1",
+            createdAt = 0L,
+            lastUsedAt = 0L,
+            label = "Test"
+        )
         val tokenStore = mockk<TokenStore> {
             every { hasTokens("notifications") } returns true
-            every { listTokens("notifications") } returns emptyList()
+            every { listTokens("notifications") } returns listOf(sampleToken)
+            every { tokensFlow("notifications") } returns flowOf(listOf(sampleToken))
         }
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
         }
 
         val vm = IntegrationManageViewModel(
@@ -155,13 +168,15 @@ class IntegrationUrlTest {
         val stateStore = mockk<IntegrationStateStore> {
             every { isUserEnabled("health") } returns true
             every { wasEverEnabled("health") } returns true
+            every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
             every { hasTokens("health") } returns true
             every { listTokens("health") } returns emptyList()
+            every { tokensFlow("health") } returns flowOf(emptyList())
         }
         val auditDao = mockk<AuditDao> {
-            coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
         }
 
         val vm = IntegrationManageViewModel(

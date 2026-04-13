@@ -9,6 +9,8 @@ import com.rousecontext.mcp.core.TokenStore
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /**
  * [TokenStore] implementation backed by Room.
@@ -79,18 +81,23 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
     }
 
     override fun listTokens(integrationId: String): List<TokenInfo> =
-        dao.listByIntegration(integrationId).map { entity ->
-            TokenInfo(
-                integrationId = entity.integrationId,
-                clientId = entity.clientId,
-                createdAt = entity.createdAt,
-                lastUsedAt = entity.lastUsedAt,
-                label = entity.label
-            )
+        dao.listByIntegration(integrationId).map { entity -> entity.toTokenInfo() }
+
+    override fun tokensFlow(integrationId: String): Flow<List<TokenInfo>> =
+        dao.observeByIntegration(integrationId).map { list ->
+            list.map { entity -> entity.toTokenInfo() }
         }
 
     override fun hasTokens(integrationId: String): Boolean =
         dao.countByIntegration(integrationId) > 0
+
+    private fun TokenEntity.toTokenInfo(): TokenInfo = TokenInfo(
+        integrationId = integrationId,
+        clientId = clientId,
+        createdAt = createdAt,
+        lastUsedAt = lastUsedAt,
+        label = label
+    )
 
     private fun generateRawToken(): ByteArray {
         val bytes = ByteArray(TOKEN_BYTES)

@@ -1,6 +1,9 @@
 package com.rousecontext.mcp.core
 
 import kotlin.random.Random
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 
 /**
  * In-memory implementation of [TokenStore] for testing and as a reference.
@@ -33,6 +36,16 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
 
     private val tokens = mutableListOf<StoredToken>()
     private val refreshTokens = mutableListOf<StoredRefreshToken>()
+
+    /**
+     * Bumped whenever the token set changes so [tokensFlow] re-emits. The value
+     * itself is meaningless — consumers re-read [listTokens] on each emission.
+     */
+    private val changeTick = MutableStateFlow(0)
+
+    private fun notifyChanged() {
+        changeTick.value = changeTick.value + 1
+    }
 
     override fun validateToken(integrationId: String, token: String): Boolean {
         synchronized(this) {
@@ -76,6 +89,7 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
                 )
             )
         }
+        notifyChanged()
         return TokenPair(
             accessToken = accessToken,
             refreshToken = refreshToken,
@@ -88,6 +102,7 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
             tokens.filter { it.integrationId == integrationId && it.token == token }
                 .forEach { it.revoked = true }
         }
+        notifyChanged()
     }
 
     override fun revokeByClientId(integrationId: String, clientId: String) {
@@ -97,6 +112,7 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
             refreshTokens.filter { it.integrationId == integrationId && it.clientId == clientId }
                 .forEach { it.revoked = true }
         }
+        notifyChanged()
     }
 
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
@@ -134,6 +150,9 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
                 }
         }
     }
+
+    override fun tokensFlow(integrationId: String): Flow<List<TokenInfo>> =
+        changeTick.map { listTokens(integrationId) }
 
     override fun hasTokens(integrationId: String): Boolean {
         synchronized(this) {
