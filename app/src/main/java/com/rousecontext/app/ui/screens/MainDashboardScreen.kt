@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
@@ -98,6 +99,14 @@ sealed interface CertBanner {
     data class TerminalFailure(val reason: TerminalReason) : CertBanner
 }
 
+/**
+ * Displayed when the user has denied (or never granted) permission to post
+ * notifications. Tapping the banner opens system app-notification settings
+ * so the user can re-enable. Distinct from [CertBanner] because the concern
+ * is unrelated to certificate lifecycle and the two can co-exist.
+ */
+data object NotificationBanner
+
 private const val MAX_RECENT_ITEMS = 3
 
 @Immutable
@@ -107,6 +116,7 @@ data class DashboardState(
     val integrations: List<IntegrationItem> = emptyList(),
     val recentActivity: List<AuditEntry> = emptyList(),
     val certBanner: CertBanner? = null,
+    val notificationBanner: NotificationBanner? = null,
     val hasMoreIntegrationsToAdd: Boolean = true,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
@@ -123,6 +133,7 @@ fun HomeDashboardContent(
     onIntegrationClick: (String) -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
+    onOpenNotificationSettings: () -> Unit = {},
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -148,6 +159,17 @@ fun HomeDashboardContent(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
                 CertBannerCard(banner, onRetryRenewal)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        // Notification permission banner (independent of cert state)
+        if (state.notificationBanner != null) {
+            item {
+                if (state.certBanner == null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                NotificationBannerCard(onClick = onOpenNotificationSettings)
                 Spacer(modifier = Modifier.height(16.dp))
             }
         }
@@ -244,6 +266,7 @@ fun MainDashboardScreen(
     onIntegrationClick: (String) -> Unit = {},
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
+    onOpenNotificationSettings: () -> Unit = {},
     onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
@@ -295,6 +318,7 @@ fun MainDashboardScreen(
             onIntegrationClick = onIntegrationClick,
             onViewAllActivity = onViewAllActivity,
             onRetryRenewal = onRetryRenewal,
+            onOpenNotificationSettings = onOpenNotificationSettings,
             onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
@@ -324,6 +348,44 @@ private fun ConnectionStatusRow(status: ConnectionStatus, sessionCount: Int) {
             },
             style = MaterialTheme.typography.bodyMedium
         )
+    }
+}
+
+@Composable
+private fun NotificationBannerCard(onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.NotificationsOff,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Notifications disabled",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Approval requests won't alert you. Tap to enable.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
     }
 }
 

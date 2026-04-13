@@ -4,6 +4,20 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
+      Required on Android 13+ (API 33) to post any notifications, including
+      the foreground service notification, audit summaries, and authorization
+      approval requests. Without this, NotificationManagerCompat.notify()
+      silently no-ops on supported devices. Requested at runtime during
+      onboarding (NotificationPreferencesScreen) and re-prompted on entry
+      to the authorization approval flow if still denied. See issue #93.
+
+      WAKE_LOCK and FOREGROUND_SERVICE / FOREGROUND_SERVICE_DATA_SYNC are
+      contributed by :core:tunnel and :work module manifests via merger,
+      so they are not redeclared here.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
       Health Connect: optional permission to read data recorded before
       the app was installed / granted access. Without this, Health Connect
       only returns records written after the user grants access.

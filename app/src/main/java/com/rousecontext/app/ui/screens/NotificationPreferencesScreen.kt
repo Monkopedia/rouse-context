@@ -55,6 +55,7 @@ fun NotificationPreferencesScreen(
     state: NotificationPreferencesState = NotificationPreferencesState(),
     onModeSelected: (NotificationMode) -> Unit = {},
     onContinue: () -> Unit = {},
+    onRequestNotificationPermission: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
     var selected by remember(state.selectedMode) { mutableStateOf(state.selectedMode) }
@@ -131,7 +132,15 @@ fun NotificationPreferencesScreen(
             Spacer(modifier = Modifier.weight(1f))
 
             Button(
-                onClick = onContinue,
+                onClick = {
+                    // Trigger the OS permission prompt before continuing so
+                    // the user grants notifications inline as part of
+                    // onboarding. The screen does not block on the result;
+                    // onContinue is invoked regardless so denial does not
+                    // strand the user. Issue #93.
+                    onRequestNotificationPermission()
+                    onContinue()
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)

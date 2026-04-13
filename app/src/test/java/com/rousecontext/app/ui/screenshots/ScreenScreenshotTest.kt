@@ -28,6 +28,7 @@ import com.rousecontext.app.ui.screens.IntegrationManageScreen
 import com.rousecontext.app.ui.screens.IntegrationManageState
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.app.ui.screens.MainDashboardScreen
+import com.rousecontext.app.ui.screens.NotificationBanner
 import com.rousecontext.app.ui.screens.NotificationPreferencesScreen
 import com.rousecontext.app.ui.screens.NotificationSetupScreen
 import com.rousecontext.app.ui.screens.OutreachSetupScreen
@@ -272,6 +273,20 @@ class ScreenScreenshotTest {
                     issuingCert = true
                 )
             )
+        )
+    }
+
+    @Test
+    fun dashboardNotificationDeniedDark() = captureDark("13c_dashboard_notification_denied") {
+        MainDashboardScreen(
+            state = DashboardState(notificationBanner = NotificationBanner)
+        )
+    }
+
+    @Test
+    fun dashboardNotificationDeniedLight() = captureLight("13c_dashboard_notification_denied") {
+        MainDashboardScreen(
+            state = DashboardState(notificationBanner = NotificationBanner)
         )
     }
 
