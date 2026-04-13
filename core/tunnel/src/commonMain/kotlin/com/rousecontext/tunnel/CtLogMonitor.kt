@@ -27,7 +27,7 @@ class CtLogMonitor(
     private val certificateStore: CertificateStore,
     private val ctLogFetcher: CtLogFetcher,
     private val expectedIssuers: Set<String>,
-    private val baseDomain: String = "rousecontext.com"
+    private val baseDomain: String
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
