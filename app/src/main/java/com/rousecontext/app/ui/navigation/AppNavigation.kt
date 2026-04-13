@@ -1,6 +1,7 @@
 package com.rousecontext.app.ui.navigation
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
@@ -39,7 +40,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -931,15 +931,22 @@ fun AppNavigation(
                         mode = mode,
                         onGrantAccess = {
                             if (mode == SetupMode.SETTINGS) {
-                                // Launch Health Connect's own permission
-                                // management UI so the user can revoke or
-                                // toggle individual record-type grants. The
-                                // in-app request contract (used in SETUP mode)
-                                // can only *request* additional grants; it
-                                // cannot revoke (#94).
-                                val intent = HealthConnectClient
-                                    .getHealthConnectManageDataIntent(context)
-                                context.startActivity(intent)
+                                // #94: no public deep-link to per-app
+                                // permissions (the direct action is
+                                // signature-guarded by
+                                // GRANT_RUNTIME_PERMISSIONS). Falling back to
+                                // HC home — user taps "App permissions" to
+                                // reach the per-app view.
+                                try {
+                                    val intent = Intent(
+                                        HEALTH_CONNECT_HOME_ACTION
+                                    )
+                                    intent.flags =
+                                        Intent.FLAG_ACTIVITY_NEW_TASK
+                                    context.startActivity(intent)
+                                } catch (_: ActivityNotFoundException) {
+                                    // HC not installed — no-op.
+                                }
                             } else {
                                 requestPermissions.launch(
                                     HEALTH_CONNECT_PERMISSIONS
@@ -1446,6 +1453,15 @@ fun AppNavigation(
         }
     }
 }
+
+/**
+ * Platform action for Health Connect's home settings screen.
+ * Handled by the unguarded HC controller TrampolineActivity (no signature
+ * permission required). See #94 for context on why per-app deep-link isn't
+ * possible — that action is alias-guarded by GRANT_RUNTIME_PERMISSIONS.
+ */
+private const val HEALTH_CONNECT_HOME_ACTION =
+    "android.health.connect.action.HEALTH_HOME_SETTINGS"
 
 /**
  * Health Connect permissions requested during setup.
