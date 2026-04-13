@@ -4,12 +4,19 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker.Result
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.RenewalResult
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+
+private const val MS_PER_DAY = 24L * 60L * 60L * 1000L
+private const val TEST_BASE_DOMAIN = "rousecontext.test"
 
 @RunWith(RobolectricTestRunner::class)
 class CertRenewalWorkerTest {
@@ -17,85 +24,240 @@ class CertRenewalWorkerTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun `cert expiring within 14 days triggers renewal`() = runBlocking {
-        val now = System.currentTimeMillis()
-        val expiresIn10Days = now + 10 * 24 * 60 * 60 * 1000L
-        val store = FakeCertificateStore(certExpiry = expiresIn10Days)
-
-        val worker = TestListenableWorkerBuilder<CertRenewalWorker>(context)
-            .build()
-        worker.certificateStore = store
-
-        val result = worker.doWork()
-
-        assertTrue("Renewal should have been attempted", store.renewalAttempted)
-        assertEquals(Result.success(), result)
-    }
-
-    @Test
-    fun `cert not expiring is no-op`() = runBlocking {
-        val now = System.currentTimeMillis()
-        val expiresIn30Days = now + 30 * 24 * 60 * 60 * 1000L
-        val store = FakeCertificateStore(certExpiry = expiresIn30Days)
-
-        val worker = TestListenableWorkerBuilder<CertRenewalWorker>(context)
-            .build()
-        worker.certificateStore = store
-
-        val result = worker.doWork()
-
-        assertTrue("No renewal should be attempted", !store.renewalAttempted)
-        assertEquals(Result.success(), result)
-    }
-
-    @Test
-    fun `no cert at all is no-op`() = runBlocking {
-        val store = FakeCertificateStore(certExpiry = null)
-
-        val worker = TestListenableWorkerBuilder<CertRenewalWorker>(context)
-            .build()
-        worker.certificateStore = store
-
-        val result = worker.doWork()
-
-        assertTrue("No renewal should be attempted when no cert exists", !store.renewalAttempted)
-        assertEquals(Result.success(), result)
-    }
-
-    @Test
-    fun `renewal failure returns retry`() = runBlocking {
-        val now = System.currentTimeMillis()
-        val expiresIn5Days = now + 5 * 24 * 60 * 60 * 1000L
-        val store = FakeCertificateStore(
-            certExpiry = expiresIn5Days,
-            renewalShouldFail = true
+    fun `cert valid and not in renewal window is skipped`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 60 * MS_PER_DAY)
+        val renewer = FakeRenewer()
+        val auth = RecordingAuthProvider(null)
+        var rescheduleDelay: Long? = null
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now },
+            onReschedule = { rescheduleDelay = it }
         )
 
-        val worker = TestListenableWorkerBuilder<CertRenewalWorker>(context)
-            .build()
-        worker.certificateStore = store
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertFalse("mTLS renewal should NOT be attempted", renewer.mtlsAttempted)
+        assertFalse("Firebase renewal should NOT be attempted", renewer.firebaseAttempted)
+        assertNull("No reschedule", rescheduleDelay)
+    }
+
+    @Test
+    fun `cert inside renewal window triggers mTLS renewal`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        val renewer = FakeRenewer(mtlsResult = RenewalResult.Success)
+        val auth = RecordingAuthProvider(null)
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now }
+        )
 
         val result = worker.doWork()
 
-        assertTrue("Renewal should have been attempted", store.renewalAttempted)
+        assertEquals(Result.success(), result)
+        assertTrue("mTLS renewal should be attempted", renewer.mtlsAttempted)
+        assertEquals(TEST_BASE_DOMAIN, renewer.mtlsDomain)
+        assertFalse("Firebase renewal should NOT be attempted", renewer.firebaseAttempted)
+    }
+
+    @Test
+    fun `expired cert triggers Firebase renewal when auth provider supplies credentials`() =
+        runBlocking {
+            val now = 1_000_000L
+            val store = FakeCertificateStore(expiry = now - MS_PER_DAY)
+            val renewer = FakeRenewer(firebaseResult = RenewalResult.Success)
+            val auth = RecordingAuthProvider(
+                FirebaseCredentials(token = "tok-1", signature = "sig-1")
+            )
+            val worker = buildWorker(
+                renewer = renewer,
+                store = store,
+                auth = auth,
+                clock = { now }
+            )
+
+            val result = worker.doWork()
+
+            assertEquals(Result.success(), result)
+            assertFalse("mTLS renewal should NOT be attempted", renewer.mtlsAttempted)
+            assertTrue("Firebase renewal should be attempted", renewer.firebaseAttempted)
+            assertEquals("tok-1", renewer.firebaseToken)
+            assertEquals("sig-1", renewer.firebaseSig)
+            assertEquals(TEST_BASE_DOMAIN, renewer.firebaseDomain)
+        }
+
+    @Test
+    fun `rate-limited result reschedules with retryAfterSeconds and returns retry`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        val renewer = FakeRenewer(
+            mtlsResult = RenewalResult.RateLimited(retryAfterSeconds = 90L)
+        )
+        val auth = RecordingAuthProvider(null)
+        var rescheduleDelay: Long? = null
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now },
+            onReschedule = { rescheduleDelay = it }
+        )
+
+        val result = worker.doWork()
+
         assertEquals(Result.retry(), result)
+        assertTrue(renewer.mtlsAttempted)
+        assertEquals(90L, rescheduleDelay)
+    }
+
+    @Test
+    fun `no cert at all is a no-op`() = runBlocking {
+        val store = FakeCertificateStore(expiry = null)
+        val renewer = FakeRenewer()
+        val auth = RecordingAuthProvider(null)
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { 1_000_000L }
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertFalse(renewer.mtlsAttempted)
+        assertFalse(renewer.firebaseAttempted)
+    }
+
+    @Test
+    fun `expired cert with no Firebase credentials returns retry`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now - MS_PER_DAY)
+        val renewer = FakeRenewer()
+        val auth = RecordingAuthProvider(null)
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now }
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.retry(), result)
+        assertFalse(renewer.mtlsAttempted)
+        assertFalse(renewer.firebaseAttempted)
+    }
+
+    @Test
+    fun `network error result returns retry without reschedule`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        val renewer = FakeRenewer(
+            mtlsResult = RenewalResult.NetworkError(RuntimeException("boom"))
+        )
+        val auth = RecordingAuthProvider(null)
+        var rescheduleDelay: Long? = null
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now },
+            onReschedule = { rescheduleDelay = it }
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.retry(), result)
+        assertNull(rescheduleDelay)
+    }
+
+    private fun buildWorker(
+        renewer: CertRenewer,
+        store: CertificateStore,
+        auth: RenewalAuthProvider,
+        clock: () -> Long,
+        onReschedule: (Long) -> Unit = {}
+    ): CertRenewalWorker {
+        val worker = TestListenableWorkerBuilder<CertRenewalWorker>(context).build()
+        worker.renewer = renewer
+        worker.certificateStore = store
+        worker.authProvider = auth
+        worker.baseDomain = TEST_BASE_DOMAIN
+        worker.clock = clock
+        worker.rescheduleWithDelay = onReschedule
+        worker.renewalWindowDays = CertRenewalWorker.DEFAULT_RENEWAL_WINDOW_DAYS
+        return worker
     }
 }
 
-class FakeCertificateStore(
-    private val certExpiry: Long?,
-    private val renewalShouldFail: Boolean = false
-) : CertRenewalStore {
+private class FakeRenewer(
+    private val mtlsResult: RenewalResult = RenewalResult.Success,
+    private val firebaseResult: RenewalResult = RenewalResult.Success
+) : CertRenewer {
 
-    var renewalAttempted = false
+    var mtlsAttempted = false
+        private set
+    var mtlsDomain: String? = null
+        private set
+    var firebaseAttempted = false
+        private set
+    var firebaseToken: String? = null
+        private set
+    var firebaseSig: String? = null
+        private set
+    var firebaseDomain: String? = null
         private set
 
-    override suspend fun getCertExpiry(): Long? = certExpiry
-
-    override suspend fun renewCertificate() {
-        renewalAttempted = true
-        if (renewalShouldFail) {
-            throw CertRenewalException("Rate limited")
-        }
+    override suspend fun renewWithMtls(baseDomain: String): RenewalResult {
+        mtlsAttempted = true
+        mtlsDomain = baseDomain
+        return mtlsResult
     }
+
+    override suspend fun renewWithFirebase(
+        firebaseToken: String,
+        signature: String,
+        baseDomain: String
+    ): RenewalResult {
+        firebaseAttempted = true
+        this.firebaseToken = firebaseToken
+        this.firebaseSig = signature
+        this.firebaseDomain = baseDomain
+        return firebaseResult
+    }
+}
+
+private class RecordingAuthProvider(private val credentials: FirebaseCredentials?) :
+    RenewalAuthProvider {
+    override suspend fun acquireFirebaseCredentials(): FirebaseCredentials? = credentials
+}
+
+private class FakeCertificateStore(private val expiry: Long?) : CertificateStore {
+    override suspend fun getCertExpiry(): Long? = expiry
+    override suspend fun getCertChain(): List<ByteArray>? = null
+    override suspend fun getPrivateKeyBytes(): ByteArray? = null
+    override suspend fun storeCertChain(chain: List<ByteArray>) = Unit
+    override suspend fun getKnownFingerprints(): Set<String> = emptySet()
+    override suspend fun storeFingerprint(fingerprint: String) = Unit
+    override suspend fun storeCertificate(pemChain: String) = Unit
+    override suspend fun getCertificate(): String? = null
+    override suspend fun storeClientCertificate(pemChain: String) = Unit
+    override suspend fun getClientCertificate(): String? = null
+    override suspend fun storeRelayCaCert(pem: String) = Unit
+    override suspend fun getRelayCaCert(): String? = null
+    override suspend fun storeSubdomain(subdomain: String) = Unit
+    override suspend fun getSubdomain(): String? = null
+    override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) = Unit
+    override suspend fun getIntegrationSecrets(): Map<String, String>? = null
+    override suspend fun storePrivateKey(pemKey: String) = Unit
+    override suspend fun getPrivateKey(): String? = null
+    override suspend fun clear() = Unit
 }

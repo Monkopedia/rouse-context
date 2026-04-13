@@ -9,6 +9,7 @@ import androidx.work.WorkManager
 import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.notifications.NotificationChannels
+import com.rousecontext.work.CertRenewalScheduler
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.SecurityCheckWorker
 import java.util.concurrent.TimeUnit
@@ -52,6 +53,7 @@ class RouseApplication : Application() {
         NotificationChannels.createAll(this)
         registerFcmToken()
         scheduleSecurityChecks()
+        CertRenewalScheduler.enqueuePeriodic(this)
     }
 
     private fun scheduleSecurityChecks() {
