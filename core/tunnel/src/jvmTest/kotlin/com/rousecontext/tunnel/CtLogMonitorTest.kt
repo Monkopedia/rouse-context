@@ -29,7 +29,8 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            baseDomain = "rousecontext.com"
         )
 
         val result = monitor.check()
@@ -61,7 +62,8 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            baseDomain = "rousecontext.com"
         )
 
         val result = monitor.check()
@@ -76,7 +78,8 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            baseDomain = "rousecontext.com"
         )
 
         val result = monitor.check()
@@ -91,7 +94,8 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            baseDomain = "rousecontext.com"
         )
 
         val result = monitor.check()
@@ -106,7 +110,8 @@ class CtLogMonitorTest {
         val monitor = CtLogMonitor(
             certificateStore = store,
             ctLogFetcher = fetcher,
-            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3")
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            baseDomain = "rousecontext.com"
         )
 
         val result = monitor.check()

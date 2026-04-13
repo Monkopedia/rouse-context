@@ -49,14 +49,21 @@ import com.rousecontext.notifications.capture.NotificationDatabase
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.CsrGenerator
+import com.rousecontext.tunnel.CtLogFetcher
+import com.rousecontext.tunnel.CtLogMonitor
+import com.rousecontext.tunnel.HttpCtLogFetcher
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.RelayApiClient
+import com.rousecontext.tunnel.SelfCertVerifier
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.work.CtLogMonitorSource
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.RealWakeLockHandle
+import com.rousecontext.work.SecurityCheckSource
 import com.rousecontext.work.SessionHandler
+import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
@@ -67,6 +74,28 @@ import org.koin.dsl.module
 
 /** Idle timeout before disconnecting the tunnel after all streams close. */
 private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
+
+/**
+ * crt.sh issuer names that are legitimate for Rouse Context certificates.
+ * Any CT log entry with an issuer outside this set triggers a security alert.
+ *
+ * The relay uses Let's Encrypt via ACME; these are the currently-rotated
+ * Let's Encrypt intermediates. Update when LE rotates intermediates.
+ */
+private val EXPECTED_CERT_ISSUERS: Set<String> = setOf(
+    "C=US, O=Let's Encrypt, CN=R3",
+    "C=US, O=Let's Encrypt, CN=R10",
+    "C=US, O=Let's Encrypt, CN=R11",
+    "C=US, O=Let's Encrypt, CN=R12",
+    "C=US, O=Let's Encrypt, CN=R13",
+    "C=US, O=Let's Encrypt, CN=R14",
+    "C=US, O=Let's Encrypt, CN=E1",
+    "C=US, O=Let's Encrypt, CN=E5",
+    "C=US, O=Let's Encrypt, CN=E6",
+    "C=US, O=Let's Encrypt, CN=E7",
+    "C=US, O=Let's Encrypt, CN=E8",
+    "C=US, O=Let's Encrypt, CN=E9"
+)
 
 /**
  * Root Koin module that wires all app dependencies.
@@ -178,6 +207,24 @@ val appModule = module {
             extraDisplayCode = AuthApprovalReceiver.EXTRA_DISPLAY_CODE,
             extraNotificationId = AuthApprovalReceiver.EXTRA_NOTIFICATION_ID
         )
+    }
+
+    // --- Security checks (SecurityCheckWorker dependencies) ---
+    single<CtLogFetcher> { HttpCtLogFetcher() }
+    single {
+        CtLogMonitor(
+            certificateStore = get(),
+            ctLogFetcher = get(),
+            expectedIssuers = EXPECTED_CERT_ISSUERS,
+            baseDomain = BuildConfig.BASE_DOMAIN
+        )
+    }
+    single { SelfCertVerifier(certificateStore = get()) }
+    single<SecurityCheckSource>(named("selfCert")) {
+        StoredCertVerifierSource(certificateStore = get(), verifier = get())
+    }
+    single<SecurityCheckSource>(named("ctLog")) {
+        CtLogMonitorSource(monitor = get())
     }
 
     // --- MCP session ---

@@ -66,6 +66,29 @@ class SecurityCheckWorkerTest {
     }
 
     @Test
+    fun `ct log alert - preferences updated with alert and triggers alert gate`() = runBlocking {
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Alert("unexpected issuer Evil CA")
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertEquals("verified", prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null))
+        assertEquals("alert", prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null))
+        assertEquals(1, shadowOf(notificationManager).size())
+
+        // Simulate the alert gate used by McpSession (see AppModule.kt securityAlertCheck).
+        val selfResult = prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, "") ?: ""
+        val ctResult = prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, "") ?: ""
+        val alertGateTriggered = selfResult == "alert" || ctResult == "alert"
+        assert(alertGateTriggered) {
+            "CT log alert must trigger the same alert gate as SelfCertVerifier"
+        }
+    }
+
+    @Test
     fun `ct check warning - preferences updated with warning`() = runBlocking {
         val worker = buildWorker(
             selfCertResult = SecurityCheckResult.Verified,
