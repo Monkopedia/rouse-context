@@ -14,6 +14,7 @@ object NotificationChannels {
     const val ERROR_CHANNEL_ID = "rouse_error"
     const val ALERT_CHANNEL_ID = "rouse_alert"
     const val AUTH_REQUEST_CHANNEL_ID = "rouse_auth_request"
+    const val SESSION_SUMMARY_CHANNEL_ID = "rouse_session_summary"
 
     /**
      * Create all notification channels. Safe to call multiple times;
@@ -59,6 +60,13 @@ object NotificationChannels {
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Approval requests for new AI clients"
+            },
+            NotificationChannel(
+                SESSION_SUMMARY_CHANNEL_ID,
+                "Session Summaries",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Summary of tool calls after an MCP session ends"
             }
         )
 

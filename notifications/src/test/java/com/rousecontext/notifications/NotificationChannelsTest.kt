@@ -20,7 +20,7 @@ class NotificationChannelsTest {
         NotificationChannels.createAll(context)
 
         val channels = manager.notificationChannels
-        assertEquals(5, channels.size)
+        assertEquals(6, channels.size)
     }
 
     @Test
@@ -71,11 +71,23 @@ class NotificationChannelsTest {
     }
 
     @Test
+    fun `createAll registers session summary channel with low importance`() {
+        NotificationChannels.createAll(context)
+
+        val channel = manager.getNotificationChannel(
+            NotificationChannels.SESSION_SUMMARY_CHANNEL_ID
+        )
+        assertNotNull(channel)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, channel.importance)
+        assertEquals("Session Summaries", channel.name.toString())
+    }
+
+    @Test
     fun `createAll is idempotent`() {
         NotificationChannels.createAll(context)
         NotificationChannels.createAll(context)
 
         val channels = manager.notificationChannels
-        assertEquals(5, channels.size)
+        assertEquals(6, channels.size)
     }
 }

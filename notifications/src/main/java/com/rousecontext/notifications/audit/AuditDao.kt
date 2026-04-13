@@ -64,4 +64,19 @@ interface AuditDao {
 
     @Query("SELECT COUNT(*) FROM audit_entries")
     suspend fun count(): Int
+
+    /**
+     * Returns the largest id currently in the table, or null if empty.
+     * Used as a cursor to detect entries inserted after a point in time
+     * (e.g. between the start and end of an MCP session).
+     */
+    @Query("SELECT MAX(id) FROM audit_entries")
+    suspend fun latestId(): Long?
+
+    /**
+     * Returns all entries created after the given id, ordered by id ascending.
+     * Used to materialize entries added during a tunnel session.
+     */
+    @Query("SELECT * FROM audit_entries WHERE id > :sinceId ORDER BY id ASC")
+    suspend fun queryCreatedAfter(sinceId: Long): List<AuditEntry>
 }
