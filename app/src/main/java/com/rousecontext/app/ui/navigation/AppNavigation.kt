@@ -1,9 +1,12 @@
 package com.rousecontext.app.ui.navigation
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -143,6 +146,52 @@ private fun tabSlideDirection(initialRoute: String?, targetRoute: String?): Int 
     val from = TAB_INDEX[initialRoute] ?: return 1
     val to = TAB_INDEX[targetRoute] ?: return 1
     return if (to > from) 1 else -1
+}
+
+/**
+ * Action for the Health Connect per-app permission management screen.
+ *
+ * Defined by the Android Health platform as
+ * `android.health.connect.HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS`
+ * (API 34+) and also handled by the Health Connect APK
+ * (`com.google.android.apps.healthdata`) on earlier releases. Takes
+ * [Intent.EXTRA_PACKAGE_NAME] to target a specific app's permissions.
+ */
+private const val ACTION_MANAGE_HEALTH_PERMISSIONS =
+    "android.health.connect.action.MANAGE_HEALTH_PERMISSIONS"
+
+/**
+ * Opens Health Connect's per-app permission management screen for the
+ * current package, falling back to the general Health Connect screen and
+ * finally a toast if no handler resolves. Never crashes the caller.
+ */
+private fun launchHealthConnectPerAppPermissions(context: android.content.Context) {
+    val perApp = Intent(ACTION_MANAGE_HEALTH_PERMISSIONS).apply {
+        putExtra(Intent.EXTRA_PACKAGE_NAME, context.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    try {
+        context.startActivity(perApp)
+        return
+    } catch (e: ActivityNotFoundException) {
+        Log.w(
+            "AppNavigation",
+            "MANAGE_HEALTH_PERMISSIONS not resolvable, trying manage-data",
+            e
+        )
+    }
+    try {
+        val fallback = HealthConnectClient.getHealthConnectManageDataIntent(context)
+        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(fallback)
+    } catch (e: ActivityNotFoundException) {
+        Log.w("AppNavigation", "Health Connect settings not available", e)
+        Toast.makeText(
+            context,
+            "Health Connect is not available on this device",
+            Toast.LENGTH_LONG
+        ).show()
+    }
 }
 
 private val ONBOARDING_ROUTES = setOf(
@@ -931,15 +980,20 @@ fun AppNavigation(
                         mode = mode,
                         onGrantAccess = {
                             if (mode == SetupMode.SETTINGS) {
-                                // Launch Health Connect's own permission
-                                // management UI so the user can revoke or
-                                // toggle individual record-type grants. The
-                                // in-app request contract (used in SETUP mode)
-                                // can only *request* additional grants; it
-                                // cannot revoke (#94).
-                                val intent = HealthConnectClient
-                                    .getHealthConnectManageDataIntent(context)
-                                context.startActivity(intent)
+                                // Launch Health Connect's per-app permissions
+                                // screen so the user can revoke or toggle
+                                // individual record-type grants. The in-app
+                                // request contract (used in SETUP mode) can
+                                // only *request* additional grants; it cannot
+                                // revoke (#94). The platform action
+                                // MANAGE_HEALTH_PERMISSIONS exists on API 34+
+                                // and is also handled by the Health Connect
+                                // APK (com.google.android.apps.healthdata) on
+                                // older releases. If neither handler is
+                                // present we fall back to the general Health
+                                // Connect settings/manage-data screen, and
+                                // finally show a toast so we never crash.
+                                launchHealthConnectPerAppPermissions(context)
                             } else {
                                 requestPermissions.launch(
                                     HEALTH_CONNECT_PERMISSIONS
