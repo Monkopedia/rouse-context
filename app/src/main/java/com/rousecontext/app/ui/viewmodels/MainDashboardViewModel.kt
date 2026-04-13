@@ -8,6 +8,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
 import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.ui.screens.AuditEntry
+import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.IntegrationItem
@@ -19,10 +20,12 @@ import com.rousecontext.tunnel.TunnelState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 
@@ -36,7 +39,8 @@ class MainDashboardViewModel(
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
     private val urlProvider: McpUrlProvider,
-    tunnelClient: TunnelClient
+    tunnelClient: TunnelClient,
+    certRenewalBanner: Flow<CertBanner?> = flowOf(null)
 ) : ViewModel() {
 
     private val tunnelStateFlow = tunnelClient.state
@@ -47,11 +51,14 @@ class MainDashboardViewModel(
         limit = RECENT_LIMIT
     )
 
+    private val certRenewalBannerFlow = certRenewalBanner.onStart<CertBanner?> { emit(null) }
+
     val state: StateFlow<DashboardState> = combine(
         tunnelStateFlow,
         stateStore.observeChanges().onStart { emit(Unit) },
-        recentAuditFlow
-    ) { tunnelState, _, recentEntries ->
+        recentAuditFlow,
+        certRenewalBannerFlow
+    ) { tunnelState, _, recentEntries, certBanner ->
         val connection = when (tunnelState) {
             TunnelState.CONNECTED, TunnelState.ACTIVE -> ConnectionStatus.CONNECTED
             else -> ConnectionStatus.DISCONNECTED
@@ -103,6 +110,7 @@ class MainDashboardViewModel(
             activeSessionCount = sessionCount,
             integrations = items,
             recentActivity = recent,
+            certBanner = certBanner,
             hasMoreIntegrationsToAdd = hasMoreToAdd,
             isLoading = false,
             errorMessage = null

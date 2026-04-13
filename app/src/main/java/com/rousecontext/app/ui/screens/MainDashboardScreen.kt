@@ -77,6 +77,8 @@ data class AuditEntry(
     val id: Long = 0
 )
 
+enum class TerminalReason { KeyGenerationFailed, CnMismatch }
+
 sealed interface CertBanner {
     data object Renewing : CertBanner
     data class Expired(val renewalInProgress: Boolean) : CertBanner
@@ -86,6 +88,14 @@ sealed interface CertBanner {
         val registeringDone: Boolean,
         val issuingCert: Boolean
     ) : CertBanner
+
+    /**
+     * Terminal outcome of the cert-renewal worker. The condition is not actionable from
+     * within the app (wrong CN means the relay issued an unexpected cert; key-gen failure
+     * means keystore is in a bad state). The banner is informational only, surfacing the
+     * problem so the user knows the device can't re-establish a secure connection.
+     */
+    data class TerminalFailure(val reason: TerminalReason) : CertBanner
 }
 
 private const val MAX_RECENT_ITEMS = 3
@@ -319,130 +329,187 @@ private fun ConnectionStatusRow(status: ConnectionStatus, sessionCount: Int) {
 
 @Composable
 private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
-    val containerColor = when (banner) {
-        is CertBanner.Expired -> if (!banner.renewalInProgress) {
-            MaterialTheme.colorScheme.errorContainer
-        } else {
-            MaterialTheme.colorScheme.secondaryContainer
-        }
-        is CertBanner.RateLimited -> MaterialTheme.colorScheme.secondaryContainer
-        is CertBanner.Renewing -> MaterialTheme.colorScheme.secondaryContainer
-        is CertBanner.Onboarding -> MaterialTheme.colorScheme.secondaryContainer
-    }
-
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = containerColor)
+        colors = CardDefaults.cardColors(containerColor = bannerContainerColor(banner))
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.Top
         ) {
-            when (banner) {
-                is CertBanner.Renewing -> Icon(
-                    Icons.Default.Sync,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                is CertBanner.Expired -> if (banner.renewalInProgress) {
-                    Icon(
-                        Icons.Default.Sync,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Icon(
-                        Icons.Default.ErrorOutline,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
-                is CertBanner.RateLimited -> Icon(
-                    Icons.Default.Schedule,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                is CertBanner.Onboarding -> Icon(
-                    Icons.Default.Build,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            BannerIcon(banner)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                when (banner) {
-                    is CertBanner.Renewing -> {
-                        Text(
-                            "Provisioning your certificate...",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            "Integrations may be briefly unavailable.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    is CertBanner.Expired -> if (banner.renewalInProgress) {
-                        Text(
-                            "Certificate expired. Renewing...",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            "Integrations are offline until this completes.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    } else {
-                        Text(
-                            "Certificate expired",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            "Renewal failed. Check your connection.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = onRetry,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.onErrorContainer,
-                                contentColor = MaterialTheme.colorScheme.errorContainer
-                            )
-                        ) { Text("Retry") }
-                    }
-                    is CertBanner.RateLimited -> {
-                        Text(
-                            "Certificate issuance delayed",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            "Will retry automatically on ${banner.retryDate}.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    is CertBanner.Onboarding -> {
-                        Text(
-                            "Setting up your device...",
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OnboardingStep("Generating keys", banner.generatingKeysDone)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        OnboardingStep("Registering", banner.registeringDone)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        OnboardingStep(
-                            "Issuing certificate",
-                            done = false,
-                            active = banner.issuingCert
-                        )
-                    }
-                }
+                BannerBody(banner, onRetry)
             }
         }
     }
+}
+
+@Composable
+private fun bannerContainerColor(banner: CertBanner) = when (banner) {
+    is CertBanner.Expired -> if (!banner.renewalInProgress) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer
+    }
+    is CertBanner.TerminalFailure -> MaterialTheme.colorScheme.errorContainer
+    else -> MaterialTheme.colorScheme.secondaryContainer
+}
+
+@Composable
+private fun BannerIcon(banner: CertBanner) {
+    when (banner) {
+        is CertBanner.Renewing -> Icon(
+            Icons.Default.Sync,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp)
+        )
+        is CertBanner.Expired -> if (banner.renewalInProgress) {
+            Icon(
+                Icons.Default.Sync,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+        } else {
+            Icon(
+                Icons.Default.ErrorOutline,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
+        is CertBanner.RateLimited -> Icon(
+            Icons.Default.Schedule,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp)
+        )
+        is CertBanner.Onboarding -> Icon(
+            Icons.Default.Build,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp)
+        )
+        is CertBanner.TerminalFailure -> Icon(
+            Icons.Default.ErrorOutline,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onErrorContainer
+        )
+    }
+}
+
+@Composable
+private fun BannerBody(banner: CertBanner, onRetry: () -> Unit) {
+    when (banner) {
+        is CertBanner.Renewing -> RenewingBody()
+        is CertBanner.Expired -> ExpiredBody(banner, onRetry)
+        is CertBanner.RateLimited -> RateLimitedBody(banner)
+        is CertBanner.Onboarding -> OnboardingBody(banner)
+        is CertBanner.TerminalFailure -> TerminalFailureBody(banner)
+    }
+}
+
+@Composable
+private fun RenewingBody() {
+    Text(
+        "Provisioning your certificate...",
+        style = MaterialTheme.typography.titleSmall
+    )
+    Spacer(modifier = Modifier.height(2.dp))
+    Text(
+        "Integrations may be briefly unavailable.",
+        style = MaterialTheme.typography.bodySmall
+    )
+}
+
+@Composable
+private fun ExpiredBody(banner: CertBanner.Expired, onRetry: () -> Unit) {
+    if (banner.renewalInProgress) {
+        Text(
+            "Certificate expired. Renewing...",
+            style = MaterialTheme.typography.titleSmall
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            "Integrations are offline until this completes.",
+            style = MaterialTheme.typography.bodySmall
+        )
+    } else {
+        Text(
+            "Certificate expired",
+            style = MaterialTheme.typography.titleSmall
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            "Renewal failed. Check your connection.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Button(
+            onClick = onRetry,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.onErrorContainer,
+                contentColor = MaterialTheme.colorScheme.errorContainer
+            )
+        ) { Text("Retry") }
+    }
+}
+
+@Composable
+private fun RateLimitedBody(banner: CertBanner.RateLimited) {
+    Text(
+        "Certificate issuance delayed",
+        style = MaterialTheme.typography.titleSmall
+    )
+    Spacer(modifier = Modifier.height(2.dp))
+    Text(
+        "Will retry automatically on ${banner.retryDate}.",
+        style = MaterialTheme.typography.bodySmall
+    )
+}
+
+@Composable
+private fun OnboardingBody(banner: CertBanner.Onboarding) {
+    Text(
+        "Setting up your device...",
+        style = MaterialTheme.typography.titleSmall
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    OnboardingStep("Generating keys", banner.generatingKeysDone)
+    Spacer(modifier = Modifier.height(4.dp))
+    OnboardingStep("Registering", banner.registeringDone)
+    Spacer(modifier = Modifier.height(4.dp))
+    OnboardingStep(
+        "Issuing certificate",
+        done = false,
+        active = banner.issuingCert
+    )
+}
+
+@Composable
+private fun TerminalFailureBody(banner: CertBanner.TerminalFailure) {
+    Text(
+        "Certificate renewal failed permanently",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onErrorContainer
+    )
+    Spacer(modifier = Modifier.height(2.dp))
+    Text(
+        "The device can't re-establish a secure connection.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onErrorContainer
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = when (banner.reason) {
+            TerminalReason.KeyGenerationFailed ->
+                "Keystore error: a new key could not be generated."
+            TerminalReason.CnMismatch ->
+                "The relay returned an unexpected certificate."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onErrorContainer
+    )
 }
 
 @Composable
@@ -761,6 +828,30 @@ fun DashboardCertOnboardingPreview() {
                     registeringDone = true,
                     issuingCert = true
                 )
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun DashboardCertTerminalKeyGenPreview() {
+    RouseContextTheme(darkTheme = true) {
+        MainDashboardScreen(
+            state = DashboardState(
+                certBanner = CertBanner.TerminalFailure(TerminalReason.KeyGenerationFailed)
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun DashboardCertTerminalCnMismatchPreview() {
+    RouseContextTheme(darkTheme = true) {
+        MainDashboardScreen(
+            state = DashboardState(
+                certBanner = CertBanner.TerminalFailure(TerminalReason.CnMismatch)
             )
         )
     }

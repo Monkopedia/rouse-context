@@ -340,13 +340,18 @@ val appModule = module {
 
     // --- ViewModels ---
     viewModel {
+        val certRenewalPrefs = androidContext().getSharedPreferences(
+            com.rousecontext.work.CertRenewalWorker.PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
         MainDashboardViewModel(
             integrations = get(),
             stateStore = get(),
             tokenStore = get(),
             auditDao = get(),
             urlProvider = get(),
-            tunnelClient = get()
+            tunnelClient = get(),
+            certRenewalBanner = com.rousecontext.app.cert.certRenewalBannerFlow(certRenewalPrefs)
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
