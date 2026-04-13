@@ -39,6 +39,7 @@ import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.app.ui.screens.SettingsScreen
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.SetupMode
+import com.rousecontext.app.ui.screens.TerminalReason
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.app.ui.screens.UsageSetupScreen
@@ -208,6 +209,42 @@ class ScreenScreenshotTest {
         MainDashboardScreen(
             state = DashboardState(
                 certBanner = CertBanner.RateLimited(retryDate = "Apr 11")
+            )
+        )
+    }
+
+    @Test
+    fun dashboardCertTerminalKeyGenDark() = captureDark("13a_dashboard_cert_terminal_keygen") {
+        MainDashboardScreen(
+            state = dashboardCertState(
+                CertBanner.TerminalFailure(TerminalReason.KeyGenerationFailed)
+            )
+        )
+    }
+
+    @Test
+    fun dashboardCertTerminalKeyGenLight() = captureLight("13a_dashboard_cert_terminal_keygen") {
+        MainDashboardScreen(
+            state = dashboardCertState(
+                CertBanner.TerminalFailure(TerminalReason.KeyGenerationFailed)
+            )
+        )
+    }
+
+    @Test
+    fun dashboardCertTerminalCnMismatchDark() = captureDark("13b_dashboard_cert_terminal_cn") {
+        MainDashboardScreen(
+            state = dashboardCertState(
+                CertBanner.TerminalFailure(TerminalReason.CnMismatch)
+            )
+        )
+    }
+
+    @Test
+    fun dashboardCertTerminalCnMismatchLight() = captureLight("13b_dashboard_cert_terminal_cn") {
+        MainDashboardScreen(
+            state = dashboardCertState(
+                CertBanner.TerminalFailure(TerminalReason.CnMismatch)
             )
         )
     }

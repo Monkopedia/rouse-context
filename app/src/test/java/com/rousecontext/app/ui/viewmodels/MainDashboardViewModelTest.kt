@@ -4,8 +4,10 @@ import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.IntegrationStatus
+import com.rousecontext.app.ui.screens.TerminalReason
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
@@ -288,6 +290,59 @@ class MainDashboardViewModelTest {
     }
 
     @Test
+    fun `terminal key generation failure surfaces banner`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            certRenewalFlow = flowOf(CertBanner.TerminalFailure(TerminalReason.KeyGenerationFailed))
+        )
+        vm.state.test {
+            // initial (loading) then loaded — skip until we see a non-loading state with a banner.
+            var state = awaitItem()
+            while (state.isLoading || state.certBanner == null) {
+                state = awaitItem()
+            }
+            val banner = state.certBanner
+            assertTrue(banner is CertBanner.TerminalFailure)
+            assertEquals(
+                TerminalReason.KeyGenerationFailed,
+                (banner as CertBanner.TerminalFailure).reason
+            )
+        }
+    }
+
+    @Test
+    fun `terminal cn mismatch surfaces banner`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            certRenewalFlow = flowOf(CertBanner.TerminalFailure(TerminalReason.CnMismatch))
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading || state.certBanner == null) {
+                state = awaitItem()
+            }
+            val banner = state.certBanner
+            assertTrue(banner is CertBanner.TerminalFailure)
+            assertEquals(
+                TerminalReason.CnMismatch,
+                (banner as CertBanner.TerminalFailure).reason
+            )
+        }
+    }
+
+    @Test
+    fun `non-terminal cert outcome produces no banner`() = runTest(testDispatcher) {
+        val vm = createViewModel(certRenewalFlow = flowOf(null))
+        vm.state.test {
+            var state = awaitItem()
+            // Wait for a non-loading emission.
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            // No terminal banner surfaces; banner remains null for SUCCESS / SKIP / etc.
+            assertTrue(state.certBanner == null)
+        }
+    }
+
+    @Test
     fun `connection status reflects tunnel state`() = runTest(testDispatcher) {
         val vm = createViewModel()
         vm.state.test {
@@ -316,7 +371,9 @@ class MainDashboardViewModelTest {
         }
     }
 
-    private fun createViewModel(): MainDashboardViewModel {
+    private fun createViewModel(
+        certRenewalFlow: kotlinx.coroutines.flow.Flow<CertBanner?> = flowOf(null)
+    ): MainDashboardViewModel {
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
             every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
@@ -335,7 +392,8 @@ class MainDashboardViewModelTest {
             tokenStore = tokenStore,
             auditDao = auditDao,
             urlProvider = fakeUrlProvider,
-            tunnelClient = fakeTunnelClient
+            tunnelClient = fakeTunnelClient,
+            certRenewalBanner = certRenewalFlow
         )
     }
 
