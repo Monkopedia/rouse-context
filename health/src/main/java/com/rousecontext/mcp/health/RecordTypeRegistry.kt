@@ -72,6 +72,13 @@ object RecordTypeRegistry {
             readPermission = "android.permission.health.READ_BLOOD_PRESSURE"
         ),
         RecordTypeInfo(
+            name = "BloodGlucose",
+            displayName = "Blood Glucose",
+            category = RecordCategory.VITALS,
+            description = "Blood glucose readings in mmol/L",
+            readPermission = "android.permission.health.READ_BLOOD_GLUCOSE"
+        ),
+        RecordTypeInfo(
             name = "ActiveCaloriesBurned",
             displayName = "Active Calories",
             category = RecordCategory.ACTIVITY,

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BloodGlucoseRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
@@ -58,6 +59,7 @@ class RealHealthConnectRepository(private val context: Context) : HealthConnectR
         "SleepSession" to ::querySleep,
         "Weight" to ::queryWeight,
         "BloodPressure" to ::queryBloodPressure,
+        "BloodGlucose" to ::queryBloodGlucose,
         "ActiveCaloriesBurned" to ::queryActiveCalories,
         "Distance" to ::queryDistance,
         "ExerciseSession" to ::queryExercise,
@@ -221,6 +223,23 @@ class RealHealthConnectRepository(private val context: Context) : HealthConnectR
             .let { if (limit != null) it.take(limit) else it }
     }
 
+    private suspend fun queryBloodGlucose(
+        from: Instant,
+        to: Instant,
+        limit: Int?
+    ): List<JsonObject> {
+        val records = readRecords(BloodGlucoseRecord::class, from, to)
+        return records
+            .map { record ->
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("mmol_per_l", record.level.inMillimolesPerLiter)
+                }
+            }
+            .sortedBy { it["time"].toString() }
+            .let { if (limit != null) it.take(limit) else it }
+    }
+
     private suspend fun queryActiveCalories(
         from: Instant,
         to: Instant,
@@ -365,6 +384,7 @@ class RealHealthConnectRepository(private val context: Context) : HealthConnectR
             "SleepSession" to SleepSessionRecord::class,
             "Weight" to WeightRecord::class,
             "BloodPressure" to BloodPressureRecord::class,
+            "BloodGlucose" to BloodGlucoseRecord::class,
             "ActiveCaloriesBurned" to ActiveCaloriesBurnedRecord::class,
             "Distance" to DistanceRecord::class,
             "ExerciseSession" to ExerciseSessionRecord::class,
