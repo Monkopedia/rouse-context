@@ -1,190 +1,19 @@
-//! ACME client abstraction for DNS-01 certificate issuance.
-//!
-//! Uses a trait so tests can substitute a mock. The real implementation
-//! performs DNS-01 challenges via Cloudflare API and fetches certs from
-//! Let's Encrypt.
+//! [`RealAcmeClient`] — the [`AcmeClient`] implementation that performs
+//! DNS-01 challenges via Cloudflare and fetches certs from Let's Encrypt.
 
 use async_trait::async_trait;
-use base64::Engine;
 use hickory_resolver::config::{ResolverConfig, ResolverOpts};
 use hickory_resolver::TokioAsyncResolver;
-use p256::ecdsa::{signature::Signer, SigningKey};
-use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey};
+use p256::ecdsa::SigningKey;
 use sha2::{Digest, Sha256};
 use std::path::Path;
-use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-/// Let's Encrypt production directory URL.
-pub const LETS_ENCRYPT_DIRECTORY: &str = "https://acme-v02.api.letsencrypt.org/directory";
-
-/// Let's Encrypt staging directory URL (for testing).
-pub const LETS_ENCRYPT_STAGING_DIRECTORY: &str =
-    "https://acme-staging-v02.api.letsencrypt.org/directory";
-
-/// Base64url encoding without padding, as required by ACME/JWS.
-fn base64url(data: &[u8]) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
-}
-
-#[derive(Debug, Error)]
-pub enum AcmeError {
-    #[error("rate limited: retry after {retry_after_secs} seconds")]
-    RateLimited { retry_after_secs: u64 },
-    #[error("challenge failed: {0}")]
-    ChallengeFailed(String),
-    #[error("http error: {0}")]
-    Http(String),
-}
-
-/// A certificate bundle containing the PEM cert chain and optionally the private key.
-///
-/// When the relay generates the keypair (legacy mode), `private_key_pem` contains
-/// the key. When the device provides a CSR with its own public key, `private_key_pem`
-/// is `None` because the device already holds the private key.
-#[derive(Debug, Clone)]
-pub struct CertificateBundle {
-    /// PEM-encoded certificate chain (leaf + intermediates).
-    pub cert_pem: String,
-    /// PEM-encoded PKCS#8 private key for the certificate, if the relay generated it.
-    pub private_key_pem: Option<String>,
-}
-
-#[async_trait]
-pub trait AcmeClient: Send + Sync {
-    /// Issue a certificate for the given subdomain via DNS-01 challenge.
-    ///
-    /// If `csr_der` is `Some`, the provided CSR (containing the device's public key)
-    /// is submitted to the ACME server for finalization. The CSR must have the correct
-    /// FQDN as its subject. No private key is returned in this case.
-    ///
-    /// If `csr_der` is `None`, the relay generates a fresh keypair and CSR internally,
-    /// and returns the private key in the bundle.
-    async fn issue_certificate(
-        &self,
-        subdomain: &str,
-        csr_der: Option<&[u8]>,
-    ) -> Result<CertificateBundle, AcmeError>;
-}
-
-/// ACME directory endpoints, discovered from the directory URL.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AcmeDirectory {
-    new_nonce: String,
-    new_account: String,
-    new_order: String,
-}
-
-/// ACME order object.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-struct AcmeOrder {
-    status: String,
-    authorizations: Vec<String>,
-    finalize: String,
-    #[serde(default)]
-    certificate: Option<String>,
-    /// Let's Encrypt includes these but we don't need them.
-    #[serde(default)]
-    expires: Option<String>,
-    #[serde(default)]
-    identifiers: Option<serde_json::Value>,
-    #[serde(default)]
-    not_before: Option<String>,
-    #[serde(default)]
-    not_after: Option<String>,
-}
-
-/// ACME identifier object (e.g. {"type": "dns", "value": "example.com"}).
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-struct AcmeIdentifier {
-    #[serde(rename = "type")]
-    identifier_type: String,
-    value: String,
-}
-
-/// ACME authorization object.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-struct AcmeAuthorization {
-    status: String,
-    #[serde(default)]
-    challenges: Vec<AcmeChallenge>,
-    /// The identifier this authorization is for.
-    #[serde(default)]
-    identifier: Option<AcmeIdentifier>,
-    /// Expiry timestamp (ISO 8601).
-    #[serde(default)]
-    expires: Option<String>,
-    /// Whether this is a wildcard authorization.
-    #[serde(default)]
-    wildcard: Option<bool>,
-}
-
-/// ACME challenge object.
-#[derive(Debug, Clone, serde::Deserialize)]
-#[allow(dead_code)]
-struct AcmeChallenge {
-    #[serde(rename = "type")]
-    challenge_type: String,
-    url: String,
-    token: String,
-    #[serde(default)]
-    status: Option<String>,
-    /// Error detail from ACME server when challenge fails.
-    #[serde(default)]
-    error: Option<serde_json::Value>,
-    /// Timestamp when challenge was validated (ISO 8601).
-    #[serde(default)]
-    validated: Option<String>,
-}
-
-/// Load an ECDSA P-256 account key from a PEM file, or generate a new one and
-/// save it. This ensures the relay reuses the same ACME account across restarts.
-///
-/// When `require_existing` is true and the key file is missing, this function
-/// panics with a clear error instead of silently generating a fresh account.
-/// Production deployments should enable this to catch deploy misconfigurations
-/// (e.g. missing volume mount) that would otherwise rotate the ACME account
-/// and burn the shared 50-certs/week/domain Let's Encrypt rate-limit budget.
-fn load_or_create_account_key(key_path: &Path, require_existing: bool) -> SigningKey {
-    if key_path.exists() {
-        let pem = std::fs::read_to_string(key_path).expect("failed to read ACME account key file");
-        let key = SigningKey::from_pkcs8_pem(&pem).expect("failed to parse ACME account key PEM");
-        info!(?key_path, "Loaded existing ACME account key");
-        key
-    } else {
-        if require_existing {
-            panic!(
-                "ACME account key file is missing at {key_path:?} and \
-                 acme.require_existing_account = true. Refusing to generate a \
-                 new ACME account because doing so would rotate the relay's \
-                 Let's Encrypt identity and burn shared rate-limit headroom. \
-                 Restore the file from backup (see relay/scripts/backup-acme-key.sh) \
-                 or set acme.require_existing_account = false to allow creation."
-            );
-        }
-        let key = SigningKey::random(&mut rand::thread_rng());
-        let pem = key
-            .to_pkcs8_pem(p256::pkcs8::LineEnding::LF)
-            .expect("failed to encode ACME account key as PEM");
-
-        // Ensure parent directory exists.
-        if let Some(parent) = key_path.parent() {
-            std::fs::create_dir_all(parent)
-                .expect("failed to create directory for ACME account key");
-        }
-        std::fs::write(key_path, pem.as_bytes()).expect("failed to write ACME account key to disk");
-        warn!(
-            ?key_path,
-            acme_account_created = true,
-            "Generated and saved new ACME account key"
-        );
-        key
-    }
-}
+use super::account::{ensure_account, load_or_create_account_key};
+use super::jws::{acme_post, jwk_thumbprint};
+use super::protocol::{create_order, get_directory, poll_status};
+use super::types::{base64url, AcmeAuthorization, AcmeOrder};
+use super::{AcmeClient, AcmeError, CertificateBundle};
 
 /// Default Cloudflare API base URL. Overridden in tests.
 const CLOUDFLARE_API_BASE: &str = "https://api.cloudflare.com";
@@ -280,234 +109,6 @@ impl RealAcmeClient {
             dns_propagation_timeout_secs,
             dns_poll_interval_secs,
         }
-    }
-
-    /// Fetch the ACME directory.
-    async fn get_directory(&self) -> Result<AcmeDirectory, AcmeError> {
-        let resp = self
-            .http
-            .get(&self.directory_url)
-            .send()
-            .await
-            .map_err(|e| AcmeError::Http(format!("directory fetch: {e}")))?;
-        resp.json::<AcmeDirectory>()
-            .await
-            .map_err(|e| AcmeError::Http(format!("directory parse: {e}")))
-    }
-
-    /// Get a fresh nonce from the ACME server.
-    async fn get_nonce(&self, new_nonce_url: &str) -> Result<String, AcmeError> {
-        let resp = self
-            .http
-            .head(new_nonce_url)
-            .send()
-            .await
-            .map_err(|e| AcmeError::Http(format!("nonce fetch: {e}")))?;
-        resp.headers()
-            .get("replay-nonce")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
-            .ok_or_else(|| AcmeError::Http("no replay-nonce header".to_string()))
-    }
-
-    /// Build the JWK thumbprint for the account key (used in DNS-01 challenge).
-    fn jwk_thumbprint(&self) -> String {
-        let public_key = self.account_key.verifying_key();
-        let point = public_key.to_encoded_point(false);
-        let x = base64url(point.x().expect("x coordinate"));
-        let y = base64url(point.y().expect("y coordinate"));
-
-        // JWK thumbprint per RFC 7638: lexicographic JSON with required members
-        let jwk_json = format!(r#"{{"crv":"P-256","kty":"EC","x":"{x}","y":"{y}"}}"#);
-        let digest = Sha256::digest(jwk_json.as_bytes());
-        base64url(&digest)
-    }
-
-    /// Build the JWK (public key) for the account key.
-    fn jwk(&self) -> serde_json::Value {
-        let public_key = self.account_key.verifying_key();
-        let point = public_key.to_encoded_point(false);
-        let x = base64url(point.x().expect("x coordinate"));
-        let y = base64url(point.y().expect("y coordinate"));
-
-        serde_json::json!({
-            "kty": "EC",
-            "crv": "P-256",
-            "x": x,
-            "y": y,
-        })
-    }
-
-    /// Sign an ACME request payload as a JWS (Flattened JSON Serialization).
-    ///
-    /// Uses JWK in protected header when `kid` is None (for newAccount),
-    /// or `kid` when set (for all subsequent requests).
-    fn sign_jws(
-        &self,
-        url: &str,
-        nonce: &str,
-        payload: &str,
-        kid: Option<&str>,
-    ) -> serde_json::Value {
-        let protected = if let Some(kid) = kid {
-            serde_json::json!({
-                "alg": "ES256",
-                "kid": kid,
-                "nonce": nonce,
-                "url": url,
-            })
-        } else {
-            serde_json::json!({
-                "alg": "ES256",
-                "jwk": self.jwk(),
-                "nonce": nonce,
-                "url": url,
-            })
-        };
-
-        let protected_b64 = base64url(
-            serde_json::to_string(&protected)
-                .expect("JSON serialize")
-                .as_bytes(),
-        );
-
-        let payload_b64 = if payload.is_empty() {
-            // Empty payload for POST-as-GET
-            String::new()
-        } else {
-            base64url(payload.as_bytes())
-        };
-
-        let signing_input = format!("{protected_b64}.{payload_b64}");
-        let signature: p256::ecdsa::Signature = self.account_key.sign(signing_input.as_bytes());
-        let sig_b64 = base64url(&signature.to_bytes());
-
-        serde_json::json!({
-            "protected": protected_b64,
-            "payload": payload_b64,
-            "signature": sig_b64,
-        })
-    }
-
-    /// Send a signed ACME POST request, returning (response, new_nonce).
-    async fn acme_post(
-        &self,
-        url: &str,
-        nonce: &str,
-        payload: &str,
-        kid: Option<&str>,
-    ) -> Result<(reqwest::Response, String), AcmeError> {
-        let body = self.sign_jws(url, nonce, payload, kid);
-        let resp = self
-            .http
-            .post(url)
-            .header("content-type", "application/jose+json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| AcmeError::Http(format!("ACME POST to {url}: {e}")))?;
-
-        // Check for rate limiting
-        if resp.status().as_u16() == 429 {
-            let retry_after = resp
-                .headers()
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(3600);
-            return Err(AcmeError::RateLimited {
-                retry_after_secs: retry_after,
-            });
-        }
-
-        let new_nonce = resp
-            .headers()
-            .get("replay-nonce")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-
-        Ok((resp, new_nonce))
-    }
-
-    /// Create or retrieve an ACME account. Returns (account_url, nonce).
-    async fn ensure_account(&self, dir: &AcmeDirectory) -> Result<(String, String), AcmeError> {
-        let nonce = self.get_nonce(&dir.new_nonce).await?;
-        let payload = serde_json::json!({
-            "termsOfServiceAgreed": true,
-        })
-        .to_string();
-
-        let (resp, nonce) = self
-            .acme_post(&dir.new_account, &nonce, &payload, None)
-            .await?;
-
-        let status = resp.status();
-        let account_url = resp
-            .headers()
-            .get("location")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
-            .ok_or_else(|| {
-                AcmeError::Http(format!(
-                    "no Location header in newAccount response (status {status})"
-                ))
-            })?;
-
-        if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            return Err(AcmeError::Http(format!(
-                "newAccount failed ({status}): {body}"
-            )));
-        }
-
-        debug!(account_url = %account_url, "ACME account ready");
-        Ok((account_url, nonce))
-    }
-
-    /// Create a new ACME order for the given FQDN.
-    async fn create_order(
-        &self,
-        dir: &AcmeDirectory,
-        kid: &str,
-        nonce: &str,
-        fqdn: &str,
-    ) -> Result<(AcmeOrder, String, String), AcmeError> {
-        let payload = serde_json::json!({
-            "identifiers": [{"type": "dns", "value": fqdn}],
-        })
-        .to_string();
-
-        let (resp, nonce) = self
-            .acme_post(&dir.new_order, nonce, &payload, Some(kid))
-            .await?;
-
-        let status = resp.status();
-        let order_url = resp
-            .headers()
-            .get("location")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| AcmeError::Http(format!("read order body: {e}")))?;
-
-        debug!(order_url = %order_url, status = %status, body = %body, "Raw order response");
-
-        if !status.is_success() {
-            return Err(AcmeError::Http(format!(
-                "newOrder failed ({status}): {body}"
-            )));
-        }
-
-        let order: AcmeOrder = serde_json::from_str(&body)
-            .map_err(|e| AcmeError::Http(format!("parse order: {e}\n  response body: {body}")))?;
-
-        debug!(order_url = %order_url, status = %order.status, "ACME order created");
-        Ok((order, order_url, nonce))
     }
 
     /// List IDs of TXT records at the given name.
@@ -763,56 +364,6 @@ impl RealAcmeClient {
             }
         }
     }
-
-    /// Poll an ACME URL until the status is no longer "pending" or "processing".
-    async fn poll_status<T: serde::de::DeserializeOwned>(
-        &self,
-        url: &str,
-        kid: &str,
-        mut nonce: String,
-        max_attempts: u32,
-    ) -> Result<(T, String), AcmeError> {
-        for attempt in 0..max_attempts {
-            if attempt > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            }
-
-            // POST-as-GET (empty payload)
-            let (resp, new_nonce) = self.acme_post(url, &nonce, "", Some(kid)).await?;
-            nonce = new_nonce;
-
-            let status_code = resp.status();
-            if !status_code.is_success() {
-                let body = resp.text().await.unwrap_or_default();
-                return Err(AcmeError::Http(format!(
-                    "poll {url} failed ({status_code}): {body}"
-                )));
-            }
-
-            let text = resp
-                .text()
-                .await
-                .map_err(|e| AcmeError::Http(format!("poll read body: {e}")))?;
-
-            // Check if status is still pending/processing
-            let value: serde_json::Value = serde_json::from_str(&text)
-                .map_err(|e| AcmeError::Http(format!("poll parse: {e}")))?;
-            let obj_status = value["status"].as_str().unwrap_or("");
-
-            if obj_status == "pending" || obj_status == "processing" {
-                debug!(url = %url, status = %obj_status, attempt, "Polling...");
-                continue;
-            }
-
-            let parsed: T = serde_json::from_str(&text)
-                .map_err(|e| AcmeError::Http(format!("poll deserialize: {e}")))?;
-            return Ok((parsed, nonce));
-        }
-
-        Err(AcmeError::ChallengeFailed(format!(
-            "timed out polling {url} after {max_attempts} attempts"
-        )))
-    }
 }
 
 #[async_trait]
@@ -850,13 +401,14 @@ impl AcmeClient for RealAcmeClient {
         };
 
         // 1. Fetch directory
-        let dir = self.get_directory().await?;
+        let dir = get_directory(&self.http, &self.directory_url).await?;
 
         // 2. Create/retrieve account
-        let (kid, nonce) = self.ensure_account(&dir).await?;
+        let (kid, nonce) = ensure_account(&self.http, &self.account_key, &dir).await?;
 
         // 3. Create order
-        let (order, order_url, nonce) = self.create_order(&dir, &kid, &nonce, &fqdn).await?;
+        let (order, order_url, nonce) =
+            create_order(&self.http, &self.account_key, &dir, &kid, &nonce, &fqdn).await?;
 
         if order.authorizations.is_empty() {
             return Err(AcmeError::ChallengeFailed(
@@ -865,9 +417,15 @@ impl AcmeClient for RealAcmeClient {
         }
 
         // 4. Get authorization and find DNS-01 challenge
-        let (resp, mut nonce) = self
-            .acme_post(&order.authorizations[0], &nonce, "", Some(&kid))
-            .await?;
+        let (resp, mut nonce) = acme_post(
+            &self.http,
+            &self.account_key,
+            &order.authorizations[0],
+            &nonce,
+            "",
+            Some(&kid),
+        )
+        .await?;
 
         let auth_status = resp.status();
         let auth_body = resp
@@ -903,7 +461,7 @@ impl AcmeClient for RealAcmeClient {
             })?;
 
         // 5. Compute key authorization and DNS TXT value
-        let thumbprint = self.jwk_thumbprint();
+        let thumbprint = jwk_thumbprint(&self.account_key);
         let key_auth = format!("{}.{thumbprint}", dns_challenge.token);
         let dns_value = base64url(&Sha256::digest(key_auth.as_bytes()));
 
@@ -948,9 +506,15 @@ impl AcmeClient for RealAcmeClient {
                 "Notifying ACME server that DNS challenge is ready"
             );
 
-            let (resp, new_nonce) = self
-                .acme_post(&dns_challenge.url, &nonce, "{}", Some(&kid))
-                .await?;
+            let (resp, new_nonce) = acme_post(
+                &self.http,
+                &self.account_key,
+                &dns_challenge.url,
+                &nonce,
+                "{}",
+                Some(&kid),
+            )
+            .await?;
             nonce = new_nonce;
 
             let status = resp.status();
@@ -969,9 +533,15 @@ impl AcmeClient for RealAcmeClient {
             info!("Challenge response accepted, polling authorization...");
 
             // 9. Poll authorization until valid
-            let (auth, new_nonce): (AcmeAuthorization, String) = self
-                .poll_status(&order.authorizations[0], &kid, nonce, 30)
-                .await?;
+            let (auth, new_nonce): (AcmeAuthorization, String) = poll_status(
+                &self.http,
+                &self.account_key,
+                &order.authorizations[0],
+                &kid,
+                nonce,
+                30,
+            )
+            .await?;
             nonce = new_nonce;
 
             if auth.status != "valid" {
@@ -1002,9 +572,15 @@ impl AcmeClient for RealAcmeClient {
             let csr_b64 = base64url(&csr_der);
             let finalize_payload = serde_json::json!({"csr": csr_b64}).to_string();
 
-            let (resp, new_nonce) = self
-                .acme_post(&order.finalize, &nonce, &finalize_payload, Some(&kid))
-                .await?;
+            let (resp, new_nonce) = acme_post(
+                &self.http,
+                &self.account_key,
+                &order.finalize,
+                &nonce,
+                &finalize_payload,
+                Some(&kid),
+            )
+            .await?;
             nonce = new_nonce;
 
             let status = resp.status();
@@ -1017,7 +593,7 @@ impl AcmeClient for RealAcmeClient {
 
             // 11. Poll order until certificate URL is available
             let (final_order, new_nonce): (AcmeOrder, String) =
-                self.poll_status(&order_url, &kid, nonce, 30).await?;
+                poll_status(&self.http, &self.account_key, &order_url, &kid, nonce, 30).await?;
             nonce = new_nonce;
 
             let cert_url = final_order.certificate.ok_or_else(|| {
@@ -1028,7 +604,15 @@ impl AcmeClient for RealAcmeClient {
             })?;
 
             // 12. Download certificate
-            let (resp, _) = self.acme_post(&cert_url, &nonce, "", Some(&kid)).await?;
+            let (resp, _) = acme_post(
+                &self.http,
+                &self.account_key,
+                &cert_url,
+                &nonce,
+                "",
+                Some(&kid),
+            )
+            .await?;
 
             let status = resp.status();
             if !status.is_success() {
@@ -1060,302 +644,14 @@ impl AcmeClient for RealAcmeClient {
 
 #[cfg(test)]
 mod tests {
+    //! Cloudflare TXT record cleanup tests (issue #56).
+    //!
+    //! Cloudflare rejects creating a TXT record that is identical to an
+    //! existing one with "An identical record already exists." We therefore
+    //! list and delete any existing records at `_acme-challenge.{subdomain}`
+    //! before creating a new one.
+
     use super::*;
-
-    /// Real Let's Encrypt authorization response with all fields present.
-    const LETSENCRYPT_AUTHORIZATION: &str = r#"{
-        "status": "pending",
-        "expires": "2026-04-11T12:00:00Z",
-        "identifier": {
-            "type": "dns",
-            "value": "abc123.rousecontext.com"
-        },
-        "challenges": [
-            {
-                "type": "http-01",
-                "status": "pending",
-                "url": "https://acme-v02.api.letsencrypt.org/acme/chall-v3/123/http",
-                "token": "http-token-abc"
-            },
-            {
-                "type": "dns-01",
-                "status": "pending",
-                "url": "https://acme-v02.api.letsencrypt.org/acme/chall-v3/123/dns",
-                "token": "dns-token-xyz"
-            },
-            {
-                "type": "tls-alpn-01",
-                "status": "pending",
-                "url": "https://acme-v02.api.letsencrypt.org/acme/chall-v3/123/tls",
-                "token": "tls-token-def"
-            }
-        ]
-    }"#;
-
-    /// Authorization with a validated challenge (includes extra `validated` field).
-    const VALIDATED_AUTHORIZATION: &str = r#"{
-        "status": "valid",
-        "expires": "2026-04-11T12:00:00Z",
-        "identifier": {
-            "type": "dns",
-            "value": "abc123.rousecontext.com"
-        },
-        "challenges": [
-            {
-                "type": "dns-01",
-                "status": "valid",
-                "url": "https://acme-v02.api.letsencrypt.org/acme/chall-v3/123/dns",
-                "token": "dns-token-xyz",
-                "validated": "2026-04-04T10:30:00Z"
-            }
-        ]
-    }"#;
-
-    /// Minimal authorization with only required fields.
-    const MINIMAL_AUTHORIZATION: &str = r#"{
-        "status": "pending",
-        "challenges": [
-            {
-                "type": "dns-01",
-                "url": "https://acme-v02.api.letsencrypt.org/acme/chall-v3/456/dns",
-                "token": "minimal-token"
-            }
-        ]
-    }"#;
-
-    /// Authorization with challenge error detail.
-    const FAILED_AUTHORIZATION: &str = r#"{
-        "status": "invalid",
-        "identifier": {
-            "type": "dns",
-            "value": "abc123.rousecontext.com"
-        },
-        "challenges": [
-            {
-                "type": "dns-01",
-                "status": "invalid",
-                "url": "https://acme-v02.api.letsencrypt.org/acme/chall-v3/789/dns",
-                "token": "bad-token",
-                "error": {
-                    "type": "urn:ietf:params:acme:error:dns",
-                    "detail": "DNS problem: NXDOMAIN looking up TXT for _acme-challenge.abc123.rousecontext.com",
-                    "status": 400
-                }
-            }
-        ]
-    }"#;
-
-    /// Real Let's Encrypt order response.
-    const LETSENCRYPT_ORDER: &str = r#"{
-        "status": "pending",
-        "expires": "2026-04-11T12:00:00Z",
-        "identifiers": [
-            {"type": "dns", "value": "abc123.rousecontext.com"}
-        ],
-        "authorizations": [
-            "https://acme-v02.api.letsencrypt.org/acme/authz-v3/123"
-        ],
-        "finalize": "https://acme-v02.api.letsencrypt.org/acme/finalize/456/789"
-    }"#;
-
-    /// Order with certificate URL (ready to download).
-    const COMPLETED_ORDER: &str = r#"{
-        "status": "valid",
-        "expires": "2026-04-11T12:00:00Z",
-        "identifiers": [
-            {"type": "dns", "value": "abc123.rousecontext.com"}
-        ],
-        "authorizations": [
-            "https://acme-v02.api.letsencrypt.org/acme/authz-v3/123"
-        ],
-        "finalize": "https://acme-v02.api.letsencrypt.org/acme/finalize/456/789",
-        "certificate": "https://acme-v02.api.letsencrypt.org/acme/cert/abc123"
-    }"#;
-
-    #[test]
-    fn parse_letsencrypt_authorization() {
-        let auth: AcmeAuthorization =
-            serde_json::from_str(LETSENCRYPT_AUTHORIZATION).expect("should parse");
-        assert_eq!(auth.status, "pending");
-        assert_eq!(auth.challenges.len(), 3);
-        assert_eq!(
-            auth.identifier.as_ref().unwrap().value,
-            "abc123.rousecontext.com"
-        );
-        assert_eq!(auth.expires.as_deref(), Some("2026-04-11T12:00:00Z"));
-
-        let dns = auth
-            .challenges
-            .iter()
-            .find(|c| c.challenge_type == "dns-01")
-            .expect("should have dns-01");
-        assert_eq!(dns.token, "dns-token-xyz");
-        assert_eq!(dns.status.as_deref(), Some("pending"));
-    }
-
-    #[test]
-    fn parse_validated_authorization() {
-        let auth: AcmeAuthorization =
-            serde_json::from_str(VALIDATED_AUTHORIZATION).expect("should parse");
-        assert_eq!(auth.status, "valid");
-
-        let dns = &auth.challenges[0];
-        assert_eq!(dns.status.as_deref(), Some("valid"));
-        assert_eq!(dns.validated.as_deref(), Some("2026-04-04T10:30:00Z"));
-    }
-
-    #[test]
-    fn parse_minimal_authorization() {
-        let auth: AcmeAuthorization =
-            serde_json::from_str(MINIMAL_AUTHORIZATION).expect("should parse");
-        assert_eq!(auth.status, "pending");
-        assert!(auth.identifier.is_none());
-        assert!(auth.expires.is_none());
-        assert!(auth.wildcard.is_none());
-        assert_eq!(auth.challenges[0].status, None);
-    }
-
-    #[test]
-    fn parse_failed_authorization_with_error() {
-        let auth: AcmeAuthorization =
-            serde_json::from_str(FAILED_AUTHORIZATION).expect("should parse");
-        assert_eq!(auth.status, "invalid");
-
-        let dns = &auth.challenges[0];
-        assert!(dns.error.is_some());
-        let err = dns.error.as_ref().unwrap();
-        assert!(err["detail"].as_str().unwrap().contains("NXDOMAIN"));
-    }
-
-    #[test]
-    fn parse_letsencrypt_order() {
-        let order: AcmeOrder = serde_json::from_str(LETSENCRYPT_ORDER).expect("should parse");
-        assert_eq!(order.status, "pending");
-        assert_eq!(order.authorizations.len(), 1);
-        assert!(order.certificate.is_none());
-        assert!(order.expires.is_some());
-        assert!(order.identifiers.is_some());
-    }
-
-    #[test]
-    fn parse_completed_order() {
-        let order: AcmeOrder = serde_json::from_str(COMPLETED_ORDER).expect("should parse");
-        assert_eq!(order.status, "valid");
-        assert_eq!(
-            order.certificate.as_deref(),
-            Some("https://acme-v02.api.letsencrypt.org/acme/cert/abc123")
-        );
-    }
-
-    /// Ensure we tolerate unknown fields from future ACME extensions.
-    #[test]
-    fn parse_authorization_with_unknown_fields() {
-        let json = r#"{
-            "status": "pending",
-            "challenges": [],
-            "someNewField": true,
-            "anotherFutureField": {"nested": "value"}
-        }"#;
-        let auth: AcmeAuthorization =
-            serde_json::from_str(json).expect("should ignore unknown fields");
-        assert_eq!(auth.status, "pending");
-    }
-
-    #[test]
-    fn parse_challenge_with_unknown_fields() {
-        let json = r#"{
-            "type": "dns-01",
-            "url": "https://example.com/chall",
-            "token": "abc",
-            "status": "pending",
-            "futureField": 42
-        }"#;
-        let challenge: AcmeChallenge =
-            serde_json::from_str(json).expect("should ignore unknown fields");
-        assert_eq!(challenge.challenge_type, "dns-01");
-    }
-
-    #[test]
-    fn account_key_created_when_file_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let key_path = dir.path().join("account_key.pem");
-        assert!(!key_path.exists());
-
-        let key = load_or_create_account_key(&key_path, false);
-        assert!(key_path.exists());
-
-        // Loading again should produce the same key.
-        let key2 = load_or_create_account_key(&key_path, false);
-        assert_eq!(key.to_bytes(), key2.to_bytes());
-    }
-
-    #[test]
-    fn account_key_loaded_from_existing_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let key_path = dir.path().join("account_key.pem");
-
-        // Write a key, then load it back.
-        let original = SigningKey::random(&mut rand::thread_rng());
-        let pem = original.to_pkcs8_pem(p256::pkcs8::LineEnding::LF).unwrap();
-        std::fs::write(&key_path, pem.as_bytes()).unwrap();
-
-        let loaded = load_or_create_account_key(&key_path, false);
-        assert_eq!(original.to_bytes(), loaded.to_bytes());
-    }
-
-    #[test]
-    fn account_key_creates_parent_directories() {
-        let dir = tempfile::tempdir().unwrap();
-        let key_path = dir.path().join("nested").join("dir").join("key.pem");
-        assert!(!key_path.parent().unwrap().exists());
-
-        let _key = load_or_create_account_key(&key_path, false);
-        assert!(key_path.exists());
-    }
-
-    #[test]
-    fn account_key_require_existing_false_creates_new_key() {
-        let dir = tempfile::tempdir().unwrap();
-        let key_path = dir.path().join("account_key.pem");
-        assert!(!key_path.exists());
-
-        let _key = load_or_create_account_key(&key_path, false);
-        assert!(key_path.exists());
-    }
-
-    #[test]
-    #[should_panic(expected = "acme.require_existing_account = true")]
-    fn account_key_require_existing_true_panics_when_missing() {
-        let dir = tempfile::tempdir().unwrap();
-        let key_path = dir.path().join("account_key.pem");
-        assert!(!key_path.exists());
-
-        let _ = load_or_create_account_key(&key_path, true);
-    }
-
-    #[test]
-    fn account_key_require_existing_true_loads_existing_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let key_path = dir.path().join("account_key.pem");
-
-        // Pre-seed an existing key on disk.
-        let original = SigningKey::random(&mut rand::thread_rng());
-        let pem = original.to_pkcs8_pem(p256::pkcs8::LineEnding::LF).unwrap();
-        std::fs::write(&key_path, pem.as_bytes()).unwrap();
-
-        let loaded = load_or_create_account_key(&key_path, true);
-        assert_eq!(original.to_bytes(), loaded.to_bytes());
-    }
-
-    // -------------------------------------------------------------------
-    // Cloudflare TXT record cleanup tests (issue #56)
-    //
-    // Cloudflare rejects creating a TXT record that is identical to an
-    // existing one with "An identical record already exists." We therefore
-    // list and delete any existing records at `_acme-challenge.{subdomain}`
-    // before creating a new one.
-    // -------------------------------------------------------------------
-
     use axum::extract::{Path, Query, State};
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
