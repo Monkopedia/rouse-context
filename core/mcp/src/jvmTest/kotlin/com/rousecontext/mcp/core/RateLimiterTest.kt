@@ -140,6 +140,42 @@ class RateLimiterTest {
     }
 
     @Test
+    fun `device authorize endpoint returns 429 when rate limited`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        registry.register("health", stubProvider())
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+        val clock = FakeClock()
+        val rateLimiter = RateLimiter(maxRequests = 2, windowMs = 60_000L, clock = clock)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com",
+                integration = "health",
+                clock = clock,
+                rateLimiter = rateLimiter
+            )
+        }
+
+        // First two requests should succeed (not 429)
+        repeat(2) {
+            val response = client.post("/device/authorize")
+            assertTrue(
+                "Request ${it + 1} should not be 429, was ${response.status}",
+                response.status != HttpStatusCode.TooManyRequests
+            )
+        }
+
+        // Third request should be rate limited
+        val response = client.post("/device/authorize")
+        assertEquals(HttpStatusCode.TooManyRequests, response.status)
+    }
+
+    @Test
     fun `token endpoint returns 429 when rate limited`() = testApplication {
         val registry = InMemoryProviderRegistry()
         registry.register("health", stubProvider())
