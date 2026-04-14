@@ -15,6 +15,7 @@ object NotificationChannels {
     const val ALERT_CHANNEL_ID = "rouse_alert"
     const val AUTH_REQUEST_CHANNEL_ID = "rouse_auth_request"
     const val SESSION_SUMMARY_CHANNEL_ID = "rouse_session_summary"
+    const val OUTREACH_LAUNCH_CHANNEL_ID = "rouse_outreach_launch"
 
     /**
      * Create all notification channels. Safe to call multiple times;
@@ -67,6 +68,14 @@ object NotificationChannels {
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Summary of tool calls after an MCP session ends"
+            },
+            NotificationChannel(
+                OUTREACH_LAUNCH_CHANNEL_ID,
+                "Outreach Launch Requests",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Tap-to-launch fallback when an AI client requests " +
+                    "opening an app or link and the app cannot launch it directly"
             }
         )
 

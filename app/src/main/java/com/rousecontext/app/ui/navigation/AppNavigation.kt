@@ -1133,6 +1133,17 @@ fun AppNavigation(
                             )
                             navController.context.startActivity(intent)
                         },
+                        onDirectLaunchToggled = viewModel::setDirectLaunchEnabled,
+                        onGrantOverlay = {
+                            val ctx = navController.context
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:${ctx.packageName}")
+                            ).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            ctx.startActivity(intent)
+                        },
                         onEnable = {
                             viewModel.enable()
                             navController.navigate(

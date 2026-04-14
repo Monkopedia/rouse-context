@@ -2,7 +2,10 @@ package com.rousecontext.app.registry
 
 import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
+import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.outreach.OutreachMcpProvider
 
@@ -12,7 +15,11 @@ import com.rousecontext.outreach.OutreachMcpProvider
  * Basic tools are always available. DND tools require ACCESS_NOTIFICATION_POLICY permission,
  * checked at construction time and re-evaluated via [isAvailable].
  */
-class OutreachIntegration(private val context: Context) : McpIntegration {
+class OutreachIntegration(
+    private val context: Context,
+    private val settingsStore: IntegrationSettingsStore,
+    private val launchNotifier: LaunchRequestNotifierApi
+) : McpIntegration {
 
     override val id = "outreach"
     override val displayName = "Outreach"
@@ -24,7 +31,22 @@ class OutreachIntegration(private val context: Context) : McpIntegration {
 
     override val provider: McpServerProvider = OutreachMcpProvider(
         context = context,
-        dndEnabled = isDndPermissionGranted()
+        dndEnabled = isDndPermissionGranted(),
+        canLaunchDirectly = {
+            // Re-checked every tool-call. Pre-Android-14 has no BAL restriction,
+            // so the PendingIntent path always works. On Android 14+ require both
+            // the user opt-in AND the OS overlay permission.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                true
+            } else {
+                OutreachMcpProvider.defaultCanLaunchDirectly(context) &&
+                    settingsStore.getBoolean(
+                        id,
+                        IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED
+                    )
+            }
+        },
+        launchNotifier = launchNotifier
     )
 
     override suspend fun isAvailable(): Boolean = true

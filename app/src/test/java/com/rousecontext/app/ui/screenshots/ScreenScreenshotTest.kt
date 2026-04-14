@@ -489,6 +489,56 @@ class ScreenScreenshotTest {
         )
     }
 
+    // Android 14+ only: SYSTEM_ALERT_WINDOW opt-in section for background
+    // activity launches. See issue #102.
+    @Test
+    fun outreachSetupDirectLaunchUngrantedDark() =
+        captureDark("31a_outreach_setup_direct_launch_ungranted") {
+            OutreachSetupScreen(
+                state = OutreachSetupState(
+                    directLaunchApplicable = true,
+                    directLaunchEnabled = true,
+                    overlayPermissionGranted = false
+                )
+            )
+        }
+
+    @Test
+    fun outreachSetupDirectLaunchUngrantedLight() =
+        captureLight("31a_outreach_setup_direct_launch_ungranted") {
+            OutreachSetupScreen(
+                state = OutreachSetupState(
+                    directLaunchApplicable = true,
+                    directLaunchEnabled = true,
+                    overlayPermissionGranted = false
+                )
+            )
+        }
+
+    @Test
+    fun outreachSetupDirectLaunchGrantedDark() =
+        captureDark("31b_outreach_setup_direct_launch_granted") {
+            OutreachSetupScreen(
+                state = OutreachSetupState(
+                    directLaunchApplicable = true,
+                    directLaunchEnabled = true,
+                    overlayPermissionGranted = true
+                )
+            )
+        }
+
+    @Test
+    fun outreachSetupDirectLaunchGrantedLight() =
+        captureLight("31b_outreach_setup_direct_launch_granted") {
+            OutreachSetupScreen(
+                state = OutreachSetupState(
+                    directLaunchApplicable = true,
+                    directLaunchEnabled = true,
+                    overlayPermissionGranted = true
+                )
+            )
+        }
+
     // =========================================================================
     // Usage Setup
     // =========================================================================

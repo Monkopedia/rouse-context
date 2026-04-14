@@ -54,6 +54,14 @@ class IntegrationSettingsStore(private val context: Context) {
         const val KEY_RETENTION_DAYS = "retention_days"
         const val KEY_DND_TOGGLED = "dnd_toggled"
 
+        /**
+         * Outreach: user opted in to SYSTEM_ALERT_WINDOW so the app can start
+         * activities (open_link / launch_app) directly from the background on
+         * Android 14+. When false, those tools post a tap-to-launch notification.
+         * See GitHub issue #102.
+         */
+        const val KEY_DIRECT_LAUNCH_ENABLED = "direct_launch_enabled"
+
         private fun booleanKey(id: String, key: String) = booleanPreferencesKey("${id}_$key")
 
         private fun intKey(id: String, key: String) = intPreferencesKey("${id}_$key")

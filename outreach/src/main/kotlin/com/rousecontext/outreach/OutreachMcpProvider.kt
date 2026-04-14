@@ -10,8 +10,10 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.mcp.core.Clock
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.RateLimiter
@@ -36,7 +38,9 @@ import kotlinx.serialization.json.jsonPrimitive
 class OutreachMcpProvider(
     private val context: Context,
     private val dndEnabled: Boolean = false,
-    clock: Clock = SystemClock
+    clock: Clock = SystemClock,
+    private val canLaunchDirectly: () -> Boolean = { defaultCanLaunchDirectly(context) },
+    private val launchNotifier: LaunchRequestNotifierApi? = null
 ) : McpServerProvider {
 
     override val id = "outreach"
@@ -99,7 +103,11 @@ class OutreachMcpProvider(
                 intent.putExtra(key, value.jsonPrimitive.content)
             }
 
-            launchActivitySafely(intent, "launch $packageName")
+            launchActivitySafely(
+                intent = intent,
+                description = "launch $packageName",
+                fallback = { launchNotifier?.postLaunchApp(intent, packageName) }
+            )
         }
     }
 
@@ -124,7 +132,11 @@ class OutreachMcpProvider(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            launchActivitySafely(intent, "open $url")
+            launchActivitySafely(
+                intent = intent,
+                description = "open $url",
+                fallback = { launchNotifier?.postOpenLink(intent, url) }
+            )
         }
     }
 
@@ -475,32 +487,63 @@ class OutreachMcpProvider(
     }
 
     /**
-     * Launch an activity using PendingIntent to avoid Android 10+ background activity
-     * start restrictions. Direct startActivity from a Service/Application context is
-     * silently dropped on API 29+; PendingIntent.send() works reliably from background.
+     * Launch an activity, or fall back to a tap-to-launch notification when the
+     * app cannot start activities directly from the background.
+     *
+     * On Android 14+ the sender of a PendingIntent must hold background-activity-start
+     * privilege at `send()` time. `FOREGROUND_SERVICE_TYPE_DATA_SYNC` (what Rouse uses)
+     * does NOT grant BAL, so without SYSTEM_ALERT_WINDOW the PendingIntent silently
+     * no-ops. The [canLaunchDirectly] predicate decides which path to take; the
+     * notification path stays valid regardless of BAL since tap-launches are always
+     * allowed.
+     *
+     * On pre-Android-14, [canLaunchDirectly] defaults to true and the PendingIntent
+     * path is used as before.
      */
     @Suppress("TooGenericExceptionCaught")
-    private fun launchActivitySafely(intent: Intent, description: String): CallToolResult = try {
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            intent.hashCode(),
-            intent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        pendingIntent.send()
-        successResult("Launched: $description")
-    } catch (e: android.content.ActivityNotFoundException) {
-        Log.e(TAG, "No activity found to $description", e)
-        errorResult("No app found to $description: ${e.message}")
-    } catch (e: SecurityException) {
-        Log.e(TAG, "Permission denied to $description", e)
-        errorResult("Permission denied to $description: ${e.message}")
-    } catch (e: PendingIntent.CanceledException) {
-        Log.e(TAG, "PendingIntent cancelled for $description", e)
-        errorResult("Failed to $description: activity launch was cancelled")
-    } catch (e: Exception) {
-        Log.e(TAG, "Unexpected error trying to $description", e)
-        errorResult("Failed to $description: ${e.javaClass.simpleName} - ${e.message}")
+    private fun launchActivitySafely(
+        intent: Intent,
+        description: String,
+        fallback: () -> Int?
+    ): CallToolResult {
+        if (!canLaunchDirectly() && launchNotifier != null) {
+            return try {
+                val id = fallback()
+                if (id != null) {
+                    successResult("Notification posted: tap to $description")
+                } else {
+                    errorResult("Failed to $description: no fallback notifier available")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to post launch notification for $description", e)
+                errorResult(
+                    "Failed to $description: ${e.javaClass.simpleName} - ${e.message}"
+                )
+            }
+        }
+
+        return try {
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                intent.hashCode(),
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            pendingIntent.send()
+            successResult("Launched: $description")
+        } catch (e: android.content.ActivityNotFoundException) {
+            Log.e(TAG, "No activity found to $description", e)
+            errorResult("No app found to $description: ${e.message}")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Permission denied to $description", e)
+            errorResult("Permission denied to $description: ${e.message}")
+        } catch (e: PendingIntent.CanceledException) {
+            Log.e(TAG, "PendingIntent cancelled for $description", e)
+            errorResult("Failed to $description: activity launch was cancelled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error trying to $description", e)
+            errorResult("Failed to $description: ${e.javaClass.simpleName} - ${e.message}")
+        }
     }
 
     companion object {
@@ -512,6 +555,19 @@ class OutreachMcpProvider(
         private const val RATE_LIMIT_WINDOW_MS = 60_000L
         private const val MAX_NOTIFICATION_ACTIONS = 3
         private const val TAG = "OutreachMcp"
+
+        /**
+         * Default "can launch activity directly" check used when the caller does
+         * not supply an explicit predicate. Pre-Android-14 background launches via
+         * PendingIntent are allowed; on Android 14+ the sender must hold BAL, which
+         * SYSTEM_ALERT_WINDOW provides (`Settings.canDrawOverlays`).
+         */
+        fun defaultCanLaunchDirectly(context: Context): Boolean {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                return true
+            }
+            return Settings.canDrawOverlays(context)
+        }
     }
 }
 
