@@ -84,9 +84,8 @@ fn make_ctx(
 #[tokio::test]
 async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
     // Firestore starts with the OLD secret list.
-    let firestore = Arc::new(
-        MockFirestore::new().with_device("cool-penguin", make_device("old-health")),
-    );
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("cool-penguin", make_device("old-health")));
 
     // Build the AppState manually so we can reuse the same RelayState between
     // the API call and the passthrough call.
@@ -141,14 +140,10 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
 
     // Simulate eventual-consistency lag: force Firestore to still return the
     // OLD list so the cache is the only source that knows about lucky-usage.
-    firestore
-        .devices
-        .lock()
-        .unwrap()
-        .insert(
-            "cool-penguin".to_string(),
-            make_device("old-health"), // valid_secrets = ["old-health"]
-        );
+    firestore.devices.lock().unwrap().insert(
+        "cool-penguin".to_string(),
+        make_device("old-health"), // valid_secrets = ["old-health"]
+    );
 
     // Now simulate a passthrough connection using the new secret.
     let _frame_rx = setup_device(&relay_state, &session_registry, "cool-penguin");
@@ -177,9 +172,8 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
 /// cache is authoritative once seeded).
 #[tokio::test]
 async fn rotate_secret_cache_rejects_secrets_not_in_list() {
-    let firestore = Arc::new(
-        MockFirestore::new().with_device("cool-penguin", make_device("old-health")),
-    );
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("cool-penguin", make_device("old-health")));
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let ca = rouse_relay::device_ca::DeviceCa::load_or_create(

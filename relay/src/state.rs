@@ -56,7 +56,8 @@ impl RelayState {
         if secrets.is_empty() {
             self.valid_secrets_cache.remove(subdomain);
         } else {
-            self.valid_secrets_cache.insert(subdomain.to_string(), secrets);
+            self.valid_secrets_cache
+                .insert(subdomain.to_string(), secrets);
         }
     }
 
