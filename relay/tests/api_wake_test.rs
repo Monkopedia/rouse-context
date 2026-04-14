@@ -40,6 +40,9 @@ fn make_app_with_state(
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter,
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
     });
@@ -163,6 +166,9 @@ async fn wake_rate_limit_returns_429() {
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter,
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
     });

@@ -60,6 +60,9 @@ pub struct MaintenanceReport {
     pub reclaim_errors: u32,
     pub stale_devices_swept: u32,
     pub stale_device_sweep_errors: u32,
+    /// Number of expired subdomain reservations deleted this pass.
+    pub reservations_expired: u32,
+    pub reservation_sweep_errors: u32,
 }
 
 /// Check if a device's cert is expiring soon and hasn't been nudged.
@@ -261,6 +264,31 @@ pub async fn run_maintenance_once(
         }
     }
 
+    // 3. Sweep expired subdomain reservations (created by /request-subdomain)
+    match firestore.list_reservations().await {
+        Ok(reservations) => {
+            for (subdomain, reservation) in &reservations {
+                if now.duration_since(reservation.expires_at).is_err() {
+                    // Still within TTL
+                    continue;
+                }
+                match firestore.delete_reservation(subdomain).await {
+                    Ok(()) => {
+                        info!(subdomain, "Expired subdomain reservation released");
+                        report.reservations_expired += 1;
+                    }
+                    Err(e) => {
+                        warn!(subdomain, error = %e, "Failed to delete expired reservation");
+                        report.reservation_sweep_errors += 1;
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to list reservations for maintenance");
+        }
+    }
+
     info!(?report, "Maintenance pass completed");
 
     report
@@ -272,7 +300,9 @@ mod tests {
     use crate::acme::{AcmeClient, AcmeError, CertificateBundle};
     use crate::dns::{DnsClient, DnsError};
     use crate::fcm::{FcmClient, FcmData, FcmError};
-    use crate::firestore::{DeviceRecord, FirestoreClient, FirestoreError, PendingCert};
+    use crate::firestore::{
+        DeviceRecord, FirestoreClient, FirestoreError, PendingCert, SubdomainReservation,
+    };
     use std::sync::Mutex;
     use std::time::{Duration, SystemTime};
 
@@ -302,6 +332,8 @@ mod tests {
     struct MockFirestore {
         devices: Mutex<Vec<(String, DeviceRecord)>>,
         deleted_devices: Mutex<Vec<String>>,
+        reservations: Mutex<Vec<(String, SubdomainReservation)>>,
+        deleted_reservations: Mutex<Vec<String>>,
     }
 
     impl MockFirestore {
@@ -309,7 +341,14 @@ mod tests {
             Self {
                 devices: Mutex::new(devices),
                 deleted_devices: Mutex::new(Vec::new()),
+                reservations: Mutex::new(Vec::new()),
+                deleted_reservations: Mutex::new(Vec::new()),
             }
+        }
+
+        fn with_reservations(mut self, reservations: Vec<(String, SubdomainReservation)>) -> Self {
+            self.reservations = Mutex::new(reservations);
+            self
         }
     }
 
@@ -357,6 +396,50 @@ mod tests {
         }
         async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError> {
             Ok(Vec::new())
+        }
+        async fn put_reservation(
+            &self,
+            subdomain: &str,
+            reservation: &SubdomainReservation,
+        ) -> Result<(), FirestoreError> {
+            self.reservations
+                .lock()
+                .unwrap()
+                .push((subdomain.to_string(), reservation.clone()));
+            Ok(())
+        }
+        async fn get_reservation(
+            &self,
+            subdomain: &str,
+        ) -> Result<SubdomainReservation, FirestoreError> {
+            let reservations = self.reservations.lock().unwrap();
+            reservations
+                .iter()
+                .find(|(s, _)| s == subdomain)
+                .map(|(_, r)| r.clone())
+                .ok_or_else(|| FirestoreError::NotFound(subdomain.to_string()))
+        }
+        async fn find_reservation_by_uid(
+            &self,
+            _uid: &str,
+        ) -> Result<Option<(String, SubdomainReservation)>, FirestoreError> {
+            Ok(None)
+        }
+        async fn delete_reservation(&self, subdomain: &str) -> Result<(), FirestoreError> {
+            self.deleted_reservations
+                .lock()
+                .unwrap()
+                .push(subdomain.to_string());
+            self.reservations
+                .lock()
+                .unwrap()
+                .retain(|(s, _)| s != subdomain);
+            Ok(())
+        }
+        async fn list_reservations(
+            &self,
+        ) -> Result<Vec<(String, SubdomainReservation)>, FirestoreError> {
+            Ok(self.reservations.lock().unwrap().clone())
         }
     }
 
@@ -621,6 +704,49 @@ mod tests {
         assert!(deleted.contains(&"stale-two".to_string()));
         assert!(!deleted.contains(&"fresh-one".to_string()));
         assert!(!deleted.contains(&"fresh-two".to_string()));
+    }
+
+    #[tokio::test]
+    async fn expired_reservation_is_swept() {
+        let now = SystemTime::now();
+        let past = now - Duration::from_secs(60);
+        let future = now + Duration::from_secs(600);
+        let expired = SubdomainReservation {
+            fqdn: "ember.rousecontext.com".to_string(),
+            firebase_uid: "uid-1".to_string(),
+            expires_at: past,
+            base_domain: "rousecontext.com".to_string(),
+            created_at: now - Duration::from_secs(3600),
+        };
+        let fresh = SubdomainReservation {
+            fqdn: "sable.rousecontext.com".to_string(),
+            firebase_uid: "uid-2".to_string(),
+            expires_at: future,
+            base_domain: "rousecontext.com".to_string(),
+            created_at: now,
+        };
+        let firestore = Arc::new(MockFirestore::new(Vec::new()).with_reservations(vec![
+            ("ember".to_string(), expired),
+            ("sable".to_string(), fresh),
+        ]));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.reservations_expired, 1);
+        assert_eq!(report.reservation_sweep_errors, 0);
+        let deleted = firestore.deleted_reservations.lock().unwrap();
+        assert_eq!(deleted.as_slice(), &["ember"]);
     }
 
     #[tokio::test]

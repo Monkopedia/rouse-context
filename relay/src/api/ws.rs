@@ -461,6 +461,43 @@ mod tests {
         {
             Ok(Vec::new())
         }
+        async fn put_reservation(
+            &self,
+            _s: &str,
+            _r: &crate::firestore::SubdomainReservation,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn get_reservation(
+            &self,
+            s: &str,
+        ) -> Result<crate::firestore::SubdomainReservation, crate::firestore::FirestoreError>
+        {
+            Err(crate::firestore::FirestoreError::NotFound(s.to_string()))
+        }
+        async fn find_reservation_by_uid(
+            &self,
+            _uid: &str,
+        ) -> Result<
+            Option<(String, crate::firestore::SubdomainReservation)>,
+            crate::firestore::FirestoreError,
+        > {
+            Ok(None)
+        }
+        async fn delete_reservation(
+            &self,
+            _s: &str,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn list_reservations(
+            &self,
+        ) -> Result<
+            Vec<(String, crate::firestore::SubdomainReservation)>,
+            crate::firestore::FirestoreError,
+        > {
+            Ok(Vec::new())
+        }
     }
 
     struct StubFcm;
@@ -518,6 +555,9 @@ mod tests {
             firebase_auth: Arc::new(StubFirebaseAuth),
             subdomain_generator: crate::subdomain::SubdomainGenerator::new(),
             rate_limiter: crate::rate_limit::RateLimiter::new(
+                crate::rate_limit::RateLimitConfig::default(),
+            ),
+            request_subdomain_rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
             ),
             config: RelayConfig::default(),

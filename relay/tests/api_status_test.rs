@@ -21,6 +21,9 @@ fn make_app(relay_state: Arc<RelayState>) -> axum::Router {
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
     });

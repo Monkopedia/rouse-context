@@ -77,3 +77,60 @@ fn word_lists_have_sufficient_entries() {
         "Need at least 100 nouns, got {noun_count}"
     );
 }
+
+#[test]
+fn generate_single_word_returns_member_of_pool() {
+    let gen = SubdomainGenerator::new();
+    let pool: HashSet<String> = gen
+        .adjectives()
+        .iter()
+        .chain(gen.nouns().iter())
+        .map(|s| s.to_string())
+        .collect();
+
+    for _ in 0..500 {
+        let name = gen.generate_single_word();
+        assert!(
+            !name.contains('-'),
+            "single-word name must not contain a hyphen: {name}"
+        );
+        assert!(
+            pool.contains(&name),
+            "generated name '{name}' not found in adjectives ∪ nouns pool"
+        );
+    }
+}
+
+#[test]
+fn generate_single_word_covers_both_lists() {
+    // Sanity: over 2000 samples we should see at least one adjective and
+    // one noun. With a union of ~200 of each, the chance of missing either
+    // is astronomically small if the distribution is uniform.
+    let gen = SubdomainGenerator::new();
+    let adj_set: HashSet<String> = gen.adjectives().iter().map(|s| s.to_string()).collect();
+    let noun_set: HashSet<String> = gen.nouns().iter().map(|s| s.to_string()).collect();
+
+    let mut saw_adj = false;
+    let mut saw_noun = false;
+    for _ in 0..2000 {
+        let name = gen.generate_single_word();
+        if adj_set.contains(&name) {
+            saw_adj = true;
+        }
+        if noun_set.contains(&name) {
+            saw_noun = true;
+        }
+        if saw_adj && saw_noun {
+            return;
+        }
+    }
+    assert!(saw_adj, "never sampled from the adjective list");
+    assert!(saw_noun, "never sampled from the noun list");
+}
+
+#[test]
+fn single_word_pool_size_is_sum_of_lists() {
+    let gen = SubdomainGenerator::new();
+    let (adj_count, noun_count) = gen.word_counts();
+    assert_eq!(gen.single_word_pool_size(), adj_count + noun_count);
+}

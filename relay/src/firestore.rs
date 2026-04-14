@@ -51,6 +51,25 @@ pub struct PendingCert {
     pub retry_after: SystemTime,
 }
 
+/// A short-lived subdomain reservation stored in `subdomain_reservations/{subdomain}`.
+///
+/// Created by `POST /request-subdomain` and consumed by the subsequent
+/// `POST /register` + `POST /register/certs` flow. Expired reservations are
+/// swept by the maintenance loop.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubdomainReservation {
+    /// The FQDN this reservation covers (base domain included).
+    pub fqdn: String,
+    /// Firebase UID that reserved the name.
+    pub firebase_uid: String,
+    /// Absolute expiry time after which the name returns to the pool.
+    pub expires_at: SystemTime,
+    /// Base domain under which the FQDN sits — used for the release valve.
+    pub base_domain: String,
+    /// When the reservation was created.
+    pub created_at: SystemTime,
+}
+
 #[async_trait]
 pub trait FirestoreClient: Send + Sync {
     /// Get a device record by subdomain.
@@ -90,4 +109,31 @@ pub trait FirestoreClient: Send + Sync {
 
     /// List all pending cert records. Returns (subdomain, pending_cert) pairs.
     async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError>;
+
+    /// Create or update a subdomain reservation.
+    async fn put_reservation(
+        &self,
+        subdomain: &str,
+        reservation: &SubdomainReservation,
+    ) -> Result<(), FirestoreError>;
+
+    /// Get a subdomain reservation by subdomain.
+    async fn get_reservation(
+        &self,
+        subdomain: &str,
+    ) -> Result<SubdomainReservation, FirestoreError>;
+
+    /// Find a (non-expired) reservation for the given Firebase UID, if any.
+    async fn find_reservation_by_uid(
+        &self,
+        firebase_uid: &str,
+    ) -> Result<Option<(String, SubdomainReservation)>, FirestoreError>;
+
+    /// Delete a subdomain reservation.
+    async fn delete_reservation(&self, subdomain: &str) -> Result<(), FirestoreError>;
+
+    /// List all subdomain reservations.
+    async fn list_reservations(
+        &self,
+    ) -> Result<Vec<(String, SubdomainReservation)>, FirestoreError>;
 }

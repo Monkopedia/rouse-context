@@ -148,6 +148,9 @@ async fn ws_upgrade_with_device_identity() {
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
     });
@@ -259,6 +262,9 @@ async fn mux_frame_round_trip_through_ws() {
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
         config: rouse_relay::config::RelayConfig::default(),

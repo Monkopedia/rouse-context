@@ -4,6 +4,7 @@
 
 pub mod register;
 pub mod renew;
+pub mod request_subdomain;
 pub mod rotate_secret;
 pub mod status;
 pub mod wake;
@@ -175,6 +176,10 @@ pub struct AppState {
     pub firebase_auth: std::sync::Arc<dyn crate::firebase_auth::FirebaseAuth>,
     pub subdomain_generator: crate::subdomain::SubdomainGenerator,
     pub rate_limiter: crate::rate_limit::RateLimiter,
+    /// Per-Firebase-UID limiter for `POST /request-subdomain`. Prevents
+    /// pool enumeration. Keyed by `firebase_uid`, independent from the
+    /// wake/passthrough buckets.
+    pub request_subdomain_rate_limiter: crate::rate_limit::RateLimiter,
     pub config: crate::config::RelayConfig,
     pub device_ca: Option<crate::device_ca::DeviceCa>,
 }
@@ -186,6 +191,10 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
         .route(
             "/register/certs",
             axum::routing::post(register::handle_register_certs),
+        )
+        .route(
+            "/request-subdomain",
+            axum::routing::post(request_subdomain::handle_request_subdomain),
         )
         .route("/renew", axum::routing::post(renew::handle_renew))
         .route(

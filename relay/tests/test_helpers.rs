@@ -11,7 +11,9 @@ use rouse_relay::fcm::{FcmClient, FcmData, FcmError};
 #[allow(unused_imports)]
 use rouse_relay::firebase_auth::{FirebaseAuth, FirebaseAuthError, FirebaseClaims};
 #[allow(unused_imports)]
-use rouse_relay::firestore::{DeviceRecord, FirestoreClient, FirestoreError, PendingCert};
+use rouse_relay::firestore::{
+    DeviceRecord, FirestoreClient, FirestoreError, PendingCert, SubdomainReservation,
+};
 #[allow(unused_imports)]
 use std::collections::HashMap;
 #[allow(unused_imports)]
@@ -22,6 +24,7 @@ use std::sync::{Arc, Mutex};
 pub struct MockFirestore {
     pub devices: Mutex<HashMap<String, DeviceRecord>>,
     pub pending_certs: Mutex<HashMap<String, PendingCert>>,
+    pub reservations: Mutex<HashMap<String, SubdomainReservation>>,
 }
 
 impl Default for MockFirestore {
@@ -36,6 +39,7 @@ impl MockFirestore {
         Self {
             devices: Mutex::new(HashMap::new()),
             pending_certs: Mutex::new(HashMap::new()),
+            reservations: Mutex::new(HashMap::new()),
         }
     }
 
@@ -44,6 +48,14 @@ impl MockFirestore {
             .lock()
             .unwrap()
             .insert(subdomain.to_string(), record);
+        self
+    }
+
+    pub fn with_reservation(self, subdomain: &str, reservation: SubdomainReservation) -> Self {
+        self.reservations
+            .lock()
+            .unwrap()
+            .insert(subdomain.to_string(), reservation);
         self
     }
 }
@@ -126,6 +138,53 @@ impl FirestoreClient for MockFirestore {
     async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError> {
         let certs = self.pending_certs.lock().unwrap();
         Ok(certs.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
+    async fn put_reservation(
+        &self,
+        subdomain: &str,
+        reservation: &SubdomainReservation,
+    ) -> Result<(), FirestoreError> {
+        self.reservations
+            .lock()
+            .unwrap()
+            .insert(subdomain.to_string(), reservation.clone());
+        Ok(())
+    }
+
+    async fn get_reservation(
+        &self,
+        subdomain: &str,
+    ) -> Result<SubdomainReservation, FirestoreError> {
+        self.reservations
+            .lock()
+            .unwrap()
+            .get(subdomain)
+            .cloned()
+            .ok_or_else(|| FirestoreError::NotFound(subdomain.to_string()))
+    }
+
+    async fn find_reservation_by_uid(
+        &self,
+        firebase_uid: &str,
+    ) -> Result<Option<(String, SubdomainReservation)>, FirestoreError> {
+        let map = self.reservations.lock().unwrap();
+        Ok(map
+            .iter()
+            .find(|(_, r)| r.firebase_uid == firebase_uid)
+            .map(|(k, v)| (k.clone(), v.clone())))
+    }
+
+    async fn delete_reservation(&self, subdomain: &str) -> Result<(), FirestoreError> {
+        self.reservations.lock().unwrap().remove(subdomain);
+        Ok(())
+    }
+
+    async fn list_reservations(
+        &self,
+    ) -> Result<Vec<(String, SubdomainReservation)>, FirestoreError> {
+        let map = self.reservations.lock().unwrap();
+        Ok(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 }
 
@@ -355,6 +414,12 @@ pub fn build_test_state_with_dns(
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig {
+                max_tokens: 3,
+                refill_interval: std::time::Duration::from_secs(20),
+            },
+        ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
     })
@@ -388,6 +453,12 @@ pub fn build_test_state_with_ca(
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig {
+                max_tokens: 3,
+                refill_interval: std::time::Duration::from_secs(20),
+            },
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),

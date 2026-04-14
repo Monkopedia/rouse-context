@@ -134,6 +134,11 @@ async fn main() {
 
     let dns: Arc<dyn rouse_relay::dns::DnsClient> = build_dns_client(&config);
 
+    let request_subdomain_limiter_cfg = rouse_relay::rate_limit::RateLimitConfig {
+        max_tokens: config.limits.request_subdomain_rate_burst,
+        refill_interval: Duration::from_secs(config.limits.request_subdomain_rate_refill_secs),
+    };
+
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
         session_registry: session_registry.clone(),
@@ -145,6 +150,9 @@ async fn main() {
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            request_subdomain_limiter_cfg,
         ),
         config: config.clone(),
         device_ca,
@@ -632,6 +640,9 @@ struct InMemoryFirestore {
         std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::DeviceRecord>>,
     pending_certs:
         std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::PendingCert>>,
+    reservations: std::sync::Mutex<
+        std::collections::HashMap<String, rouse_relay::firestore::SubdomainReservation>,
+    >,
 }
 
 impl InMemoryFirestore {
@@ -639,6 +650,7 @@ impl InMemoryFirestore {
         Self {
             devices: std::sync::Mutex::new(std::collections::HashMap::new()),
             pending_certs: std::sync::Mutex::new(std::collections::HashMap::new()),
+            reservations: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -740,6 +752,60 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
     > {
         let certs = self.pending_certs.lock().unwrap();
         Ok(certs.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+    }
+
+    async fn put_reservation(
+        &self,
+        subdomain: &str,
+        reservation: &rouse_relay::firestore::SubdomainReservation,
+    ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut map = self.reservations.lock().unwrap();
+        map.insert(subdomain.to_string(), reservation.clone());
+        Ok(())
+    }
+
+    async fn get_reservation(
+        &self,
+        subdomain: &str,
+    ) -> Result<rouse_relay::firestore::SubdomainReservation, rouse_relay::firestore::FirestoreError>
+    {
+        let map = self.reservations.lock().unwrap();
+        map.get(subdomain)
+            .cloned()
+            .ok_or_else(|| rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string()))
+    }
+
+    async fn find_reservation_by_uid(
+        &self,
+        firebase_uid: &str,
+    ) -> Result<
+        Option<(String, rouse_relay::firestore::SubdomainReservation)>,
+        rouse_relay::firestore::FirestoreError,
+    > {
+        let map = self.reservations.lock().unwrap();
+        Ok(map
+            .iter()
+            .find(|(_, r)| r.firebase_uid == firebase_uid)
+            .map(|(k, v)| (k.clone(), v.clone())))
+    }
+
+    async fn delete_reservation(
+        &self,
+        subdomain: &str,
+    ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut map = self.reservations.lock().unwrap();
+        map.remove(subdomain);
+        Ok(())
+    }
+
+    async fn list_reservations(
+        &self,
+    ) -> Result<
+        Vec<(String, rouse_relay::firestore::SubdomainReservation)>,
+        rouse_relay::firestore::FirestoreError,
+    > {
+        let map = self.reservations.lock().unwrap();
+        Ok(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 }
 

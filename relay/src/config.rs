@@ -65,6 +65,15 @@ pub struct ServerConfig {
     /// (so `relay_hostname = "relay.example.com"` yields `base_domain = "example.com"`).
     /// Set explicitly when your relay hostname doesn't follow that convention.
     pub base_domain: String,
+    /// Additional base domains used by `POST /request-subdomain` for the
+    /// multi-domain release valve. When multiple domains are configured, a new
+    /// reservation is spread across them (currently: simple round-robin by
+    /// density; future: weighted by ACME quota remaining). When empty, the
+    /// single `resolved_base_domain()` is used.
+    ///
+    /// The primary `base_domain` is always included implicitly.
+    #[serde(default)]
+    pub additional_base_domains: Vec<String>,
 }
 
 impl ServerConfig {
@@ -78,6 +87,18 @@ impl ServerConfig {
             .strip_prefix("relay.")
             .unwrap_or(&self.relay_hostname)
             .to_string()
+    }
+
+    /// Return the full list of base domains available to the release valve.
+    /// The primary resolved base domain is always first.
+    pub fn all_base_domains(&self) -> Vec<String> {
+        let mut domains = vec![self.resolved_base_domain()];
+        for extra in &self.additional_base_domains {
+            if !extra.is_empty() && !domains.contains(extra) {
+                domains.push(extra.clone());
+            }
+        }
+        domains
     }
 }
 
@@ -120,6 +141,16 @@ pub struct LimitsConfig {
     /// Days since `registered_at` before a device is considered stale and swept
     /// from Firestore and DNS. Default: 180.
     pub stale_device_sweep_days: u64,
+    /// How long a subdomain reservation remains valid after `POST /request-subdomain`.
+    /// Must be long enough for the device to generate a CSR and call
+    /// `/register/certs`. Default: 600 (10 minutes).
+    pub subdomain_reservation_ttl_secs: u64,
+    /// Per-Firebase-UID burst size for `POST /request-subdomain`. Default: 3.
+    /// Prevents pool enumeration.
+    pub request_subdomain_rate_burst: u32,
+    /// Refill interval (seconds) for the per-UID request-subdomain limiter.
+    /// Default: 20 (one token every 20s, so 3/min sustained).
+    pub request_subdomain_rate_refill_secs: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -172,6 +203,7 @@ impl Default for ServerConfig {
             bind_addr: "0.0.0.0:443".to_string(),
             relay_hostname: "relay.rousecontext.com".to_string(),
             base_domain: String::new(),
+            additional_base_domains: Vec::new(),
         }
     }
 }
@@ -195,6 +227,9 @@ impl Default for LimitsConfig {
             ws_ping_interval_secs: 30,
             ws_read_timeout_secs: 60,
             stale_device_sweep_days: 180,
+            subdomain_reservation_ttl_secs: 600,
+            request_subdomain_rate_burst: 3,
+            request_subdomain_rate_refill_secs: 20,
         }
     }
 }

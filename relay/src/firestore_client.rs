@@ -3,7 +3,9 @@
 //! Uses service account OAuth2 tokens via [`TokenProvider`] and speaks
 //! the Firestore REST wire format (Value wrappers around every field).
 
-use crate::firestore::{DeviceRecord, FirestoreClient, FirestoreError, PendingCert};
+use crate::firestore::{
+    DeviceRecord, FirestoreClient, FirestoreError, PendingCert, SubdomainReservation,
+};
 use crate::google_auth::TokenProvider;
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -394,6 +396,42 @@ fn pending_cert_from_fields(
     })
 }
 
+fn reservation_to_fields(
+    reservation: &SubdomainReservation,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    fields.insert("fqdn".to_string(), string_val(&reservation.fqdn));
+    fields.insert(
+        "firebase_uid".to_string(),
+        string_val(&reservation.firebase_uid),
+    );
+    fields.insert(
+        "expires_at".to_string(),
+        timestamp_val(reservation.expires_at),
+    );
+    fields.insert(
+        "base_domain".to_string(),
+        string_val(&reservation.base_domain),
+    );
+    fields.insert(
+        "created_at".to_string(),
+        timestamp_val(reservation.created_at),
+    );
+    fields
+}
+
+fn reservation_from_fields(
+    fields: &serde_json::Map<String, serde_json::Value>,
+) -> Result<SubdomainReservation, FirestoreError> {
+    Ok(SubdomainReservation {
+        fqdn: read_string(fields, "fqdn")?,
+        firebase_uid: read_string(fields, "firebase_uid")?,
+        expires_at: read_timestamp(fields, "expires_at")?,
+        base_domain: read_string(fields, "base_domain")?,
+        created_at: read_timestamp(fields, "created_at")?,
+    })
+}
+
 /// Extract the document ID from a Firestore document `name` field.
 /// The name looks like `projects/.../documents/devices/my-subdomain`.
 fn doc_id_from_name(name: &str) -> String {
@@ -636,6 +674,154 @@ impl FirestoreClient for RealFirestoreClient {
 
         Ok(results)
     }
+
+    async fn put_reservation(
+        &self,
+        subdomain: &str,
+        reservation: &SubdomainReservation,
+    ) -> Result<(), FirestoreError> {
+        let path = format!("subdomain_reservations/{subdomain}");
+        let body = serde_json::json!({ "fields": reservation_to_fields(reservation) });
+        self.patch_with_retry(&path, &body).await?;
+        Ok(())
+    }
+
+    async fn get_reservation(
+        &self,
+        subdomain: &str,
+    ) -> Result<SubdomainReservation, FirestoreError> {
+        let path = format!("subdomain_reservations/{subdomain}");
+        let resp = self.get_with_retry(&path).await?;
+        let doc: Document = resp
+            .json()
+            .await
+            .map_err(|e| FirestoreError::Serialization(e.to_string()))?;
+        reservation_from_fields(&doc.fields)
+    }
+
+    async fn find_reservation_by_uid(
+        &self,
+        firebase_uid: &str,
+    ) -> Result<Option<(String, SubdomainReservation)>, FirestoreError> {
+        let token = self.token().await?;
+        let url = format!("{}:runQuery", self.base_url);
+
+        let query = serde_json::json!({
+            "structuredQuery": {
+                "from": [{ "collectionId": "subdomain_reservations" }],
+                "where": {
+                    "fieldFilter": {
+                        "field": { "fieldPath": "firebase_uid" },
+                        "op": "EQUAL",
+                        "value": { "stringValue": firebase_uid }
+                    }
+                },
+                "limit": 1
+            }
+        });
+
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(token)
+            .json(&query)
+            .send()
+            .await
+            .map_err(|e| FirestoreError::Http(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(FirestoreError::Http(format!(
+                "Firestore query returned {status}: {body}"
+            )));
+        }
+
+        let elements: Vec<RunQueryResponseElement> = resp
+            .json()
+            .await
+            .map_err(|e| FirestoreError::Serialization(e.to_string()))?;
+
+        for elem in elements {
+            if let Some(doc) = elem.document {
+                let id = doc_id_from_name(&doc.name);
+                let reservation = reservation_from_fields(&doc.fields)?;
+                return Ok(Some((id, reservation)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn delete_reservation(&self, subdomain: &str) -> Result<(), FirestoreError> {
+        let path = format!("subdomain_reservations/{subdomain}");
+        match self.delete_with_retry(&path).await {
+            Ok(_) => Ok(()),
+            Err(FirestoreError::NotFound(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn list_reservations(
+        &self,
+    ) -> Result<Vec<(String, SubdomainReservation)>, FirestoreError> {
+        let mut results = Vec::new();
+        let mut page_token: Option<String> = None;
+
+        loop {
+            let token = self.token().await?;
+            let mut url = format!("{}/subdomain_reservations", self.base_url);
+            if let Some(ref pt) = page_token {
+                url = format!("{url}?pageToken={pt}");
+            }
+
+            let resp = self
+                .http
+                .get(&url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .map_err(|e| FirestoreError::Http(e.to_string()))?;
+
+            if !resp.status().is_success() {
+                let status = resp.status().as_u16();
+                let body = resp.text().await.unwrap_or_default();
+                return Err(FirestoreError::Http(format!(
+                    "Firestore list returned {status}: {body}"
+                )));
+            }
+
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct ListResponse {
+                #[serde(default)]
+                documents: Vec<Document>,
+                next_page_token: Option<String>,
+            }
+
+            let list: ListResponse = resp
+                .json()
+                .await
+                .map_err(|e| FirestoreError::Serialization(e.to_string()))?;
+
+            for doc in &list.documents {
+                let id = doc_id_from_name(&doc.name);
+                match reservation_from_fields(&doc.fields) {
+                    Ok(r) => results.push((id, r)),
+                    Err(e) => {
+                        warn!(doc_name = %doc.name, "Skipping malformed reservation document: {e}");
+                    }
+                }
+            }
+
+            match list.next_page_token {
+                Some(pt) if !pt.is_empty() => page_token = Some(pt),
+                _ => break,
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 #[cfg(test)]
@@ -690,6 +876,36 @@ mod tests {
         assert_eq!(back.valid_secrets.len(), 2);
         assert!(back.valid_secrets.contains(&"brave-health".to_string()));
         assert!(back.valid_secrets.contains(&"swift-outreach".to_string()));
+    }
+
+    #[test]
+    fn reservation_roundtrip() {
+        let r = SubdomainReservation {
+            fqdn: "coral.rousecontext.com".to_string(),
+            firebase_uid: "uid-xyz".to_string(),
+            expires_at: UNIX_EPOCH + Duration::from_secs(1_712_000_600),
+            base_domain: "rousecontext.com".to_string(),
+            created_at: UNIX_EPOCH + Duration::from_secs(1_712_000_000),
+        };
+        let fields = reservation_to_fields(&r);
+        let back = reservation_from_fields(&fields).unwrap();
+        assert_eq!(back.fqdn, r.fqdn);
+        assert_eq!(back.firebase_uid, r.firebase_uid);
+        assert_eq!(back.base_domain, r.base_domain);
+        assert_eq!(
+            back.expires_at
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            r.expires_at.duration_since(UNIX_EPOCH).unwrap().as_secs()
+        );
+        assert_eq!(
+            back.created_at
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+            r.created_at.duration_since(UNIX_EPOCH).unwrap().as_secs()
+        );
     }
 
     #[test]
