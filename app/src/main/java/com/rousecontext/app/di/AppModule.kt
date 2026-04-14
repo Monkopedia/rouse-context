@@ -442,7 +442,17 @@ val appModule = module {
     viewModel { NotificationSetupViewModel(androidContext(), get(), get()) }
     viewModel { OutreachSetupViewModel(androidContext(), get(), get()) }
     viewModel { UsageSetupViewModel(androidContext(), get()) }
-    viewModel { IntegrationSetupViewModel(get(), get(), get(), get()) }
+    viewModel {
+        IntegrationSetupViewModel(
+            stateStore = get(),
+            certProvisioningFlow = get(),
+            lazyWebSocketFactory = get(),
+            registrationStatus = get(),
+            relayApiClient = get(),
+            certStore = get(),
+            integrationIds = get<List<McpIntegration>>().map { it.id }
+        )
+    }
     viewModel { OnboardingViewModel(get(), get(), get()) }
     viewModel { NotificationPreferencesViewModel(get()) }
 }
