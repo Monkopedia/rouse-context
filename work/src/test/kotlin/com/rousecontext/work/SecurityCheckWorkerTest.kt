@@ -31,7 +31,7 @@ class SecurityCheckWorkerTest {
             Context.MODE_PRIVATE
         )
         prefs.edit().clear().commit()
-        fakeNotifier = FakeSecurityCheckNotifier(context)
+        fakeNotifier = FakeSecurityCheckNotifier()
     }
 
     @Test
@@ -186,11 +186,11 @@ private class StubSecurityCheck(private val result: SecurityCheckResult) : Secur
 }
 
 /**
- * Captures [SecurityCheckNotifier] invocations for assertion. We subclass the real notifier and
- * override the two public methods so the worker only sees the public API; no actual system
- * NotificationManager calls are made.
+ * Captures [SecurityCheckNotifier] invocations for assertion. Implements the interface
+ * directly, so the worker only sees the public API and no actual system NotificationManager
+ * calls are made.
  */
-private class FakeSecurityCheckNotifier(context: Context) : SecurityCheckNotifier(context) {
+private class FakeSecurityCheckNotifier : SecurityCheckNotifier {
     sealed class Call {
         data class Alert(val check: SecurityCheck, val reason: String) : Call()
 

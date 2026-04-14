@@ -46,7 +46,7 @@ class NotificationIconTest {
 
     @Test
     fun `SecurityCheckNotifier postAlert uses ic_stat_rouse`() {
-        val notifier = SecurityCheckNotifier(context)
+        val notifier = AndroidSecurityCheckNotifier(context)
         notifier.postAlert(SecurityCheckNotifier.SecurityCheck.SELF_CERT, "bad cert")
 
         val shadow = Shadows.shadowOf(manager)
@@ -58,7 +58,7 @@ class NotificationIconTest {
 
     @Test
     fun `SecurityCheckNotifier postInfo uses ic_stat_rouse`() {
-        val notifier = SecurityCheckNotifier(context)
+        val notifier = AndroidSecurityCheckNotifier(context)
         notifier.postInfo(SecurityCheckNotifier.SecurityCheck.CT_LOG, "ok")
 
         val shadow = Shadows.shadowOf(manager)
