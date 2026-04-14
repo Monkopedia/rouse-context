@@ -12,11 +12,17 @@ import kotlinx.serialization.json.JsonObject
  * [AuditListener] implementation that persists tool call events to Room.
  * Sensitive fields (errorMessage) are encrypted at rest when a [FieldEncryptor]
  * is provided.
+ *
+ * When a [perCallObserver] is supplied, it is invoked for every tool call
+ * after the DB insert is launched. This drives the per-tool-call notification
+ * path ([com.rousecontext.notifications.PerToolCallNotifier]) for
+ * [com.rousecontext.api.PostSessionMode.EACH_USAGE].
  */
 class RoomAuditListener(
     private val dao: AuditDao,
     private val scope: CoroutineScope,
-    private val fieldEncryptor: FieldEncryptor? = null
+    private val fieldEncryptor: FieldEncryptor? = null,
+    private val perCallObserver: PerCallObserver? = null
 ) : AuditListener {
 
     override fun onToolCall(event: ToolCallEvent) {
@@ -42,6 +48,7 @@ class RoomAuditListener(
                     resultJson = fieldEncryptor?.encrypt(resultJson) ?: resultJson
                 )
             )
+            perCallObserver?.onToolCallRecorded(event)
         }
     }
 }

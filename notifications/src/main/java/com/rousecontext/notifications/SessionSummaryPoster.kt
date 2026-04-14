@@ -24,8 +24,10 @@ import kotlinx.coroutines.flow.Flow
  *
  * - [PostSessionMode.SUMMARY]: one notification summarizing counts per provider.
  * - [PostSessionMode.SUPPRESS]: nothing.
- * - [PostSessionMode.EACH_USAGE]: nothing (per-tool-call notifications are a
- *   separate concern; see TODO below).
+ * - [PostSessionMode.EACH_USAGE]: nothing — per-tool-call notifications fire
+ *   from [com.rousecontext.notifications.PerToolCallNotifier], which is driven
+ *   by [com.rousecontext.notifications.audit.RoomAuditListener] and fires per
+ *   event rather than at session end.
  *
  * The notification taps through to the audit history, optionally filtered to the
  * session's time window (handled via intent extras keyed on [EXTRA_START_MILLIS]
@@ -47,10 +49,6 @@ import kotlinx.coroutines.flow.Flow
  * and do NOT re-post. The cursor is re-armed only after the tunnel fully
  * disconnects and reconnects. This prevents notification spam when clients
  * churn streams and matches the user-visible notion of "one session".
- *
- * TODO(#95): EachUsage mode is intentionally deferred here — per-entry posting
- * requires wrapping [com.rousecontext.notifications.audit.RoomAuditListener]
- * or tail-observing the DAO, which is more invasive than this initial wiring.
  */
 class SessionSummaryPoster(
     private val context: Context,
