@@ -1,9 +1,8 @@
-package com.rousecontext.work
+package com.rousecontext.notifications
 
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.rousecontext.notifications.NotificationChannels
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -12,7 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
-class FgsLimitHandlerTest {
+class FgsLimitNotifierTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val manager = context.getSystemService(NotificationManager::class.java)
@@ -21,7 +20,7 @@ class FgsLimitHandlerTest {
     fun `postLimitReachedNotification posts on FGS limit channel`() {
         NotificationChannels.createAll(context)
 
-        FgsLimitHandler.postLimitReachedNotification(context)
+        FgsLimitNotifier.postLimitReachedNotification(context)
 
         val active = manager.activeNotifications
         assertEquals(1, active.size)
@@ -36,9 +35,9 @@ class FgsLimitHandlerTest {
     fun `postLimitReachedNotification uses fixed id so repeated posts update same notification`() {
         NotificationChannels.createAll(context)
 
-        FgsLimitHandler.postLimitReachedNotification(context)
-        FgsLimitHandler.postLimitReachedNotification(context)
-        FgsLimitHandler.postLimitReachedNotification(context)
+        FgsLimitNotifier.postLimitReachedNotification(context)
+        FgsLimitNotifier.postLimitReachedNotification(context)
+        FgsLimitNotifier.postLimitReachedNotification(context)
 
         val active = manager.activeNotifications
         assertEquals(
@@ -46,14 +45,14 @@ class FgsLimitHandlerTest {
             1,
             active.size
         )
-        assertEquals(FgsLimitHandler.NOTIFICATION_ID, active.single().id)
+        assertEquals(FgsLimitNotifier.NOTIFICATION_ID, active.single().id)
     }
 
     @Test
     fun `postLimitReachedNotification uses expected copy`() {
         NotificationChannels.createAll(context)
 
-        FgsLimitHandler.postLimitReachedNotification(context)
+        FgsLimitNotifier.postLimitReachedNotification(context)
 
         val active = manager.activeNotifications.single()
         val text = active.notification.extras.getCharSequence(
