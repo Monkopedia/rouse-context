@@ -1,5 +1,6 @@
 package com.rousecontext.app.di
 
+import android.app.NotificationManager
 import android.content.Context
 import android.os.PowerManager
 import com.rousecontext.api.IntegrationStateStore
@@ -84,6 +85,7 @@ import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
 import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
+import kotlinx.coroutines.runBlocking
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
@@ -145,7 +147,7 @@ val appModule = module {
     // --- Device registration status ---
     single {
         val certStore: CertificateStore = get()
-        val alreadyRegistered = kotlinx.coroutines.runBlocking {
+        val alreadyRegistered = runBlocking {
             certStore.getSubdomain() != null
         }
         DeviceRegistrationStatus(initiallyRegistered = alreadyRegistered)
@@ -307,7 +309,7 @@ val appModule = module {
         val defaultIntegration = integrations.firstOrNull()?.id ?: "health"
         // Build hostname from cert store for OAuth metadata URLs.
         // With single-session, use the first available integration secret.
-        val hostname = kotlinx.coroutines.runBlocking {
+        val hostname = runBlocking {
             val subdomain = certStore.getSubdomain()
             val secret = certStore.getSecretForIntegration(defaultIntegration)
             if (subdomain != null && secret != null) {
@@ -371,7 +373,7 @@ val appModule = module {
     }
 
     single {
-        val pm = androidContext().getSystemService(android.os.PowerManager::class.java)
+        val pm = androidContext().getSystemService(PowerManager::class.java)
         val wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "rousecontext:tunnel"
@@ -448,7 +450,7 @@ val appModule = module {
     viewModel {
         AuthorizationApprovalViewModel(
             get<McpSession>().authorizationCodeManager,
-            androidContext().getSystemService(android.app.NotificationManager::class.java)
+            androidContext().getSystemService(NotificationManager::class.java)
         )
     }
     viewModel { HealthConnectSetupViewModel(get(), get()) }

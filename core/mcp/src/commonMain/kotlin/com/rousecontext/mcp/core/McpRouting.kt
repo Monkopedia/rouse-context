@@ -26,6 +26,7 @@ import java.net.URI
 import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -182,7 +183,7 @@ fun Application.configureMcpRouting(
             }
 
             val body = try {
-                val text = kotlinx.coroutines.withTimeout(5000) {
+                val text = withTimeout(5000) {
                     call.receiveText()
                 }
                 mcpJson.parseToJsonElement(text).jsonObject
@@ -539,7 +540,7 @@ fun Application.configureMcpRouting(
 
             // Parse and dispatch JSON-RPC request through SDK transport
             val requestBody = try {
-                kotlinx.coroutines.withTimeout(MCP_REQUEST_TIMEOUT_MS) {
+                withTimeout(MCP_REQUEST_TIMEOUT_MS) {
                     call.receiveText()
                 }
             } catch (e: Exception) {

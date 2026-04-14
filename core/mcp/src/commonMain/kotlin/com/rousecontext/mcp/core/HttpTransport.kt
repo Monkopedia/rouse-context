@@ -4,6 +4,7 @@ import io.modelcontextprotocol.kotlin.sdk.shared.Transport
 import io.modelcontextprotocol.kotlin.sdk.shared.TransportSendOptions
 import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCMessage
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 
 /**
@@ -56,7 +57,7 @@ internal class HttpTransport : Transport {
      * Must be called from a single thread/coroutine at a time per transport
      * (serialized by the Ktor request handler).
      *
-     * @throws kotlinx.coroutines.TimeoutCancellationException if the SDK server
+     * @throws TimeoutCancellationException if the SDK server
      *   does not respond within [REQUEST_TIMEOUT_MS].
      */
     suspend fun handleRequest(request: JSONRPCMessage): JSONRPCMessage {

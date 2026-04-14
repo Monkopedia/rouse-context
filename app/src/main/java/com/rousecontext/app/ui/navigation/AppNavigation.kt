@@ -93,6 +93,7 @@ import com.rousecontext.app.ui.viewmodels.OutreachSetupViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
 import com.rousecontext.tunnel.CertProvisioningFlow
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.koin.androidx.compose.koinViewModel
@@ -596,7 +597,7 @@ fun AppNavigation(
                         .collectAsState()
                     val certProvisioningFlow: CertProvisioningFlow =
                         org.koin.compose.koinInject()
-                    val appScope: kotlinx.coroutines.CoroutineScope =
+                    val appScope: CoroutineScope =
                         org.koin.compose.koinInject(
                             org.koin.core.qualifier.named("appScope")
                         )

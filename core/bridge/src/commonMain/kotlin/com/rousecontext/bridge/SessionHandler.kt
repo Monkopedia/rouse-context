@@ -2,6 +2,8 @@ package com.rousecontext.bridge
 
 import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TlsAcceptor
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.Socket
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -57,8 +59,8 @@ class SessionHandler(
      * until either direction closes or fails.
      */
     private suspend fun bridgeToMcpServer(
-        plaintextIn: java.io.InputStream,
-        plaintextOut: java.io.OutputStream,
+        plaintextIn: InputStream,
+        plaintextOut: OutputStream,
         mcpPort: Int
     ) {
         val socket = withContext(Dispatchers.IO) {

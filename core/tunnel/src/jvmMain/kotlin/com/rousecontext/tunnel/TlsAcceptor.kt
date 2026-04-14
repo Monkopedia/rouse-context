@@ -13,6 +13,7 @@ import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * Performs TLS server-side accept over a [MuxStream].
@@ -255,7 +256,7 @@ internal class TlsInputStream(
                     val tlsData =
                         try {
                             kotlinx.coroutines.runBlocking {
-                                kotlinx.coroutines.withTimeout(READ_TIMEOUT_MS) {
+                                withTimeout(READ_TIMEOUT_MS) {
                                     stream.read()
                                 }
                             }
