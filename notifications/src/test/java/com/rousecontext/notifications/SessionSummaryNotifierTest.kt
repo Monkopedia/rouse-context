@@ -26,18 +26,18 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 
 /**
- * Unit tests for [SessionSummaryPoster].
+ * Unit tests for [SessionSummaryNotifier].
  *
  * Verifies session-end summary notification behavior for each [PostSessionMode].
  */
 @RunWith(RobolectricTestRunner::class)
-class SessionSummaryPosterTest {
+class SessionSummaryNotifierTest {
 
     private lateinit var context: Context
     private lateinit var manager: NotificationManager
     private lateinit var dao: FakeAuditDao
     private lateinit var settings: FakeNotificationSettingsProvider
-    private lateinit var poster: SessionSummaryPoster
+    private lateinit var notifier: SessionSummaryNotifier
 
     @Before
     fun setUp() {
@@ -46,7 +46,7 @@ class SessionSummaryPosterTest {
         NotificationChannels.createAll(context)
         dao = FakeAuditDao()
         settings = FakeNotificationSettingsProvider(PostSessionMode.SUMMARY)
-        poster = SessionSummaryPoster(
+        notifier = SessionSummaryNotifier(
             context = context,
             auditDao = dao,
             settingsProvider = settings,
@@ -61,7 +61,7 @@ class SessionSummaryPosterTest {
         val posted = CompletableDeferred<Unit>()
         dao.onQueryCreatedAfter = { posted.complete(Unit) }
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.CONNECTING)
         states.emit(TunnelState.CONNECTED)
@@ -81,7 +81,7 @@ class SessionSummaryPosterTest {
         withTimeout(TIMEOUT_MS) { posted.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
         assertNotNull("Summary notification should be posted", notification)
         assertEquals(
             NotificationChannels.SESSION_SUMMARY_CHANNEL_ID,
@@ -105,7 +105,7 @@ class SessionSummaryPosterTest {
         val queried = CompletableDeferred<Unit>()
         dao.onQueryCreatedAfter = { queried.complete(Unit) }
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -117,7 +117,7 @@ class SessionSummaryPosterTest {
         val shadow = Shadows.shadowOf(manager)
         assertNull(
             "Suppress mode should not post a notification",
-            shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
         )
 
         job.cancel()
@@ -131,7 +131,7 @@ class SessionSummaryPosterTest {
         val queried = CompletableDeferred<Unit>()
         dao.onQueryCreatedAfter = { queried.complete(Unit) }
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -143,7 +143,7 @@ class SessionSummaryPosterTest {
         val shadow = Shadows.shadowOf(manager)
         assertNull(
             "EachUsage mode should not post a session-end summary",
-            shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
         )
 
         job.cancel()
@@ -157,7 +157,7 @@ class SessionSummaryPosterTest {
         val queried = CompletableDeferred<Unit>()
         dao.onQueryCreatedAfter = { queried.complete(Unit) }
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -168,7 +168,7 @@ class SessionSummaryPosterTest {
         val shadow = Shadows.shadowOf(manager)
         assertNull(
             "No notification should be posted when there were no tool calls",
-            shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
         )
 
         job.cancel()
@@ -186,7 +186,7 @@ class SessionSummaryPosterTest {
         dao.insert(entry(provider = "health", toolName = "old1"))
         dao.insert(entry(provider = "health", toolName = "old2"))
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -199,7 +199,7 @@ class SessionSummaryPosterTest {
         withTimeout(TIMEOUT_MS) { queried.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
         assertNotNull(notification)
         val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
         val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
@@ -223,7 +223,7 @@ class SessionSummaryPosterTest {
         settings.mode = PostSessionMode.SUMMARY
         val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -241,7 +241,7 @@ class SessionSummaryPosterTest {
         val shadow = Shadows.shadowOf(manager)
         assertNull(
             "No notification should be posted when we skip the drain transition",
-            shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID)
+            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
         )
         assertEquals(
             "queryCreatedAfter should never be called when there is no drain",
@@ -260,7 +260,7 @@ class SessionSummaryPosterTest {
         val firstPosted = CompletableDeferred<Unit>()
         dao.onQueryCreatedAfter = { firstPosted.complete(Unit) }
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -271,7 +271,7 @@ class SessionSummaryPosterTest {
         withTimeout(TIMEOUT_MS) { firstPosted.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        assertNotNull(shadow.getNotification(SessionSummaryPoster.NOTIFICATION_ID))
+        assertNotNull(shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID))
 
         // Client reopens streams and drains again within the same connection
         // cycle. Design choice (fix #100): cursor resets only on the first drain;
@@ -311,7 +311,7 @@ class SessionSummaryPosterTest {
             }
         }
 
-        val job = launch { poster.observe(states) }
+        val job = launch { notifier.observe(states) }
 
         // Cycle 1
         states.emit(TunnelState.ACTIVE)

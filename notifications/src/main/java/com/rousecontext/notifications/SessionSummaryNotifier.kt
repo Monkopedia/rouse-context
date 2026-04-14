@@ -50,7 +50,7 @@ import kotlinx.coroutines.flow.Flow
  * disconnects and reconnects. This prevents notification spam when clients
  * churn streams and matches the user-visible notion of "one session".
  */
-class SessionSummaryPoster(
+class SessionSummaryNotifier(
     private val context: Context,
     private val auditDao: AuditDao,
     private val settingsProvider: NotificationSettingsProvider,
