@@ -11,6 +11,7 @@ import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
@@ -21,11 +22,16 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCMessage
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import java.net.URI
+import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -83,16 +89,15 @@ fun Application.configureMcpRouting(
     // Resolve the public hostname from the request's Host header, falling back
     // to the configured hostname. This allows a single MCP session to serve
     // multiple integration hostnames correctly.
-    fun io.ktor.server.routing.RoutingCall.resolveHostname(): String =
-        request.headers["Host"]?.takeIf {
-            it.isNotEmpty()
-        } ?: hostname
+    fun RoutingCall.resolveHostname(): String = request.headers["Host"]?.takeIf {
+        it.isNotEmpty()
+    } ?: hostname
 
     // Resolve the integration name from the Host header.
     // Hostname format: {adjective}-{integration}.{subdomain}.{domain}
     // e.g. "exact-health.abc123.rousecontext.com" -> "health"
     // Falls back to the configured integration parameter.
-    fun io.ktor.server.routing.RoutingCall.resolveIntegration(): String {
+    fun RoutingCall.resolveIntegration(): String {
         val host = request.headers["Host"]
             ?.substringBefore(":") // strip port if present
             ?.takeIf { it.isNotEmpty() }
@@ -104,7 +109,7 @@ fun Application.configureMcpRouting(
 
     routing {
         // Helper: if a security alert is active, block the request with 503.
-        suspend fun io.ktor.server.routing.RoutingCall.rejectIfSecurityAlert(): Boolean {
+        suspend fun RoutingCall.rejectIfSecurityAlert(): Boolean {
             if (securityAlertCheck?.invoke() == true) {
                 respond(
                     HttpStatusCode.ServiceUnavailable,
@@ -130,9 +135,9 @@ fun Application.configureMcpRouting(
                     put("resource", "$baseUrl/mcp")
                     put(
                         "authorization_servers",
-                        kotlinx.serialization.json.JsonArray(
+                        JsonArray(
                             listOf(
-                                kotlinx.serialization.json.JsonPrimitive(baseUrl)
+                                JsonPrimitive(baseUrl)
                             )
                         )
                     )
@@ -197,12 +202,12 @@ fun Application.configureMcpRouting(
             val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
 
             // Validate redirect_uris: only http/https schemes allowed
-            val rawUris = (body["redirect_uris"] as? kotlinx.serialization.json.JsonArray)
+            val rawUris = (body["redirect_uris"] as? JsonArray)
                 ?.mapNotNull { it.jsonPrimitive.content }
                 ?: emptyList()
             val validUris = rawUris.filter { uri ->
                 try {
-                    val scheme = java.net.URI(uri).scheme?.lowercase()
+                    val scheme = URI(uri).scheme?.lowercase()
                     scheme == "http" || scheme == "https"
                 } catch (_: Exception) {
                     false
@@ -223,7 +228,7 @@ fun Application.configureMcpRouting(
             }
             val redirectUris = validUris
 
-            val clientId = java.util.UUID.randomUUID().toString()
+            val clientId = UUID.randomUUID().toString()
             try {
                 authorizationCodeManager.registerClient(clientId, clientName, redirectUris)
             } catch (e: IllegalArgumentException) {
@@ -242,18 +247,18 @@ fun Application.configureMcpRouting(
                 put("client_name", clientName)
                 put(
                     "redirect_uris",
-                    kotlinx.serialization.json.JsonArray(
-                        validUris.map { kotlinx.serialization.json.JsonPrimitive(it) }
+                    JsonArray(
+                        validUris.map { JsonPrimitive(it) }
                     )
                 )
                 put(
                     "grant_types",
-                    kotlinx.serialization.json.JsonArray(
+                    JsonArray(
                         listOf(
-                            kotlinx.serialization.json.JsonPrimitive(
+                            JsonPrimitive(
                                 "authorization_code"
                             ),
-                            kotlinx.serialization.json.JsonPrimitive(
+                            JsonPrimitive(
                                 "urn:ietf:params:oauth:grant-type:device_code"
                             )
                         )
@@ -261,9 +266,9 @@ fun Application.configureMcpRouting(
                 )
                 put(
                     "response_types",
-                    kotlinx.serialization.json.JsonArray(
+                    JsonArray(
                         listOf(
-                            kotlinx.serialization.json.JsonPrimitive("code")
+                            JsonPrimitive("code")
                         )
                     )
                 )
@@ -331,7 +336,7 @@ fun Application.configureMcpRouting(
 
             // Validate redirect_uri scheme
             val uriScheme = try {
-                java.net.URI(redirectUri!!).scheme?.lowercase()
+                URI(redirectUri!!).scheme?.lowercase()
             } catch (_: Exception) {
                 null
             }
@@ -587,7 +592,7 @@ fun Application.configureMcpRouting(
 }
 
 private suspend fun respondToDeviceCodePoll(
-    call: io.ktor.server.routing.RoutingCall,
+    call: RoutingCall,
     deviceCodeManager: DeviceCodeManager,
     deviceCode: String
 ) {
@@ -694,9 +699,7 @@ internal suspend fun dispatchJsonRpc(transport: HttpTransport, requestBody: Stri
  * Parses token request parameters from either form-encoded or JSON body.
  * Returns a simple map of parameter names to values, or null on parse failure.
  */
-private suspend fun parseTokenRequestParams(
-    call: io.ktor.server.routing.RoutingCall
-): Map<String, String?>? = try {
+private suspend fun parseTokenRequestParams(call: RoutingCall): Map<String, String?>? = try {
     if (call.request.contentType().match(ContentType.Application.FormUrlEncoded)) {
         val params = call.receiveParameters()
         params.names().associateWith { params[it] }
@@ -977,18 +980,15 @@ internal fun htmlEscapeForJs(value: String): String {
 /** Timeout for reading the MCP request body and dispatching it (30 seconds). */
 private const val MCP_REQUEST_TIMEOUT_MS = 30_000L
 
-private fun jsonRpcError(
-    id: kotlinx.serialization.json.JsonElement,
-    code: Int,
-    message: String
-): JsonObject = buildJsonObject {
-    put("jsonrpc", "2.0")
-    put(
-        "error",
-        buildJsonObject {
-            put("code", code)
-            put("message", message)
-        }
-    )
-    put("id", id)
-}
+private fun jsonRpcError(id: JsonElement, code: Int, message: String): JsonObject =
+    buildJsonObject {
+        put("jsonrpc", "2.0")
+        put(
+            "error",
+            buildJsonObject {
+                put("code", code)
+                put("message", message)
+            }
+        )
+        put("id", id)
+    }

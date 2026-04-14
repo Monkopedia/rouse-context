@@ -8,6 +8,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -25,6 +26,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -393,7 +395,7 @@ class OutreachMcpProvider(
         val pm = context.packageManager
         val allApps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             pm.getInstalledApplications(
-                android.content.pm.PackageManager.ApplicationInfoFlags.of(0)
+                PackageManager.ApplicationInfoFlags.of(0)
             )
         } else {
             pm.getInstalledApplications(0)
@@ -713,7 +715,7 @@ private fun notificationSchema() = ToolSchema(
                 )
                 put(
                     "enum",
-                    kotlinx.serialization.json.JsonArray(
+                    JsonArray(
                         listOf(
                             JsonPrimitive("low"),
                             JsonPrimitive("default"),
@@ -764,7 +766,7 @@ private fun notificationSchema() = ToolSchema(
                         )
                         put(
                             "required",
-                            kotlinx.serialization.json.JsonArray(
+                            JsonArray(
                                 listOf(JsonPrimitive("label"), JsonPrimitive("url"))
                             )
                         )
@@ -810,7 +812,7 @@ private fun createChannelSchema() = ToolSchema(
                 )
                 put(
                     "enum",
-                    kotlinx.serialization.json.JsonArray(
+                    JsonArray(
                         listOf(
                             JsonPrimitive("min"),
                             JsonPrimitive("low"),
@@ -865,7 +867,7 @@ private fun dndSchema() = ToolSchema(
                 )
                 put(
                     "enum",
-                    kotlinx.serialization.json.JsonArray(
+                    JsonArray(
                         listOf(
                             JsonPrimitive("total_silence"),
                             JsonPrimitive("priority_only"),

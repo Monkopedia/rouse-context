@@ -12,6 +12,7 @@ import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.SecretKey
@@ -244,7 +245,7 @@ object MtlsWebSocketFactory {
             .replace("-----END EC PRIVATE KEY-----", "")
             .replace("\\s".toRegex(), "")
         return try {
-            val der = java.util.Base64.getDecoder().decode(base64)
+            val der = Base64.getDecoder().decode(base64)
             val spec = PKCS8EncodedKeySpec(der)
             try {
                 KeyFactory.getInstance("EC").generatePrivate(spec)
@@ -266,7 +267,7 @@ object MtlsWebSocketFactory {
         )
         for (match in regex.findAll(pem)) {
             val base64 = match.groupValues[1].replace("\\s".toRegex(), "")
-            val der = java.util.Base64.getDecoder().decode(base64)
+            val der = Base64.getDecoder().decode(base64)
             val cert = factory.generateCertificate(der.inputStream()) as X509Certificate
             certs.add(cert)
         }

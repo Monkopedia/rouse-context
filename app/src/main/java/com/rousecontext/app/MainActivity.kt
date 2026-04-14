@@ -2,6 +2,7 @@ package com.rousecontext.app
 
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
+import android.graphics.Color
 import android.os.Bundle
 import android.view.animation.DecelerateInterpolator
 import androidx.activity.ComponentActivity
@@ -30,7 +31,7 @@ class MainActivity : ComponentActivity() {
         // Navy status bar in both themes = always white icons
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(
-                android.graphics.Color.parseColor("#0F1A30")
+                Color.parseColor("#0F1A30")
             )
         )
         super.onCreate(savedInstanceState)

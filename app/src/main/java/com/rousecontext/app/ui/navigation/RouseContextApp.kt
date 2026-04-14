@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.navigation
 
+import android.graphics.Color
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -34,9 +35,9 @@ fun RouseContextApp(startDestination: String = Routes.HOME) {
     val activity = LocalContext.current as? ComponentActivity
     // Navy bars in both themes = always white system icons
     val systemBarColor = if (isDark) {
-        android.graphics.Color.parseColor("#060D18")
+        Color.parseColor("#060D18")
     } else {
-        android.graphics.Color.parseColor("#0F1A30")
+        Color.parseColor("#0F1A30")
     }
     androidx.compose.runtime.SideEffect {
         activity?.enableEdgeToEdge(

@@ -4,6 +4,7 @@ import com.rousecontext.tunnel.TunnelState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -46,7 +47,7 @@ class IdleTimeoutManager(
      * Collects [stateFlow] and manages the idle timer.
      * Suspends until cancelled.
      */
-    suspend fun observe(stateFlow: kotlinx.coroutines.flow.StateFlow<TunnelState>) {
+    suspend fun observe(stateFlow: StateFlow<TunnelState>) {
         timeoutFired = false
 
         if (batteryExempt) {

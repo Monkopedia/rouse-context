@@ -1,5 +1,7 @@
 package com.rousecontext.app.di
 
+import android.content.Context
+import android.os.PowerManager
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
@@ -323,7 +325,7 @@ val appModule = module {
             securityAlertCheck = {
                 val prefs = androidContext().getSharedPreferences(
                     com.rousecontext.work.SecurityCheckWorker.PREFS_NAME,
-                    android.content.Context.MODE_PRIVATE
+                    Context.MODE_PRIVATE
                 )
                 val self = prefs.getString(
                     com.rousecontext.work.SecurityCheckWorker.KEY_SELF_CERT_RESULT,
@@ -371,7 +373,7 @@ val appModule = module {
     single {
         val pm = androidContext().getSystemService(android.os.PowerManager::class.java)
         val wakeLock = pm.newWakeLock(
-            android.os.PowerManager.PARTIAL_WAKE_LOCK,
+            PowerManager.PARTIAL_WAKE_LOCK,
             "rousecontext:tunnel"
         )
         WakelockManager(RealWakeLockHandle(wakeLock))
@@ -396,11 +398,11 @@ val appModule = module {
     viewModel {
         val certRenewalPrefs = androidContext().getSharedPreferences(
             com.rousecontext.work.CertRenewalWorker.PREFS_NAME,
-            android.content.Context.MODE_PRIVATE
+            Context.MODE_PRIVATE
         )
         val spuriousWakePrefs = androidContext().getSharedPreferences(
             SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,
-            android.content.Context.MODE_PRIVATE
+            Context.MODE_PRIVATE
         )
         val refresher: NotificationPermissionRefresher = get()
         MainDashboardViewModel(
@@ -424,7 +426,7 @@ val appModule = module {
     viewModel {
         val spuriousWakePrefs = androidContext().getSharedPreferences(
             SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,
-            android.content.Context.MODE_PRIVATE
+            Context.MODE_PRIVATE
         )
         SettingsViewModel(
             notificationSettingsProvider = get(),
@@ -434,11 +436,11 @@ val appModule = module {
             integrations = get(),
             securityCheckPrefs = androidContext().getSharedPreferences(
                 com.rousecontext.work.SecurityCheckWorker.PREFS_NAME,
-                android.content.Context.MODE_PRIVATE
+                Context.MODE_PRIVATE
             ),
             settingsPrefs = androidContext().getSharedPreferences(
                 com.rousecontext.app.RouseApplication.PREFS_NAME,
-                android.content.Context.MODE_PRIVATE
+                Context.MODE_PRIVATE
             ),
             spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(spuriousWakePrefs)
         )

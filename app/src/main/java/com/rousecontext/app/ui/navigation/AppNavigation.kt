@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.navigation
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -1144,7 +1145,7 @@ fun AppNavigation(
                             val ctx = navController.context
                             val intent = Intent(
                                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                android.net.Uri.parse("package:${ctx.packageName}")
+                                Uri.parse("package:${ctx.packageName}")
                             ).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }

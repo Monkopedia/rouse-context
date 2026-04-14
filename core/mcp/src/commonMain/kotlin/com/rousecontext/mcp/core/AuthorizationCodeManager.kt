@@ -1,8 +1,10 @@
 package com.rousecontext.mcp.core
 
+import java.net.URI
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,7 +145,7 @@ class AuthorizationCodeManager(
     ) {
         for (uri in redirectUris) {
             val scheme = try {
-                java.net.URI(uri).scheme?.lowercase()
+                URI(uri).scheme?.lowercase()
             } catch (_: Exception) {
                 null
             }
@@ -179,7 +181,7 @@ class AuthorizationCodeManager(
             "redirect_uri not registered for this client"
         }
 
-        val requestId = java.util.UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
         val displayCode = generateDisplayCode()
         val now = clock.currentTimeMillis()
 

@@ -10,6 +10,7 @@ import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -161,7 +162,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
             val cert = factory.generateCertificate(der.inputStream())
             pemBuilder.append("-----BEGIN CERTIFICATE-----\n")
             pemBuilder.append(
-                java.util.Base64.getMimeEncoder(LINE_LENGTH, "\n".toByteArray())
+                Base64.getMimeEncoder(LINE_LENGTH, "\n".toByteArray())
                     .encodeToString(cert.encoded)
             )
             pemBuilder.append("\n-----END CERTIFICATE-----\n")
@@ -260,7 +261,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         )
         for (match in regex.findAll(pem)) {
             val base64 = match.groupValues[1].replace("\\s".toRegex(), "")
-            val der = java.util.Base64.getDecoder().decode(base64)
+            val der = Base64.getDecoder().decode(base64)
             val cert = factory.generateCertificate(der.inputStream()) as X509Certificate
             certs.add(cert)
         }

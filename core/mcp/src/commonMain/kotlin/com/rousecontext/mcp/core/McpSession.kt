@@ -1,6 +1,7 @@
 package com.rousecontext.mcp.core
 
 import io.ktor.server.cio.CIO
+import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import kotlinx.coroutines.CompletableDeferred
 
@@ -45,7 +46,7 @@ class McpSession(
 ) {
 
     private val done = CompletableDeferred<Unit>()
-    private var engine: io.ktor.server.engine.EmbeddedServer<*, *>? = null
+    private var engine: EmbeddedServer<*, *>? = null
 
     /**
      * Returns the actual port the HTTP server is listening on.

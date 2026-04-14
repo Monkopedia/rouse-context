@@ -16,6 +16,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.TimeZone
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 
@@ -583,7 +584,7 @@ private fun periodProperty() = buildJsonObject {
     )
     put(
         "enum",
-        kotlinx.serialization.json.JsonArray(
+        JsonArray(
             listOf(
                 JsonPrimitive("today"),
                 JsonPrimitive("yesterday"),
