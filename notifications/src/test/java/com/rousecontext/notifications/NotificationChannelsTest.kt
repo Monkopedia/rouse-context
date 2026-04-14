@@ -20,7 +20,7 @@ class NotificationChannelsTest {
         NotificationChannels.createAll(context)
 
         val channels = manager.notificationChannels
-        assertEquals(7, channels.size)
+        assertEquals(8, channels.size)
     }
 
     @Test
@@ -95,11 +95,22 @@ class NotificationChannelsTest {
     }
 
     @Test
+    fun `createAll registers FGS limit channel with high importance`() {
+        NotificationChannels.createAll(context)
+
+        val channel = manager.getNotificationChannel(
+            NotificationChannels.FGS_LIMIT_CHANNEL_ID
+        )
+        assertNotNull(channel)
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance)
+    }
+
+    @Test
     fun `createAll is idempotent`() {
         NotificationChannels.createAll(context)
         NotificationChannels.createAll(context)
 
         val channels = manager.notificationChannels
-        assertEquals(7, channels.size)
+        assertEquals(8, channels.size)
     }
 }

@@ -16,6 +16,7 @@ object NotificationChannels {
     const val AUTH_REQUEST_CHANNEL_ID = "rouse_auth_request"
     const val SESSION_SUMMARY_CHANNEL_ID = "rouse_session_summary"
     const val OUTREACH_LAUNCH_CHANNEL_ID = "rouse_outreach_launch"
+    const val FGS_LIMIT_CHANNEL_ID = "rouse_fgs_limit"
 
     /**
      * Create all notification channels. Safe to call multiple times;
@@ -25,60 +26,67 @@ object NotificationChannels {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
 
         val manager = context.getSystemService(NotificationManager::class.java)
+        buildChannels().forEach { manager.createNotificationChannel(it) }
+    }
 
-        val channels = listOf(
-            NotificationChannel(
-                FOREGROUND_CHANNEL_ID,
-                "Foreground Service",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Ongoing notification while an integration is active"
-            },
-            NotificationChannel(
-                SESSION_CHANNEL_ID,
-                "Session Activity",
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Session summaries and tool call notifications"
-            },
-            NotificationChannel(
-                ERROR_CHANNEL_ID,
-                "Errors",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Connection and certificate errors"
-            },
-            NotificationChannel(
-                ALERT_CHANNEL_ID,
-                "Security Alerts",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Security-related alerts requiring attention"
-            },
-            NotificationChannel(
-                AUTH_REQUEST_CHANNEL_ID,
-                "Authorization Requests",
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Approval requests for new AI clients"
-            },
-            NotificationChannel(
-                SESSION_SUMMARY_CHANNEL_ID,
-                "Session Summaries",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Summary of tool calls after an MCP session ends"
-            },
-            NotificationChannel(
-                OUTREACH_LAUNCH_CHANNEL_ID,
-                "Outreach Launch Requests",
-                NotificationManager.IMPORTANCE_DEFAULT
-            ).apply {
-                description = "Tap-to-launch fallback when an AI client requests " +
-                    "opening an app or link and the app cannot launch it directly"
-            }
+    private fun buildChannels(): List<NotificationChannel> = listOf(
+        channel(
+            FOREGROUND_CHANNEL_ID,
+            "Foreground Service",
+            NotificationManager.IMPORTANCE_LOW,
+            "Ongoing notification while an integration is active"
+        ),
+        channel(
+            SESSION_CHANNEL_ID,
+            "Session Activity",
+            NotificationManager.IMPORTANCE_DEFAULT,
+            "Session summaries and tool call notifications"
+        ),
+        channel(
+            ERROR_CHANNEL_ID,
+            "Errors",
+            NotificationManager.IMPORTANCE_HIGH,
+            "Connection and certificate errors"
+        ),
+        channel(
+            ALERT_CHANNEL_ID,
+            "Security Alerts",
+            NotificationManager.IMPORTANCE_HIGH,
+            "Security-related alerts requiring attention"
+        ),
+        channel(
+            AUTH_REQUEST_CHANNEL_ID,
+            "Authorization Requests",
+            NotificationManager.IMPORTANCE_DEFAULT,
+            "Approval requests for new AI clients"
+        ),
+        channel(
+            SESSION_SUMMARY_CHANNEL_ID,
+            "Session Summaries",
+            NotificationManager.IMPORTANCE_LOW,
+            "Summary of tool calls after an MCP session ends"
+        ),
+        channel(
+            OUTREACH_LAUNCH_CHANNEL_ID,
+            "Outreach Launch Requests",
+            NotificationManager.IMPORTANCE_DEFAULT,
+            "Tap-to-launch fallback when an AI client requests " +
+                "opening an app or link and the app cannot launch it directly"
+        ),
+        channel(
+            FGS_LIMIT_CHANNEL_ID,
+            "Foreground Service Limit",
+            NotificationManager.IMPORTANCE_HIGH,
+            "Android 6-hour foreground service limit alerts"
         )
+    )
 
-        channels.forEach { manager.createNotificationChannel(it) }
+    private fun channel(
+        id: String,
+        name: String,
+        importance: Int,
+        desc: String
+    ): NotificationChannel = NotificationChannel(id, name, importance).apply {
+        description = desc
     }
 }
