@@ -273,6 +273,9 @@ class TunnelForegroundService : LifecycleService() {
             TunnelState.ACTIVE -> "Active session"
             TunnelState.DISCONNECTING -> "Disconnecting..."
         }
+        // Update the foreground notification in place via the same id passed to
+        // startForeground(). Android treats a NotificationManager.notify() with
+        // the FGS id as an update to the ongoing notification.
         val notification = ForegroundNotifier.build(this, message)
         val manager = getSystemService(android.app.NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, notification)

@@ -9,8 +9,8 @@ import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.api.R as ApiR
-import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.ForegroundNotifier
+import com.rousecontext.notifications.NotificationChannels
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith

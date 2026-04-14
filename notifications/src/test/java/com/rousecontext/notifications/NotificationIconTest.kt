@@ -12,104 +12,64 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 
 /**
- * Verifies that every notification type uses [ApiR.drawable.ic_stat_rouse]
+ * Verifies that every production notifier uses [ApiR.drawable.ic_stat_rouse]
  * as the small icon, not a system drawable or placeholder.
+ *
+ * Covers each [com.rousecontext.notifications] notifier in one place so icon
+ * regressions surface even if per-notifier tests drift.
  */
 @RunWith(RobolectricTestRunner::class)
 class NotificationIconTest {
 
     private lateinit var context: Context
     private lateinit var manager: NotificationManager
-    private lateinit var adapter: NotificationAdapter
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         manager = context.getSystemService(NotificationManager::class.java)
         NotificationChannels.createAll(context)
-        adapter = NotificationAdapter(context)
     }
 
     @Test
-    fun `foreground notification uses ic_stat_rouse`() {
+    fun `ForegroundNotifier build uses ic_stat_rouse`() {
         val notification = ForegroundNotifier.build(context, "Connected")
         assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
-    fun `ShowForeground action posts notification with ic_stat_rouse`() {
-        adapter.execute(NotificationAction.ShowForeground("Active"))
+    fun `FgsLimitNotifier postLimitReachedNotification uses ic_stat_rouse`() {
+        FgsLimitNotifier.postLimitReachedNotification(context)
+        val active = manager.activeNotifications.single()
+        assertEquals(ApiR.drawable.ic_stat_rouse, active.notification.smallIcon.resId)
+    }
+
+    @Test
+    fun `SecurityCheckNotifier postAlert uses ic_stat_rouse`() {
+        val notifier = SecurityCheckNotifier(context)
+        notifier.postAlert(SecurityCheckNotifier.SecurityCheck.SELF_CERT, "bad cert")
 
         val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(NotificationAdapter.FOREGROUND_ID)
+        val notification = shadow.getNotification(
+            SecurityCheckNotifier.NOTIFICATION_ID_SELF_CERT_ALERT
+        )
         assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
-    fun `PostSummary notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostSummary(toolCallCount = 5))
+    fun `SecurityCheckNotifier postInfo uses ic_stat_rouse`() {
+        val notifier = SecurityCheckNotifier(context)
+        notifier.postInfo(SecurityCheckNotifier.SecurityCheck.CT_LOG, "ok")
 
         val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
+        val notification = shadow.getNotification(
+            SecurityCheckNotifier.NOTIFICATION_ID_CT_LOG_INFO
+        )
         assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
     @Test
-    fun `PostWarning notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostWarning("Low battery"))
-
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
-        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
-    }
-
-    @Test
-    fun `PostError notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostError("Connection lost", streamId = null))
-
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
-        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
-    }
-
-    @Test
-    fun `PostError with streamId notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostError("TLS failed", streamId = 42))
-
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
-        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
-    }
-
-    @Test
-    fun `PostToolUsage notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostToolUsage("get_steps", "health"))
-
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
-        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
-    }
-
-    @Test
-    fun `PostInfo notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostInfo("Session started"))
-
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
-        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
-    }
-
-    @Test
-    fun `PostAlert notification uses ic_stat_rouse`() {
-        adapter.execute(NotificationAction.PostAlert("Suspicious activity detected"))
-
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.allNotifications.first()
-        assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
-    }
-
-    @Test
-    fun `AuthRequestNotifier notification uses ic_stat_rouse`() {
+    fun `AuthRequestNotifier post uses ic_stat_rouse`() {
         val notifier = AuthRequestNotifier(
             context = context,
             receiverClass = AuthRequestNotifierTest.TestReceiver::class.java,
