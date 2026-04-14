@@ -68,7 +68,7 @@ open class SecurityCheckNotifier(private val context: Context) {
 
     companion object {
         // Stable ids in the 4210-4213 range. Chosen to avoid collision with:
-        //   ForegroundNotification (1), FgsLimitNotifier (4201), audit ids (>=1000).
+        //   ForegroundNotifier (1), FgsLimitNotifier (4201), audit ids (>=1000).
         const val NOTIFICATION_ID_SELF_CERT_ALERT = 4210
         const val NOTIFICATION_ID_CT_LOG_ALERT = 4211
         const val NOTIFICATION_ID_SELF_CERT_INFO = 4212
