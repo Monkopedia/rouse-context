@@ -474,6 +474,7 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         base_domain = %base_domain,
         directory_url = %directory_url,
         account_key_path = %account_key_path.display(),
+        require_existing_account = config.acme.require_existing_account,
         dns_propagation_timeout_secs = config.acme.dns_propagation_timeout_secs,
         dns_poll_interval_secs = config.acme.dns_poll_interval_secs,
         "Wiring real ACME client with Cloudflare DNS-01"
@@ -487,6 +488,7 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         config.acme.dns_propagation_timeout_secs,
         config.acme.dns_poll_interval_secs,
         &account_key_path,
+        config.acme.require_existing_account,
     ))
 }
 
