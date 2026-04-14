@@ -2,10 +2,10 @@ package com.rousecontext.work
 
 import android.content.Context
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.rousecontext.notifications.NotificationChannels
+import com.rousecontext.notifications.SecurityCheckNotifier
+import com.rousecontext.notifications.SecurityCheckNotifier.SecurityCheck
 import com.rousecontext.tunnel.SecurityCheckResult
 
 /**
@@ -23,7 +23,9 @@ interface SecurityCheckSource {
  * 2. CT log monitoring (unexpected certificate issuers)
  *
  * Results are stored in SharedPreferences for UI consumption.
- * Alerts produce high-priority notifications; warnings produce info notifications.
+ * Alerts and warnings are posted by [SecurityCheckNotifier] using stable ids per
+ * (check, severity) pair, so repeated runs replace the existing notification rather
+ * than stacking or clobbering prior runs' unrelated notifications.
  * Always returns [Result.success] since the checks handle their own graceful degradation.
  */
 class SecurityCheckWorker(context: Context, params: WorkerParameters) :
@@ -35,7 +37,8 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
     /** Injected by WorkerFactory in production, set directly in tests. */
     lateinit var ctLogMonitor: SecurityCheckSource
 
-    private var nextNotificationId = FIRST_NOTIFICATION_ID
+    /** Injected by WorkerFactory in production, set directly in tests. */
+    lateinit var notifier: SecurityCheckNotifier
 
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting security checks")
@@ -50,14 +53,14 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
             .putString(KEY_CT_LOG_RESULT, resultToString(ctResult))
             .apply()
 
-        handleResult("Self-cert verification", selfCertResult)
-        handleResult("CT log check", ctResult)
+        handleResult(SecurityCheck.SELF_CERT, "Self-cert verification", selfCertResult)
+        handleResult(SecurityCheck.CT_LOG, "CT log check", ctResult)
 
         Log.d(TAG, "Security checks complete: self=$selfCertResult, ct=$ctResult")
         return Result.success()
     }
 
-    private fun handleResult(checkName: String, result: SecurityCheckResult) {
+    private fun handleResult(check: SecurityCheck, checkName: String, result: SecurityCheckResult) {
         when (result) {
             is SecurityCheckResult.Verified -> {
                 Log.d(TAG, "$checkName: verified")
@@ -65,44 +68,14 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
 
             is SecurityCheckResult.Warning -> {
                 Log.w(TAG, "$checkName: warning - ${result.reason}")
-                postInfoNotification("$checkName: ${result.reason}")
+                notifier.postInfo(check, result.reason)
             }
 
             is SecurityCheckResult.Alert -> {
                 Log.e(TAG, "$checkName: ALERT - ${result.reason}")
-                postAlertNotification("$checkName: ${result.reason}")
+                notifier.postAlert(check, result.reason)
             }
         }
-    }
-
-    private fun postAlertNotification(message: String) {
-        val notification =
-            NotificationCompat.Builder(applicationContext, NotificationChannels.ALERT_CHANNEL_ID)
-                .setContentTitle("Security Alert")
-                .setContentText(message)
-                .setSmallIcon(com.rousecontext.api.R.drawable.ic_stat_rouse)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
-                .build()
-
-        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE)
-            as android.app.NotificationManager
-        manager.notify(nextNotificationId++, notification)
-    }
-
-    private fun postInfoNotification(message: String) {
-        val notification =
-            NotificationCompat.Builder(applicationContext, NotificationChannels.SESSION_CHANNEL_ID)
-                .setContentTitle("Security Check")
-                .setContentText(message)
-                .setSmallIcon(com.rousecontext.api.R.drawable.ic_stat_rouse)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setAutoCancel(true)
-                .build()
-
-        val manager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE)
-            as android.app.NotificationManager
-        manager.notify(nextNotificationId++, notification)
     }
 
     companion object {
@@ -113,8 +86,6 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
         const val KEY_LAST_CHECK_TIME = "last_check_time"
         const val KEY_SELF_CERT_RESULT = "self_cert_result"
         const val KEY_CT_LOG_RESULT = "ct_log_result"
-
-        private const val FIRST_NOTIFICATION_ID = 200
 
         private fun resultToString(result: SecurityCheckResult): String = when (result) {
             is SecurityCheckResult.Verified -> "verified"

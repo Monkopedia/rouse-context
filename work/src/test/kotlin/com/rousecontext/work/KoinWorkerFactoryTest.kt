@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.rousecontext.notifications.SecurityCheckNotifier
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RenewalResult
 import com.rousecontext.tunnel.SecurityCheckResult
@@ -39,6 +40,7 @@ class KoinWorkerFactoryTest {
                     single<SecurityCheckSource>(named("ctLog")) {
                         StubSource(SecurityCheckResult.Verified)
                     }
+                    single { SecurityCheckNotifier(context) }
                     single<CertRenewer> { StubRenewer() }
                     single<CertificateStore> { StubCertStore() }
                     single<RenewalAuthProvider> { StubAuthProvider() }
