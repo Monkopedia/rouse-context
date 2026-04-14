@@ -1,5 +1,6 @@
 package com.rousecontext.work
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -61,15 +62,12 @@ class TunnelForegroundService : LifecycleService() {
         super.onCreate()
         NotificationChannels.createAll(this)
 
-        val notification = createForegroundNotification(this, "Connecting...")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
+        if (!startForegroundSafely()) {
+            // FGS daily time-limit exhausted. User notification already posted;
+            // stop the service. The next FCM wake will naturally retry
+            // startForeground when the 24h rolling budget gives us time back.
+            stopSelf()
+            return
         }
 
         // Launch observer coroutines exactly once. These collect StateFlows and
@@ -84,6 +82,47 @@ class TunnelForegroundService : LifecycleService() {
 
         Log.i(TAG, "TunnelForegroundService created")
     }
+
+    /**
+     * Attempts to enter the foreground. Returns true on success, false if the
+     * Android 6-hour daily dataSync FGS budget is exhausted (API 31+). On
+     * failure, a user-visible notification is posted explaining the situation.
+     */
+    private fun startForegroundSafely(): Boolean {
+        val notification = createForegroundNotification(this, "Connecting...")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return startForegroundApi31OrHigher(notification)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        return true
+    }
+
+    private fun startForegroundApi31OrHigher(notification: android.app.Notification): Boolean =
+        try {
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+            true
+        } catch (e: ForegroundServiceStartNotAllowedException) {
+            Log.w(
+                TAG,
+                "startForeground blocked — FGS daily time limit exhausted. " +
+                    "Posting user notification and stopping service.",
+                e
+            )
+            FgsLimitHandler.postLimitReachedNotification(this)
+            false
+        }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
