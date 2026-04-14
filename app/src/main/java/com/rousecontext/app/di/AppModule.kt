@@ -420,7 +420,7 @@ val appModule = module {
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
-    viewModel { AuditHistoryViewModel(get(), get()) }
+    viewModel { AuditHistoryViewModel(get(), get(), get(), get()) }
     viewModel {
         val spuriousWakePrefs = androidContext().getSharedPreferences(
             SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,

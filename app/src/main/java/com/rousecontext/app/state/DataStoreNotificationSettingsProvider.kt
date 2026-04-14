@@ -14,7 +14,9 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 
 private val Context.notificationDataStore: DataStore<Preferences>
@@ -59,6 +61,33 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
                 showAllMcpMessages = showAll
             )
         }
+
+    override fun observeSettings(): Flow<NotificationSettings> = dataStore.data.map { prefs ->
+        val modeStored = prefs[POST_SESSION_MODE_KEY]
+        val parsedMode = modeStored?.let {
+            try {
+                PostSessionMode.valueOf(it)
+            } catch (_: IllegalArgumentException) {
+                PostSessionMode.SUMMARY
+            }
+        } ?: PostSessionMode.SUMMARY
+        val showAll = prefs[SHOW_ALL_MCP_MESSAGES_KEY] ?: false
+
+        val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+
+        NotificationSettings(
+            postSessionMode = parsedMode,
+            notificationPermissionGranted = permissionGranted,
+            showAllMcpMessages = showAll
+        )
+    }
 
     override suspend fun setPostSessionMode(mode: PostSessionMode) {
         dataStore.edit { prefs ->

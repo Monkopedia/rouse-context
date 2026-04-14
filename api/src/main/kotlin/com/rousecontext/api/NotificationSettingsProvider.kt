@@ -1,5 +1,7 @@
 package com.rousecontext.api
 
+import kotlinx.coroutines.flow.Flow
+
 /**
  * Provides notification preference access for the notification model.
  *
@@ -10,6 +12,13 @@ interface NotificationSettingsProvider {
 
     /** Current notification settings. */
     val settings: NotificationSettings
+
+    /**
+     * Reactive view of the settings. Emits the current value on collection and
+     * every subsequent change. Used by UI layers (Settings toggle, audit
+     * history view) to react without polling.
+     */
+    fun observeSettings(): Flow<NotificationSettings>
 
     /**
      * Persist a new post-session notification mode. Called from the

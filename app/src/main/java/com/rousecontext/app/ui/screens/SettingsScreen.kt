@@ -90,6 +90,11 @@ data class SettingsState(
     val versionName: String = "0.1.0",
     val trustStatus: TrustStatusState? = null,
     /**
+     * Whether the audit history surface should include every MCP JSON-RPC
+     * request, not just tool calls. See issue #105/#107.
+     */
+    val showAllMcpMessages: Boolean = false,
+    /**
      * Count of wake cycles in the last 24h where the service woke but no MCP
      * stream ever opened. Non-zero values surface a read-only diagnostic row.
      */
@@ -111,6 +116,7 @@ fun SettingsContent(
     onIdleTimeoutChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (String) -> Unit = {},
+    onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
     onThemeModeChanged: (String) -> Unit = {},
     onSecurityCheckIntervalChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
@@ -200,6 +206,13 @@ fun SettingsContent(
                     onSelected = onPostSessionModeChanged
                 )
             }
+            SwitchRow(
+                title = "Show all MCP messages in audit history",
+                subtitle = "By default, only tool calls are shown. Enable to also see " +
+                    "tools/list, initialize, prompts/get, and other MCP methods.",
+                checked = state.showAllMcpMessages,
+                onCheckedChange = onShowAllMcpMessagesChanged
+            )
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -350,6 +363,7 @@ fun SettingsScreen(
     onIdleTimeoutChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (String) -> Unit = {},
+    onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
     onThemeModeChanged: (String) -> Unit = {},
     onSecurityCheckIntervalChanged: (String) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
@@ -409,6 +423,7 @@ fun SettingsScreen(
             onIdleTimeoutChanged = onIdleTimeoutChanged,
             onDisableTimeoutToggled = onDisableTimeoutToggled,
             onPostSessionModeChanged = onPostSessionModeChanged,
+            onShowAllMcpMessagesChanged = onShowAllMcpMessagesChanged,
             onThemeModeChanged = onThemeModeChanged,
             onSecurityCheckIntervalChanged = onSecurityCheckIntervalChanged,
             onGenerateNewAddress = onGenerateNewAddress,

@@ -567,11 +567,14 @@ fun AppNavigation(
                     )
                     val viewModel: SettingsViewModel = koinViewModel()
                     val state by viewModel.state.collectAsState()
+                    val showAll by viewModel.showAllMcpMessages.collectAsState()
                     SettingsContent(
-                        state = state,
+                        state = state.copy(showAllMcpMessages = showAll),
                         onIdleTimeoutChanged = viewModel::setIdleTimeout,
                         onPostSessionModeChanged =
                         viewModel::setPostSessionMode,
+                        onShowAllMcpMessagesChanged =
+                        viewModel::setShowAllMcpMessages,
                         onThemeModeChanged = viewModel::setThemeMode,
                         onSecurityCheckIntervalChanged =
                         viewModel::setSecurityCheckInterval,
