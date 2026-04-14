@@ -16,6 +16,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.mcp.core.ProviderRegistry
+import com.rousecontext.notifications.FgsLimitNotifier
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.SessionSummaryPoster
 import com.rousecontext.notifications.createForegroundNotification
@@ -120,7 +121,7 @@ class TunnelForegroundService : LifecycleService() {
                     "Posting user notification and stopping service.",
                 e
             )
-            FgsLimitHandler.postLimitReachedNotification(this)
+            FgsLimitNotifier.postLimitReachedNotification(this)
             false
         }
 

@@ -1,10 +1,9 @@
-package com.rousecontext.work
+package com.rousecontext.notifications
 
 import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import com.rousecontext.api.R as ApiR
-import com.rousecontext.notifications.NotificationChannels
 
 /**
  * Handles the Android 6-hour daily foreground service (`dataSync`) time-limit
@@ -20,7 +19,7 @@ import com.rousecontext.notifications.NotificationChannels
  * A fixed notification id is used so repeated exhausted wakes update the same
  * notification rather than spamming the shade.
  */
-object FgsLimitHandler {
+object FgsLimitNotifier {
     /** Fixed id so repeated posts replace instead of stacking. */
     const val NOTIFICATION_ID = 4201
 
