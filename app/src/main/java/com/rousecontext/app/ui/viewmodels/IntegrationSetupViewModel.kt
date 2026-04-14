@@ -139,15 +139,9 @@ class IntegrationSetupViewModel(
 
             val firebaseToken = try {
                 firebaseTokenProvider()
-                    ?: return@launch setFailed(
-                        "Failed to obtain Firebase ID token.",
-                        IntegrationSetupFailureStage.CertProvisioning
-                    )
+                    ?: return@launch setFailed("Failed to obtain Firebase ID token.")
             } catch (e: Exception) {
-                return@launch setFailed(
-                    "Authentication error: ${e.message}",
-                    IntegrationSetupFailureStage.CertProvisioning
-                )
+                return@launch setFailed("Authentication error: ${e.message}")
             }
 
             when (val result = certProvisioningFlow.execute(firebaseToken)) {
@@ -159,10 +153,7 @@ class IntegrationSetupViewModel(
                     pushIntegrationSecrets()
                 }
                 is CertProvisioningResult.NotOnboarded -> {
-                    setFailed(
-                        "Device not registered. Please complete setup first.",
-                        IntegrationSetupFailureStage.CertProvisioning
-                    )
+                    setFailed("Device not registered. Please complete setup first.")
                 }
                 is CertProvisioningResult.RateLimited -> {
                     val retryDate = result.retryAfterSeconds?.let { seconds ->
@@ -173,31 +164,19 @@ class IntegrationSetupViewModel(
                 }
                 is CertProvisioningResult.RelayError -> {
                     Log.e(TAG, "Relay error: ${result.statusCode} - ${result.message}")
-                    setFailed(
-                        "Server error: ${result.message}",
-                        IntegrationSetupFailureStage.CertProvisioning
-                    )
+                    setFailed("Server error: ${result.message}")
                 }
                 is CertProvisioningResult.NetworkError -> {
                     Log.e(TAG, "Network error", result.cause)
-                    setFailed(
-                        "Network error. Check your connection and try again.",
-                        IntegrationSetupFailureStage.CertProvisioning
-                    )
+                    setFailed("Network error. Check your connection and try again.")
                 }
                 is CertProvisioningResult.KeyGenerationFailed -> {
                     Log.e(TAG, "Key generation failed", result.cause)
-                    setFailed(
-                        "Failed to generate device keys.",
-                        IntegrationSetupFailureStage.CertProvisioning
-                    )
+                    setFailed("Failed to generate device keys.")
                 }
                 is CertProvisioningResult.StorageFailed -> {
                     Log.e(TAG, "Storage failed", result.cause)
-                    setFailed(
-                        "Failed to save certificate.",
-                        IntegrationSetupFailureStage.CertProvisioning
-                    )
+                    setFailed("Failed to save certificate.")
                 }
             }
         }
@@ -212,10 +191,7 @@ class IntegrationSetupViewModel(
     private suspend fun pushIntegrationSecrets() {
         val subdomain = certStore.getSubdomain()
         if (subdomain == null) {
-            setFailed(
-                "Device not registered. Please complete setup first.",
-                IntegrationSetupFailureStage.CertProvisioning
-            )
+            setFailed("Device not registered. Please complete setup first.")
             return
         }
 
@@ -284,7 +260,10 @@ class IntegrationSetupViewModel(
         return merged
     }
 
-    private fun setFailed(message: String, stage: IntegrationSetupFailureStage) {
+    private fun setFailed(
+        message: String,
+        stage: IntegrationSetupFailureStage = IntegrationSetupFailureStage.CertProvisioning
+    ) {
         lastFailureStage = stage
         _state.value = IntegrationSetupState.Failed(message = message)
     }

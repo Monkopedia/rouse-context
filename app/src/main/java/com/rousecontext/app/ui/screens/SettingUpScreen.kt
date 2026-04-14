@@ -102,33 +102,7 @@ private fun SettingUpBody(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            when (state.variant) {
-                is SettingUpVariant.Registering,
-                is SettingUpVariant.Requesting -> {
-                    CircularProgressIndicator(
-                        color = AmberAccent,
-                        trackColor = AmberAccent.copy(alpha = 0.35f),
-                        modifier = Modifier.size(64.dp),
-                        strokeWidth = 5.dp
-                    )
-                }
-                is SettingUpVariant.RateLimited -> {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = AmberAccent
-                    )
-                }
-                is SettingUpVariant.Failed -> {
-                    Icon(
-                        imageVector = Icons.Default.ErrorOutline,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
+            SettingUpLeadingGlyph(state.variant)
 
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -200,6 +174,37 @@ private fun SettingUpBody(
                     }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingUpLeadingGlyph(variant: SettingUpVariant) {
+    when (variant) {
+        is SettingUpVariant.Registering,
+        is SettingUpVariant.Requesting -> {
+            CircularProgressIndicator(
+                color = AmberAccent,
+                trackColor = AmberAccent.copy(alpha = 0.35f),
+                modifier = Modifier.size(64.dp),
+                strokeWidth = 5.dp
+            )
+        }
+        is SettingUpVariant.RateLimited -> {
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = AmberAccent
+            )
+        }
+        is SettingUpVariant.Failed -> {
+            Icon(
+                imageVector = Icons.Default.ErrorOutline,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
         }
     }
 }
