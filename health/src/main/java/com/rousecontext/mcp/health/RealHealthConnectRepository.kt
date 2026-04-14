@@ -28,15 +28,19 @@ import kotlinx.serialization.json.buildJsonObject
  * looks up the category via [RecordTypeRegistry] and delegates.
  */
 class RealHealthConnectRepository internal constructor(
-    private val context: Context,
-    readerFactory: (HealthConnectClient) -> RecordReader,
-    categoriesFactory: (RecordReader) -> List<CategoryQueries>
+    private val categoriesProvider: () -> List<CategoryQueries>,
+    private val grantedPermissionsProvider: suspend () -> Set<String>,
+    private val historicalReadGrantedProvider: suspend () -> Boolean
 ) : HealthConnectRepository {
 
+    /** Production constructor; lazily builds the HC client from [context]. */
     constructor(context: Context) : this(
-        context = context,
-        readerFactory = { client -> HealthConnectClientRecordReader(client) },
-        categoriesFactory = { reader ->
+        clientProvider = lazyHealthConnectClient(context)
+    )
+
+    private constructor(clientProvider: Lazy<HealthConnectClient>) : this(
+        categoriesProvider = {
+            val reader = HealthConnectClientRecordReader(clientProvider.value)
             listOf(
                 ActivityQueries(reader),
                 BodyQueries(reader),
@@ -46,20 +50,21 @@ class RealHealthConnectRepository internal constructor(
                 ReproductiveQueries(reader),
                 MindfulnessQueries(reader)
             )
+        },
+        grantedPermissionsProvider = {
+            val granted = clientProvider.value.permissionController.getGrantedPermissions()
+            RecordTypeRegistry.allTypes
+                .filter { info -> granted.contains(info.readPermission) }
+                .map { it.name }
+                .toSet()
+        },
+        historicalReadGrantedProvider = {
+            HEALTH_DATA_HISTORY_PERMISSION in
+                clientProvider.value.permissionController.getGrantedPermissions()
         }
     )
 
-    private val client: HealthConnectClient by lazy {
-        val status = HealthConnectClient.getSdkStatus(context)
-        if (status != HealthConnectClient.SDK_AVAILABLE) {
-            throw HealthConnectUnavailableException()
-        }
-        HealthConnectClient.getOrCreate(context)
-    }
-
-    private val categories: List<CategoryQueries> by lazy {
-        categoriesFactory(readerFactory(client))
-    }
+    private val categories: List<CategoryQueries> by lazy(categoriesProvider)
 
     private val categoryByRecordType: Map<String, CategoryQueries> by lazy {
         buildMap {
@@ -84,18 +89,9 @@ class RealHealthConnectRepository internal constructor(
         return category.query(recordType, from, to, limit)
     }
 
-    override suspend fun getGrantedPermissions(): Set<String> {
-        val granted = client.permissionController.getGrantedPermissions()
-        return RecordTypeRegistry.allTypes
-            .filter { info -> granted.contains(info.readPermission) }
-            .map { it.name }
-            .toSet()
-    }
+    override suspend fun getGrantedPermissions(): Set<String> = grantedPermissionsProvider()
 
-    override suspend fun isHistoricalReadGranted(): Boolean {
-        val granted = client.permissionController.getGrantedPermissions()
-        return HEALTH_DATA_HISTORY_PERMISSION in granted
-    }
+    override suspend fun isHistoricalReadGranted(): Boolean = historicalReadGrantedProvider()
 
     override suspend fun getSummary(from: Instant, to: Instant): JsonObject {
         val granted = getGrantedPermissions()
@@ -108,19 +104,24 @@ class RealHealthConnectRepository internal constructor(
             }
         }
     }
+
+    companion object {
+        private fun lazyHealthConnectClient(context: Context): Lazy<HealthConnectClient> = lazy {
+            val status = HealthConnectClient.getSdkStatus(context)
+            if (status != HealthConnectClient.SDK_AVAILABLE) {
+                throw HealthConnectUnavailableException()
+            }
+            HealthConnectClient.getOrCreate(context)
+        }
+    }
 }
 
 /**
  * [RecordReader] implementation backed by a [HealthConnectClient].
  */
-private class HealthConnectClientRecordReader(
-    private val client: HealthConnectClient
-) : RecordReader {
-    override suspend fun <T : Record> read(
-        type: KClass<T>,
-        from: Instant,
-        to: Instant
-    ): List<T> {
+private class HealthConnectClientRecordReader(private val client: HealthConnectClient) :
+    RecordReader {
+    override suspend fun <T : Record> read(type: KClass<T>, from: Instant, to: Instant): List<T> {
         val response = client.readRecords(
             ReadRecordsRequest(
                 recordType = type,

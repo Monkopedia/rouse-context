@@ -13,7 +13,6 @@ import com.rousecontext.app.MainActivity
 import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
-import com.rousecontext.mcp.health.RealHealthConnectRepository
 import com.rousecontext.app.receivers.AuthApprovalReceiver
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
@@ -49,6 +48,7 @@ import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
+import com.rousecontext.mcp.health.RealHealthConnectRepository
 import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.LaunchRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier

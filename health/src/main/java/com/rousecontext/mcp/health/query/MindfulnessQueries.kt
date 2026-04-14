@@ -25,11 +25,8 @@ class MindfulnessQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun summary(
-        from: Instant,
-        to: Instant,
-        granted: Set<String>
-    ): JsonObject = JsonObject(emptyMap())
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        JsonObject(emptyMap())
 
     private suspend fun queryMindfulnessSession(
         from: Instant,

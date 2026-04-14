@@ -25,17 +25,10 @@ class NutritionQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun summary(
-        from: Instant,
-        to: Instant,
-        granted: Set<String>
-    ): JsonObject = JsonObject(emptyMap())
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        JsonObject(emptyMap())
 
-    private suspend fun queryHydration(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
+    private suspend fun queryHydration(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
         val records = reader.read(HydrationRecord::class, from, to)
         return records
             .map { record ->
@@ -48,11 +41,7 @@ class NutritionQueries(private val reader: RecordReader) : CategoryQueries {
             .let { if (limit != null) it.take(limit) else it }
     }
 
-    private suspend fun queryNutrition(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
+    private suspend fun queryNutrition(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
         val records = reader.read(NutritionRecord::class, from, to)
         return records
             .map { record ->

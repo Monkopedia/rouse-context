@@ -66,17 +66,14 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun summary(
-        from: Instant,
-        to: Instant,
-        granted: Set<String>
-    ): JsonObject = buildJsonObject {
-        if ("Steps" in granted) {
-            val steps = querySteps(from, to, null)
-            val total = steps.sumOf { it["count"]?.toString()?.toLongOrNull() ?: 0L }
-            put("steps_total", total)
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        buildJsonObject {
+            if ("Steps" in granted) {
+                val steps = querySteps(from, to, null)
+                val total = steps.sumOf { it["count"]?.toString()?.toLongOrNull() ?: 0L }
+                put("steps_total", total)
+            }
         }
-    }
 
     private suspend fun querySteps(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
         val records = reader.read(StepsRecord::class, from, to)

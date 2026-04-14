@@ -40,20 +40,17 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun summary(
-        from: Instant,
-        to: Instant,
-        granted: Set<String>
-    ): JsonObject = buildJsonObject {
-        if ("Weight" in granted) {
-            val weights = queryWeight(from, to, null)
-            val latest = weights.lastOrNull()
-            if (latest != null) {
-                val kg = latest["kg"]?.toString()?.toDoubleOrNull()
-                if (kg != null) put("weight_latest_kg", kg)
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        buildJsonObject {
+            if ("Weight" in granted) {
+                val weights = queryWeight(from, to, null)
+                val latest = weights.lastOrNull()
+                if (latest != null) {
+                    val kg = latest["kg"]?.toString()?.toDoubleOrNull()
+                    if (kg != null) put("weight_latest_kg", kg)
+                }
             }
         }
-    }
 
     private suspend fun queryWeight(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
         val records = reader.read(WeightRecord::class, from, to)
