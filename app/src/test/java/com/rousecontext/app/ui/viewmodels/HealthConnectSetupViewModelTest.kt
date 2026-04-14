@@ -57,7 +57,7 @@ class HealthConnectSetupViewModelTest {
         }
         val vm = HealthConnectSetupViewModel(FakeStore(), repo)
 
-        vm.refreshHistoricalAccess()
+        vm.refreshPermissions()
         advanceUntilIdle()
 
         vm.historicalAccessGranted.test {
@@ -72,15 +72,82 @@ class HealthConnectSetupViewModelTest {
         }
         val vm = HealthConnectSetupViewModel(FakeStore(), repo)
 
-        vm.refreshHistoricalAccess()
+        vm.refreshPermissions()
         advanceUntilIdle()
         assertTrue(vm.historicalAccessGranted.value)
 
         repo.historicalReadGranted = false
-        vm.refreshHistoricalAccess()
+        vm.refreshPermissions()
         advanceUntilIdle()
         assertFalse(vm.historicalAccessGranted.value)
     }
+
+    @Test
+    fun `refreshPermissions exposes granted record types from repo`() = runTest(testDispatcher) {
+        val repo = FakeRepo().apply {
+            grantedRecordTypes = setOf("Steps", "HeartRate")
+        }
+        val vm = HealthConnectSetupViewModel(FakeStore(), repo)
+
+        vm.refreshPermissions()
+        advanceUntilIdle()
+
+        assertEquals(setOf("Steps", "HeartRate"), vm.grantedRecordTypes.value)
+    }
+
+    @Test
+    fun `initial grantedRecordTypes is empty`() {
+        val vm = HealthConnectSetupViewModel(FakeStore(), FakeRepo())
+        assertEquals(emptySet<String>(), vm.grantedRecordTypes.value)
+    }
+
+    @Test
+    fun `refreshPermissions updates grantedRecordTypes after revocation`() =
+        runTest(testDispatcher) {
+            val repo = FakeRepo().apply {
+                grantedRecordTypes = setOf("Steps", "HeartRate", "SleepSession")
+            }
+            val vm = HealthConnectSetupViewModel(FakeStore(), repo)
+
+            vm.refreshPermissions()
+            advanceUntilIdle()
+            assertEquals(3, vm.grantedRecordTypes.value.size)
+
+            repo.grantedRecordTypes = setOf("Steps")
+            vm.refreshPermissions()
+            advanceUntilIdle()
+            assertEquals(setOf("Steps"), vm.grantedRecordTypes.value)
+        }
+
+    @Test
+    fun `onPermissionsResult triggers refresh of granted record types`() = runTest(testDispatcher) {
+        val repo = FakeRepo().apply {
+            grantedRecordTypes = setOf("Steps", "HeartRate")
+        }
+        val vm = HealthConnectSetupViewModel(FakeStore(), repo)
+
+        vm.onPermissionsResult(
+            setOf("android.permission.health.READ_STEPS")
+        )
+        advanceUntilIdle()
+
+        assertEquals(setOf("Steps", "HeartRate"), vm.grantedRecordTypes.value)
+    }
+
+    @Test
+    fun `refreshPermissions swallows repo exceptions and leaves state empty`() =
+        runTest(testDispatcher) {
+            val repo = FakeRepo().apply {
+                throwOnGranted = true
+            }
+            val vm = HealthConnectSetupViewModel(FakeStore(), repo)
+
+            vm.refreshPermissions()
+            advanceUntilIdle()
+
+            assertEquals(emptySet<String>(), vm.grantedRecordTypes.value)
+            assertFalse(vm.historicalAccessGranted.value)
+        }
 
     @Test
     fun `onPermissionsResult updates historical state from granted set`() =
@@ -182,14 +249,22 @@ class HealthConnectSetupViewModelTest {
 
     private class FakeRepo : HealthConnectRepository {
         var historicalReadGranted: Boolean = false
+        var grantedRecordTypes: Set<String> = emptySet()
+        var throwOnGranted: Boolean = false
         override suspend fun queryRecords(
             recordType: String,
             from: Instant,
             to: Instant,
             limit: Int?
         ): List<JsonObject> = emptyList()
-        override suspend fun getGrantedPermissions(): Set<String> = emptySet()
-        override suspend fun isHistoricalReadGranted(): Boolean = historicalReadGranted
+        override suspend fun getGrantedPermissions(): Set<String> {
+            if (throwOnGranted) error("boom")
+            return grantedRecordTypes
+        }
+        override suspend fun isHistoricalReadGranted(): Boolean {
+            if (throwOnGranted) error("boom")
+            return historicalReadGranted
+        }
         override suspend fun getSummary(from: Instant, to: Instant): JsonObject =
             JsonObject(emptyMap())
     }

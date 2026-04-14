@@ -399,12 +399,20 @@ class ScreenScreenshotTest {
 
     @Test
     fun healthConnectSettingsDark() = captureDark("26_health_connect_settings") {
-        HealthConnectSetupContent(mode = SetupMode.SETTINGS, historicalAccessGranted = true)
+        HealthConnectSetupContent(
+            mode = SetupMode.SETTINGS,
+            historicalAccessGranted = true,
+            grantedRecordTypes = SAMPLE_GRANTED_RECORD_TYPES
+        )
     }
 
     @Test
     fun healthConnectSettingsLight() = captureLight("26_health_connect_settings") {
-        HealthConnectSetupContent(mode = SetupMode.SETTINGS, historicalAccessGranted = true)
+        HealthConnectSetupContent(
+            mode = SetupMode.SETTINGS,
+            historicalAccessGranted = true,
+            grantedRecordTypes = SAMPLE_GRANTED_RECORD_TYPES
+        )
     }
 
     // =========================================================================
@@ -877,3 +885,22 @@ class ScreenScreenshotTest {
         )
     )
 }
+
+/**
+ * Representative granted-permission set for the Health Connect settings
+ * screenshot (#99): a mix across several categories so the rendered screenshot
+ * exercises both granted (green check) and ungranted (outlined) row styles,
+ * and shows a partial `granted/total` count in at least one category header.
+ */
+private val SAMPLE_GRANTED_RECORD_TYPES: Set<String> = setOf(
+    // Activity: 2 of many
+    "Steps",
+    "ExerciseSession",
+    // Body: 1 of several
+    "Weight",
+    // Sleep: all (only one type)
+    "SleepSession",
+    // Vitals: a couple
+    "HeartRate",
+    "RestingHeartRate"
+)

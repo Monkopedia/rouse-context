@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -42,6 +43,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
+import com.rousecontext.app.ui.theme.SuccessGreen
 import com.rousecontext.mcp.health.RecordCategory
 import com.rousecontext.mcp.health.RecordTypeRegistry
 
@@ -55,6 +57,7 @@ fun HealthConnectSetupContent(
     onCancel: () -> Unit = {},
     historicalAccessGranted: Boolean = false,
     onRequestHistoricalAccess: () -> Unit = {},
+    grantedRecordTypes: Set<String> = emptySet(),
     modifier: Modifier = Modifier
 ) {
     HealthConnectSetupBody(
@@ -63,6 +66,7 @@ fun HealthConnectSetupContent(
         onCancel = onCancel,
         historicalAccessGranted = historicalAccessGranted,
         onRequestHistoricalAccess = onRequestHistoricalAccess,
+        grantedRecordTypes = grantedRecordTypes,
         modifier = modifier
     )
 }
@@ -88,6 +92,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
             onCancel = onCancel,
             historicalAccessGranted = false,
             onRequestHistoricalAccess = {},
+            grantedRecordTypes = emptySet(),
             modifier = Modifier.padding(padding)
         )
     }
@@ -100,6 +105,7 @@ private fun HealthConnectSetupBody(
     onCancel: () -> Unit,
     historicalAccessGranted: Boolean,
     onRequestHistoricalAccess: () -> Unit,
+    grantedRecordTypes: Set<String>,
     modifier: Modifier = Modifier
 ) {
     val typesByCategory = RecordTypeRegistry.allTypes
@@ -133,11 +139,20 @@ private fun HealthConnectSetupBody(
         // permission list does not overwhelm the user on first view (#60).
         val expandedState = remember { mutableStateMapOf<RecordCategory, Boolean>() }
 
+        // Per-record-type granted indicators are only meaningful in SETTINGS
+        // mode (#99). In the initial SETUP flow, no permissions have been
+        // granted yet by definition, so the list acts as a plain preview of
+        // what will be requested.
+        val showGrantedIndicators = mode == SetupMode.SETTINGS
+
         typesByCategory.forEach { (category, types) ->
             val expanded = expandedState[category] ?: false
+            val grantedInCategory = types.count { it.name in grantedRecordTypes }
             CategoryHeader(
                 category = category,
-                count = types.size,
+                grantedCount = grantedInCategory,
+                totalCount = types.size,
+                showGrantedFraction = showGrantedIndicators,
                 expanded = expanded,
                 onToggle = { expandedState[category] = !expanded }
             )
@@ -148,11 +163,36 @@ private fun HealthConnectSetupBody(
             ) {
                 Column {
                     types.forEach { recordType ->
-                        Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
-                            Text(
-                                text = "\u2022",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                        val isGranted = recordType.name in grantedRecordTypes
+                        Row(
+                            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            if (showGrantedIndicators) {
+                                Icon(
+                                    imageVector = if (isGranted) {
+                                        Icons.Filled.CheckCircle
+                                    } else {
+                                        Icons.Outlined.RadioButtonUnchecked
+                                    },
+                                    contentDescription = if (isGranted) {
+                                        "${recordType.displayName} granted"
+                                    } else {
+                                        "${recordType.displayName} not granted"
+                                    },
+                                    tint = if (isGranted) {
+                                        SuccessGreen
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "\u2022",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
@@ -309,10 +349,26 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
 @Composable
 private fun CategoryHeader(
     category: RecordCategory,
-    count: Int,
+    grantedCount: Int,
+    totalCount: Int,
+    showGrantedFraction: Boolean,
     expanded: Boolean,
     onToggle: () -> Unit
 ) {
+    val allGranted = grantedCount == totalCount
+    val countText = if (showGrantedFraction) {
+        "$grantedCount/$totalCount"
+    } else {
+        "$totalCount"
+    }
+    val countColor = if (!showGrantedFraction || allGranted) {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    } else {
+        // Draw the eye when some types in the category are not yet granted.
+        // #99: use the error tint so it is visible in both light and dark
+        // themes without competing with the primary heading color.
+        MaterialTheme.colorScheme.error
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -328,9 +384,9 @@ private fun CategoryHeader(
             modifier = Modifier.weight(1f)
         )
         Text(
-            text = "$count",
+            text = countText,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = countColor
         )
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
