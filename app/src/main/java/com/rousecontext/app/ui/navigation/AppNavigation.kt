@@ -883,24 +883,27 @@ fun AppNavigation(
                     val viewModel: HealthConnectSetupViewModel =
                         koinViewModel()
                     LaunchedEffect(Unit) {
-                        viewModel.refreshHistoricalAccess()
+                        viewModel.refreshPermissions()
                     }
                     // In SETTINGS mode the user may toggle individual permissions
                     // inside Health Connect and return; re-query so the
-                    // historical-access card reflects the latest state (#94).
+                    // historical-access card and per-record-type indicators
+                    // reflect the latest state (#94, #99).
                     val lifecycleOwner = LocalLifecycleOwner.current
                     val lifecycle = lifecycleOwner.lifecycle
                     DisposableEffect(lifecycle) {
                         val observer =
                             LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_RESUME) {
-                                    viewModel.refreshHistoricalAccess()
+                                    viewModel.refreshPermissions()
                                 }
                             }
                         lifecycle.addObserver(observer)
                         onDispose { lifecycle.removeObserver(observer) }
                     }
                     val historicalGranted by viewModel.historicalAccessGranted
+                        .collectAsState()
+                    val grantedRecordTypes by viewModel.grantedRecordTypes
                         .collectAsState()
                     val context = LocalContext.current
                     val requestPermissions =
@@ -980,7 +983,8 @@ fun AppNavigation(
                                         .HISTORY_PERMISSION
                                 )
                             )
-                        }
+                        },
+                        grantedRecordTypes = grantedRecordTypes
                     )
                 }
 

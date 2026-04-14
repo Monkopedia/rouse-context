@@ -16,7 +16,9 @@ import kotlinx.coroutines.launch
  *
  * Also surfaces whether the optional "historical data" read permission
  * (data recorded before the app was installed / granted access) has been
- * granted, so the settings screen can show a prompt/indicator.
+ * granted, so the settings screen can show a prompt/indicator, and the
+ * set of record-type permissions currently granted so the settings list
+ * can render per-row checked/unchecked indicators (#99).
  */
 class HealthConnectSetupViewModel(
     private val stateStore: IntegrationStateStore,
@@ -28,24 +30,48 @@ class HealthConnectSetupViewModel(
     /**
      * Whether the user has granted read access to historical Health Connect data.
      *
-     * Call [refreshHistoricalAccess] to query the current state from the
-     * Health Connect SDK (e.g. on screen entry or after returning from the
-     * permission request flow).
+     * Call [refreshPermissions] to query the current state from the Health
+     * Connect SDK (e.g. on screen entry or after returning from the permission
+     * request flow).
      */
     val historicalAccessGranted: StateFlow<Boolean> = _historicalAccessGranted.asStateFlow()
 
+    private val _grantedRecordTypes = MutableStateFlow<Set<String>>(emptySet())
+
     /**
-     * Queries the repository for the current historical-access grant state and
-     * updates [historicalAccessGranted].
+     * Set of record-type names (matching
+     * [com.rousecontext.mcp.health.RecordTypeRegistry] keys, e.g. `"Steps"`,
+     * `"HeartRate"`) that currently have read permission granted.
+     *
+     * Updated by [refreshPermissions] and by [onPermissionsResult]. Used by
+     * the Health Connect settings screen to render a check/uncheck indicator
+     * on each record-type row and a `granted/total` summary in each category
+     * header (#99).
      */
-    fun refreshHistoricalAccess() {
+    val grantedRecordTypes: StateFlow<Set<String>> = _grantedRecordTypes.asStateFlow()
+
+    /**
+     * Queries the repository for the current permission state and updates
+     * [historicalAccessGranted] and [grantedRecordTypes].
+     *
+     * Safe to call from lifecycle callbacks (e.g. `ON_RESUME`) so that
+     * revocations performed in the Health Connect system UI are reflected
+     * when the user returns to the app (#99).
+     */
+    fun refreshPermissions() {
         viewModelScope.launch {
-            val granted = try {
+            val historical = try {
                 healthRepository.isHistoricalReadGranted()
             } catch (_: Exception) {
                 false
             }
-            _historicalAccessGranted.value = granted
+            val granted = try {
+                healthRepository.getGrantedPermissions()
+            } catch (_: Exception) {
+                emptySet()
+            }
+            _historicalAccessGranted.value = historical
+            _grantedRecordTypes.value = granted
         }
     }
 
@@ -54,13 +80,15 @@ class HealthConnectSetupViewModel(
      * If any permissions were granted, marks the integration as enabled.
      *
      * Also updates [historicalAccessGranted] based on whether the history
-     * permission is present in [grantedPermissions], so the UI reflects the
-     * new state without an extra round-trip.
+     * permission is present in [grantedPermissions], and triggers a
+     * [refreshPermissions] so [grantedRecordTypes] reflects the post-grant
+     * state.
      *
      * @return true if permissions were granted and integration was enabled
      */
     fun onPermissionsResult(grantedPermissions: Set<String>): Boolean {
         _historicalAccessGranted.value = HISTORY_PERMISSION in grantedPermissions
+        refreshPermissions()
         if (grantedPermissions.isEmpty()) return false
         stateStore.setUserEnabled(HEALTH_INTEGRATION_ID, true)
         return true
