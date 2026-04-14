@@ -35,6 +35,9 @@ class AuthApprovalReceiverTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        // Defensive: another test in the suite may have left Koin started. Clean it up
+        // before we start our own instance so the @Before is order-independent.
+        runCatching { stopKoin() }
         startKoin {
             modules(
                 module {
