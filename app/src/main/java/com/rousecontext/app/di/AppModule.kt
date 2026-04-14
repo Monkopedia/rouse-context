@@ -3,6 +3,7 @@ package com.rousecontext.app.di
 import android.app.NotificationManager
 import android.content.Context
 import android.os.PowerManager
+import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
@@ -338,6 +339,13 @@ val appModule = module {
                     ""
                 ) ?: ""
                 self == "alert" || ct == "alert"
+            },
+            log = { msg ->
+                if (msg.startsWith("Audit:")) {
+                    Log.e("McpRouting", msg)
+                } else {
+                    Log.w("McpRouting", msg)
+                }
             }
         ).also { session ->
             session.start(port = 0)
@@ -368,7 +376,16 @@ val appModule = module {
     single<TunnelClient> {
         TunnelClientImpl(
             scope = get(named("appScope")),
-            webSocketFactory = get<LazyWebSocketFactory>()
+            webSocketFactory = get<LazyWebSocketFactory>(),
+            log = { msg ->
+                if (msg.startsWith("TunnelClient: disconnected:")) {
+                    Log.i("TunnelClient", msg)
+                } else {
+                    Log.w("TunnelClient", msg)
+                }
+            },
+            stateMachineLog = { msg -> Log.w("ConnectionStateMachine", msg) },
+            muxDemuxLog = { msg -> Log.w("MuxDemux", msg) }
         )
     }
 

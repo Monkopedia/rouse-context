@@ -77,7 +77,8 @@ fun Application.configureMcpRouting(
     mcpRateLimiter: RateLimiter? = null,
     securityAlertCheck: (() -> Boolean)? = null,
     serverName: String = "rouse-context",
-    serverVersion: String = "0.1.0"
+    serverVersion: String = "0.1.0",
+    log: (String) -> Unit = {}
 ) {
     install(ContentNegotiation) {
         json(mcpJson)
@@ -188,7 +189,7 @@ fun Application.configureMcpRouting(
                 }
                 mcpJson.parseToJsonElement(text).jsonObject
             } catch (e: Exception) {
-                println(
+                log(
                     "McpRouting: /register body read failed: " +
                         "${e::class.simpleName}: ${e.message}"
                 )
@@ -544,7 +545,7 @@ fun Application.configureMcpRouting(
                     call.receiveText()
                 }
             } catch (e: Exception) {
-                println(
+                log(
                     "McpRouting: /mcp body read failed: " +
                         "${e::class.simpleName}: ${e.message}"
                 )
@@ -582,7 +583,8 @@ fun Application.configureMcpRouting(
                         responseJson,
                         ri,
                         startMs,
-                        clock
+                        clock,
+                        log
                     )
                 }
 
@@ -844,14 +846,15 @@ internal fun buildAuthorizePage(
  * All failures are swallowed: audit is best-effort and must never cause a
  * request to fail.
  */
-@Suppress("TooGenericExceptionCaught")
+@Suppress("TooGenericExceptionCaught", "LongParameterList")
 private fun emitAuditEvent(
     auditListener: AuditListener,
     request: JsonObject,
     responseJson: String,
     integration: String,
     startMs: Long,
-    clock: Clock
+    clock: Clock,
+    log: (String) -> Unit
 ) {
     val method = try {
         request["method"]?.jsonPrimitive?.content
@@ -861,10 +864,27 @@ private fun emitAuditEvent(
 
     val durationMs = clock.currentTimeMillis() - startMs
 
-    emitRequestEvent(auditListener, request, responseJson, integration, method, startMs, durationMs)
+    emitRequestEvent(
+        auditListener,
+        request,
+        responseJson,
+        integration,
+        method,
+        startMs,
+        durationMs,
+        log
+    )
 
     if (method == "tools/call") {
-        emitToolCallEvent(auditListener, request, responseJson, integration, startMs, durationMs)
+        emitToolCallEvent(
+            auditListener,
+            request,
+            responseJson,
+            integration,
+            startMs,
+            durationMs,
+            log
+        )
     }
 }
 
@@ -876,7 +896,8 @@ private fun emitRequestEvent(
     integration: String,
     method: String,
     startMs: Long,
-    durationMs: Long
+    durationMs: Long,
+    log: (String) -> Unit
 ) {
     try {
         val params = request["params"]
@@ -893,18 +914,19 @@ private fun emitRequestEvent(
             )
         )
     } catch (e: Exception) {
-        println("Audit: failed to emit onRequest event: ${e.message}")
+        log("Audit: failed to emit onRequest event: ${e.message}")
     }
 }
 
-@Suppress("TooGenericExceptionCaught", "ReturnCount")
+@Suppress("TooGenericExceptionCaught", "ReturnCount", "LongParameterList")
 private fun emitToolCallEvent(
     auditListener: AuditListener,
     request: JsonObject,
     responseJson: String,
     integration: String,
     startMs: Long,
-    durationMs: Long
+    durationMs: Long,
+    log: (String) -> Unit
 ) {
     try {
         val params = request["params"]?.jsonObject ?: return
@@ -928,7 +950,7 @@ private fun emitToolCallEvent(
         )
     } catch (e: Exception) {
         // Audit is best-effort; never fail the request due to audit errors
-        println("Audit: failed to emit tool-call event: ${e.message}")
+        log("Audit: failed to emit tool-call event: ${e.message}")
     }
 }
 

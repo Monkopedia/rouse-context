@@ -18,9 +18,12 @@ import kotlinx.coroutines.launch
  */
 class TunnelClientImpl(
     private val scope: CoroutineScope,
-    private val webSocketFactory: WebSocketFactory
+    private val webSocketFactory: WebSocketFactory,
+    private val log: (String) -> Unit = {},
+    private val stateMachineLog: (String) -> Unit = {},
+    private val muxDemuxLog: (String) -> Unit = {}
 ) : TunnelClient {
-    private val stateMachine = ConnectionStateMachine()
+    private val stateMachine = ConnectionStateMachine(log = stateMachineLog)
     private var muxDemux: MuxDemux? = null
     private var wsHandle: WebSocketHandle? = null
     private var forwardJob: Job? = null
@@ -37,13 +40,13 @@ class TunnelClientImpl(
 
     override suspend fun connect(url: String) {
         if (!stateMachine.transition(TunnelState.CONNECTING)) {
-            println(
+            log(
                 "TunnelClient: connect() ignored, current state is ${stateMachine.state.value}"
             )
             return
         }
         try {
-            val demux = MuxDemux()
+            val demux = MuxDemux(log = muxDemuxLog)
             val opened = CompletableDeferred<Unit>()
 
             val handle = webSocketFactory.connect(
@@ -59,7 +62,7 @@ class TunnelClientImpl(
                             try {
                                 demux.handleFrame(muxFrame)
                             } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
-                                println("TunnelClient: frame arrived after disconnect, ignoring")
+                                log("TunnelClient: frame arrived after disconnect, ignoring")
                             }
                         }
                     }
@@ -150,7 +153,7 @@ class TunnelClientImpl(
     }
 
     private suspend fun handleDisconnect(error: TunnelError) {
-        println("TunnelClient: disconnected: ${error.message}")
+        log("TunnelClient: disconnected: ${error.message}")
         _errors.emit(error)
         // Use quiet cleanup -- transport is already broken, don't try to send CLOSE frames
         muxDemux?.closeAllQuietly()

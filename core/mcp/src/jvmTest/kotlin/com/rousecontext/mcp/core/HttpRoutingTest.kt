@@ -3,6 +3,7 @@ package com.rousecontext.mcp.core
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
@@ -235,5 +236,34 @@ class HttpRoutingTest {
         // OAuth metadata should work fine when alert is false
         val response = client.get("/.well-known/oauth-authorization-server")
         assertEquals(HttpStatusCode.OK, response.status)
+    }
+
+    @Test
+    fun `malformed register body invokes log lambda`() = testApplication {
+        val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+        val captured = mutableListOf<String>()
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "brave-falcon.rousecontext.com",
+                integration = "health",
+                log = { captured.add(it) }
+            )
+        }
+
+        val response = client.post("/register") {
+            header("Content-Type", "application/json")
+            setBody("not valid json {{{")
+        }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue(
+            "Expected /register body read failure log, got $captured",
+            captured.any { it.startsWith("McpRouting: /register body read failed:") }
+        )
     }
 }

@@ -42,7 +42,8 @@ class McpSession(
     private val mcpRateLimiter: RateLimiter? = null,
     private val securityAlertCheck: (() -> Boolean)? = null,
     private val serverName: String = "rouse-context",
-    private val serverVersion: String = "0.1.0"
+    private val serverVersion: String = "0.1.0",
+    private val log: (String) -> Unit = {}
 ) {
 
     private val done = CompletableDeferred<Unit>()
@@ -76,7 +77,8 @@ class McpSession(
                 mcpRateLimiter = mcpRateLimiter,
                 securityAlertCheck = securityAlertCheck,
                 serverName = serverName,
-                serverVersion = serverVersion
+                serverVersion = serverVersion,
+                log = log
             )
         }
         engine = server

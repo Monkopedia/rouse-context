@@ -3,6 +3,7 @@ package com.rousecontext.tunnel
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ConnectionStateMachineTest {
 
@@ -153,5 +154,16 @@ class ConnectionStateMachineTest {
         val sm = ConnectionStateMachine()
         assertFalse(sm.transition(TunnelState.DISCONNECTED))
         assertEquals(TunnelState.DISCONNECTED, sm.state.value)
+    }
+
+    @Test
+    fun invalidTransitionInvokesLogLambda() {
+        val captured = mutableListOf<String>()
+        val sm = ConnectionStateMachine(log = { captured.add(it) })
+        sm.transition(TunnelState.CONNECTED)
+        assertEquals(1, captured.size)
+        assertTrue(captured[0].contains("invalid transition"))
+        assertTrue(captured[0].contains("DISCONNECTED"))
+        assertTrue(captured[0].contains("CONNECTED"))
     }
 }
