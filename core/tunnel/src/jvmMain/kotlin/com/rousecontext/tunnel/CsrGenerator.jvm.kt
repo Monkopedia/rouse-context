@@ -18,7 +18,7 @@ actual class CsrGenerator actual constructor() {
         val privateKeyDer = keyPair.private.encoded
         val privateKeyPem = derToPem(privateKeyDer, "PRIVATE KEY")
 
-        return CsrResult(csrPem = csrPem, privateKeyPem = privateKeyPem)
+        return CsrResult(csrPem = csrPem, privateKeyPem = privateKeyPem, csrDer = csrDer)
     }
 
     private fun buildCsr(commonName: String, keyPair: java.security.KeyPair): ByteArray {

@@ -34,6 +34,7 @@ dependencies {
     implementation(libs.koin.android)
     implementation(libs.workmanager)
     implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
     implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)

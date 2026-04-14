@@ -3,6 +3,26 @@ package com.rousecontext.tunnel
 import kotlinx.coroutines.delay
 
 /**
+ * Credentials used on the Firebase-signature renewal path for an expired cert.
+ *
+ * - [token]: a fresh Firebase ID token (JWT).
+ * - [signature]: Base64-encoded SHA256withECDSA signature over the raw DER bytes of the
+ *   *current* renewal CSR, produced with the device private key from the Android Keystore.
+ */
+data class FirebaseRenewalCredentials(val token: String, val signature: String)
+
+/**
+ * Supplies Firebase credentials for the expired-cert renewal path. Invoked by
+ * [CertRenewalFlow.renewWithFirebase] *after* the renewal CSR has been generated so the
+ * signature covers the exact CSR bytes the relay will receive. Returns `null` when a Firebase
+ * user is not signed in or the signing operation fails; callers treat that as a transient
+ * condition and retry later.
+ */
+fun interface FirebaseRenewalCredentialsProvider {
+    suspend fun obtain(csrDer: ByteArray): FirebaseRenewalCredentials?
+}
+
+/**
  * Orchestrates certificate renewal. Two authentication paths:
  * - Valid (non-expired) cert: mTLS /renew
  * - Expired cert: Firebase token + signature /renew
@@ -50,10 +70,29 @@ class CertRenewalFlow(
 
     /**
      * Renew the device certificate using Firebase token + signature (cert expired).
+     *
+     * Retained for backwards-compatibility with callers that already have credentials in hand.
+     * Production callers should prefer the [FirebaseRenewalCredentialsProvider] overload below
+     * so the signature is computed over the exact CSR DER bytes generated here.
      */
     suspend fun renewWithFirebase(
         firebaseToken: String,
         signature: String,
+        baseDomain: String = defaultBaseDomain
+    ): RenewalResult = renewWithFirebase(
+        credentialsProvider = { FirebaseRenewalCredentials(firebaseToken, signature) },
+        baseDomain = baseDomain
+    )
+
+    /**
+     * Renew the device certificate using Firebase token + signature. The [credentialsProvider]
+     * receives the raw DER bytes of the freshly-generated renewal CSR and returns a Firebase
+     * ID token plus a SHA256withECDSA signature over those bytes. If the provider returns
+     * `null`, the renewal is reported as a [RenewalResult.NetworkError] surrogate so the
+     * caller retries later (Firebase token / Keystore signing failures are transient).
+     */
+    suspend fun renewWithFirebase(
+        credentialsProvider: FirebaseRenewalCredentialsProvider,
         baseDomain: String = defaultBaseDomain
     ): RenewalResult {
         val subdomain = certificateStore.getSubdomain()
@@ -65,11 +104,14 @@ class CertRenewalFlow(
             return RenewalResult.KeyGenerationFailed(e)
         }
 
+        val credentials = credentialsProvider.obtain(csrResult.csrDer)
+            ?: return RenewalResult.FirebaseAuthUnavailable
+
         return executeWithRetry {
             val result = relayApiClient.renewWithFirebase(
                 csrPem = csrResult.csrPem,
-                firebaseToken = firebaseToken,
-                signature = signature
+                firebaseToken = credentials.token,
+                signature = credentials.signature
             )
             handleRenewResponse(result, csrResult, null)
         }
@@ -148,6 +190,12 @@ sealed class RenewalResult {
     data object NoCertificate : RenewalResult()
 
     data object CertExpired : RenewalResult()
+
+    /**
+     * Firebase auth / signing path was unavailable (no signed-in user, or Keystore signing
+     * threw). Transient — the worker retries on the next scheduled run.
+     */
+    data object FirebaseAuthUnavailable : RenewalResult()
 
     data class RateLimited(val retryAfterSeconds: Long?) : RenewalResult()
 

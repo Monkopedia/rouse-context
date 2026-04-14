@@ -153,7 +153,13 @@ class CertRenewalWorkerTest {
 
         assertEquals(Result.retry(), result)
         assertFalse(renewer.mtlsAttempted)
-        assertFalse(renewer.firebaseAttempted)
+        // Renewer is invoked (it asks the provider for creds internally), but returns
+        // FirebaseAuthUnavailable which we handle as a retry with EXPIRED_NO_AUTH outcome.
+        assertTrue(renewer.firebaseAttempted)
+        assertEquals(
+            CertRenewalWorker.Outcome.EXPIRED_NO_AUTH.name,
+            readLastOutcome()
+        )
     }
 
     @Test
@@ -311,21 +317,29 @@ private class FakeRenewer(
     }
 
     override suspend fun renewWithFirebase(
-        firebaseToken: String,
-        signature: String,
+        authProvider: RenewalAuthProvider,
         baseDomain: String
     ): RenewalResult {
         firebaseAttempted = true
-        this.firebaseToken = firebaseToken
-        this.firebaseSig = signature
+        val credentials = authProvider.acquireFirebaseCredentials(FAKE_CSR_DER)
+        if (credentials == null) {
+            return RenewalResult.FirebaseAuthUnavailable
+        }
+        this.firebaseToken = credentials.token
+        this.firebaseSig = credentials.signature
         this.firebaseDomain = baseDomain
         return firebaseResult
+    }
+
+    companion object {
+        val FAKE_CSR_DER = byteArrayOf(0x30, 0x01, 0x00)
     }
 }
 
 private class RecordingAuthProvider(private val credentials: FirebaseCredentials?) :
     RenewalAuthProvider {
-    override suspend fun acquireFirebaseCredentials(): FirebaseCredentials? = credentials
+    override suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials? =
+        credentials
 }
 
 private class FakeCertificateStore(private val expiry: Long?) : CertificateStore {
