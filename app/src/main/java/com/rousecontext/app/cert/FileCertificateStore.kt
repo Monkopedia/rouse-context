@@ -35,6 +35,14 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
 
     override suspend fun storeCertificate(pemChain: String) {
         certFile.writeText(pemChain)
+        // Record leaf fingerprint so SelfCertVerifier can confirm the relay is
+        // presenting our provisioned certificate. Production provisioning and
+        // renewal both call this method directly (not storeCertChain), so this
+        // is the required hook point to keep the fingerprints file populated.
+        val leaf = parsePemCertificates(pemChain).firstOrNull()
+        if (leaf != null) {
+            storeFingerprint(sha256Fingerprint(leaf.encoded))
+        }
     }
 
     override suspend fun getCertificate(): String? =
@@ -158,15 +166,11 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
             )
             pemBuilder.append("\n-----END CERTIFICATE-----\n")
         }
+        // storeCertificate records the leaf fingerprint, so chain fingerprint
+        // recording is handled there. During renewal, both old and new
+        // fingerprints accumulate in the file (no pruning) — at ~1 entry per
+        // 90-day renewal this is not a concern.
         storeCertificate(pemBuilder.toString())
-        // Record the leaf cert fingerprint so SelfCertVerifier can confirm
-        // the relay is presenting our provisioned certificate. Without this,
-        // getKnownFingerprints() stays empty and every security check alerts.
-        // During renewal, both old and new fingerprints accumulate in the file
-        // (no pruning) — at ~1 entry per 90-day renewal this is not a concern.
-        chain.firstOrNull()?.let { leafDer ->
-            storeFingerprint(sha256Fingerprint(leafDer))
-        }
     }
 
     override suspend fun getCertExpiry(): Long? {

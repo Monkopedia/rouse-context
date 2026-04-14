@@ -28,6 +28,21 @@ class FileCertificateStoreTest {
     }
 
     @Test
+    fun `storeCertificate records leaf fingerprint from PEM`() = runBlocking {
+        val leafCert = generateSelfSignedCert("leaf.rousecontext.com")
+        val leafFingerprint = SelfCertVerifier.sha256Fingerprint(leafCert.encoded)
+        val pem = derToPem(leafCert.encoded)
+
+        store.storeCertificate(pem)
+
+        val known = store.getKnownFingerprints()
+        assertTrue(
+            "Expected known fingerprints to contain leaf fingerprint: $leafFingerprint, got $known",
+            known.contains(leafFingerprint)
+        )
+    }
+
+    @Test
     fun `storeCertChain records leaf fingerprint`() = runBlocking {
         val leafCert = generateSelfSignedCert("leaf.rousecontext.com")
         val leafFingerprint = SelfCertVerifier.sha256Fingerprint(leafCert.encoded)
@@ -82,6 +97,12 @@ class FileCertificateStoreTest {
             known.contains(intermediateFingerprint)
         )
         assertEquals(1, known.size)
+    }
+
+    private fun derToPem(der: ByteArray): String {
+        val base64 = java.util.Base64.getMimeEncoder(64, "\n".toByteArray())
+            .encodeToString(der)
+        return "-----BEGIN CERTIFICATE-----\n$base64\n-----END CERTIFICATE-----\n"
     }
 
     private fun generateSelfSignedCert(cn: String): X509Certificate {
