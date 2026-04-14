@@ -480,13 +480,18 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         "Wiring real ACME client with Cloudflare DNS-01"
     );
 
+    let dns: Arc<dyn rouse_relay::dns_challenge::DnsChallengeProvider> =
+        Arc::new(rouse_relay::cloudflare_dns::CloudflareDnsProvider::new(
+            api_token,
+            cf.zone_id.clone(),
+            config.acme.dns_propagation_timeout_secs,
+            config.acme.dns_poll_interval_secs,
+        ));
+
     Arc::new(rouse_relay::acme::RealAcmeClient::with_persistent_key(
         directory_url,
-        api_token,
-        cf.zone_id.clone(),
+        dns,
         base_domain,
-        config.acme.dns_propagation_timeout_secs,
-        config.acme.dns_poll_interval_secs,
         &account_key_path,
         config.acme.require_existing_account,
     ))

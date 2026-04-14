@@ -1,8 +1,10 @@
 pub mod acme;
 pub mod api;
+pub mod cloudflare_dns;
 pub mod config;
 pub mod device_ca;
 pub mod dns;
+pub mod dns_challenge;
 pub mod fcm;
 pub mod firebase_auth;
 pub mod firestore;
