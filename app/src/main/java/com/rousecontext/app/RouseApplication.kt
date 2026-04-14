@@ -3,6 +3,7 @@ package com.rousecontext.app
 import android.app.Application
 import android.content.Context
 import android.util.Log
+import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -11,6 +12,7 @@ import com.rousecontext.app.di.appModule
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.work.CertRenewalScheduler
 import com.rousecontext.work.FcmTokenRegistrar
+import com.rousecontext.work.KoinWorkerFactory
 import com.rousecontext.work.SecurityCheckWorker
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -28,10 +30,24 @@ import org.koin.dsl.module
 /**
  * Application subclass that initializes Koin DI.
  */
-class RouseApplication : Application() {
+class RouseApplication :
+    Application(),
+    Configuration.Provider {
 
     /** Application-scoped coroutine scope, cancelled in [onTerminate]. */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * WorkManager configuration that supplies [KoinWorkerFactory] so workers with
+     * `lateinit` or `KoinComponent`-injected collaborators resolve them at creation time.
+     *
+     * The default initializer is disabled in the manifest (`AndroidManifest.xml`), so
+     * WorkManager calls back into this provider the first time it's requested.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(KoinWorkerFactory(GlobalContext.get()))
+            .build()
 
     override fun onCreate() {
         super.onCreate()
