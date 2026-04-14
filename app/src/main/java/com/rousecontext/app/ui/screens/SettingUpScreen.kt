@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,6 +36,12 @@ sealed interface SettingUpVariant {
     data object Registering : SettingUpVariant
     data object Requesting : SettingUpVariant
     data class RateLimited(val expectedDate: String) : SettingUpVariant
+
+    /**
+     * Terminal failure surface. Paired with a Retry button in the UI so the user
+     * can re-invoke the failed step without backing out of setup (#108).
+     */
+    data class Failed(val message: String) : SettingUpVariant
 }
 
 @Immutable
@@ -41,19 +49,28 @@ data class SettingUpState(val variant: SettingUpVariant = SettingUpVariant.Reque
 
 /**
  * Content-only variant used inside the persistent Scaffold in AppNavigation.
+ *
+ * [onRetry] is only shown for [SettingUpVariant.Failed]. When null on a Failed
+ * variant, the button is hidden — but callers from the setup flow should always
+ * supply one.
  */
 @Composable
 fun SettingUpContent(
     state: SettingUpState = SettingUpState(),
     onCancel: () -> Unit = {},
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    SettingUpBody(state = state, onCancel = onCancel, modifier = modifier)
+    SettingUpBody(state = state, onCancel = onCancel, onRetry = onRetry, modifier = modifier)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Unit = {}) {
+fun SettingUpScreen(
+    state: SettingUpState = SettingUpState(),
+    onCancel: () -> Unit = {},
+    onRetry: (() -> Unit)? = null
+) {
     Scaffold(
         topBar = {
             TopAppBar(title = { Text("Setting Up") }, colors = appBarColors())
@@ -62,6 +79,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
         SettingUpBody(
             state = state,
             onCancel = onCancel,
+            onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
     }
@@ -71,6 +89,7 @@ fun SettingUpScreen(state: SettingUpState = SettingUpState(), onCancel: () -> Un
 private fun SettingUpBody(
     state: SettingUpState,
     onCancel: () -> Unit = {},
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -101,6 +120,14 @@ private fun SettingUpBody(
                         tint = AmberAccent
                     )
                 }
+                is SettingUpVariant.Failed -> {
+                    Icon(
+                        imageVector = Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -113,6 +140,8 @@ private fun SettingUpBody(
                         "Requesting your certificate..."
                     is SettingUpVariant.RateLimited ->
                         "Certificate issuance is temporarily delayed."
+                    is SettingUpVariant.Failed ->
+                        "Setup didn't finish."
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
@@ -144,9 +173,24 @@ private fun SettingUpBody(
                         textAlign = TextAlign.Center
                     )
                 }
+                is SettingUpVariant.Failed -> {
+                    Text(
+                        text = state.variant.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(32.dp))
+
+            if (state.variant is SettingUpVariant.Failed && onRetry != null) {
+                Button(onClick = onRetry) {
+                    Text("Retry")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             TextButton(onClick = onCancel) {
                 Text(
@@ -183,5 +227,20 @@ fun SettingUpRequestingPreview() {
 fun SettingUpRateLimitedPreview() {
     RouseContextTheme(darkTheme = true) {
         SettingUpScreen(state = SettingUpState(SettingUpVariant.RateLimited("Apr 11")))
+    }
+}
+
+@Preview(showBackground = true, showSystemUi = true)
+@Composable
+fun SettingUpFailedPreview() {
+    RouseContextTheme(darkTheme = true) {
+        SettingUpScreen(
+            state = SettingUpState(
+                SettingUpVariant.Failed(
+                    "Couldn't register integration with relay. Try again."
+                )
+            ),
+            onRetry = {}
+        )
     }
 }

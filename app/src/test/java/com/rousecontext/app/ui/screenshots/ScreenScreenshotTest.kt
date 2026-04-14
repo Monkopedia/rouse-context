@@ -134,6 +134,30 @@ class ScreenScreenshotTest {
         SettingUpScreen(state = SettingUpState(SettingUpVariant.RateLimited("Apr 11")))
     }
 
+    @Test
+    fun settingUpFailedDark() = captureDark("05_setting_up_failed") {
+        SettingUpScreen(
+            state = SettingUpState(
+                SettingUpVariant.Failed(
+                    "Couldn't register integration with relay. Try again."
+                )
+            ),
+            onRetry = {}
+        )
+    }
+
+    @Test
+    fun settingUpFailedLight() = captureLight("05_setting_up_failed") {
+        SettingUpScreen(
+            state = SettingUpState(
+                SettingUpVariant.Failed(
+                    "Couldn't register integration with relay. Try again."
+                )
+            ),
+            onRetry = {}
+        )
+    }
+
     // =========================================================================
     // Dashboard
     // =========================================================================

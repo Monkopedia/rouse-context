@@ -812,7 +812,7 @@ fun AppNavigation(
                         is IntegrationSetupState.Failed -> {
                             SettingUpContent(
                                 state = SettingUpState(
-                                    variant = SettingUpVariant.RateLimited(
+                                    variant = SettingUpVariant.Failed(
                                         (
                                             state as
                                                 IntegrationSetupState.Failed
@@ -827,7 +827,10 @@ fun AppNavigation(
                                         Routes.HOME,
                                         inclusive = false
                                     )
-                                }
+                                },
+                                // #108: explicit Retry re-runs the failed step
+                                // without requiring the user to back out.
+                                onRetry = { viewModel.retry() }
                             )
                         }
                         is IntegrationSetupState.RateLimited -> {

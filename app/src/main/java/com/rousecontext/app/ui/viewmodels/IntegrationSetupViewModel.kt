@@ -37,6 +37,18 @@ sealed interface IntegrationSetupState {
 }
 
 /**
+ * Identifies where in the setup flow the last failure occurred so [IntegrationSetupViewModel.retry]
+ * can resume from the correct step instead of restarting cert provisioning.
+ */
+internal enum class IntegrationSetupFailureStage {
+    /** Failure before or during cert provisioning (pre-cert). Retry runs the full flow. */
+    CertProvisioning,
+
+    /** Failure after certs exist, while pushing valid-secrets to the relay. Retry only re-pushes. */
+    SecretsPush
+}
+
+/**
  * Orchestrates the integration setup flow: enables the integration,
  * triggers cert provisioning if needed, then pushes the updated list of
  * integration secrets (`valid_secrets`) to the relay.
@@ -68,6 +80,12 @@ class IntegrationSetupViewModel(
 
     private var integrationId: String = ""
 
+    /**
+     * Tracks which stage last failed so [retry] can resume from the right step.
+     * Null between failures. Only accessed from the main dispatcher (viewModelScope).
+     */
+    private var lastFailureStage: IntegrationSetupFailureStage? = null
+
     fun startSetup(id: String) {
         integrationId = id
         stateStore.setUserEnabled(id, true)
@@ -75,6 +93,28 @@ class IntegrationSetupViewModel(
             SettingUpState(variant = SettingUpVariant.Requesting)
         )
         beginProvisioning()
+    }
+
+    /**
+     * Re-runs the step that previously failed. If cert provisioning failed, the
+     * full flow is re-run (idempotent because [CertProvisioningResult.AlreadyProvisioned]
+     * short-circuits when a cert already exists). If only the secrets push failed,
+     * we skip cert provisioning and re-run the push directly.
+     *
+     * No-op if [state] is not currently [IntegrationSetupState.Failed].
+     */
+    fun retry() {
+        if (_state.value !is IntegrationSetupState.Failed) return
+        _state.value = IntegrationSetupState.Provisioning(
+            SettingUpState(variant = SettingUpVariant.Requesting)
+        )
+        when (lastFailureStage) {
+            IntegrationSetupFailureStage.SecretsPush -> {
+                viewModelScope.launch { pushIntegrationSecrets() }
+            }
+            // CertProvisioning, or unknown (defensive) — re-run the full flow.
+            else -> beginProvisioning()
+        }
     }
 
     /**
@@ -99,9 +139,15 @@ class IntegrationSetupViewModel(
 
             val firebaseToken = try {
                 firebaseTokenProvider()
-                    ?: return@launch setFailed("Failed to obtain Firebase ID token.")
+                    ?: return@launch setFailed(
+                        "Failed to obtain Firebase ID token.",
+                        IntegrationSetupFailureStage.CertProvisioning
+                    )
             } catch (e: Exception) {
-                return@launch setFailed("Authentication error: ${e.message}")
+                return@launch setFailed(
+                    "Authentication error: ${e.message}",
+                    IntegrationSetupFailureStage.CertProvisioning
+                )
             }
 
             when (val result = certProvisioningFlow.execute(firebaseToken)) {
@@ -113,7 +159,10 @@ class IntegrationSetupViewModel(
                     pushIntegrationSecrets()
                 }
                 is CertProvisioningResult.NotOnboarded -> {
-                    setFailed("Device not registered. Please complete setup first.")
+                    setFailed(
+                        "Device not registered. Please complete setup first.",
+                        IntegrationSetupFailureStage.CertProvisioning
+                    )
                 }
                 is CertProvisioningResult.RateLimited -> {
                     val retryDate = result.retryAfterSeconds?.let { seconds ->
@@ -124,19 +173,31 @@ class IntegrationSetupViewModel(
                 }
                 is CertProvisioningResult.RelayError -> {
                     Log.e(TAG, "Relay error: ${result.statusCode} - ${result.message}")
-                    setFailed("Server error: ${result.message}")
+                    setFailed(
+                        "Server error: ${result.message}",
+                        IntegrationSetupFailureStage.CertProvisioning
+                    )
                 }
                 is CertProvisioningResult.NetworkError -> {
                     Log.e(TAG, "Network error", result.cause)
-                    setFailed("Network error. Check your connection and try again.")
+                    setFailed(
+                        "Network error. Check your connection and try again.",
+                        IntegrationSetupFailureStage.CertProvisioning
+                    )
                 }
                 is CertProvisioningResult.KeyGenerationFailed -> {
                     Log.e(TAG, "Key generation failed", result.cause)
-                    setFailed("Failed to generate device keys.")
+                    setFailed(
+                        "Failed to generate device keys.",
+                        IntegrationSetupFailureStage.CertProvisioning
+                    )
                 }
                 is CertProvisioningResult.StorageFailed -> {
                     Log.e(TAG, "Storage failed", result.cause)
-                    setFailed("Failed to save certificate.")
+                    setFailed(
+                        "Failed to save certificate.",
+                        IntegrationSetupFailureStage.CertProvisioning
+                    )
                 }
             }
         }
@@ -151,7 +212,10 @@ class IntegrationSetupViewModel(
     private suspend fun pushIntegrationSecrets() {
         val subdomain = certStore.getSubdomain()
         if (subdomain == null) {
-            setFailed("Device not registered. Please complete setup first.")
+            setFailed(
+                "Device not registered. Please complete setup first.",
+                IntegrationSetupFailureStage.CertProvisioning
+            )
             return
         }
 
@@ -164,7 +228,7 @@ class IntegrationSetupViewModel(
             runCatching { certStore.storeIntegrationSecrets(merged) }
                 .onFailure {
                     Log.e(TAG, "Failed to persist merged integration secrets", it)
-                    setFailed(SECRETS_PUSH_FAILED_MESSAGE)
+                    setFailed(SECRETS_PUSH_FAILED_MESSAGE, IntegrationSetupFailureStage.SecretsPush)
                     return
                 }
         }
@@ -201,7 +265,7 @@ class IntegrationSetupViewModel(
                 backoffMs *= BACKOFF_FACTOR
             }
         }
-        setFailed(SECRETS_PUSH_FAILED_MESSAGE)
+        setFailed(SECRETS_PUSH_FAILED_MESSAGE, IntegrationSetupFailureStage.SecretsPush)
     }
 
     /**
@@ -220,7 +284,8 @@ class IntegrationSetupViewModel(
         return merged
     }
 
-    private fun setFailed(message: String) {
+    private fun setFailed(message: String, stage: IntegrationSetupFailureStage) {
+        lastFailureStage = stage
         _state.value = IntegrationSetupState.Failed(message = message)
     }
 
