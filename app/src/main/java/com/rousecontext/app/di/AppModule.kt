@@ -13,7 +13,7 @@ import com.rousecontext.app.MainActivity
 import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
-import com.rousecontext.app.health.RealHealthConnectRepository
+import com.rousecontext.mcp.health.RealHealthConnectRepository
 import com.rousecontext.app.receivers.AuthApprovalReceiver
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
