@@ -175,6 +175,12 @@ pub struct AcmeConfig {
     /// If the file exists, the key is loaded from it; otherwise a new key is
     /// generated and saved here.
     pub account_key_path: String,
+    /// If true, startup fails when `account_key_path` does not exist instead of
+    /// silently generating a new key. Enable in production to guard against
+    /// deploy misconfigurations that would rotate the ACME account and burn
+    /// Let's Encrypt rate-limit headroom (50 certs/week/registered-domain).
+    /// Default: false, so fresh installs can bootstrap without manual setup.
+    pub require_existing_account: bool,
 }
 
 impl Default for AcmeConfig {
@@ -184,6 +190,7 @@ impl Default for AcmeConfig {
             dns_propagation_timeout_secs: 60,
             dns_poll_interval_secs: 5,
             account_key_path: "/etc/rouse-relay/acme_account_key.pem".to_string(),
+            require_existing_account: false,
         }
     }
 }
@@ -287,6 +294,11 @@ impl RelayConfig {
         }
         if let Ok(val) = std::env::var("ACME_ACCOUNT_KEY_PATH") {
             self.acme.account_key_path = val;
+        }
+        if let Ok(val) = std::env::var("ACME_REQUIRE_EXISTING_ACCOUNT") {
+            // Accept "1", "true", "yes" (case-insensitive) as true.
+            let v = val.trim().to_ascii_lowercase();
+            self.acme.require_existing_account = matches!(v.as_str(), "1" | "true" | "yes");
         }
         if let Ok(val) = std::env::var("DEVICE_CA_KEY_PATH") {
             self.device_ca.ca_key_path = val;

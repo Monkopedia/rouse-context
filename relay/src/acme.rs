@@ -143,13 +143,29 @@ struct AcmeChallenge {
 
 /// Load an ECDSA P-256 account key from a PEM file, or generate a new one and
 /// save it. This ensures the relay reuses the same ACME account across restarts.
-fn load_or_create_account_key(key_path: &Path) -> SigningKey {
+///
+/// When `require_existing` is true and the key file is missing, this function
+/// panics with a clear error instead of silently generating a fresh account.
+/// Production deployments should enable this to catch deploy misconfigurations
+/// (e.g. missing volume mount) that would otherwise rotate the ACME account
+/// and burn the shared 50-certs/week/domain Let's Encrypt rate-limit budget.
+fn load_or_create_account_key(key_path: &Path, require_existing: bool) -> SigningKey {
     if key_path.exists() {
         let pem = std::fs::read_to_string(key_path).expect("failed to read ACME account key file");
         let key = SigningKey::from_pkcs8_pem(&pem).expect("failed to parse ACME account key PEM");
         info!(?key_path, "Loaded existing ACME account key");
         key
     } else {
+        if require_existing {
+            panic!(
+                "ACME account key file is missing at {key_path:?} and \
+                 acme.require_existing_account = true. Refusing to generate a \
+                 new ACME account because doing so would rotate the relay's \
+                 Let's Encrypt identity and burn shared rate-limit headroom. \
+                 Restore the file from backup (see relay/scripts/backup-acme-key.sh) \
+                 or set acme.require_existing_account = false to allow creation."
+            );
+        }
         let key = SigningKey::random(&mut rand::thread_rng());
         let pem = key
             .to_pkcs8_pem(p256::pkcs8::LineEnding::LF)
@@ -161,7 +177,11 @@ fn load_or_create_account_key(key_path: &Path) -> SigningKey {
                 .expect("failed to create directory for ACME account key");
         }
         std::fs::write(key_path, pem.as_bytes()).expect("failed to write ACME account key to disk");
-        info!(?key_path, "Generated and saved new ACME account key");
+        warn!(
+            ?key_path,
+            acme_account_created = true,
+            "Generated and saved new ACME account key"
+        );
         key
     }
 }
@@ -231,6 +251,12 @@ impl RealAcmeClient {
     /// from it. Otherwise a new ECDSA P-256 key is generated and saved there.
     /// This keeps the same ACME account across relay restarts, avoiding
     /// "no such authorization" errors from orphaned pending challenges.
+    ///
+    /// When `require_existing_account` is true and the key file is missing,
+    /// construction panics rather than silently generating a new account. Use
+    /// this in production to catch deploy misconfigurations that would
+    /// otherwise rotate the relay's Let's Encrypt identity.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_persistent_key(
         directory_url: String,
         cf_api_token: String,
@@ -239,8 +265,9 @@ impl RealAcmeClient {
         dns_propagation_timeout_secs: u64,
         dns_poll_interval_secs: u64,
         account_key_path: &Path,
+        require_existing_account: bool,
     ) -> Self {
-        let account_key = load_or_create_account_key(account_key_path);
+        let account_key = load_or_create_account_key(account_key_path, require_existing_account);
 
         Self {
             http: reqwest::Client::new(),
@@ -1254,11 +1281,11 @@ mod tests {
         let key_path = dir.path().join("account_key.pem");
         assert!(!key_path.exists());
 
-        let key = load_or_create_account_key(&key_path);
+        let key = load_or_create_account_key(&key_path, false);
         assert!(key_path.exists());
 
         // Loading again should produce the same key.
-        let key2 = load_or_create_account_key(&key_path);
+        let key2 = load_or_create_account_key(&key_path, false);
         assert_eq!(key.to_bytes(), key2.to_bytes());
     }
 
@@ -1272,7 +1299,7 @@ mod tests {
         let pem = original.to_pkcs8_pem(p256::pkcs8::LineEnding::LF).unwrap();
         std::fs::write(&key_path, pem.as_bytes()).unwrap();
 
-        let loaded = load_or_create_account_key(&key_path);
+        let loaded = load_or_create_account_key(&key_path, false);
         assert_eq!(original.to_bytes(), loaded.to_bytes());
     }
 
@@ -1282,8 +1309,42 @@ mod tests {
         let key_path = dir.path().join("nested").join("dir").join("key.pem");
         assert!(!key_path.parent().unwrap().exists());
 
-        let _key = load_or_create_account_key(&key_path);
+        let _key = load_or_create_account_key(&key_path, false);
         assert!(key_path.exists());
+    }
+
+    #[test]
+    fn account_key_require_existing_false_creates_new_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("account_key.pem");
+        assert!(!key_path.exists());
+
+        let _key = load_or_create_account_key(&key_path, false);
+        assert!(key_path.exists());
+    }
+
+    #[test]
+    #[should_panic(expected = "acme.require_existing_account = true")]
+    fn account_key_require_existing_true_panics_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("account_key.pem");
+        assert!(!key_path.exists());
+
+        let _ = load_or_create_account_key(&key_path, true);
+    }
+
+    #[test]
+    fn account_key_require_existing_true_loads_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("account_key.pem");
+
+        // Pre-seed an existing key on disk.
+        let original = SigningKey::random(&mut rand::thread_rng());
+        let pem = original.to_pkcs8_pem(p256::pkcs8::LineEnding::LF).unwrap();
+        std::fs::write(&key_path, pem.as_bytes()).unwrap();
+
+        let loaded = load_or_create_account_key(&key_path, true);
+        assert_eq!(original.to_bytes(), loaded.to_bytes());
     }
 
     // -------------------------------------------------------------------

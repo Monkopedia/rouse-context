@@ -24,6 +24,11 @@ directory_url = "https://acme-staging-v02.api.letsencrypt.org/directory"
 # directory_url = "https://acme-v02.api.letsencrypt.org/directory"  # production
 dns_propagation_timeout_secs = 60  # max wait for TXT record to propagate
 dns_poll_interval_secs = 5         # how often to check DNS during propagation
+# account_key_path = "/etc/rouse-relay/acme_account_key.pem"
+# Refuse to start if account_key_path is missing instead of silently creating a
+# new ACME account. Enable in production; leave false for fresh installs.
+# See README.md "ACME account key" for why this matters.
+require_existing_account = false
 
 [limits]
 max_streams_per_device = 8
