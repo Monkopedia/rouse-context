@@ -158,12 +158,13 @@ class ConnectionStateMachineTest {
 
     @Test
     fun invalidTransitionInvokesLogLambda() {
-        val captured = mutableListOf<String>()
-        val sm = ConnectionStateMachine(log = { captured.add(it) })
+        val captured = mutableListOf<Pair<LogLevel, String>>()
+        val sm = ConnectionStateMachine(log = { level, msg -> captured.add(level to msg) })
         sm.transition(TunnelState.CONNECTED)
         assertEquals(1, captured.size)
-        assertTrue(captured[0].contains("invalid transition"))
-        assertTrue(captured[0].contains("DISCONNECTED"))
-        assertTrue(captured[0].contains("CONNECTED"))
+        assertEquals(LogLevel.WARN, captured[0].first)
+        assertTrue(captured[0].second.contains("invalid transition"))
+        assertTrue(captured[0].second.contains("DISCONNECTED"))
+        assertTrue(captured[0].second.contains("CONNECTED"))
     }
 }

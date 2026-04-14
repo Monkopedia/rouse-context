@@ -243,7 +243,7 @@ class HttpRoutingTest {
         val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
         val tokenStore = InMemoryTokenStore()
         val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
-        val captured = mutableListOf<String>()
+        val captured = mutableListOf<Pair<LogLevel, String>>()
 
         application {
             configureMcpRouting(
@@ -252,7 +252,7 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                log = { captured.add(it) }
+                log = { level, msg -> captured.add(level to msg) }
             )
         }
 
@@ -263,7 +263,10 @@ class HttpRoutingTest {
         assertEquals(HttpStatusCode.BadRequest, response.status)
         assertTrue(
             "Expected /register body read failure log, got $captured",
-            captured.any { it.startsWith("McpRouting: /register body read failed:") }
+            captured.any {
+                it.first == LogLevel.WARN &&
+                    it.second.startsWith("McpRouting: /register body read failed:")
+            }
         )
     }
 }

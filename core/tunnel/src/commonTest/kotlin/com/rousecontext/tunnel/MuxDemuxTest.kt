@@ -183,8 +183,8 @@ class MuxDemuxTest {
 
     @Test
     fun rejectedOpenInvokesLogLambda() = runBlocking {
-        val captured = mutableListOf<String>()
-        val demux = MuxDemux(log = { captured.add(it) })
+        val captured = mutableListOf<Pair<LogLevel, String>>()
+        val demux = MuxDemux(log = { level, msg -> captured.add(level to msg) })
         demux.maxStreams = 1
         demux.onOutgoingFrame = { /* swallow ERROR frame */ }
 
@@ -199,7 +199,8 @@ class MuxDemuxTest {
         demux.handleFrame(MuxFrame.Open(streamId = 2u))
 
         assertEquals(1, captured.size)
-        assertTrue(captured[0].contains("rejecting stream 2"))
+        assertEquals(LogLevel.WARN, captured[0].first)
+        assertTrue(captured[0].second.contains("rejecting stream 2"))
 
         coroutineContext.cancelChildren()
     }
