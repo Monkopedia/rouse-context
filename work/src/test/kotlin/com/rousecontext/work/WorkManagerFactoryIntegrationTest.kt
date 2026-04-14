@@ -8,6 +8,7 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.WorkManagerTestInitHelper
+import com.rousecontext.notifications.SecurityCheckNotifier
 import com.rousecontext.tunnel.SecurityCheckResult
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -48,6 +49,7 @@ class WorkManagerFactoryIntegrationTest {
                     single<SecurityCheckSource>(named("ctLog")) {
                         StubCheckSource(SecurityCheckResult.Verified)
                     }
+                    single { SecurityCheckNotifier(context) }
                 }
             )
         }

@@ -32,6 +32,7 @@ class KoinWorkerFactory(private val koin: Koin) : WorkerFactory() {
             SecurityCheckWorker(appContext, workerParameters).apply {
                 selfCertVerifier = koin.get(named("selfCert"))
                 ctLogMonitor = koin.get(named("ctLog"))
+                notifier = koin.get()
             }
         CertRenewalWorker::class.java.name ->
             // CertRenewalWorker is a KoinComponent and self-injects its collaborators.
