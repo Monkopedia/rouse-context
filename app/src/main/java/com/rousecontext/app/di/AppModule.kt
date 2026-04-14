@@ -28,6 +28,7 @@ import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
+import com.rousecontext.app.support.BugReportUriBuilder
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
@@ -139,6 +140,9 @@ val appModule = module {
 
     // --- Notification permission refresher ---
     single { NotificationPermissionRefresher() }
+
+    // --- Bug report URI builder ---
+    single { BugReportUriBuilder(androidContext()) }
 
     // --- Certificate store ---
     single { FileCertificateStore(androidContext()) } bind CertificateStore::class

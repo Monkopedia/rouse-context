@@ -570,6 +570,9 @@ fun AppNavigation(
                     val viewModel: SettingsViewModel = koinViewModel()
                     val state by viewModel.state.collectAsState()
                     val showAll by viewModel.showAllMcpMessages.collectAsState()
+                    val bugReportUriBuilder: com.rousecontext.app.support
+                        .BugReportUriBuilder = org.koin.compose.koinInject()
+                    val settingsContext = LocalContext.current
                     SettingsContent(
                         state = state.copy(showAllMcpMessages = showAll),
                         onIdleTimeoutChanged = viewModel::setIdleTimeout,
@@ -582,6 +585,17 @@ fun AppNavigation(
                         viewModel::setSecurityCheckInterval,
                         onGenerateNewAddress = viewModel::rotateSecret,
                         onAcknowledgeAlert = viewModel::acknowledgeAlert,
+                        onReportBug = {
+                            val uri = bugReportUriBuilder.build()
+                            val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            try {
+                                settingsContext.startActivity(intent)
+                            } catch (_: ActivityNotFoundException) {
+                                // No browser available; silently ignore.
+                            }
+                        },
                         onRetry = viewModel::refresh
                     )
                 }

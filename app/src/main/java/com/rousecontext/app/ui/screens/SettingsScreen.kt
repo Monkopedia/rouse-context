@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.History
@@ -122,6 +123,7 @@ fun SettingsContent(
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
+    onReportBug: () -> Unit = {},
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -349,6 +351,45 @@ fun SettingsContent(
             }
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Support section
+        SectionHeader("Support")
+        SettingsSectionCard {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Your device model and app state are included. " +
+                        "Personal integration data is not.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onReportBug),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Report a bug",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = "Opens GitHub with device info prefilled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
@@ -369,6 +410,7 @@ fun SettingsScreen(
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
+    onReportBug: () -> Unit = {},
     onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
@@ -429,6 +471,7 @@ fun SettingsScreen(
             onGenerateNewAddress = onGenerateNewAddress,
             onFixBatteryOptimization = onFixBatteryOptimization,
             onAcknowledgeAlert = onAcknowledgeAlert,
+            onReportBug = onReportBug,
             onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
