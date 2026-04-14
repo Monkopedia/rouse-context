@@ -74,6 +74,15 @@ pub struct ServerConfig {
     /// The primary `base_domain` is always included implicitly.
     #[serde(default)]
     pub additional_base_domains: Vec<String>,
+    /// Maximum entries retained in the in-memory `valid_secrets_cache` before
+    /// LRU eviction kicks in. Bounded to prevent unbounded growth as new
+    /// devices connect over the lifetime of a long-running relay (see #109).
+    ///
+    /// At roughly 100 bytes per entry, the default cap of 10_000 costs about
+    /// 1 MB. Evicted entries simply re-read from Firestore on the next hit,
+    /// so the only cost of a smaller cap is slightly more Firestore traffic
+    /// for long-idle devices.
+    pub cache_capacity: usize,
 }
 
 impl ServerConfig {
@@ -204,6 +213,7 @@ impl Default for ServerConfig {
             relay_hostname: "relay.rousecontext.com".to_string(),
             base_domain: String::new(),
             additional_base_domains: Vec::new(),
+            cache_capacity: 10_000,
         }
     }
 }
