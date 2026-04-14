@@ -58,12 +58,19 @@ pub async fn handle_rotate_secret(
     };
 
     // Replace valid_secrets with client-provided values
-    record.valid_secrets = req.valid_secrets;
+    record.valid_secrets = req.valid_secrets.clone();
 
     // Update Firestore
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
         return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
     }
+
+    // Update the in-memory valid_secrets cache so the next SNI connection for
+    // this device does not have to wait for Firestore eventual consistency
+    // to learn about the newly-pushed secrets.
+    state
+        .relay_state
+        .set_valid_secrets_cache(&subdomain, req.valid_secrets);
 
     info!(
         subdomain = %subdomain,

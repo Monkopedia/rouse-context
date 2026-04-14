@@ -21,6 +21,12 @@ pub struct RelayState {
     pub total_sessions_served: AtomicU64,
     /// Number of pending FCM wakeups (waiting for device to connect).
     pub pending_fcm_wakeups: AtomicU32,
+    /// Optimistic per-device cache of `valid_secrets`. Populated by write
+    /// endpoints (`/register`, `/rotate-secret`) so that the next SNI
+    /// connection does not have to wait for Firestore eventual consistency
+    /// to learn about freshly-pushed secrets. The passthrough path consults
+    /// this cache before falling back to the Firestore record.
+    pub valid_secrets_cache: DashMap<String, Vec<String>>,
 }
 
 /// Info about an active mux connection for a device.
@@ -39,7 +45,27 @@ impl RelayState {
             connect_signals: DashMap::new(),
             total_sessions_served: AtomicU64::new(0),
             pending_fcm_wakeups: AtomicU32::new(0),
+            valid_secrets_cache: DashMap::new(),
         }
+    }
+
+    /// Update the in-memory `valid_secrets` cache for a device. Called by
+    /// write endpoints so that the passthrough path does not have to wait
+    /// for Firestore eventual consistency after a rotate.
+    pub fn set_valid_secrets_cache(&self, subdomain: &str, secrets: Vec<String>) {
+        if secrets.is_empty() {
+            self.valid_secrets_cache.remove(subdomain);
+        } else {
+            self.valid_secrets_cache.insert(subdomain.to_string(), secrets);
+        }
+    }
+
+    /// Look up cached `valid_secrets` for a device. Returns `None` if the
+    /// cache has no entry (callers should fall back to Firestore).
+    pub fn get_valid_secrets_cache(&self, subdomain: &str) -> Option<Vec<String>> {
+        self.valid_secrets_cache
+            .get(subdomain)
+            .map(|entry| entry.value().clone())
     }
 
     /// Check whether a device has an active mux connection.

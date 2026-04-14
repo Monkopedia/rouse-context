@@ -11,9 +11,14 @@ import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertProvisioningResult
+import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.RelayApiClient
+import com.rousecontext.tunnel.RelayApiResult
+import com.rousecontext.tunnel.SecretGenerator
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,17 +38,29 @@ sealed interface IntegrationSetupState {
 
 /**
  * Orchestrates the integration setup flow: enables the integration,
- * triggers cert provisioning if needed, and tracks progress.
+ * triggers cert provisioning if needed, then pushes the updated list of
+ * integration secrets (`valid_secrets`) to the relay.
  *
  * When the user enables their first integration, this triggers ACME cert
  * provisioning via [CertProvisioningFlow]. If certs already exist (e.g. the
  * user is enabling a second integration), provisioning is skipped.
+ *
+ * After cert provisioning succeeds (or is already done), the relay is
+ * notified of the full current valid-secrets list so it can route incoming
+ * TLS connections for the newly-enabled integration. Without this push the
+ * relay's Firestore record lags behind the on-device cert store and the
+ * first AI-client connection fails.
  */
+@Suppress("LongParameterList")
 class IntegrationSetupViewModel(
     private val stateStore: IntegrationStateStore,
     private val certProvisioningFlow: CertProvisioningFlow,
     private val lazyWebSocketFactory: LazyWebSocketFactory,
-    private val registrationStatus: DeviceRegistrationStatus
+    private val registrationStatus: DeviceRegistrationStatus,
+    private val relayApiClient: RelayApiClient,
+    private val certStore: CertificateStore,
+    private val integrationIds: List<String>,
+    private val firebaseTokenProvider: suspend () -> String? = { defaultFirebaseToken() }
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<IntegrationSetupState>(IntegrationSetupState.Idle)
@@ -81,9 +98,7 @@ class IntegrationSetupViewModel(
             awaitRegistrationIfNeeded()
 
             val firebaseToken = try {
-                val user = FirebaseAuth.getInstance().currentUser
-                    ?: return@launch setFailed("Not signed in. Please restart the app.")
-                user.getIdToken(false).await().token
+                firebaseTokenProvider()
                     ?: return@launch setFailed("Failed to obtain Firebase ID token.")
             } catch (e: Exception) {
                 return@launch setFailed("Authentication error: ${e.message}")
@@ -92,10 +107,10 @@ class IntegrationSetupViewModel(
             when (val result = certProvisioningFlow.execute(firebaseToken)) {
                 is CertProvisioningResult.Success -> {
                     lazyWebSocketFactory.invalidate()
-                    _state.value = IntegrationSetupState.Complete
+                    pushIntegrationSecrets()
                 }
                 is CertProvisioningResult.AlreadyProvisioned -> {
-                    _state.value = IntegrationSetupState.Complete
+                    pushIntegrationSecrets()
                 }
                 is CertProvisioningResult.NotOnboarded -> {
                     setFailed("Device not registered. Please complete setup first.")
@@ -127,6 +142,84 @@ class IntegrationSetupViewModel(
         }
     }
 
+    /**
+     * Pushes the current valid-secrets list to the relay so the newly-enabled
+     * integration is accepted by SNI routing. Generates any missing secrets
+     * locally, persists the merged map back to the cert store, and retries
+     * transient failures.
+     */
+    private suspend fun pushIntegrationSecrets() {
+        val subdomain = certStore.getSubdomain()
+        if (subdomain == null) {
+            setFailed("Device not registered. Please complete setup first.")
+            return
+        }
+
+        val existing = certStore.getIntegrationSecrets().orEmpty()
+        val merged = buildMergedSecrets(existing)
+
+        // Persist any newly-generated secrets before pushing so a crash between
+        // push and persist can't drop them.
+        if (merged != existing) {
+            runCatching { certStore.storeIntegrationSecrets(merged) }
+                .onFailure {
+                    Log.e(TAG, "Failed to persist merged integration secrets", it)
+                    setFailed(SECRETS_PUSH_FAILED_MESSAGE)
+                    return
+                }
+        }
+
+        val validSecrets = merged.values.toList()
+        var backoffMs = INITIAL_BACKOFF_MS
+        repeat(SECRETS_PUSH_ATTEMPTS) { attempt ->
+            when (val result = relayApiClient.updateSecrets(subdomain, validSecrets)) {
+                is RelayApiResult.Success -> {
+                    Log.i(TAG, "Integration secrets pushed to relay (${validSecrets.size})")
+                    _state.value = IntegrationSetupState.Complete
+                    return
+                }
+                is RelayApiResult.RateLimited -> {
+                    Log.w(TAG, "updateSecrets rate-limited on attempt ${attempt + 1}")
+                }
+                is RelayApiResult.Error -> {
+                    Log.w(
+                        TAG,
+                        "updateSecrets error on attempt ${attempt + 1}: " +
+                            "${result.statusCode} ${result.message}"
+                    )
+                }
+                is RelayApiResult.NetworkError -> {
+                    Log.w(
+                        TAG,
+                        "updateSecrets network error on attempt ${attempt + 1}",
+                        result.cause
+                    )
+                }
+            }
+            if (attempt < SECRETS_PUSH_ATTEMPTS - 1) {
+                delay(backoffMs)
+                backoffMs *= BACKOFF_FACTOR
+            }
+        }
+        setFailed(SECRETS_PUSH_FAILED_MESSAGE)
+    }
+
+    /**
+     * Merge existing secrets with freshly-generated ones for any configured
+     * integration id that doesn't yet have a secret. Secrets for integrations
+     * no longer in [integrationIds] are preserved — the relay's valid_secrets
+     * list is a superset, not a mirror of installed integrations.
+     */
+    private fun buildMergedSecrets(existing: Map<String, String>): Map<String, String> {
+        val merged = existing.toMutableMap()
+        for (id in integrationIds) {
+            if (merged[id].isNullOrEmpty()) {
+                merged[id] = SecretGenerator.generate(id)
+            }
+        }
+        return merged
+    }
+
     private fun setFailed(message: String) {
         _state.value = IntegrationSetupState.Failed(message = message)
     }
@@ -134,6 +227,16 @@ class IntegrationSetupViewModel(
     companion object {
         private const val TAG = "IntegrationSetup"
         private const val MILLIS_PER_SECOND = 1000L
+        internal const val SECRETS_PUSH_ATTEMPTS = 3
+        internal const val INITIAL_BACKOFF_MS = 1_000L
+        internal const val BACKOFF_FACTOR = 2L
+        internal const val SECRETS_PUSH_FAILED_MESSAGE =
+            "Couldn't register integration with relay. Try again."
         private val DATE_FORMAT = SimpleDateFormat("MMM d", Locale.getDefault())
+
+        private suspend fun defaultFirebaseToken(): String? {
+            val user = FirebaseAuth.getInstance().currentUser ?: return null
+            return user.getIdToken(false).await().token
+        }
     }
 }

@@ -169,6 +169,7 @@ pub async fn handle_register(
     };
 
     // 4. Store device record (public_key will be set in round 2 when CSR arrives)
+    let valid_secrets = req.valid_secrets;
     let record = DeviceRecord {
         fcm_token: req.fcm_token,
         firebase_uid: uid,
@@ -182,12 +183,18 @@ pub async fn handle_register(
         },
         renewal_nudge_sent: None,
         secret_prefix: None,
-        valid_secrets: req.valid_secrets,
+        valid_secrets: valid_secrets.clone(),
     };
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
         return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
     }
+
+    // Seed the in-memory valid_secrets cache so SNI routing picks up freshly
+    // registered secrets without waiting for Firestore eventual consistency.
+    state
+        .relay_state
+        .set_valid_secrets_cache(&subdomain, valid_secrets);
 
     // 5. Return subdomain and relay host
     (

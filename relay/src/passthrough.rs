@@ -157,29 +157,49 @@ pub async fn resolve_device_stream(
     integration_secret: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
     if !integration_secret.is_empty() {
-        let device = ctx
-            .firestore
-            .get_device(subdomain)
-            .await
-            .map_err(|e| match e {
-                crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
-                other => PassthroughError::FirestoreFailed(other.to_string()),
-            })?;
+        // Check the in-memory cache first. Write endpoints populate this on
+        // every /register and /rotate-secret, so freshly-pushed secrets are
+        // usable on the next connection without waiting for Firestore
+        // eventual consistency to catch up.
+        if let Some(cached) = ctx.relay_state.get_valid_secrets_cache(subdomain) {
+            if cached.iter().any(|s| s == integration_secret) {
+                debug!(subdomain, "Secret matched from cache");
+            } else {
+                info!(subdomain, "Secret mismatch vs cache (silent reject)");
+                return Err(PassthroughError::InvalidSecret);
+            }
+        } else {
+            // Cache miss: fall back to Firestore. Populate the cache from the
+            // result so subsequent lookups are fast and survive restarts that
+            // lost in-memory state.
+            let device = ctx
+                .firestore
+                .get_device(subdomain)
+                .await
+                .map_err(|e| match e {
+                    crate::firestore::FirestoreError::NotFound(_) => {
+                        PassthroughError::DeviceNotFound
+                    }
+                    other => PassthroughError::FirestoreFailed(other.to_string()),
+                })?;
 
-        // Check valid_secrets list first
-        if !device.valid_secrets.is_empty() {
-            if !device.valid_secrets.iter().any(|s| s == integration_secret) {
-                info!(subdomain, "Secret mismatch (silent reject)");
-                return Err(PassthroughError::InvalidSecret);
+            if !device.valid_secrets.is_empty() {
+                // Seed the cache from Firestore for future lookups.
+                ctx.relay_state
+                    .set_valid_secrets_cache(subdomain, device.valid_secrets.clone());
+                if !device.valid_secrets.iter().any(|s| s == integration_secret) {
+                    info!(subdomain, "Secret mismatch (silent reject)");
+                    return Err(PassthroughError::InvalidSecret);
+                }
+            } else if let Some(stored_secret) = &device.secret_prefix {
+                // Fall back to legacy secret_prefix for devices that haven't migrated
+                if stored_secret != integration_secret {
+                    info!(subdomain, "Secret prefix mismatch (silent reject)");
+                    return Err(PassthroughError::InvalidSecret);
+                }
             }
-        } else if let Some(stored_secret) = &device.secret_prefix {
-            // Fall back to legacy secret_prefix for devices that haven't migrated
-            if stored_secret != integration_secret {
-                info!(subdomain, "Secret prefix mismatch (silent reject)");
-                return Err(PassthroughError::InvalidSecret);
-            }
+            // If device has neither valid_secrets nor secret_prefix, skip validation
         }
-        // If device has neither valid_secrets nor secret_prefix, skip validation
     }
 
     // Try to open a stream on an existing mux connection
