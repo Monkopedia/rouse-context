@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -97,6 +98,27 @@ class SettingsViewModel(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
         initialValue = SettingsState(isLoading = true)
     )
+
+    /**
+     * Toggle state for "Show all MCP messages in audit history". Backed by
+     * [NotificationSettingsProvider.observeSettings] so reads reflect any
+     * concurrent write (e.g. from the Audit tab).
+     */
+    val showAllMcpMessages: StateFlow<Boolean> = notificationSettingsProvider
+        .observeSettings()
+        .map { it.showAllMcpMessages }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            initialValue = false
+        )
+
+    /** Persist the show-all-MCP-messages toggle. */
+    fun setShowAllMcpMessages(value: Boolean) {
+        viewModelScope.launch {
+            notificationSettingsProvider.setShowAllMcpMessages(value)
+        }
+    }
 
     fun setIdleTimeout(minutes: Int) {
         // TODO: persist to DataStore when idle timeout DataStore is added

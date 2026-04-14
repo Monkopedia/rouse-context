@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Api
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -68,8 +69,54 @@ data class AuditHistoryEntry(
     val resultJson: String? = null
 )
 
+/**
+ * A single row in the audit history list. Either a real tool call (clickable
+ * into [AuditDetailScreen]) or a plain MCP JSON-RPC request captured when the
+ * "Show all MCP messages" toggle is enabled.
+ */
 @Immutable
-data class AuditHistoryGroup(val dateLabel: String, val entries: List<AuditHistoryEntry>)
+sealed class AuditHistoryItem {
+    abstract val time: String
+    abstract val timestampMillis: Long
+
+    @Immutable
+    data class ToolCall(val entry: AuditHistoryEntry) : AuditHistoryItem() {
+        override val time: String get() = entry.time
+        override val timestampMillis: Long get() = entry.timestampMillis
+    }
+
+    @Immutable
+    data class Request(
+        val id: Long,
+        override val time: String,
+        val method: String,
+        val provider: String,
+        val durationMs: Long,
+        val resultBytes: Int?,
+        override val timestampMillis: Long
+    ) : AuditHistoryItem()
+}
+
+@Immutable
+data class AuditHistoryGroup(val dateLabel: String, val items: List<AuditHistoryItem>) {
+    /** Legacy accessor returning only the tool-call entries in this group. */
+    val entries: List<AuditHistoryEntry>
+        get() = items.filterIsInstance<AuditHistoryItem.ToolCall>().map { it.entry }
+
+    companion object {
+        /**
+         * Build a group from a flat list of tool-call entries (the only type
+         * the view ever held before the "Show all MCP messages" toggle
+         * landed). Previews and screenshot tests can call this without caring
+         * about the sealed hierarchy.
+         */
+        fun ofEntries(dateLabel: String, entries: List<AuditHistoryEntry>): AuditHistoryGroup =
+            AuditHistoryGroup(
+                dateLabel = dateLabel,
+                items = entries.map { AuditHistoryItem.ToolCall(it) }
+            )
+    }
+}
 
 @Immutable
 data class AuditHistoryState(
@@ -78,6 +125,8 @@ data class AuditHistoryState(
     val dateFilter: String = "Today",
     val availableProviders: List<String> = listOf("All providers", "health"),
     val availableDates: List<String> = listOf("Today", "Yesterday", "Last 7 days", "Last 30 days"),
+    /** Whether the user has opted to see every MCP JSON-RPC message (see #105). */
+    val showAllMcpMessages: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )
@@ -177,56 +226,15 @@ fun AuditHistoryContent(
                     item {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column {
-                                group.entries.forEachIndexed { index, entry ->
-                                    ListRow(
-                                        onClick = { onEntryClick(entry.id) }
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement =
-                                                Arrangement.SpaceBetween,
-                                                verticalAlignment =
-                                                Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    entry.toolName,
-                                                    style = MaterialTheme
-                                                        .typography.bodyMedium,
-                                                    fontWeight = FontWeight.Medium,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                Text(
-                                                    entry.time,
-                                                    style = MaterialTheme
-                                                        .typography.bodySmall,
-                                                    color = MaterialTheme
-                                                        .colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Row {
-                                                Text(
-                                                    "${entry.durationMs}ms",
-                                                    style = MaterialTheme
-                                                        .typography.labelSmall,
-                                                    color = MaterialTheme
-                                                        .colorScheme.onSurfaceVariant
-                                                )
-                                                Spacer(
-                                                    modifier = Modifier.width(12.dp)
-                                                )
-                                                Text(
-                                                    entry.arguments,
-                                                    style = MaterialTheme
-                                                        .typography.labelSmall,
-                                                    color = MaterialTheme
-                                                        .colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
+                                group.items.forEachIndexed { index, item ->
+                                    when (item) {
+                                        is AuditHistoryItem.ToolCall -> ToolCallRow(
+                                            entry = item.entry,
+                                            onClick = { onEntryClick(item.entry.id) }
+                                        )
+                                        is AuditHistoryItem.Request -> RequestRow(item)
                                     }
-                                    if (index < group.entries.lastIndex) {
+                                    if (index < group.items.lastIndex) {
                                         ListDivider()
                                     }
                                 }
@@ -334,6 +342,94 @@ fun AuditHistoryScreen(
     }
 }
 
+@Composable
+private fun ToolCallRow(entry: AuditHistoryEntry, onClick: () -> Unit) {
+    ListRow(onClick = onClick) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    entry.toolName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    entry.time,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row {
+                Text(
+                    "${entry.durationMs}ms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    entry.arguments,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RequestRow(item: AuditHistoryItem.Request) {
+    val mutedContent = MaterialTheme.colorScheme.onSurfaceVariant
+    ListRow {
+        Icon(
+            Icons.Default.Api,
+            contentDescription = null,
+            tint = mutedContent,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    item.method,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = mutedContent,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    item.time,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = mutedContent
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row {
+                Text(
+                    "${item.durationMs}ms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = mutedContent
+                )
+                if (item.resultBytes != null) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "${item.resultBytes}B",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = mutedContent
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FilterDropdown(
@@ -385,7 +481,7 @@ fun AuditHistoryPopulatedPreview() {
         AuditHistoryScreen(
             state = AuditHistoryState(
                 groups = listOf(
-                    AuditHistoryGroup(
+                    AuditHistoryGroup.ofEntries(
                         dateLabel = "Today",
                         entries = listOf(
                             AuditHistoryEntry(
@@ -408,7 +504,7 @@ fun AuditHistoryPopulatedPreview() {
                             )
                         )
                     ),
-                    AuditHistoryGroup(
+                    AuditHistoryGroup.ofEntries(
                         dateLabel = "Yesterday",
                         entries = listOf(
                             AuditHistoryEntry(
@@ -442,7 +538,7 @@ fun AuditHistoryFilteredPreview() {
                 providerFilter = "health",
                 dateFilter = "Last 7 days",
                 groups = listOf(
-                    AuditHistoryGroup(
+                    AuditHistoryGroup.ofEntries(
                         dateLabel = "Today",
                         entries = listOf(
                             AuditHistoryEntry(
@@ -470,7 +566,7 @@ fun AuditHistoryPopulatedLightPreview() {
         AuditHistoryScreen(
             state = AuditHistoryState(
                 groups = listOf(
-                    AuditHistoryGroup(
+                    AuditHistoryGroup.ofEntries(
                         dateLabel = "Today",
                         entries = listOf(
                             AuditHistoryEntry(

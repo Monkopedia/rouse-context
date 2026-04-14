@@ -11,6 +11,7 @@ import com.rousecontext.app.ui.screens.AuditDetailUiState
 import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
+import com.rousecontext.app.ui.screens.AuditHistoryItem
 import com.rousecontext.app.ui.screens.AuditHistoryScreen
 import com.rousecontext.app.ui.screens.AuditHistoryState
 import com.rousecontext.app.ui.screens.AuthorizationApprovalItem
@@ -666,6 +667,18 @@ class ScreenScreenshotTest {
         AuditHistoryScreen(state = auditHistoryFilteredState())
     }
 
+    @Test
+    fun auditHistoryShowAllMcpMessagesDark() =
+        captureDark("36a_audit_history_show_all_mcp_messages") {
+            AuditHistoryScreen(state = auditHistoryShowAllState())
+        }
+
+    @Test
+    fun auditHistoryShowAllMcpMessagesLight() =
+        captureLight("36a_audit_history_show_all_mcp_messages") {
+            AuditHistoryScreen(state = auditHistoryShowAllState())
+        }
+
     // =========================================================================
     // Settings
     // =========================================================================
@@ -858,7 +871,7 @@ class ScreenScreenshotTest {
 
     private fun auditHistoryPopulatedState() = AuditHistoryState(
         groups = listOf(
-            AuditHistoryGroup(
+            AuditHistoryGroup.ofEntries(
                 "Today",
                 listOf(
                     AuditHistoryEntry(
@@ -881,7 +894,7 @@ class ScreenScreenshotTest {
                     )
                 )
             ),
-            AuditHistoryGroup(
+            AuditHistoryGroup.ofEntries(
                 "Yesterday",
                 listOf(
                     AuditHistoryEntry(
@@ -899,7 +912,7 @@ class ScreenScreenshotTest {
         providerFilter = "health",
         dateFilter = "Last 7 days",
         groups = listOf(
-            AuditHistoryGroup(
+            AuditHistoryGroup.ofEntries(
                 "Today",
                 listOf(
                     AuditHistoryEntry(
@@ -907,6 +920,62 @@ class ScreenScreenshotTest {
                         toolName = "health/get_steps",
                         durationMs = 142,
                         arguments = "{days: 7}"
+                    )
+                )
+            )
+        )
+    )
+
+    private fun auditHistoryShowAllState() = AuditHistoryState(
+        showAllMcpMessages = true,
+        groups = listOf(
+            AuditHistoryGroup(
+                dateLabel = "Today",
+                items = listOf(
+                    AuditHistoryItem.Request(
+                        id = 1,
+                        time = "10:33 AM",
+                        method = "initialize",
+                        provider = "health",
+                        durationMs = 5,
+                        resultBytes = 320,
+                        timestampMillis = 1_712_400_000_000L + 6_000
+                    ),
+                    AuditHistoryItem.ToolCall(
+                        AuditHistoryEntry(
+                            time = "10:32 AM",
+                            toolName = "health/get_steps",
+                            durationMs = 142,
+                            arguments = "{days: 7}",
+                            timestampMillis = 1_712_400_000_000L + 5_000
+                        )
+                    ),
+                    AuditHistoryItem.Request(
+                        id = 2,
+                        time = "10:32 AM",
+                        method = "tools/list",
+                        provider = "health",
+                        durationMs = 8,
+                        resultBytes = 1_280,
+                        timestampMillis = 1_712_400_000_000L + 4_000
+                    ),
+                    AuditHistoryItem.ToolCall(
+                        AuditHistoryEntry(
+                            time = "10:31 AM",
+                            toolName = "health/get_sleep",
+                            durationMs = 89,
+                            arguments = "{days: 1}",
+                            timestampMillis = 1_712_400_000_000L + 3_000
+                        )
+                    ),
+                    AuditHistoryItem.Request(
+                        id = 3,
+                        time = "10:31 AM",
+                        method = "prompts/get",
+                        provider = "health",
+                        durationMs = 3,
+                        resultBytes = 64,
+                        timestampMillis = 1_712_400_000_000L + 2_000
                     )
                 )
             )

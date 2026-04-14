@@ -1,8 +1,14 @@
 package com.rousecontext.app.ui.viewmodels
 
 import app.cash.turbine.test
+import com.rousecontext.api.NotificationSettings
+import com.rousecontext.api.NotificationSettingsProvider
+import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.ui.screens.AuditHistoryItem
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
+import com.rousecontext.notifications.audit.McpRequestDao
+import com.rousecontext.notifications.audit.McpRequestEntry
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -132,6 +138,91 @@ class AuditHistoryViewModelTest {
     }
 
     @Test
+    fun `showAllMcpMessages off only surfaces tool call items`() = runTest(testDispatcher) {
+        val now = System.currentTimeMillis()
+        val auditDao = mockk<AuditDao> {
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(
+                listOf(createEntry(1, now - 1000, "get_steps"))
+            )
+        }
+        val mcpDao = mockk<McpRequestDao> {
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(
+                listOf(createRequest(10, now - 500, "tools/list"))
+            )
+        }
+        val provider = providerWithShowAll(false)
+
+        val vm = AuditHistoryViewModel(
+            auditDao = auditDao,
+            mcpRequestDao = mcpDao,
+            settingsProvider = provider
+        )
+
+        vm.state.test {
+            awaitItem()
+            val state = awaitItem()
+            assertEquals(1, state.groups.size)
+            assertEquals(1, state.groups[0].items.size)
+            assertTrue(state.groups[0].items[0] is AuditHistoryItem.ToolCall)
+            assertFalse(state.showAllMcpMessages)
+        }
+        // The request DAO is never queried when the toggle is off.
+        verify(exactly = 0) { mcpDao.observeByDateRange(any(), any(), any()) }
+    }
+
+    @Test
+    fun `showAllMcpMessages on interleaves requests with tool calls descending`() =
+        runTest(testDispatcher) {
+            val now = System.currentTimeMillis()
+            val tool1 = createEntry(1, now - 3_000, "get_steps")
+            val tool2 = createEntry(2, now - 1_000, "get_sleep")
+            val req1 = createRequest(10, now - 2_000, "tools/list")
+            val req2 = createRequest(11, now - 500, "initialize")
+
+            val auditDao = mockk<AuditDao> {
+                every {
+                    observeByDateRange(any(), any(), any())
+                } returns flowOf(listOf(tool1, tool2))
+            }
+            val mcpDao = mockk<McpRequestDao> {
+                every {
+                    observeByDateRange(any(), any(), any())
+                } returns flowOf(listOf(req1, req2))
+            }
+            val provider = providerWithShowAll(true)
+
+            val vm = AuditHistoryViewModel(
+                auditDao = auditDao,
+                mcpRequestDao = mcpDao,
+                settingsProvider = provider
+            )
+
+            vm.state.test {
+                awaitItem() // initial loading
+                val state = awaitItem()
+                assertTrue(state.showAllMcpMessages)
+                assertEquals(1, state.groups.size)
+                val items = state.groups[0].items
+                assertEquals(4, items.size)
+                // Expected timestamp-desc ordering: req2, tool2, req1, tool1
+                assertTrue(items[0] is AuditHistoryItem.Request)
+                assertEquals("initialize", (items[0] as AuditHistoryItem.Request).method)
+                assertTrue(items[1] is AuditHistoryItem.ToolCall)
+                assertEquals(
+                    "get_sleep",
+                    (items[1] as AuditHistoryItem.ToolCall).entry.toolName
+                )
+                assertTrue(items[2] is AuditHistoryItem.Request)
+                assertEquals("tools/list", (items[2] as AuditHistoryItem.Request).method)
+                assertTrue(items[3] is AuditHistoryItem.ToolCall)
+                assertEquals(
+                    "get_steps",
+                    (items[3] as AuditHistoryItem.ToolCall).entry.toolName
+                )
+            }
+        }
+
+    @Test
     fun `groupByDate groups entries by calendar date`() {
         val dayOneMs = 1750032000000L // 2025-06-16 00:00 UTC
         val dayTwoMs = dayOneMs + 24 * 60 * 60 * 1000L
@@ -161,4 +252,29 @@ class AuditHistoryViewModelTest {
             durationMillis = 50,
             success = true
         )
+
+    private fun createRequest(id: Long, timestampMillis: Long, method: String): McpRequestEntry =
+        McpRequestEntry(
+            id = id,
+            sessionId = "session1",
+            provider = "health",
+            method = method,
+            timestampMillis = timestampMillis,
+            durationMillis = 12,
+            resultBytes = 128
+        )
+
+    private fun providerWithShowAll(value: Boolean): NotificationSettingsProvider {
+        val snapshot = NotificationSettings(
+            postSessionMode = PostSessionMode.SUMMARY,
+            notificationPermissionGranted = true,
+            showAllMcpMessages = value
+        )
+        return mockk {
+            every { settings } returns snapshot
+            every { observeSettings() } returns flowOf(snapshot)
+            coEvery { setPostSessionMode(any()) } returns Unit
+            coEvery { setShowAllMcpMessages(any()) } returns Unit
+        }
+    }
 }

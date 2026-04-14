@@ -436,6 +436,9 @@ class SessionSummaryPosterTest {
                 notificationPermissionGranted = true
             )
 
+        override fun observeSettings(): kotlinx.coroutines.flow.Flow<NotificationSettings> =
+            kotlinx.coroutines.flow.flowOf(settings)
+
         override suspend fun setPostSessionMode(mode: PostSessionMode) {
             this.mode = mode
         }

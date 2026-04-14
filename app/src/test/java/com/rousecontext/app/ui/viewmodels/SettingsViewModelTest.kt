@@ -175,11 +175,14 @@ class SettingsViewModelTest {
     @Test
     fun `setPostSessionMode persists parsed enum value`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            val s = NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
+            every { settings } returns s
+            every { observeSettings() } returns flowOf(s)
             coEvery { setPostSessionMode(any()) } returns Unit
+            coEvery { setShowAllMcpMessages(any()) } returns Unit
         }
         val vm = createViewModel(
             PostSessionMode.SUMMARY,
@@ -202,11 +205,14 @@ class SettingsViewModelTest {
     @Test
     fun `setPostSessionMode ignores unknown display string`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            val s = NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
+            every { settings } returns s
+            every { observeSettings() } returns flowOf(s)
             coEvery { setPostSessionMode(any()) } returns Unit
+            coEvery { setShowAllMcpMessages(any()) } returns Unit
         }
         val vm = createViewModel(
             PostSessionMode.SUMMARY,
@@ -216,6 +222,75 @@ class SettingsViewModelTest {
         vm.setPostSessionMode("Nonsense")
         testDispatcher.scheduler.advanceUntilIdle()
         io.mockk.coVerify(exactly = 0) { provider.setPostSessionMode(any()) }
+    }
+
+    @Test
+    fun `showAllMcpMessages reflects provider flow (default off)`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY)
+        vm.showAllMcpMessages.test {
+            assertFalse(awaitItem())
+        }
+    }
+
+    @Test
+    fun `showAllMcpMessages reflects provider flow when enabled`() = runTest(testDispatcher) {
+        val flow = MutableStateFlow(
+            NotificationSettings(
+                postSessionMode = PostSessionMode.SUMMARY,
+                notificationPermissionGranted = true,
+                showAllMcpMessages = true
+            )
+        )
+        val provider = mockk<NotificationSettingsProvider> {
+            every { settings } returns flow.value
+            every { observeSettings() } returns flow
+            coEvery { setShowAllMcpMessages(any()) } returns Unit
+            coEvery { setPostSessionMode(any()) } returns Unit
+        }
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            securityPrefs = null,
+            provider = provider
+        )
+        vm.showAllMcpMessages.test {
+            // Drop initial default false
+            val first = awaitItem()
+            if (!first) {
+                assertTrue(awaitItem())
+            } else {
+                assertTrue(first)
+            }
+        }
+    }
+
+    @Test
+    fun `setShowAllMcpMessages calls provider`() = runTest(testDispatcher) {
+        val provider = mockk<NotificationSettingsProvider> {
+            every { settings } returns NotificationSettings(
+                postSessionMode = PostSessionMode.SUMMARY,
+                notificationPermissionGranted = true
+            )
+            every { observeSettings() } returns flowOf(
+                NotificationSettings(
+                    postSessionMode = PostSessionMode.SUMMARY,
+                    notificationPermissionGranted = true
+                )
+            )
+            coEvery { setShowAllMcpMessages(any()) } returns Unit
+            coEvery { setPostSessionMode(any()) } returns Unit
+        }
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            securityPrefs = null,
+            provider = provider
+        )
+        vm.setShowAllMcpMessages(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { provider.setShowAllMcpMessages(true) }
+
+        vm.setShowAllMcpMessages(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { provider.setShowAllMcpMessages(false) }
     }
 
     @Test
@@ -285,11 +360,14 @@ class SettingsViewModelTest {
         spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
     ): SettingsViewModel {
         val resolvedProvider = provider ?: mockk {
-            every { settings } returns NotificationSettings(
+            val s = NotificationSettings(
                 postSessionMode = mode,
                 notificationPermissionGranted = true
             )
+            every { settings } returns s
+            every { observeSettings() } returns flowOf(s)
             coEvery { setPostSessionMode(any()) } returns Unit
+            coEvery { setShowAllMcpMessages(any()) } returns Unit
         }
         val themePref = mockk<ThemePreference> {
             every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
