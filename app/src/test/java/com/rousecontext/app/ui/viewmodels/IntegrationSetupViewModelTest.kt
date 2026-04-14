@@ -72,7 +72,15 @@ class IntegrationSetupViewModelTest {
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
         val relayApiClient = mockk<RelayApiClient> {
             coEvery { updateSecrets(any(), any()) } returns
-                RelayApiResult.Success(UpdateSecretsResponse("ok"))
+                RelayApiResult.Success(
+                    UpdateSecretsResponse(
+                        success = true,
+                        secrets = mapOf(
+                            "health" to "brave-health",
+                            "usage" to "brave-usage"
+                        )
+                    )
+                )
         }
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "cool-penguin"
@@ -107,7 +115,7 @@ class IntegrationSetupViewModelTest {
     }
 
     @Test
-    fun `updateSecrets payload includes existing and newly generated secrets`() =
+    fun `updateSecrets forwards integrationIds unchanged and stores response secrets`() =
         runTest(testDispatcher) {
             val stateStore = mockk<IntegrationStateStore>(relaxed = true) {
                 every { isUserEnabled(any()) } returns false
@@ -119,15 +127,22 @@ class IntegrationSetupViewModelTest {
             }
             val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
             val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
-            val capturedSecrets = slot<List<String>>()
+            val capturedIntegrationIds = slot<List<String>>()
+            // Server generates a fresh secret for every configured integration and
+            // returns the mapping; the client persists exactly what the server sent.
+            val serverSecrets = mapOf(
+                "health" to "brave-health",
+                "usage" to "clever-usage"
+            )
             val relayApiClient = mockk<RelayApiClient> {
-                coEvery { updateSecrets(any(), capture(capturedSecrets)) } returns
-                    RelayApiResult.Success(UpdateSecretsResponse("ok"))
+                coEvery { updateSecrets(any(), capture(capturedIntegrationIds)) } returns
+                    RelayApiResult.Success(
+                        UpdateSecretsResponse(success = true, secrets = serverSecrets)
+                    )
             }
             val storedSlot = slot<Map<String, String>>()
             val certStore = mockk<CertificateStore> {
                 coEvery { getSubdomain() } returns "cool-penguin"
-                // Existing secret for health; usage is new.
                 coEvery { getIntegrationSecrets() } returns mapOf("health" to "brave-health")
                 coEvery { storeIntegrationSecrets(capture(storedSlot)) } just Runs
             }
@@ -146,19 +161,20 @@ class IntegrationSetupViewModelTest {
             vm.startSetup("usage")
             advanceUntilIdle()
 
-            assertTrue("updateSecrets should have captured a list", capturedSecrets.isCaptured)
-            val pushed = capturedSecrets.captured
             assertTrue(
-                "Pushed secrets should include existing health secret, was $pushed",
-                pushed.contains("brave-health")
+                "updateSecrets should have captured integration IDs",
+                capturedIntegrationIds.isCaptured
             )
-            assertTrue(
-                "Pushed secrets should include a usage secret, was $pushed",
-                pushed.any { it.endsWith("-usage") }
+            assertEquals(
+                "integrationIds forwarded to the relay must match the configured list exactly",
+                listOf("health", "usage"),
+                capturedIntegrationIds.captured
             )
-            assertTrue(
-                "Stored secret map should include usage, was ${storedSlot.captured}",
-                storedSlot.captured.containsKey("usage")
+            assertTrue("storeIntegrationSecrets should have been called", storedSlot.isCaptured)
+            assertEquals(
+                "Client must persist the exact secret map returned by the relay",
+                serverSecrets,
+                storedSlot.captured
             )
         }
 
@@ -266,7 +282,15 @@ class IntegrationSetupViewModelTest {
                     if (attempt <= 3) {
                         RelayApiResult.NetworkError(RuntimeException("boom"))
                     } else {
-                        RelayApiResult.Success(UpdateSecretsResponse("ok"))
+                        RelayApiResult.Success(
+                            UpdateSecretsResponse(
+                                success = true,
+                                secrets = mapOf(
+                                    "health" to "brave-health",
+                                    "usage" to "clever-usage"
+                                )
+                            )
+                        )
                     }
                 }
             }
@@ -380,7 +404,15 @@ class IntegrationSetupViewModelTest {
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
         val relayApiClient = mockk<RelayApiClient> {
             coEvery { updateSecrets(any(), any()) } returns
-                RelayApiResult.Success(UpdateSecretsResponse("ok"))
+                RelayApiResult.Success(
+                    UpdateSecretsResponse(
+                        success = true,
+                        secrets = mapOf(
+                            "health" to "brave-health",
+                            "usage" to "clever-usage"
+                        )
+                    )
+                )
         }
         val certStore = mockk<CertificateStore> {
             coEvery { getSubdomain() } returns "cool-penguin"
@@ -462,7 +494,15 @@ class IntegrationSetupViewModelTest {
                 if (attempt == 1) {
                     RelayApiResult.NetworkError(RuntimeException("transient"))
                 } else {
-                    RelayApiResult.Success(UpdateSecretsResponse("ok"))
+                    RelayApiResult.Success(
+                        UpdateSecretsResponse(
+                            success = true,
+                            secrets = mapOf(
+                                "health" to "brave-health",
+                                "usage" to "clever-usage"
+                            )
+                        )
+                    )
                 }
             }
         }
