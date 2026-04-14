@@ -49,6 +49,8 @@ fun OutreachSetupContent(
     isDirty: Boolean = false,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
+    onDirectLaunchToggled: (Boolean) -> Unit = {},
+    onGrantOverlay: () -> Unit = {},
     onEnable: () -> Unit = {},
     onSave: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -60,6 +62,8 @@ fun OutreachSetupContent(
         isDirty = isDirty,
         onDndToggled = onDndToggled,
         onGrantDnd = onGrantDnd,
+        onDirectLaunchToggled = onDirectLaunchToggled,
+        onGrantOverlay = onGrantOverlay,
         onEnable = onEnable,
         onSave = onSave,
         onCancel = onCancel,
@@ -75,6 +79,8 @@ fun OutreachSetupScreen(
     isDirty: Boolean = false,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
+    onDirectLaunchToggled: (Boolean) -> Unit = {},
+    onGrantOverlay: () -> Unit = {},
     onEnable: () -> Unit = {},
     onSave: () -> Unit = {},
     onCancel: () -> Unit = {}
@@ -98,6 +104,8 @@ fun OutreachSetupScreen(
             isDirty = isDirty,
             onDndToggled = onDndToggled,
             onGrantDnd = onGrantDnd,
+            onDirectLaunchToggled = onDirectLaunchToggled,
+            onGrantOverlay = onGrantOverlay,
             onEnable = onEnable,
             onSave = onSave,
             onCancel = onCancel,
@@ -113,6 +121,8 @@ private fun OutreachSetupBody(
     isDirty: Boolean = false,
     onDndToggled: (Boolean) -> Unit = {},
     onGrantDnd: () -> Unit = {},
+    onDirectLaunchToggled: (Boolean) -> Unit = {},
+    onGrantOverlay: () -> Unit = {},
     onEnable: () -> Unit = {},
     onSave: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -211,6 +221,76 @@ private fun OutreachSetupBody(
                         }
                     }
                 )
+            }
+
+            if (state.directLaunchApplicable) {
+                Spacer(modifier = Modifier.height(24.dp))
+
+                SectionHeader("Background Launch")
+
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    SwitchRow(
+                        title = "Directly open apps and links on your phone",
+                        subtitle = "Without this, AI requests to open apps or URLs " +
+                            "while your phone is locked or backgrounded will arrive " +
+                            "as a tappable notification.",
+                        checked = state.directLaunchEnabled,
+                        onCheckedChange = onDirectLaunchToggled,
+                        expandedContent = {
+                            Column(
+                                modifier = Modifier.padding(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    bottom = 16.dp
+                                )
+                            ) {
+                                if (state.overlayPermissionGranted) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Granted",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = SuccessGreen
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Permission granted",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                } else {
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor =
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        )
+                                    ) {
+                                        Text(
+                                            text = "Android 14 restricts apps from " +
+                                                "launching activities in the background. " +
+                                                "Granting \"display over other apps\" lets " +
+                                                "Rouse open apps and links directly; " +
+                                                "otherwise you'll see a notification to tap.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color =
+                                            MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    OutlinedButton(
+                                        onClick = onGrantOverlay,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Grant Background Launch")
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.weight(1f))

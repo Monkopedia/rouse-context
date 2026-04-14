@@ -16,11 +16,11 @@ class NotificationChannelsTest {
     private val manager = context.getSystemService(NotificationManager::class.java)
 
     @Test
-    fun `createAll registers all five channels`() {
+    fun `createAll registers all channels`() {
         NotificationChannels.createAll(context)
 
         val channels = manager.notificationChannels
-        assertEquals(6, channels.size)
+        assertEquals(7, channels.size)
     }
 
     @Test
@@ -83,11 +83,23 @@ class NotificationChannelsTest {
     }
 
     @Test
+    fun `createAll registers outreach launch channel with default importance`() {
+        NotificationChannels.createAll(context)
+
+        val channel = manager.getNotificationChannel(
+            NotificationChannels.OUTREACH_LAUNCH_CHANNEL_ID
+        )
+        assertNotNull(channel)
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, channel.importance)
+        assertEquals("Outreach Launch Requests", channel.name.toString())
+    }
+
+    @Test
     fun `createAll is idempotent`() {
         NotificationChannels.createAll(context)
         NotificationChannels.createAll(context)
 
         val channels = manager.notificationChannels
-        assertEquals(6, channels.size)
+        assertEquals(7, channels.size)
     }
 }

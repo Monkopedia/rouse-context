@@ -4,4 +4,9 @@
     <!-- Optional: DND control permission. Declared here so manifest merger includes it. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
+    <!-- Optional: allows launching activities from the background (Android 14+ BAL
+         restriction). Opt-in via the Outreach setup screen; denied falls back to a
+         tappable notification. See GitHub issue #102. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
 </manifest>

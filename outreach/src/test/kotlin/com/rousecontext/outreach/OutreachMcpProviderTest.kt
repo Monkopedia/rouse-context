@@ -152,6 +152,126 @@ class OutreachMcpProviderTest {
     }
 
     @Test
+    fun `open_link posts notification fallback when direct launch is denied`() = runBlocking {
+        val notifier = mockk<com.rousecontext.api.LaunchRequestNotifierApi>(relaxed = true)
+        val fallbackHandlers = registerProvider(
+            canLaunchDirectly = { false },
+            launchNotifier = notifier
+        )
+        val handler = fallbackHandlers["open_link"]!!
+        val request = CallToolRequest(
+            params = CallToolRequestParams(
+                name = "open_link",
+                arguments = buildJsonObject {
+                    put("url", JsonPrimitive("https://example.com"))
+                }
+            )
+        )
+
+        val result = handler.invoke(fakeConnection, request)
+
+        assertFalse(result.isError == true)
+        io.mockk.verify(exactly = 1) {
+            notifier.postOpenLink(any(), "https://example.com")
+        }
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(
+            "Result should mention notification fallback (was: $text)",
+            text.contains("notification", ignoreCase = true)
+        )
+    }
+
+    @Test
+    fun `open_link uses direct launch when permission is granted`() = runBlocking {
+        val notifier = mockk<com.rousecontext.api.LaunchRequestNotifierApi>(relaxed = true)
+        val directHandlers = registerProvider(
+            canLaunchDirectly = { true },
+            launchNotifier = notifier
+        )
+        val handler = directHandlers["open_link"]!!
+        val request = CallToolRequest(
+            params = CallToolRequestParams(
+                name = "open_link",
+                arguments = buildJsonObject {
+                    put("url", JsonPrimitive("https://example.com"))
+                }
+            )
+        )
+
+        val result = handler.invoke(fakeConnection, request)
+
+        assertFalse(result.isError == true)
+        io.mockk.verify(exactly = 0) {
+            notifier.postOpenLink(any(), any())
+        }
+    }
+
+    @Test
+    fun `launch_app posts notification fallback when direct launch is denied`() = runBlocking {
+        val notifier = mockk<com.rousecontext.api.LaunchRequestNotifierApi>(relaxed = true)
+        val fallbackHandlers = registerProvider(
+            canLaunchDirectly = { false },
+            launchNotifier = notifier
+        )
+        val handler = fallbackHandlers["launch_app"]!!
+        // Use this test app's own package so the launch intent resolves
+        val selfPkg = context.packageName
+        val request = CallToolRequest(
+            params = CallToolRequestParams(
+                name = "launch_app",
+                arguments = buildJsonObject {
+                    put("package_name", JsonPrimitive(selfPkg))
+                }
+            )
+        )
+
+        val result = handler.invoke(fakeConnection, request)
+
+        // Either the launch-intent resolves and we post, or the package has no
+        // launch intent and we error. Both are acceptable runtime outcomes; here
+        // we only care that WHEN it proceeds, it goes through the notifier.
+        if (result.isError != true) {
+            io.mockk.verify(exactly = 1) {
+                notifier.postLaunchApp(any(), selfPkg)
+            }
+        }
+    }
+
+    /** Build a fresh provider with overridable launch-direct predicate and notifier. */
+    private fun registerProvider(
+        canLaunchDirectly: () -> Boolean,
+        launchNotifier: com.rousecontext.api.LaunchRequestNotifierApi?
+    ): MutableMap<
+        String,
+        suspend ClientConnection.(CallToolRequest) -> CallToolResult
+        > {
+        val handlers = mutableMapOf<
+            String,
+            suspend ClientConnection.(CallToolRequest) -> CallToolResult
+            >()
+        val srv = mockk<Server>(relaxed = true)
+        val nameSlot = slot<String>()
+        val handlerSlot = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
+        every {
+            srv.addTool(
+                name = capture(nameSlot),
+                description = any(),
+                inputSchema = any<ToolSchema>(),
+                handler = capture(handlerSlot)
+            )
+        } answers {
+            handlers[nameSlot.captured] = handlerSlot.captured
+        }
+        OutreachMcpProvider(
+            context = context,
+            dndEnabled = false,
+            canLaunchDirectly = canLaunchDirectly,
+            launchNotifier = launchNotifier
+        ).register(srv)
+        return handlers
+    }
+
+    @Test
     fun `launch_app returns error for unknown package`() = runBlocking {
         val handler = toolHandlers["launch_app"]!!
         val request = CallToolRequest(

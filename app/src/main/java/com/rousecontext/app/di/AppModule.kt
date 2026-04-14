@@ -1,6 +1,7 @@
 package com.rousecontext.app.di
 
 import com.rousecontext.api.IntegrationStateStore
+import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
@@ -44,6 +45,7 @@ import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.AuthRequestNotifier
+import com.rousecontext.notifications.LaunchRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SessionSummaryPoster
 import com.rousecontext.notifications.audit.AuditDatabase
@@ -193,9 +195,18 @@ val appModule = module {
     // --- Health Connect repository ---
     single<HealthConnectRepository> { RealHealthConnectRepository(androidContext()) }
 
+    // --- Launch-request notifier (Android 14+ background-activity fallback) ---
+    single<LaunchRequestNotifierApi> { LaunchRequestNotifier(androidContext()) }
+
     // --- Integrations ---
     single<McpIntegration>(named("health")) { HealthConnectIntegration(androidContext()) }
-    single<McpIntegration>(named("outreach")) { OutreachIntegration(androidContext()) }
+    single<McpIntegration>(named("outreach")) {
+        OutreachIntegration(
+            context = androidContext(),
+            settingsStore = get(),
+            launchNotifier = get()
+        )
+    }
     single<McpIntegration>(named("notifications")) {
         NotificationIntegration(androidContext(), get(), get())
     }
