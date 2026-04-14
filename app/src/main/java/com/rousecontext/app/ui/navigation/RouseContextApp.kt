@@ -6,6 +6,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -39,7 +40,7 @@ fun RouseContextApp(startDestination: String = Routes.HOME) {
     } else {
         Color.parseColor("#0F1A30")
     }
-    androidx.compose.runtime.SideEffect {
+    SideEffect {
         activity?.enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(systemBarColor),
             navigationBarStyle = SystemBarStyle.dark(systemBarColor)
