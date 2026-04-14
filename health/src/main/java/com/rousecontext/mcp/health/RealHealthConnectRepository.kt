@@ -1,4 +1,4 @@
-package com.rousecontext.app.health
+package com.rousecontext.mcp.health
 
 import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
@@ -46,10 +46,6 @@ import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.WheelchairPushesRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
-import com.rousecontext.mcp.health.HEALTH_DATA_HISTORY_PERMISSION
-import com.rousecontext.mcp.health.HealthConnectRepository
-import com.rousecontext.mcp.health.HealthConnectUnavailableException
-import com.rousecontext.mcp.health.RecordTypeRegistry
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -65,8 +61,7 @@ private typealias QueryHandler =
 /**
  * Production [HealthConnectRepository] backed by the Health Connect SDK.
  *
- * Lives in `:app` because it needs an Android [Context] to obtain the
- * [HealthConnectClient] instance.
+ * Obtains a [HealthConnectClient] via the supplied Android [Context].
  */
 @Suppress("LargeClass", "TooManyFunctions")
 @OptIn(ExperimentalMindfulnessSessionApi::class)
