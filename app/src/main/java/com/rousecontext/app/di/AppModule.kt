@@ -122,6 +122,7 @@ val appModule = module {
     single { get<TokenDatabase>().tokenDao() }
     single { AuditDatabase.create(androidContext()) }
     single { get<AuditDatabase>().auditDao() }
+    single { get<AuditDatabase>().mcpRequestDao() }
     single { NotificationDatabase.create(androidContext()) }
     single { get<NotificationDatabase>().notificationDao() }
 
@@ -235,7 +236,8 @@ val appModule = module {
             dao = get(),
             scope = get(named("appScope")),
             fieldEncryptor = get(),
-            perCallObserver = get()
+            perCallObserver = get(),
+            mcpRequestDao = get()
         )
     }
 

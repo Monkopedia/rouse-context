@@ -1,5 +1,6 @@
 package com.rousecontext.notifications.audit
 
+import com.rousecontext.mcp.core.McpRequestEvent
 import com.rousecontext.mcp.core.ToolCallEvent
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
@@ -10,8 +11,11 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -76,6 +80,71 @@ class RoomAuditListenerTest {
             observer.calls.map { it.toolName }
         )
 
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `onRequest persists to mcp request dao`() = runBlocking {
+        val dao = FakeAuditDao()
+        val requestDao = FakeMcpRequestDao()
+        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
+        val listener = RoomAuditListener(
+            dao = dao,
+            scope = scope,
+            fieldEncryptor = null,
+            mcpRequestDao = requestDao
+        )
+
+        val event = McpRequestEvent(
+            sessionId = "session-1",
+            providerId = "health",
+            timestamp = 1234L,
+            method = "tools/list",
+            params = buildJsonObject { put("foo", JsonPrimitive("bar")) },
+            resultBytes = 42,
+            durationMs = 7L
+        )
+        listener.onRequest(event)
+
+        kotlinx.coroutines.yield()
+
+        assertEquals("Request entry should be inserted", 1, requestDao.entries.size)
+        val entry = requestDao.entries.first()
+        assertEquals("health", entry.provider)
+        assertEquals("session-1", entry.sessionId)
+        assertEquals("tools/list", entry.method)
+        assertEquals(1234L, entry.timestampMillis)
+        assertEquals(7L, entry.durationMillis)
+        assertEquals(42, entry.resultBytes)
+        assertNotNull(entry.paramsJson)
+        assertTrue("params should be JSON", entry.paramsJson!!.contains("bar"))
+
+        // Tool-call DAO stays empty - onRequest is separate from onToolCall
+        assertEquals(0, dao.entries.size)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `onRequest is a no-op when mcp request dao is absent`() = runBlocking {
+        val dao = FakeAuditDao()
+        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
+        val listener = RoomAuditListener(dao = dao, scope = scope)
+
+        val event = McpRequestEvent(
+            sessionId = "s",
+            providerId = "health",
+            timestamp = 1L,
+            method = "initialize",
+            params = null,
+            resultBytes = null,
+            durationMs = 0L
+        )
+        // Does not throw
+        listener.onRequest(event)
+        kotlinx.coroutines.yield()
+
+        assertEquals(0, dao.entries.size)
         coroutineContext.cancelChildren()
     }
 
@@ -161,6 +230,35 @@ class RoomAuditListenerTest {
         override suspend fun latestId(): Long? = entries.maxByOrNull { it.id }?.id
         override suspend fun queryCreatedAfter(sinceId: Long): List<AuditEntry> =
             entries.filter { it.id > sinceId }
+    }
+
+    private class FakeMcpRequestDao : McpRequestDao {
+        val entries = mutableListOf<McpRequestEntry>()
+        private var nextId = 1L
+
+        override suspend fun insert(entry: McpRequestEntry): Long {
+            val id = nextId++
+            entries.add(entry.copy(id = id))
+            return id
+        }
+
+        override suspend fun getById(id: Long): McpRequestEntry? = entries.find { it.id == id }
+
+        override suspend fun queryByDateRange(
+            startMillis: Long,
+            endMillis: Long,
+            provider: String?
+        ): List<McpRequestEntry> = entries
+
+        override fun observeByDateRange(
+            startMillis: Long,
+            endMillis: Long,
+            provider: String?
+        ): Flow<List<McpRequestEntry>> =
+            throw UnsupportedOperationException("not used in these tests")
+
+        override suspend fun deleteOlderThan(cutoffMillis: Long): Int = 0
+        override suspend fun count(): Int = entries.size
     }
 
     companion object {

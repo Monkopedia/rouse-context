@@ -175,6 +175,8 @@ class PerToolCallNotifierTest {
         override suspend fun setPostSessionMode(mode: PostSessionMode) {
             this.mode = mode
         }
+
+        override suspend fun setShowAllMcpMessages(enabled: Boolean) = Unit
     }
 
     companion object {

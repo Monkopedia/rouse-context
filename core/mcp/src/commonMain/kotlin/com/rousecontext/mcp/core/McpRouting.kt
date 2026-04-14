@@ -831,8 +831,14 @@ internal fun buildAuthorizePage(
 }
 
 /**
- * Emits an audit event for tools/call requests.
- * Silently ignores non-tool-call methods and parse failures.
+ * Emits audit events for every JSON-RPC request.
+ *
+ * Fires [AuditListener.onRequest] for every method. When the method is
+ * `tools/call`, additionally fires [AuditListener.onToolCall] with the
+ * specialized tool-call payload.
+ *
+ * All failures are swallowed: audit is best-effort and must never cause a
+ * request to fail.
  */
 @Suppress("TooGenericExceptionCaught")
 private fun emitAuditEvent(
@@ -847,9 +853,55 @@ private fun emitAuditEvent(
         request["method"]?.jsonPrimitive?.content
     } catch (_: Exception) {
         null
-    }
-    if (method != "tools/call") return
+    } ?: return
 
+    val durationMs = clock.currentTimeMillis() - startMs
+
+    emitRequestEvent(auditListener, request, responseJson, integration, method, startMs, durationMs)
+
+    if (method == "tools/call") {
+        emitToolCallEvent(auditListener, request, responseJson, integration, startMs, durationMs)
+    }
+}
+
+@Suppress("TooGenericExceptionCaught", "LongParameterList")
+private fun emitRequestEvent(
+    auditListener: AuditListener,
+    request: JsonObject,
+    responseJson: String,
+    integration: String,
+    method: String,
+    startMs: Long,
+    durationMs: Long
+) {
+    try {
+        val params = request["params"]
+        val resultBytes = if (responseJson.isEmpty()) null else responseJson.length
+        auditListener.onRequest(
+            McpRequestEvent(
+                sessionId = integration,
+                providerId = integration,
+                timestamp = startMs,
+                method = method,
+                params = params,
+                resultBytes = resultBytes,
+                durationMs = durationMs
+            )
+        )
+    } catch (e: Exception) {
+        println("Audit: failed to emit onRequest event: ${e.message}")
+    }
+}
+
+@Suppress("TooGenericExceptionCaught", "ReturnCount")
+private fun emitToolCallEvent(
+    auditListener: AuditListener,
+    request: JsonObject,
+    responseJson: String,
+    integration: String,
+    startMs: Long,
+    durationMs: Long
+) {
     try {
         val params = request["params"]?.jsonObject ?: return
         val toolName = params["name"]?.jsonPrimitive?.content ?: return
@@ -857,31 +909,7 @@ private fun emitAuditEvent(
             ?.mapValues { (_, v) -> v }
             ?: emptyMap()
 
-        val endMs = clock.currentTimeMillis()
-
-        // Parse response to determine success and extract result
-        val responseObj = mcpJson.parseToJsonElement(responseJson).jsonObject
-        val error = responseObj["error"]
-        val isError = error != null && error !is JsonNull
-        val resultObj = responseObj["result"]?.jsonObject
-
-        val result = if (isError) {
-            val errorMsg = error?.jsonObject?.get("message")?.jsonPrimitive?.content
-                ?: "Unknown error"
-            CallToolResult(
-                content = listOf(TextContent(errorMsg)),
-                isError = true
-            )
-        } else {
-            val contentArray = resultObj?.get("content")?.jsonArray
-            val textContent = contentArray?.mapNotNull { element ->
-                val obj = element.jsonObject
-                val text = obj["text"]?.jsonPrimitive?.content
-                text?.let { TextContent(it) }
-            } ?: emptyList()
-            val resultIsError = resultObj?.get("isError")?.jsonPrimitive?.content == "true"
-            CallToolResult(content = textContent, isError = resultIsError)
-        }
+        val result = parseToolCallResult(responseJson)
 
         auditListener.onToolCall(
             ToolCallEvent(
@@ -891,12 +919,37 @@ private fun emitAuditEvent(
                 toolName = toolName,
                 arguments = arguments,
                 result = result,
-                durationMs = endMs - startMs
+                durationMs = durationMs
             )
         )
     } catch (e: Exception) {
         // Audit is best-effort; never fail the request due to audit errors
-        println("Audit: failed to emit event: ${e.message}")
+        println("Audit: failed to emit tool-call event: ${e.message}")
+    }
+}
+
+private fun parseToolCallResult(responseJson: String): CallToolResult {
+    val responseObj = mcpJson.parseToJsonElement(responseJson).jsonObject
+    val error = responseObj["error"]
+    val isError = error != null && error !is JsonNull
+    val resultObj = responseObj["result"]?.jsonObject
+
+    return if (isError) {
+        val errorMsg = error?.jsonObject?.get("message")?.jsonPrimitive?.content
+            ?: "Unknown error"
+        CallToolResult(
+            content = listOf(TextContent(errorMsg)),
+            isError = true
+        )
+    } else {
+        val contentArray = resultObj?.get("content")?.jsonArray
+        val textContent = contentArray?.mapNotNull { element ->
+            val obj = element.jsonObject
+            val text = obj["text"]?.jsonPrimitive?.content
+            text?.let { TextContent(it) }
+        } ?: emptyList()
+        val resultIsError = resultObj?.get("isError")?.jsonPrimitive?.content == "true"
+        CallToolResult(content = textContent, isError = resultIsError)
     }
 }
 
