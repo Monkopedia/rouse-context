@@ -119,7 +119,9 @@ async fn main() {
     );
 
     // Build shared state
-    let relay_state = Arc::new(RelayState::new());
+    let relay_state = Arc::new(RelayState::with_cache_capacity(
+        config.server.cache_capacity,
+    ));
     let session_registry = Arc::new(SessionRegistry::new());
 
     // Build external service clients — use real implementations when a service account is available
