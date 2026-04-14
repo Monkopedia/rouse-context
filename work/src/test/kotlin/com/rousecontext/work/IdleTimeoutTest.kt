@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,7 +18,7 @@ class IdleTimeoutTest {
     private val stateFlow = MutableStateFlow(TunnelState.DISCONNECTED)
 
     @Test
-    fun `initial CONNECTED does not start timer without prior ACTIVE`() = runTest {
+    fun `CONNECTED without prior ACTIVE fires timeout`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
@@ -28,9 +29,13 @@ class IdleTimeoutTest {
         val job = launch { manager.observe(stateFlow) }
 
         stateFlow.value = TunnelState.CONNECTED
-        advanceTimeBy(60_000L)
+        advanceTimeBy(30_001L)
 
-        assertFalse("Timer should NOT fire on initial CONNECTED", disconnected.isCompleted)
+        assertTrue(
+            "Timer MUST fire on CONNECTED even without prior ACTIVE",
+            disconnected.isCompleted
+        )
+        assertTrue("timeoutFired flag should be set", manager.timeoutFired)
         job.cancel()
     }
 
@@ -143,14 +148,114 @@ class IdleTimeoutTest {
         stateFlow.value = TunnelState.DISCONNECTED
         advanceTimeBy(5_000L)
 
-        // Reconnect - should behave like initial connect (no timer)
+        // Reconnect - fresh cycle, timer should arm on CONNECTED (no prior ACTIVE)
+        // and fire after timeoutMillis.
         stateFlow.value = TunnelState.CONNECTED
-        advanceTimeBy(60_000L)
+        advanceTimeBy(30_001L)
 
-        assertFalse(
-            "Timer should not fire on CONNECTED after DISCONNECTED reset",
+        assertTrue(
+            "Timer should fire on fresh CONNECTED cycle after DISCONNECTED",
             disconnected.isCompleted
         )
         job.cancel()
+    }
+
+    @Test
+    fun `spurious wake recorded when timeout fires without ACTIVE`() = runTest {
+        val recorder = FakeSpuriousWakeRecorder()
+        val manager = IdleTimeoutManager(
+            timeoutMillis = 30_000L,
+            batteryExempt = false,
+            onTimeout = { },
+            recorder = recorder
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(30_001L)
+
+        // Complete the cycle
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        assertEquals(1, recorder.spuriousCount)
+        assertEquals(1, recorder.totalCount)
+        job.cancel()
+    }
+
+    @Test
+    fun `non-spurious wake only increments total`() = runTest {
+        val recorder = FakeSpuriousWakeRecorder()
+        val manager = IdleTimeoutManager(
+            timeoutMillis = 30_000L,
+            batteryExempt = false,
+            onTimeout = { },
+            recorder = recorder
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        advanceTimeBy(5_000L)
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        assertEquals(0, recorder.spuriousCount)
+        assertEquals(1, recorder.totalCount)
+        job.cancel()
+    }
+
+    @Test
+    fun `multiple wake cycles accumulate correctly`() = runTest {
+        val recorder = FakeSpuriousWakeRecorder()
+        val manager = IdleTimeoutManager(
+            timeoutMillis = 30_000L,
+            batteryExempt = false,
+            onTimeout = { },
+            recorder = recorder
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        // Spurious wake: CONNECTED then DISCONNECTED without any ACTIVE
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(10L)
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        // Good wake: CONNECTED -> ACTIVE -> CONNECTED -> DISCONNECTED
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(10L)
+        stateFlow.value = TunnelState.ACTIVE
+        advanceTimeBy(10L)
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(10L)
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        // Another spurious wake
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(10L)
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        assertEquals(2, recorder.spuriousCount)
+        assertEquals(3, recorder.totalCount)
+        job.cancel()
+    }
+
+    private class FakeSpuriousWakeRecorder : SpuriousWakeRecorder {
+        var spuriousCount: Int = 0
+            private set
+        var totalCount: Int = 0
+            private set
+
+        override fun recordWakeCycle(hadActiveStream: Boolean) {
+            totalCount++
+            if (!hadActiveStream) spuriousCount++
+        }
     }
 }

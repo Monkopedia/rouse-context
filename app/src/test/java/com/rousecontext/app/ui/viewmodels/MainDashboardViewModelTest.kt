@@ -387,6 +387,48 @@ class MainDashboardViewModelTest {
         }
 
     @Test
+    fun `spurious wake banner appears when rolling 24h count exceeds threshold`() =
+        runTest(testDispatcher) {
+            val vm = createViewModel(
+                spuriousWakesFlow = flowOf(SpuriousWakeStats(rolling24h = 15, total = 40))
+            )
+            vm.state.test {
+                var state = awaitItem()
+                while (state.isLoading || state.spuriousWakeBanner == null) {
+                    state = awaitItem()
+                }
+                assertNotNull(state.spuriousWakeBanner)
+                assertEquals(15, state.spuriousWakeBanner?.rolling24hCount)
+            }
+        }
+
+    @Test
+    fun `spurious wake banner absent when below threshold`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            spuriousWakesFlow = flowOf(SpuriousWakeStats(rolling24h = 5, total = 40))
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.spuriousWakeBanner)
+        }
+    }
+
+    @Test
+    fun `spurious wake banner absent when zero`() = runTest(testDispatcher) {
+        val vm = createViewModel()
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.spuriousWakeBanner)
+        }
+    }
+
+    @Test
     fun `connection status reflects tunnel state`() = runTest(testDispatcher) {
         val vm = createViewModel()
         vm.state.test {
@@ -417,7 +459,9 @@ class MainDashboardViewModelTest {
 
     private fun createViewModel(
         certRenewalFlow: kotlinx.coroutines.flow.Flow<CertBanner?> = flowOf(null),
-        notificationsEnabledFlow: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(true)
+        notificationsEnabledFlow: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(true),
+        spuriousWakesFlow: kotlinx.coroutines.flow.Flow<SpuriousWakeStats> =
+            flowOf(SpuriousWakeStats.EMPTY)
     ): MainDashboardViewModel {
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
@@ -439,7 +483,8 @@ class MainDashboardViewModelTest {
             urlProvider = fakeUrlProvider,
             tunnelClient = fakeTunnelClient,
             certRenewalBanner = certRenewalFlow,
-            notificationsEnabled = notificationsEnabledFlow
+            notificationsEnabled = notificationsEnabledFlow,
+            spuriousWakesFlow = spuriousWakesFlow
         )
     }
 

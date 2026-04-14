@@ -89,6 +89,13 @@ data class SettingsState(
     val showBatteryWarning: Boolean = true,
     val versionName: String = "0.1.0",
     val trustStatus: TrustStatusState? = null,
+    /**
+     * Count of wake cycles in the last 24h where the service woke but no MCP
+     * stream ever opened. Non-zero values surface a read-only diagnostic row.
+     */
+    val spuriousWakesLast24h: Int = 0,
+    /** Lifetime count of all completed wake cycles, for the ratio display. */
+    val totalWakesLifetime: Long = 0L,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )
@@ -275,6 +282,28 @@ fun SettingsContent(
                     ) {
                         Text("Fix this")
                     }
+                }
+            }
+        }
+
+        // Diagnostics section — only shown once at least one spurious wake has
+        // been observed. Read-only, purely informational.
+        if (state.spuriousWakesLast24h > 0) {
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionHeader("Diagnostics")
+            SettingsSectionCard {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Background wakes without client (24h): " +
+                            "${state.spuriousWakesLast24h} / total: ${state.totalWakesLifetime}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "A high count may indicate the relay is sending spurious wakes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

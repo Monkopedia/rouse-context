@@ -475,6 +475,11 @@ fun AppNavigation(
                             }
                             context.startActivity(intent)
                         },
+                        onOpenSettings = {
+                            navController.navigate(Routes.SETTINGS) {
+                                launchSingleTop = true
+                            }
+                        },
                         onRetry = { viewModel.retry() }
                     )
                 }
