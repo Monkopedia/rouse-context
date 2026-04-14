@@ -11,9 +11,14 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,6 +56,44 @@ class RoomAuditListenerTest {
         assertNotNull("Observer should be invoked with the event", observer.lastEvent)
         assertEquals("health", observer.lastEvent?.providerId)
         assertEquals("get_steps", observer.lastEvent?.toolName)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `onToolCall serializes result as valid JSON with content array`() = runBlocking {
+        val dao = FakeAuditDao()
+        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
+        val listener = RoomAuditListener(dao = dao, scope = scope)
+
+        val event = ToolCallEvent(
+            sessionId = "session-1",
+            providerId = "health",
+            timestamp = 1L,
+            toolName = "get_steps",
+            arguments = emptyMap(),
+            result = CallToolResult(content = listOf(TextContent("hello world"))),
+            durationMs = 5L
+        )
+        listener.onToolCall(event)
+        kotlinx.coroutines.yield()
+
+        assertEquals(1, dao.entries.size)
+        val rawJson = dao.entries.first().resultJson
+        assertNotNull("resultJson should not be null", rawJson)
+
+        // Must parse as a JSON object (not raw toString).
+        val parsed = Json.parseToJsonElement(rawJson!!).jsonObject
+        val contentArray = parsed["content"]?.jsonArray
+        assertNotNull("Serialized result must expose a content array", contentArray)
+        assertEquals(1, contentArray!!.size)
+        val firstItem = contentArray[0].jsonObject
+        assertEquals("text", firstItem["type"]?.jsonPrimitive?.content)
+        assertEquals("hello world", firstItem["text"]?.jsonPrimitive?.content)
+
+        // isError should be preserved (default false).
+        val isError = parsed["isError"]?.jsonPrimitive?.content?.toBoolean() ?: false
+        assertFalse("Default isError should be false", isError)
 
         coroutineContext.cancelChildren()
     }

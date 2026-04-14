@@ -4,9 +4,10 @@ import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.McpRequestEvent
 import com.rousecontext.mcp.core.ToolCallEvent
 import com.rousecontext.notifications.capture.FieldEncryptor
-import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -35,13 +36,7 @@ class RoomAuditListener(
     override fun onToolCall(event: ToolCallEvent) {
         scope.launch {
             val argsJson = JsonObject(event.arguments).toString()
-            val resultJson = event.result.content
-                .joinToString("\n") { item ->
-                    when (item) {
-                        is TextContent -> item.text
-                        else -> item.toString()
-                    }
-                }
+            val resultJson = auditJson.encodeToString(CallToolResult.serializer(), event.result)
             dao.insert(
                 AuditEntry(
                     sessionId = event.sessionId,
@@ -56,6 +51,18 @@ class RoomAuditListener(
                 )
             )
             perCallObserver?.onToolCallRecorded(event)
+        }
+    }
+
+    private companion object {
+        /**
+         * Matches the MCP SDK wire format: emits the `isError` flag so the
+         * stored JSON is self-describing, and drops nulls to keep the payload
+         * compact.
+         */
+        private val auditJson = Json {
+            encodeDefaults = true
+            explicitNulls = false
         }
     }
 
