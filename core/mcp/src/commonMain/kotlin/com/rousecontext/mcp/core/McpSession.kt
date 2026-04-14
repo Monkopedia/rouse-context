@@ -63,7 +63,7 @@ class McpSession(
      * Call [resolvePort] after starting to determine the actual listening port.
      */
     fun start(port: Int = 0) {
-        val server = embeddedServer(CIO, port = port) {
+        val server = embeddedServer(CIO, port = port, host = LOOPBACK_HOST) {
             configureMcpRouting(
                 registry = registry,
                 tokenStore = tokenStore,
@@ -107,5 +107,16 @@ class McpSession(
     fun stop() {
         engine?.stop()
         done.complete(Unit)
+    }
+
+    companion object {
+        /**
+         * Bind to loopback only. The MCP HTTP server receives plaintext bytes from
+         * the tunnel bridge (same process, localhost TCP) — no legitimate caller
+         * ever reaches it over a network interface. Binding to 0.0.0.0 would expose
+         * the OAuth discovery and device-code endpoints to any host on the same
+         * LAN. See issue #127.
+         */
+        private const val LOOPBACK_HOST = "127.0.0.1"
     }
 }
