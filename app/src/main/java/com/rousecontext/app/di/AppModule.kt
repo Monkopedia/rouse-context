@@ -44,8 +44,10 @@ import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
 import com.rousecontext.notifications.AuthRequestNotifier
+import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SessionSummaryPoster
 import com.rousecontext.notifications.audit.AuditDatabase
+import com.rousecontext.notifications.audit.PerCallObserver
 import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.notifications.capture.FieldEncryptor
 import com.rousecontext.notifications.capture.NotificationDatabase
@@ -213,12 +215,24 @@ val appModule = module {
         )
     }
 
+    // --- Per-tool-call notifier (EACH_USAGE mode) ---
+    single {
+        val integrations: List<McpIntegration> = get()
+        PerToolCallNotifier(
+            context = androidContext(),
+            settingsProvider = get(),
+            integrationDisplayNames = integrations.associate { it.id to it.displayName },
+            activityClass = MainActivity::class.java
+        )
+    } bind PerCallObserver::class
+
     // --- Audit listener ---
     single<AuditListener> {
         RoomAuditListener(
             dao = get(),
             scope = get(named("appScope")),
-            fieldEncryptor = get()
+            fieldEncryptor = get(),
+            perCallObserver = get()
         )
     }
 
