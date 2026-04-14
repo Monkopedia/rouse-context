@@ -49,6 +49,7 @@ import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.mcp.health.HealthConnectRepository
+import com.rousecontext.notifications.AndroidSecurityCheckNotifier
 import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.LaunchRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier
@@ -302,7 +303,7 @@ val appModule = module {
     single<SecurityCheckSource>(named("ctLog")) {
         CtLogMonitorSource(monitor = get())
     }
-    single { SecurityCheckNotifier(androidContext()) }
+    single<SecurityCheckNotifier> { AndroidSecurityCheckNotifier(androidContext()) }
 
     // --- MCP session ---
     // TODO: With per-integration hostnames, each integration needs its own McpSession.

@@ -1,10 +1,5 @@
 package com.rousecontext.notifications
 
-import android.app.NotificationManager
-import android.content.Context
-import androidx.core.app.NotificationCompat
-import com.rousecontext.api.R as ApiR
-
 /**
  * Posts security-check notifications.
  *
@@ -16,55 +11,18 @@ import com.rousecontext.api.R as ApiR
  *
  * Alerts use [NotificationChannels.ALERT_CHANNEL_ID] with HIGH priority; warnings
  * use [NotificationChannels.SESSION_CHANNEL_ID] with DEFAULT priority.
+ *
+ * This is the contract interface; [AndroidSecurityCheckNotifier] is the production
+ * implementation that actually posts via the system NotificationManager.
  */
-open class SecurityCheckNotifier(private val context: Context) {
+interface SecurityCheckNotifier {
+
+    fun postAlert(check: SecurityCheck, reason: String)
+
+    fun postInfo(check: SecurityCheck, reason: String)
 
     /** The kind of security check whose result is being surfaced. */
     enum class SecurityCheck { SELF_CERT, CT_LOG }
-
-    open fun postAlert(check: SecurityCheck, reason: String) {
-        val notification = NotificationCompat
-            .Builder(context, NotificationChannels.ALERT_CHANNEL_ID)
-            .setContentTitle("Security Alert")
-            .setContentText("${titleFor(check)}: $reason")
-            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .build()
-
-        notificationManager().notify(alertIdFor(check), notification)
-    }
-
-    open fun postInfo(check: SecurityCheck, reason: String) {
-        val notification = NotificationCompat
-            .Builder(context, NotificationChannels.SESSION_CHANNEL_ID)
-            .setContentTitle("Security Check")
-            .setContentText("${titleFor(check)}: $reason")
-            .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .build()
-
-        notificationManager().notify(infoIdFor(check), notification)
-    }
-
-    private fun notificationManager(): NotificationManager =
-        context.getSystemService(NotificationManager::class.java)
-
-    private fun titleFor(check: SecurityCheck): String = when (check) {
-        SecurityCheck.SELF_CERT -> "Self-cert verification"
-        SecurityCheck.CT_LOG -> "CT log check"
-    }
-
-    private fun alertIdFor(check: SecurityCheck): Int = when (check) {
-        SecurityCheck.SELF_CERT -> NOTIFICATION_ID_SELF_CERT_ALERT
-        SecurityCheck.CT_LOG -> NOTIFICATION_ID_CT_LOG_ALERT
-    }
-
-    private fun infoIdFor(check: SecurityCheck): Int = when (check) {
-        SecurityCheck.SELF_CERT -> NOTIFICATION_ID_SELF_CERT_INFO
-        SecurityCheck.CT_LOG -> NOTIFICATION_ID_CT_LOG_INFO
-    }
 
     companion object {
         // Stable ids in the 4210-4213 range. Chosen to avoid collision with:

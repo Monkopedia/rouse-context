@@ -23,7 +23,7 @@ class SecurityCheckNotifierTest {
         context = ApplicationProvider.getApplicationContext()
         manager = context.getSystemService(NotificationManager::class.java)
         NotificationChannels.createAll(context)
-        notifier = SecurityCheckNotifier(context)
+        notifier = AndroidSecurityCheckNotifier(context)
     }
 
     @Test
