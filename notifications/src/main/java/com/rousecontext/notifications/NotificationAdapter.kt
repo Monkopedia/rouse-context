@@ -26,7 +26,7 @@ class NotificationAdapter(private val context: Context) {
     fun execute(action: NotificationAction) {
         when (action) {
             is NotificationAction.ShowForeground -> {
-                val notification = createForegroundNotification(context, action.message)
+                val notification = ForegroundNotifier.build(context, action.message)
                 manager.notify(FOREGROUND_ID, notification)
             }
 

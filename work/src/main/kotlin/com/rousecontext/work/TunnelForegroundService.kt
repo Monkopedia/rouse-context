@@ -17,9 +17,9 @@ import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.FgsLimitNotifier
+import com.rousecontext.notifications.ForegroundNotifier
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.SessionSummaryPoster
-import com.rousecontext.notifications.createForegroundNotification
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
 import kotlin.coroutines.resume
@@ -90,7 +90,7 @@ class TunnelForegroundService : LifecycleService() {
      * failure, a user-visible notification is posted explaining the situation.
      */
     private fun startForegroundSafely(): Boolean {
-        val notification = createForegroundNotification(this, "Connecting...")
+        val notification = ForegroundNotifier.build(this, "Connecting...")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             return startForegroundApi31OrHigher(notification)
         }
@@ -273,7 +273,7 @@ class TunnelForegroundService : LifecycleService() {
             TunnelState.ACTIVE -> "Active session"
             TunnelState.DISCONNECTING -> "Disconnecting..."
         }
-        val notification = createForegroundNotification(this, message)
+        val notification = ForegroundNotifier.build(this, message)
         val manager = getSystemService(android.app.NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, notification)
     }

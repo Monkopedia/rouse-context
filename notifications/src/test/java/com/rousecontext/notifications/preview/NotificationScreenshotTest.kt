@@ -10,7 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.api.R as ApiR
 import com.rousecontext.notifications.NotificationChannels
-import com.rousecontext.notifications.createForegroundNotification
+import com.rousecontext.notifications.ForegroundNotifier
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,61 +54,61 @@ class NotificationScreenshotTest {
     }
 
     // =========================================================================
-    // Foreground Service (via createForegroundNotification)
+    // Foreground Service (via ForegroundNotifier.build)
     // =========================================================================
 
     @Test
     fun foregroundConnectingLight() = captureLight(
         "01_foreground_connecting",
-        createForegroundNotification(context, "Connecting")
+        ForegroundNotifier.build(context, "Connecting")
     )
 
     @Test
     fun foregroundConnectingDark() =
-        captureDark("01_foreground_connecting", createForegroundNotification(context, "Connecting"))
+        captureDark("01_foreground_connecting", ForegroundNotifier.build(context, "Connecting"))
 
     @Test
     fun foregroundConnectedLight() =
-        captureLight("02_foreground_connected", createForegroundNotification(context, "Connected"))
+        captureLight("02_foreground_connected", ForegroundNotifier.build(context, "Connected"))
 
     @Test
     fun foregroundConnectedDark() =
-        captureDark("02_foreground_connected", createForegroundNotification(context, "Connected"))
+        captureDark("02_foreground_connected", ForegroundNotifier.build(context, "Connected"))
 
     @Test
     fun foregroundActiveSessionLight() = captureLight(
         "03_foreground_active_session",
-        createForegroundNotification(context, "Connected \u2022 2 active streams")
+        ForegroundNotifier.build(context, "Connected \u2022 2 active streams")
     )
 
     @Test
     fun foregroundActiveSessionDark() = captureDark(
         "03_foreground_active_session",
-        createForegroundNotification(context, "Connected \u2022 2 active streams")
+        ForegroundNotifier.build(context, "Connected \u2022 2 active streams")
     )
 
     @Test
     fun foregroundDisconnectingLight() = captureLight(
         "04_foreground_disconnecting",
-        createForegroundNotification(context, "Disconnecting")
+        ForegroundNotifier.build(context, "Disconnecting")
     )
 
     @Test
     fun foregroundDisconnectingDark() = captureDark(
         "04_foreground_disconnecting",
-        createForegroundNotification(context, "Disconnecting")
+        ForegroundNotifier.build(context, "Disconnecting")
     )
 
     @Test
     fun foregroundDisconnectedLight() = captureLight(
         "05_foreground_disconnected",
-        createForegroundNotification(context, "Disconnected")
+        ForegroundNotifier.build(context, "Disconnected")
     )
 
     @Test
     fun foregroundDisconnectedDark() = captureDark(
         "05_foreground_disconnected",
-        createForegroundNotification(context, "Disconnected")
+        ForegroundNotifier.build(context, "Disconnected")
     )
 
     // =========================================================================

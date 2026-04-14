@@ -32,7 +32,7 @@ class NotificationIconTest {
 
     @Test
     fun `foreground notification uses ic_stat_rouse`() {
-        val notification = createForegroundNotification(context, "Connected")
+        val notification = ForegroundNotifier.build(context, "Connected")
         assertEquals(ApiR.drawable.ic_stat_rouse, notification.smallIcon.resId)
     }
 
