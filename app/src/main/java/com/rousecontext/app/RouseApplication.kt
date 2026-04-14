@@ -2,7 +2,6 @@ package com.rousecontext.app
 
 import android.app.Application
 import android.content.Context
-import android.util.Log
 import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -11,15 +10,12 @@ import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.work.CertRenewalScheduler
-import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.KoinWorkerFactory
 import com.rousecontext.work.SecurityCheckWorker
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import org.koin.android.ext.android.inject
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
@@ -67,7 +63,6 @@ class RouseApplication :
         }
 
         NotificationChannels.createAll(this)
-        registerFcmToken()
         scheduleSecurityChecks()
         CertRenewalScheduler.enqueuePeriodic(this)
     }
@@ -89,28 +84,11 @@ class RouseApplication :
         )
     }
 
-    /**
-     * Ensures the current FCM token is registered in Firestore.
-     * Runs on app start so the relay always has an up-to-date token,
-     * even if a previous onNewToken callback was missed.
-     */
-    private fun registerFcmToken() {
-        val registrar: FcmTokenRegistrar by inject()
-        appScope.launch {
-            try {
-                registrar.registerCurrentToken()
-            } catch (e: Exception) {
-                Log.w(TAG, "FCM token registration failed (will retry on next launch)", e)
-            }
-        }
-    }
-
     private fun scopeModule() = module {
         single(named("appScope")) { appScope }
     }
 
     companion object {
-        private const val TAG = "RouseApplication"
         const val PREFS_NAME = "rouse_settings"
         const val KEY_SECURITY_CHECK_INTERVAL_HOURS = "security_check_interval_hours"
         const val DEFAULT_INTERVAL_HOURS = 12

@@ -371,7 +371,7 @@ val appModule = module {
     }
 
     // --- FCM token registration ---
-    single { FcmTokenRegistrar() }
+    single { FcmTokenRegistrar(tunnelClient = get()) }
 
     // --- Tunnel & work ---
     single<String>(named("relayUrl")) {

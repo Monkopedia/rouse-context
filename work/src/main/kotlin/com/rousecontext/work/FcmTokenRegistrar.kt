@@ -1,37 +1,42 @@
 package com.rousecontext.work
 
 import android.util.Log
-import com.google.firebase.messaging.FirebaseMessaging
-import kotlinx.coroutines.tasks.await
+import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.tunnel.TunnelState
 
 /**
- * Manages FCM token awareness for the app.
+ * Forwards refreshed FCM tokens to the relay over the active tunnel connection.
  *
- * The actual delivery of FCM tokens to the relay happens over the tunnel
- * WebSocket connection (see [TunnelForegroundService.sendFcmToken]).
- * The relay stores tokens in Firestore using its service account.
+ * When FCM rotates a device's token, this class pushes the new value to the relay
+ * immediately if a tunnel session is live (state is [TunnelState.CONNECTED] or
+ * [TunnelState.ACTIVE]). Otherwise it's a no-op: the tunnel pulls a fresh token
+ * via `FirebaseMessaging.getInstance().token` on the next connect, so a disconnected
+ * refresh is naturally covered by that path.
  *
- * This class only fetches and logs the current token; it does NOT write
- * directly to Firestore (the app's Firebase client lacks write permissions).
+ * The tunnel client reference is a Koin `single` with app-lifetime scope, so there
+ * is no leak risk. If the connection state flips mid-send the underlying send may
+ * throw; that's caught and logged — the pull-on-connect path will re-sync.
  */
-class FcmTokenRegistrar {
+class FcmTokenRegistrar(private val tunnelClient: TunnelClient) {
 
     /**
-     * Logs that a new token was received.
-     * Actual delivery to the relay happens via the tunnel WebSocket on next connect.
+     * Pushes [token] to the relay if the tunnel is connected.
+     *
+     * Silently no-ops (at debug level) when the tunnel is not in a stable connected
+     * state — the next wake will pull the current token.
      */
-    @Suppress("UnusedParameter")
-    fun registerToken(token: String) {
-        Log.i(TAG, "FCM token refreshed (will be sent to relay on next tunnel connect)")
-    }
-
-    /**
-     * Fetches the current FCM token and logs it.
-     * Called on app startup; the tunnel service sends the token to the relay on connect.
-     */
-    suspend fun registerCurrentToken() {
-        val token = FirebaseMessaging.getInstance().token.await()
-        Log.d(TAG, "Current FCM token available (length=${token.length})")
+    suspend fun registerToken(token: String) {
+        val currentState = tunnelClient.state.value
+        if (currentState != TunnelState.CONNECTED && currentState != TunnelState.ACTIVE) {
+            Log.d(TAG, "Tunnel state=$currentState; FCM token refresh deferred to next wake")
+            return
+        }
+        try {
+            tunnelClient.sendFcmToken(token)
+            Log.i(TAG, "Forwarded refreshed FCM token to relay")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to push refreshed FCM token; next wake will pull", e)
+        }
     }
 
     companion object {
