@@ -11,11 +11,13 @@ use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 use p256::pkcs8::DecodePublicKey;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use crate::api::{ApiError, AppState};
 use crate::firestore::DeviceRecord;
+use crate::words::adjectives;
 
 /// Round 1: Register a device and receive a subdomain assignment.
 #[derive(Debug, Deserialize)]
@@ -25,9 +27,11 @@ pub struct RegisterRequest {
     pub signature: Option<String>,
     #[serde(default)]
     pub force_new: bool,
-    /// Client-generated secret strings for SNI validation.
+    /// Integration IDs the device wants secrets generated for (e.g. `outreach`,
+    /// `health`). The relay generates one `{adjective}-{integrationId}` secret
+    /// per entry and returns the mapping in [`RegisterResponse::secrets`].
     #[serde(default)]
-    pub valid_secrets: Vec<String>,
+    pub integrations: Vec<String>,
 }
 
 /// Round 1 response: subdomain assigned, device should now generate CSR.
@@ -35,6 +39,26 @@ pub struct RegisterRequest {
 pub struct RegisterResponse {
     pub subdomain: String,
     pub relay_host: String,
+    /// Map of integration id → generated secret in the form
+    /// `{adjective}-{integrationId}`. Empty when the request did not list any
+    /// integrations.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub secrets: HashMap<String, String>,
+}
+
+/// Generate one `{adjective}-{integrationId}` secret per integration id.
+///
+/// The map is keyed by integration id; the values become the device's
+/// `valid_secrets` entries in Firestore and the SNI cache.
+pub(crate) fn generate_integration_secrets(integrations: &[String]) -> HashMap<String, String> {
+    let mut rng = rand::thread_rng();
+    integrations
+        .iter()
+        .map(|id| {
+            let adjective = adjectives::pick_random(&mut rng);
+            (id.clone(), format!("{adjective}-{id}"))
+        })
+        .collect()
 }
 
 /// Round 2: Submit CSR to receive certificates.
@@ -168,8 +192,12 @@ pub async fn handle_register(
         state.subdomain_generator.generate()
     };
 
-    // 4. Store device record (public_key will be set in round 2 when CSR arrives)
-    let valid_secrets = req.valid_secrets;
+    // 4. Generate one secret per requested integration id. The relay is the
+    //    sole source of truth for the adjective list and generated values.
+    let secrets_map = generate_integration_secrets(&req.integrations);
+    let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
+
+    // 5. Store device record (public_key will be set in round 2 when CSR arrives)
     let record = DeviceRecord {
         fcm_token: req.fcm_token,
         firebase_uid: uid,
@@ -196,12 +224,13 @@ pub async fn handle_register(
         .relay_state
         .set_valid_secrets_cache(&subdomain, valid_secrets);
 
-    // 5. Return subdomain and relay host
+    // 6. Return subdomain, relay host, and the generated secrets map
     (
         StatusCode::OK,
         Json(RegisterResponse {
             subdomain,
             relay_host: state.config.server.relay_hostname.clone(),
+            secrets: secrets_map,
         }),
     )
         .into_response()

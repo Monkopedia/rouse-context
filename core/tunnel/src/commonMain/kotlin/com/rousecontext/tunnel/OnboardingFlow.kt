@@ -17,19 +17,17 @@ class OnboardingFlow(
 ) {
 
     /**
-     * Executes the onboarding flow: registers with the relay to get a subdomain.
-     * Generates integration secrets locally and sends them to the relay as valid_secrets.
+     * Executes the onboarding flow: registers with the relay to get a subdomain
+     * and (when integrations are configured) a map of relay-generated
+     * `{adjective}-{integrationId}` secrets. Both are persisted locally on
+     * success; any failure leaves the certificate store empty.
      */
     suspend fun execute(firebaseToken: String, fcmToken: String): OnboardingResult {
-        // Generate secrets locally for each known integration
-        val secrets = SecretGenerator.generateAll(integrationIds)
-        val validSecrets = secrets.values.toList()
-
         val registerData = when (
             val response = relayApiClient.register(
                 firebaseToken = firebaseToken,
                 fcmToken = fcmToken,
-                validSecrets = validSecrets
+                integrationIds = integrationIds
             )
         ) {
             is RelayApiResult.Success -> response.data
@@ -46,8 +44,8 @@ class OnboardingFlow(
 
         return try {
             certificateStore.storeSubdomain(registerData.subdomain)
-            if (secrets.isNotEmpty()) {
-                certificateStore.storeIntegrationSecrets(secrets)
+            if (registerData.secrets.isNotEmpty()) {
+                certificateStore.storeIntegrationSecrets(registerData.secrets)
             }
             OnboardingResult.Success(subdomain = registerData.subdomain)
         } catch (e: Exception) {

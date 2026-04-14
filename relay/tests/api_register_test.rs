@@ -59,18 +59,87 @@ async fn register_new_device_returns_subdomain() {
         json["relay_host"].as_str().unwrap(),
         "relay.rousecontext.com"
     );
-    // Round 1 response should NOT contain secrets (client generates them)
-    assert!(
-        json.get("secret_prefix").is_none(),
-        "Registration response should not include secret_prefix"
-    );
-    assert!(
-        json.get("integration_secrets").is_none(),
-        "Registration response should not include integration_secrets"
-    );
+    // No integrations were requested, so the secrets map is either absent
+    // (serde skips empty maps) or present and empty.
+    if let Some(secrets) = json.get("secrets") {
+        assert!(
+            secrets.as_object().map(|m| m.is_empty()).unwrap_or(false),
+            "secrets should be empty when no integrations are requested"
+        );
+    }
     // Round 1 response should NOT contain cert or private_key
     assert!(json.get("cert").is_none());
     assert!(json.get("private_key").is_none());
+}
+
+#[tokio::test]
+async fn register_with_integrations_returns_generated_secrets() {
+    let firestore = Arc::new(MockFirestore::new());
+    let acme = MockAcme::new("test-cert-chain");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-42");
+
+    let state = build_test_state(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = rouse_relay::api::build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "fcm_token": "device-fcm-token",
+                "integrations": ["outreach", "health", "notifications"]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    let subdomain = json["subdomain"].as_str().unwrap().to_string();
+    let secrets = json["secrets"].as_object().expect("secrets map missing");
+    assert_eq!(secrets.len(), 3);
+
+    for id in ["outreach", "health", "notifications"] {
+        let value = secrets[id].as_str().unwrap();
+        let suffix = format!("-{id}");
+        assert!(
+            value.ends_with(&suffix),
+            "secret {value:?} should end with {suffix:?}"
+        );
+        let adjective = value.strip_suffix(&suffix).unwrap();
+        assert!(
+            !adjective.is_empty() && adjective.chars().all(|c| c.is_ascii_lowercase()),
+            "adjective {adjective:?} is not lowercase ascii letters"
+        );
+    }
+
+    // Firestore should have stored the generated values as valid_secrets.
+    let devices = firestore.devices.lock().unwrap();
+    let stored = devices
+        .get(&subdomain)
+        .expect("device missing in firestore");
+    assert_eq!(stored.valid_secrets.len(), 3);
+    for (_, expected) in secrets {
+        let expected = expected.as_str().unwrap().to_string();
+        assert!(
+            stored.valid_secrets.contains(&expected),
+            "Firestore valid_secrets {:?} missing {expected}",
+            stored.valid_secrets
+        );
+    }
 }
 
 #[tokio::test]

@@ -14,7 +14,6 @@ import com.rousecontext.tunnel.CertProvisioningResult
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
-import com.rousecontext.tunnel.SecretGenerator
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -51,7 +50,8 @@ internal enum class IntegrationSetupFailureStage {
 /**
  * Orchestrates the integration setup flow: enables the integration,
  * triggers cert provisioning if needed, then pushes the updated list of
- * integration secrets (`valid_secrets`) to the relay.
+ * integration list to the relay to regenerate `{adjective}-{integrationId}`
+ * secrets server-side.
  *
  * When the user enables their first integration, this triggers ACME cert
  * provisioning via [CertProvisioningFlow]. If certs already exist (e.g. the
@@ -183,10 +183,13 @@ class IntegrationSetupViewModel(
     }
 
     /**
-     * Pushes the current valid-secrets list to the relay so the newly-enabled
-     * integration is accepted by SNI routing. Generates any missing secrets
-     * locally, persists the merged map back to the cert store, and retries
-     * transient failures.
+     * Pushes the current integration list to the relay so it can provision
+     * `{adjective}-{integrationId}` secrets for SNI routing. The relay is the
+     * sole source of truth for secret values: it regenerates the full secret
+     * set for [integrationIds] on every call, returns the mapping, and the
+     * device persists what the relay sent back.
+     *
+     * Retries transient failures with exponential backoff.
      */
     private suspend fun pushIntegrationSecrets() {
         val subdomain = certStore.getSubdomain()
@@ -195,26 +198,28 @@ class IntegrationSetupViewModel(
             return
         }
 
-        val existing = certStore.getIntegrationSecrets().orEmpty()
-        val merged = buildMergedSecrets(existing)
-
-        // Persist any newly-generated secrets before pushing so a crash between
-        // push and persist can't drop them.
-        if (merged != existing) {
-            runCatching { certStore.storeIntegrationSecrets(merged) }
-                .onFailure {
-                    Log.e(TAG, "Failed to persist merged integration secrets", it)
-                    setFailed(SECRETS_PUSH_FAILED_MESSAGE, IntegrationSetupFailureStage.SecretsPush)
-                    return
-                }
+        if (integrationIds.isEmpty()) {
+            Log.i(TAG, "No integrations configured; skipping secrets push")
+            _state.value = IntegrationSetupState.Complete
+            return
         }
 
-        val validSecrets = merged.values.toList()
         var backoffMs = INITIAL_BACKOFF_MS
         repeat(SECRETS_PUSH_ATTEMPTS) { attempt ->
-            when (val result = relayApiClient.updateSecrets(subdomain, validSecrets)) {
+            when (val result = relayApiClient.updateSecrets(subdomain, integrationIds)) {
                 is RelayApiResult.Success -> {
-                    Log.i(TAG, "Integration secrets pushed to relay (${validSecrets.size})")
+                    val newSecrets = result.data.secrets
+                    try {
+                        certStore.storeIntegrationSecrets(newSecrets)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to persist integration secrets from relay", e)
+                        setFailed(
+                            SECRETS_PUSH_FAILED_MESSAGE,
+                            IntegrationSetupFailureStage.SecretsPush
+                        )
+                        return
+                    }
+                    Log.i(TAG, "Integration secrets pushed to relay (${newSecrets.size})")
                     _state.value = IntegrationSetupState.Complete
                     return
                 }
@@ -242,22 +247,6 @@ class IntegrationSetupViewModel(
             }
         }
         setFailed(SECRETS_PUSH_FAILED_MESSAGE, IntegrationSetupFailureStage.SecretsPush)
-    }
-
-    /**
-     * Merge existing secrets with freshly-generated ones for any configured
-     * integration id that doesn't yet have a secret. Secrets for integrations
-     * no longer in [integrationIds] are preserved — the relay's valid_secrets
-     * list is a superset, not a mirror of installed integrations.
-     */
-    private fun buildMergedSecrets(existing: Map<String, String>): Map<String, String> {
-        val merged = existing.toMutableMap()
-        for (id in integrationIds) {
-            if (merged[id].isNullOrEmpty()) {
-                merged[id] = SecretGenerator.generate(id)
-            }
-        }
-        return merged
     }
 
     private fun setFailed(

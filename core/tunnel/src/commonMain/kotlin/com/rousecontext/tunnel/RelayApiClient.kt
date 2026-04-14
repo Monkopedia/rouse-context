@@ -24,13 +24,15 @@ class RelayApiClient(
 
     /**
      * Round 1: Register a new device with the relay server.
-     * Sends Firebase auth token and FCM token.
-     * Receives back the assigned subdomain.
+     * Sends Firebase auth token, FCM token, and the list of integration IDs
+     * the device wants secrets provisioned for. The relay generates one
+     * `{adjective}-{integrationId}` secret per entry and returns the mapping
+     * in [RegisterResponse.secrets].
      */
     suspend fun register(
         firebaseToken: String,
         fcmToken: String,
-        validSecrets: List<String> = emptyList()
+        integrationIds: List<String> = emptyList()
     ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
             contentType(ContentType.Application.Json)
@@ -38,7 +40,7 @@ class RelayApiClient(
                 RegisterRequest(
                     firebaseToken = firebaseToken,
                     fcmToken = fcmToken,
-                    validSecrets = validSecrets
+                    integrations = integrationIds
                 )
             )
         }
@@ -71,16 +73,18 @@ class RelayApiClient(
         }
 
     /**
-     * Update the device's valid secrets. Authenticated via mTLS.
-     * The client generates secrets locally and sends the full list to the relay.
+     * Rotate the device's integration secrets. Authenticated via mTLS.
+     * The client sends the list of integration IDs; the relay generates one
+     * `{adjective}-{integrationId}` secret per entry and returns the mapping
+     * in [UpdateSecretsResponse.secrets].
      */
     suspend fun updateSecrets(
         subdomain: String,
-        validSecrets: List<String>
+        integrationIds: List<String>
     ): RelayApiResult<UpdateSecretsResponse> = executeRequest {
         httpClient.post("$baseUrl/rotate-secret") {
             contentType(ContentType.Application.Json)
-            setBody(UpdateSecretsRequest(subdomain = subdomain, validSecrets = validSecrets))
+            setBody(UpdateSecretsRequest(subdomain = subdomain, integrations = integrationIds))
         }
     }
 
@@ -183,23 +187,27 @@ sealed class RelayApiResult<out T> {
 data class RegisterRequest(
     @SerialName("firebase_token") val firebaseToken: String,
     @SerialName("fcm_token") val fcmToken: String,
-    @SerialName("valid_secrets") val validSecrets: List<String> = emptyList()
+    @SerialName("integrations") val integrations: List<String> = emptyList()
 )
 
 @Serializable
 data class RegisterResponse(
     @SerialName("subdomain") val subdomain: String,
-    @SerialName("relay_host") val relayHost: String
+    @SerialName("relay_host") val relayHost: String,
+    @SerialName("secrets") val secrets: Map<String, String> = emptyMap()
 )
 
 @Serializable
 data class UpdateSecretsRequest(
     @SerialName("subdomain") val subdomain: String,
-    @SerialName("valid_secrets") val validSecrets: List<String>
+    @SerialName("integrations") val integrations: List<String>
 )
 
 @Serializable
-data class UpdateSecretsResponse(@SerialName("status") val status: String = "ok")
+data class UpdateSecretsResponse(
+    @SerialName("success") val success: Boolean = true,
+    @SerialName("secrets") val secrets: Map<String, String> = emptyMap()
+)
 
 @Serializable
 data class CertRequest(
