@@ -14,6 +14,7 @@ import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.app.ui.screens.NotificationBanner
+import com.rousecontext.app.ui.screens.SpuriousWakeBanner
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.tunnel.TunnelClient
@@ -42,7 +43,8 @@ class MainDashboardViewModel(
     private val urlProvider: McpUrlProvider,
     tunnelClient: TunnelClient,
     certRenewalBanner: Flow<CertBanner?> = flowOf(null),
-    notificationsEnabled: Flow<Boolean> = flowOf(true)
+    notificationsEnabled: Flow<Boolean> = flowOf(true),
+    spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
 ) : ViewModel() {
 
     private val tunnelStateFlow = tunnelClient.state
@@ -55,14 +57,26 @@ class MainDashboardViewModel(
 
     private val certRenewalBannerFlow = certRenewalBanner.onStart<CertBanner?> { emit(null) }
     private val notificationsEnabledFlow = notificationsEnabled.onStart { emit(true) }
+    private val spuriousWakesFlowStarted = spuriousWakesFlow.onStart {
+        emit(SpuriousWakeStats.EMPTY)
+    }
 
     val state: StateFlow<DashboardState> = combine(
-        tunnelStateFlow,
-        stateStore.observeChanges().onStart { emit(Unit) },
-        recentAuditFlow,
-        certRenewalBannerFlow,
-        notificationsEnabledFlow
-    ) { tunnelState, _, recentEntries, certBanner, notifsEnabled ->
+        combine(
+            tunnelStateFlow,
+            stateStore.observeChanges().onStart { emit(Unit) },
+            recentAuditFlow,
+            certRenewalBannerFlow,
+            notificationsEnabledFlow
+        ) { tunnelState, _, recentEntries, certBanner, notifsEnabled ->
+            BannerInputs(tunnelState, recentEntries, certBanner, notifsEnabled)
+        },
+        spuriousWakesFlowStarted
+    ) { inputs, spurious ->
+        val tunnelState = inputs.tunnelState
+        val recentEntries = inputs.recentEntries
+        val certBanner = inputs.certBanner
+        val notifsEnabled = inputs.notifsEnabled
         val connection = when (tunnelState) {
             TunnelState.CONNECTED, TunnelState.ACTIVE -> ConnectionStatus.CONNECTED
             else -> ConnectionStatus.DISCONNECTED
@@ -116,6 +130,11 @@ class MainDashboardViewModel(
             recentActivity = recent,
             certBanner = certBanner,
             notificationBanner = if (notifsEnabled) null else NotificationBanner,
+            spuriousWakeBanner = if (spurious.rolling24h > SPURIOUS_WAKE_BANNER_THRESHOLD) {
+                SpuriousWakeBanner(rolling24hCount = spurious.rolling24h)
+            } else {
+                null
+            },
             hasMoreIntegrationsToAdd = hasMoreToAdd,
             isLoading = false,
             errorMessage = null
@@ -151,10 +170,23 @@ class MainDashboardViewModel(
         // Currently a no-op; kept for future non-reactive state.
     }
 
+    private data class BannerInputs(
+        val tunnelState: TunnelState,
+        val recentEntries: List<com.rousecontext.notifications.audit.AuditEntry>,
+        val certBanner: CertBanner?,
+        val notifsEnabled: Boolean
+    )
+
     companion object {
         private const val RECENT_LIMIT = 5
         private const val RECENT_WINDOW_MS = 24 * 60 * 60 * 1000L
         private const val STOP_TIMEOUT_MS = 5_000L
+
+        /**
+         * Rolling-24h spurious-wake threshold above which the informational
+         * dashboard banner appears.
+         */
+        private const val SPURIOUS_WAKE_BANNER_THRESHOLD = 10
         private val TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
     }
 }

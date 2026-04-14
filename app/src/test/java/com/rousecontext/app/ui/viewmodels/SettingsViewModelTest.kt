@@ -15,7 +15,9 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -217,6 +219,33 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `spurious wake stats surface in state`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            securityPrefs = null,
+            provider = null,
+            spuriousWakesFlow = flowOf(SpuriousWakeStats(rolling24h = 7, total = 42))
+        )
+        vm.state.test {
+            awaitItem() // loading
+            val state = awaitItem()
+            assertEquals(7, state.spuriousWakesLast24h)
+            assertEquals(42L, state.totalWakesLifetime)
+        }
+    }
+
+    @Test
+    fun `spurious wake stats default to zero`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY)
+        vm.state.test {
+            awaitItem() // loading
+            val state = awaitItem()
+            assertEquals(0, state.spuriousWakesLast24h)
+            assertEquals(0L, state.totalWakesLifetime)
+        }
+    }
+
+    @Test
     fun `computeOverallStatus returns correct values`() {
         assertEquals(
             TrustOverallStatus.VERIFIED,
@@ -252,7 +281,8 @@ class SettingsViewModelTest {
     private fun createViewModel(
         mode: PostSessionMode,
         securityPrefs: SharedPreferences?,
-        provider: NotificationSettingsProvider?
+        provider: NotificationSettingsProvider?,
+        spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
     ): SettingsViewModel {
         val resolvedProvider = provider ?: mockk {
             every { settings } returns NotificationSettings(
@@ -270,7 +300,8 @@ class SettingsViewModelTest {
             mockk(relaxed = true),
             mockk(relaxed = true),
             emptyList(),
-            securityPrefs
+            securityPrefs,
+            spuriousWakesFlow = spuriousWakesFlow
         )
     }
 

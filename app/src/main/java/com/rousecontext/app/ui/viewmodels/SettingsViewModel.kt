@@ -17,13 +17,30 @@ import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import com.rousecontext.tunnel.SecretGenerator
 import com.rousecontext.work.SecurityCheckWorker
+import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/**
+ * Snapshot of spurious-wake telemetry surfaced in Settings.
+ *
+ * @property rolling24h count of spurious wakes within the last 24 hours
+ * @property total lifetime count of all completed wake cycles
+ */
+data class SpuriousWakeStats(val rolling24h: Int, val total: Long) {
+    companion object {
+        val EMPTY = SpuriousWakeStats(rolling24h = 0, total = 0L)
+    }
+}
 
 /**
  * Reads and writes settings: idle timeout, notification mode,
@@ -36,7 +53,8 @@ class SettingsViewModel(
     private val certStore: CertificateStore,
     private val integrations: List<McpIntegration> = emptyList(),
     private val securityCheckPrefs: SharedPreferences? = null,
-    private val settingsPrefs: SharedPreferences? = null
+    private val settingsPrefs: SharedPreferences? = null,
+    spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -47,8 +65,9 @@ class SettingsViewModel(
         refreshTrigger,
         themePreference.themeMode,
         rotateInProgress,
-        rotateError
-    ) { _, themeMode, rotating, rotateErr ->
+        rotateError,
+        spuriousWakesFlow
+    ) { _, themeMode, rotating, rotateErr, spurious ->
         val settings = notificationSettingsProvider.settings
         val intervalHours = settingsPrefs?.getInt(
             RouseApplication.KEY_SECURITY_CHECK_INTERVAL_HOURS,
@@ -61,6 +80,8 @@ class SettingsViewModel(
             trustStatus = readTrustStatus(),
             canRotateAddress = !rotating,
             rotationCooldownMessage = rotateErr,
+            spuriousWakesLast24h = spurious.rolling24h,
+            totalWakesLifetime = spurious.total,
             isLoading = false,
             errorMessage = null
         )
@@ -187,6 +208,43 @@ class SettingsViewModel(
     companion object {
         private const val STOP_TIMEOUT_MS = 5_000L
         const val KEY_CERT_FINGERPRINT = "cert_fingerprint"
+
+        /**
+         * Build a flow that tracks spurious-wake stats written by
+         * [com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder]. Emits
+         * on first collection and whenever the recorder prefs change.
+         */
+        fun spuriousWakeStatsFlow(
+            prefs: SharedPreferences,
+            clock: () -> Long = { System.currentTimeMillis() }
+        ): Flow<SpuriousWakeStats> = callbackFlow {
+            fun emitCurrent() {
+                val total = prefs.getLong(
+                    SharedPreferencesSpuriousWakeRecorder.KEY_TOTAL,
+                    0L
+                )
+                val tsJson = prefs.getString(
+                    SharedPreferencesSpuriousWakeRecorder.KEY_SPURIOUS_TIMESTAMPS,
+                    null
+                )
+                val rolling = SharedPreferencesSpuriousWakeRecorder.countWithinWindow(
+                    tsJson,
+                    clock()
+                )
+                trySend(SpuriousWakeStats(rolling24h = rolling, total = total))
+            }
+
+            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == SharedPreferencesSpuriousWakeRecorder.KEY_TOTAL ||
+                    key == SharedPreferencesSpuriousWakeRecorder.KEY_SPURIOUS_TIMESTAMPS
+                ) {
+                    emitCurrent()
+                }
+            }
+            prefs.registerOnSharedPreferenceChangeListener(listener)
+            emitCurrent()
+            awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        }
 
         private fun PostSessionMode.toDisplayString(): String = when (this) {
             PostSessionMode.SUMMARY -> "Summary"

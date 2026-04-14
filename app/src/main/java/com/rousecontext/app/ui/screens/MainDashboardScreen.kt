@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
@@ -107,6 +108,15 @@ sealed interface CertBanner {
  */
 data object NotificationBanner
 
+/**
+ * Low-severity informational banner surfaced when the relay appears to be
+ * issuing spurious wake notifications (recurring wakes that never result in
+ * a client actually opening a stream). Non-actionable from the app side; the
+ * banner taps through to Settings where the user sees the ratio and can
+ * decide if they want to report the issue.
+ */
+data class SpuriousWakeBanner(val rolling24hCount: Int)
+
 private const val MAX_RECENT_ITEMS = 3
 
 @Immutable
@@ -117,6 +127,7 @@ data class DashboardState(
     val recentActivity: List<AuditEntry> = emptyList(),
     val certBanner: CertBanner? = null,
     val notificationBanner: NotificationBanner? = null,
+    val spuriousWakeBanner: SpuriousWakeBanner? = null,
     val hasMoreIntegrationsToAdd: Boolean = true,
     val isLoading: Boolean = false,
     val errorMessage: String? = null
@@ -134,6 +145,7 @@ fun HomeDashboardContent(
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -154,36 +166,12 @@ fun HomeDashboardContent(
             .fillMaxSize()
             .padding(horizontal = 16.dp)
     ) {
-        // Cert banner (most urgent - show first)
-        state.certBanner?.let { banner ->
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                CertBannerCard(banner, onRetryRenewal)
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-
-        // Notification permission banner (independent of cert state)
-        if (state.notificationBanner != null) {
-            item {
-                if (state.certBanner == null) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                NotificationBannerCard(onClick = onOpenNotificationSettings)
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-
-        // Connection status (debug builds only)
-        if (BuildConfig.DEBUG) {
-            item {
-                if (state.certBanner == null) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
+        dashboardBannerItems(
+            state = state,
+            onRetryRenewal = onRetryRenewal,
+            onOpenNotificationSettings = onOpenNotificationSettings,
+            onOpenSettings = onOpenSettings
+        )
 
         // Integrations header
         item {
@@ -267,6 +255,7 @@ fun MainDashboardScreen(
     onViewAllActivity: () -> Unit = {},
     onRetryRenewal: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
@@ -319,6 +308,7 @@ fun MainDashboardScreen(
             onViewAllActivity = onViewAllActivity,
             onRetryRenewal = onRetryRenewal,
             onOpenNotificationSettings = onOpenNotificationSettings,
+            onOpenSettings = onOpenSettings,
             onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
@@ -383,6 +373,93 @@ private fun NotificationBannerCard(onClick: () -> Unit) {
                     text = "Approval requests won't alert you. Tap to enable.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+    }
+}
+
+private fun LazyListScope.dashboardBannerItems(
+    state: DashboardState,
+    onRetryRenewal: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    // Cert banner (most urgent — show first).
+    state.certBanner?.let { banner ->
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+            CertBannerCard(banner, onRetryRenewal)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    // Notification permission banner (independent of cert state).
+    if (state.notificationBanner != null) {
+        item {
+            if (state.certBanner == null) {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            NotificationBannerCard(onClick = onOpenNotificationSettings)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    // Spurious wake banner (informational; only when rolling 24h count is high).
+    state.spuriousWakeBanner?.let { banner ->
+        item {
+            if (state.certBanner == null && state.notificationBanner == null) {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            SpuriousWakeBannerCard(banner, onClick = onOpenSettings)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    // Connection status (debug builds only).
+    if (BuildConfig.DEBUG) {
+        item {
+            if (state.certBanner == null) {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun SpuriousWakeBannerCard(banner: SpuriousWakeBanner, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Background activity higher than expected",
+                    style = MaterialTheme.typography.titleSmall
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "The relay may be sending spurious wakes (${banner.rolling24hCount} " +
+                        "in the last 24h). Tap for details.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

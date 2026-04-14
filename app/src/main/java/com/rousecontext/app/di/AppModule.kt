@@ -72,6 +72,8 @@ import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.RenewalAuthProvider
 import com.rousecontext.work.SecurityCheckSource
 import com.rousecontext.work.SessionHandler
+import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
+import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
 import org.koin.android.ext.koin.androidContext
@@ -345,12 +347,18 @@ val appModule = module {
         WakelockManager(RealWakeLockHandle(wakeLock))
     }
 
+    single<SpuriousWakeRecorder> {
+        SharedPreferencesSpuriousWakeRecorder.create(androidContext())
+    }
+
     single {
         val tunnelClient: TunnelClient = get()
+        val recorder: SpuriousWakeRecorder = get()
         IdleTimeoutManager(
             timeoutMillis = IDLE_TIMEOUT_MS,
             batteryExempt = false,
-            onTimeout = { tunnelClient.disconnect() }
+            onTimeout = { tunnelClient.disconnect() },
+            recorder = recorder
         )
     }
 
@@ -358,6 +366,10 @@ val appModule = module {
     viewModel {
         val certRenewalPrefs = androidContext().getSharedPreferences(
             com.rousecontext.work.CertRenewalWorker.PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
+        val spuriousWakePrefs = androidContext().getSharedPreferences(
+            SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,
             android.content.Context.MODE_PRIVATE
         )
         val refresher: NotificationPermissionRefresher = get()
@@ -372,13 +384,18 @@ val appModule = module {
             notificationsEnabled = notificationPermissionFlow(
                 context = androidContext(),
                 triggers = refresher.ticks
-            )
+            ),
+            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(spuriousWakePrefs)
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get(), get()) }
     viewModel {
+        val spuriousWakePrefs = androidContext().getSharedPreferences(
+            SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
         SettingsViewModel(
             notificationSettingsProvider = get(),
             themePreference = get(),
@@ -392,7 +409,8 @@ val appModule = module {
             settingsPrefs = androidContext().getSharedPreferences(
                 com.rousecontext.app.RouseApplication.PREFS_NAME,
                 android.content.Context.MODE_PRIVATE
-            )
+            ),
+            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(spuriousWakePrefs)
         )
     }
     viewModel {
