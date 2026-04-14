@@ -43,7 +43,11 @@ class OnboardingFlowTest {
                 status = 201,
                 body = RegisterResponse(
                     subdomain = "abc123",
-                    relayHost = "relay.rousecontext.com"
+                    relayHost = "relay.rousecontext.com",
+                    secrets = mapOf(
+                        "health" to "brave-health",
+                        "notifications" to "swift-notifications"
+                    )
                 )
             )
         }
@@ -100,13 +104,18 @@ class OnboardingFlowTest {
     }
 
     @Test
-    fun `onboarding generates and stores integration secrets locally`(): Unit = runBlocking {
+    fun `onboarding stores relay-provided integration secrets locally`(): Unit = runBlocking {
+        val relaySecrets = mapOf(
+            "health" to "brave-health",
+            "notifications" to "swift-notifications"
+        )
         mockServer.registerHandler = { _ ->
             MockRegisterResponse(
                 status = 201,
                 body = RegisterResponse(
                     subdomain = "abc123",
-                    relayHost = "relay.rousecontext.com"
+                    relayHost = "relay.rousecontext.com",
+                    secrets = relaySecrets
                 )
             )
         }
@@ -115,18 +124,13 @@ class OnboardingFlowTest {
 
         assertTrue(result is OnboardingResult.Success)
         assertEquals("abc123", store.getSubdomain())
-        val secrets = store.getIntegrationSecrets()
-        assertNotNull(secrets)
-        assertEquals(2, secrets.size)
-        assertTrue(secrets.containsKey("health"))
-        assertTrue(secrets.containsKey("notifications"))
-        // Secrets follow "{adjective}-{integration}" format
-        assertTrue(secrets["health"]!!.endsWith("-health"))
-        assertTrue(secrets["notifications"]!!.endsWith("-notifications"))
+        val stored = store.getIntegrationSecrets()
+        assertNotNull(stored)
+        assertEquals(relaySecrets, stored)
     }
 
     @Test
-    fun `onboarding sends valid_secrets to relay`(): Unit = runBlocking {
+    fun `onboarding sends integration ids to relay`(): Unit = runBlocking {
         var capturedRequest: RegisterRequest? = null
         mockServer.registerHandler = { request ->
             capturedRequest = request
@@ -134,7 +138,8 @@ class OnboardingFlowTest {
                 status = 201,
                 body = RegisterResponse(
                     subdomain = "abc123",
-                    relayHost = "relay.rousecontext.com"
+                    relayHost = "relay.rousecontext.com",
+                    secrets = emptyMap()
                 )
             )
         }
@@ -143,10 +148,10 @@ class OnboardingFlowTest {
 
         assertTrue(result is OnboardingResult.Success)
         assertNotNull(capturedRequest)
-        assertEquals(2, capturedRequest!!.validSecrets.size)
-        // The secrets sent to relay should match what's stored locally
-        val storedSecrets = store.getIntegrationSecrets()!!
-        assertTrue(capturedRequest!!.validSecrets.containsAll(storedSecrets.values))
+        assertEquals(
+            listOf("health", "notifications"),
+            capturedRequest!!.integrations
+        )
     }
 
     @Test
@@ -156,7 +161,8 @@ class OnboardingFlowTest {
                 status = 201,
                 body = RegisterResponse(
                     subdomain = "abc123",
-                    relayHost = "relay.rousecontext.com"
+                    relayHost = "relay.rousecontext.com",
+                    secrets = emptyMap()
                 )
             )
         }

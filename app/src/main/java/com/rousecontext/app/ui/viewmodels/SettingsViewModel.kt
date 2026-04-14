@@ -15,7 +15,6 @@ import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
-import com.rousecontext.tunnel.SecretGenerator
 import com.rousecontext.work.SecurityCheckWorker
 import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
 import kotlinx.coroutines.channels.awaitClose
@@ -171,12 +170,10 @@ class SettingsViewModel(
                 return@launch
             }
             val integrationIds = integrations.map { it.id }
-            val newSecrets = SecretGenerator.generateAll(integrationIds)
-            val validSecrets = newSecrets.values.toList()
 
-            when (val result = relayApiClient.updateSecrets(subdomain, validSecrets)) {
+            when (val result = relayApiClient.updateSecrets(subdomain, integrationIds)) {
                 is RelayApiResult.Success -> {
-                    certStore.storeIntegrationSecrets(newSecrets)
+                    certStore.storeIntegrationSecrets(result.data.secrets)
                 }
                 is RelayApiResult.RateLimited -> {
                     rotateError.value = "Rate limited. Try again later."

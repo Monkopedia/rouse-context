@@ -121,7 +121,8 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
         device_ca: Some(ca),
     });
 
-    // Hit /rotate-secret with a NEW secret (usage) that is not yet in Firestore.
+    // Hit /rotate-secret asking the relay to generate a fresh secret for
+    // "usage". The relay picks an adjective and returns the mapping.
     let app = build_router(app_state.clone());
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -130,7 +131,7 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "subdomain": "cool-penguin",
-                "valid_secrets": ["old-health", "lucky-usage"]
+                "integrations": ["usage"]
             })
             .to_string(),
         ))
@@ -138,8 +139,17 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
     assert_eq!(resp.status(), 200);
 
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let new_secret = json["secrets"]["usage"]
+        .as_str()
+        .expect("rotate-secret must return a usage secret")
+        .to_string();
+
     // Simulate eventual-consistency lag: force Firestore to still return the
-    // OLD list so the cache is the only source that knows about lucky-usage.
+    // OLD list so the cache is the only source that knows about the new secret.
     firestore.devices.lock().unwrap().insert(
         "cool-penguin".to_string(),
         make_device("old-health"), // valid_secrets = ["old-health"]
@@ -153,13 +163,8 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
         firestore,
         Arc::new(MockFcm::new()),
     );
-    let result = resolve_device_stream(
-        &ctx,
-        "cool-penguin",
-        "lucky-usage.cool-penguin.rousecontext.com",
-        "lucky-usage",
-    )
-    .await;
+    let sni = format!("{new_secret}.cool-penguin.rousecontext.com");
+    let result = resolve_device_stream(&ctx, "cool-penguin", &sni, &new_secret).await;
 
     assert!(
         result.is_ok(),
@@ -207,7 +212,8 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
         device_ca: Some(ca),
     });
 
-    // Push only "new-health" via rotate-secret.
+    // Ask the relay to generate a fresh health secret. The old secret
+    // ("old-health") is no longer in the cache after this call.
     let app = build_router(app_state.clone());
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -216,7 +222,7 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "subdomain": "cool-penguin",
-                "valid_secrets": ["new-health"]
+                "integrations": ["health"]
             })
             .to_string(),
         ))

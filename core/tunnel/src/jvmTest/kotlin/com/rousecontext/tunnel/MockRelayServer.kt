@@ -55,7 +55,7 @@ class MockRelayServer {
     var updateSecretsHandler: (suspend (UpdateSecretsRequest) -> MockUpdateSecretsResponse) = { _ ->
         MockUpdateSecretsResponse(
             status = 200,
-            body = UpdateSecretsResponse(status = "ok")
+            body = UpdateSecretsResponse(success = true, secrets = emptyMap())
         )
     }
 

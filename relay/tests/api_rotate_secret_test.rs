@@ -37,7 +37,7 @@ fn make_device(secret: &str) -> DeviceRecord {
 }
 
 #[tokio::test]
-async fn rotate_secret_returns_new_prefix() {
+async fn rotate_secret_generates_and_returns_new_secrets() {
     let firestore = MockFirestore::new().with_device("cool-penguin", make_device("old-secret"));
     let (app, fs) = make_app_with_ca(firestore, MockFirebaseAuth::new());
 
@@ -48,7 +48,7 @@ async fn rotate_secret_returns_new_prefix() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "subdomain": "cool-penguin",
-                "valid_secrets": ["new-alpha", "new-beta"]
+                "integrations": ["outreach", "health"]
             })
             .to_string(),
         ))
@@ -66,15 +66,34 @@ async fn rotate_secret_returns_new_prefix() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     assert!(json["success"].as_bool().unwrap());
+    let secrets = json["secrets"].as_object().expect("secrets map missing");
+    assert_eq!(secrets.len(), 2);
+    for id in ["outreach", "health"] {
+        let value = secrets[id].as_str().unwrap();
+        let suffix = format!("-{id}");
+        assert!(
+            value.ends_with(&suffix),
+            "secret {value:?} should end with {suffix:?}"
+        );
+        let adjective = value.strip_suffix(&suffix).unwrap();
+        assert!(
+            !adjective.is_empty() && adjective.chars().all(|c| c.is_ascii_lowercase()),
+            "adjective {adjective:?} is not lowercase ascii letters"
+        );
+    }
 
-    // Verify Firestore was updated with client-provided secrets
+    // Verify Firestore was updated with the generated secrets
     let devices = fs.devices.lock().unwrap();
     let updated = devices.get("cool-penguin").unwrap();
-    assert_eq!(
-        updated.valid_secrets,
-        vec!["new-alpha".to_string(), "new-beta".to_string()],
-        "Firestore should have the new valid_secrets"
-    );
+    assert_eq!(updated.valid_secrets.len(), 2);
+    for (_, expected) in secrets {
+        let expected = expected.as_str().unwrap().to_string();
+        assert!(
+            updated.valid_secrets.contains(&expected),
+            "Firestore valid_secrets {:?} missing {expected}",
+            updated.valid_secrets
+        );
+    }
 }
 
 #[tokio::test]
@@ -89,7 +108,7 @@ async fn rotate_secret_device_not_found_returns_404() {
         .body(axum::body::Body::from(
             serde_json::json!({
                 "subdomain": "nonexistent",
-                "valid_secrets": ["test"]
+                "integrations": ["outreach"]
             })
             .to_string(),
         ))

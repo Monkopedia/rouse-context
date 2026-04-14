@@ -26,45 +26,53 @@ class SecretRotationTest {
     }
 
     @Test
-    fun `update secrets sends valid_secrets to relay`(): Unit = runBlocking {
+    fun `update secrets sends integration ids to relay`(): Unit = runBlocking {
         var capturedRequest: UpdateSecretsRequest? = null
         mockServer.updateSecretsHandler = { request ->
             capturedRequest = request
             MockUpdateSecretsResponse(
                 status = 200,
-                body = UpdateSecretsResponse(status = "ok")
+                body = UpdateSecretsResponse(
+                    success = true,
+                    secrets = mapOf(
+                        "health" to "brave-health",
+                        "notifications" to "swift-notifications"
+                    )
+                )
             )
         }
 
-        val result = client.updateSecrets("test-sub", listOf("brave-health", "swift-notifications"))
+        val result = client.updateSecrets("test-sub", listOf("health", "notifications"))
 
         assertTrue(result is RelayApiResult.Success)
         assertEquals(
-            listOf("brave-health", "swift-notifications"),
-            capturedRequest?.validSecrets
+            listOf("health", "notifications"),
+            capturedRequest?.integrations
         )
     }
 
     @Test
-    fun `update secrets stores new secrets locally on success`(): Unit = runBlocking {
+    fun `update secrets stores relay-returned secrets locally on success`(): Unit = runBlocking {
         store.storeIntegrationSecrets(mapOf("health" to "old-health"))
         assertEquals("old-health", store.getSecretForIntegration("health"))
 
         mockServer.updateSecretsHandler = { _ ->
             MockUpdateSecretsResponse(
                 status = 200,
-                body = UpdateSecretsResponse(status = "ok")
+                body = UpdateSecretsResponse(
+                    success = true,
+                    secrets = mapOf("health" to "fresh-health")
+                )
             )
         }
 
-        val newSecrets = SecretGenerator.generateAll(listOf("health"))
-        val result = client.updateSecrets("test-sub", newSecrets.values.toList())
+        val result = client.updateSecrets("test-sub", listOf("health"))
         assertTrue(result is RelayApiResult.Success)
+        val newSecrets = (result as RelayApiResult.Success).data.secrets
         store.storeIntegrationSecrets(newSecrets)
 
         val stored = store.getSecretForIntegration("health")
-        assertTrue(stored!!.endsWith("-health"))
-        assertTrue(stored != "old-health")
+        assertEquals("fresh-health", stored)
     }
 
     @Test
@@ -84,7 +92,7 @@ class SecretRotationTest {
             MockUpdateSecretsResponse(status = 500)
         }
 
-        val result = client.updateSecrets("test-sub", listOf("brave-health"))
+        val result = client.updateSecrets("test-sub", listOf("health"))
 
         assertTrue(result is RelayApiResult.Error)
         assertEquals(500, (result as RelayApiResult.Error).statusCode)
