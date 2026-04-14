@@ -53,21 +53,18 @@ class VitalsQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun summary(
-        from: Instant,
-        to: Instant,
-        granted: Set<String>
-    ): JsonObject = buildJsonObject {
-        if ("HeartRate" in granted) {
-            val samples = queryHeartRate(from, to, null)
-            if (samples.isNotEmpty()) {
-                val avg = samples.mapNotNull {
-                    it["bpm"]?.toString()?.toLongOrNull()
-                }.average()
-                put("avg_heart_rate", avg)
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        buildJsonObject {
+            if ("HeartRate" in granted) {
+                val samples = queryHeartRate(from, to, null)
+                if (samples.isNotEmpty()) {
+                    val avg = samples.mapNotNull {
+                        it["bpm"]?.toString()?.toLongOrNull()
+                    }.average()
+                    put("avg_heart_rate", avg)
+                }
             }
         }
-    }
 
     private suspend fun queryHeartRate(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
         val records = reader.read(HeartRateRecord::class, from, to)

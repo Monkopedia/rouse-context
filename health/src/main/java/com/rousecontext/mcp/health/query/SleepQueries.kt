@@ -24,29 +24,26 @@ class SleepQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun summary(
-        from: Instant,
-        to: Instant,
-        granted: Set<String>
-    ): JsonObject = buildJsonObject {
-        if ("SleepSession" in granted) {
-            val sessions = querySleep(from, to, null)
-            val totalMinutes = sessions.sumOf { session ->
-                val start = session["start_time"]?.toString()?.trim('"')
-                val end = session["end_time"]?.toString()?.trim('"')
-                if (start != null && end != null) {
-                    try {
-                        Duration.between(Instant.parse(start), Instant.parse(end)).toMinutes()
-                    } catch (_: Exception) {
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        buildJsonObject {
+            if ("SleepSession" in granted) {
+                val sessions = querySleep(from, to, null)
+                val totalMinutes = sessions.sumOf { session ->
+                    val start = session["start_time"]?.toString()?.trim('"')
+                    val end = session["end_time"]?.toString()?.trim('"')
+                    if (start != null && end != null) {
+                        try {
+                            Duration.between(Instant.parse(start), Instant.parse(end)).toMinutes()
+                        } catch (_: Exception) {
+                            0L
+                        }
+                    } else {
                         0L
                     }
-                } else {
-                    0L
                 }
+                put("sleep_hours", totalMinutes / MINUTES_PER_HOUR)
             }
-            put("sleep_hours", totalMinutes / MINUTES_PER_HOUR)
         }
-    }
 
     private suspend fun querySleep(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
         val records = reader.read(SleepSessionRecord::class, from, to)

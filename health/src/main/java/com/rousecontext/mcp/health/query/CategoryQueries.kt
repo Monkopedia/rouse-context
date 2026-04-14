@@ -22,12 +22,7 @@ interface CategoryQueries {
      *
      * @throws IllegalArgumentException if [recordType] is not handled by this category.
      */
-    suspend fun query(
-        recordType: String,
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject>
+    suspend fun query(recordType: String, from: Instant, to: Instant, limit: Int?): List<JsonObject>
 
     /**
      * Contribute summary fields for this category. Implementations MUST only
