@@ -404,6 +404,30 @@ class TunnelClientImplTest {
     }
 
     @Test
+    fun `connection failure invokes log lambda`() = runBlocking {
+        val captured = mutableListOf<String>()
+        val client = TunnelClientImpl(
+            this,
+            KtorWebSocketFactory(),
+            log = { captured.add(it) }
+        )
+
+        // Connect to a port that nothing is listening on -- triggers handleDisconnect
+        val result = runCatching { client.connect("ws://localhost:19999/nonexistent") }
+        assertTrue(result.isFailure)
+
+        // Wait briefly for async onFailure callback to fire
+        delay(200)
+
+        assertTrue(
+            captured.any { it.startsWith("TunnelClient: disconnected:") },
+            "Expected log message starting with 'TunnelClient: disconnected:', got $captured"
+        )
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
     fun `connection failure emits error on SharedFlow`() = runBlocking {
         val client = TunnelClientImpl(this, KtorWebSocketFactory())
 

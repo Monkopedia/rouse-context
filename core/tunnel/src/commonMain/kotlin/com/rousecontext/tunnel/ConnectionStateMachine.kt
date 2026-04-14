@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * - ACTIVE -> CONNECTED (last stream closed)
  * - DISCONNECTING -> DISCONNECTED
  */
-class ConnectionStateMachine {
+class ConnectionStateMachine(private val log: (String) -> Unit = {}) {
 
     private val _state = MutableStateFlow(TunnelState.DISCONNECTED)
 
@@ -35,7 +35,7 @@ class ConnectionStateMachine {
     fun transition(to: TunnelState): Boolean {
         val from = _state.value
         if (!isValidTransition(from, to)) {
-            println("ConnectionStateMachine: ignoring invalid transition from $from to $to")
+            log("ConnectionStateMachine: ignoring invalid transition from $from to $to")
             return false
         }
         _state.value = to

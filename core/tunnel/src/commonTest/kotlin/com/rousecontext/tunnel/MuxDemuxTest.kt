@@ -180,4 +180,27 @@ class MuxDemuxTest {
 
         coroutineContext.cancelChildren()
     }
+
+    @Test
+    fun rejectedOpenInvokesLogLambda() = runBlocking {
+        val captured = mutableListOf<String>()
+        val demux = MuxDemux(log = { captured.add(it) })
+        demux.maxStreams = 1
+        demux.onOutgoingFrame = { /* swallow ERROR frame */ }
+
+        val streamReady = CompletableDeferred<MuxStreamImpl>()
+        launch {
+            streamReady.complete(demux.incomingStreams.first())
+        }
+
+        demux.handleFrame(MuxFrame.Open(streamId = 1u))
+        streamReady.await()
+
+        demux.handleFrame(MuxFrame.Open(streamId = 2u))
+
+        assertEquals(1, captured.size)
+        assertTrue(captured[0].contains("rejecting stream 2"))
+
+        coroutineContext.cancelChildren()
+    }
 }
