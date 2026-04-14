@@ -63,10 +63,12 @@ import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.SelfCertVerifier
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.work.AndroidKeystoreSigner
 import com.rousecontext.work.CertRenewalFlowRenewer
 import com.rousecontext.work.CertRenewalWorker
 import com.rousecontext.work.CertRenewer
 import com.rousecontext.work.CtLogMonitorSource
+import com.rousecontext.work.DeviceKeystoreSigner
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.FirebaseRenewalAuthProvider
 import com.rousecontext.work.IdleTimeoutManager
@@ -169,7 +171,8 @@ val appModule = module {
         )
     }
     single<CertRenewer> { CertRenewalFlowRenewer(get()) }
-    single<RenewalAuthProvider> { FirebaseRenewalAuthProvider() }
+    single<DeviceKeystoreSigner> { AndroidKeystoreSigner() }
+    single<RenewalAuthProvider> { FirebaseRenewalAuthProvider(signer = get()) }
 
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class

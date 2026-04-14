@@ -6,6 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.FirebaseRenewalCredentials
 import com.rousecontext.tunnel.RenewalResult
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -15,19 +16,24 @@ import org.koin.core.qualifier.named
  * Firebase credentials usable for cert renewal when the cert has already expired.
  *
  * - [token]: a fresh Firebase ID token (JWT).
- * - [signature]: Base64-encoded SHA256withECDSA signature over the new CSR's DER bytes,
- *   using the device private key stored in the Android Keystore.
+ * - [signature]: Base64-encoded SHA256withECDSA signature over the raw DER bytes of the
+ *   renewal CSR, using the device private key stored in the Android Keystore.
  */
-data class FirebaseCredentials(val token: String, val signature: String)
+typealias FirebaseCredentials = FirebaseRenewalCredentials
 
 /**
  * Acquires credentials for the expired-cert renewal path.
+ *
+ * The [csrDer] argument is the raw DER-encoded bytes of the renewal CSR that the tunnel
+ * layer will submit to the relay; the provider must compute its signature over *those*
+ * bytes (not a freshly-generated CSR) so the relay's signature verification succeeds.
+ *
  * Production implementation must bridge FirebaseAuth (for [FirebaseCredentials.token]) and
  * Android Keystore signing (for [FirebaseCredentials.signature]). If either is unavailable
  * the implementation returns `null`, and the worker will defer to the next scheduled run.
  */
 interface RenewalAuthProvider {
-    suspend fun acquireFirebaseCredentials(): FirebaseCredentials?
+    suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials?
 }
 
 /**
@@ -37,9 +43,13 @@ interface RenewalAuthProvider {
  */
 interface CertRenewer {
     suspend fun renewWithMtls(baseDomain: String): RenewalResult
+
+    /**
+     * Renew with the Firebase-signature path. Internally the renewer generates the CSR, then
+     * calls [authProvider] with the CSR DER to obtain a signed credentials bundle.
+     */
     suspend fun renewWithFirebase(
-        firebaseToken: String,
-        signature: String,
+        authProvider: RenewalAuthProvider,
         baseDomain: String
     ): RenewalResult
 }
@@ -50,10 +60,12 @@ class CertRenewalFlowRenewer(private val flow: CertRenewalFlow) : CertRenewer {
         flow.renewWithMtls(baseDomain)
 
     override suspend fun renewWithFirebase(
-        firebaseToken: String,
-        signature: String,
+        authProvider: RenewalAuthProvider,
         baseDomain: String
-    ): RenewalResult = flow.renewWithFirebase(firebaseToken, signature, baseDomain)
+    ): RenewalResult = flow.renewWithFirebase(
+        credentialsProvider = { csrDer -> authProvider.acquireFirebaseCredentials(csrDer) },
+        baseDomain = baseDomain
+    )
 }
 
 /**
@@ -123,13 +135,7 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
         val result = if (expired) {
             Log.i(TAG, "Cert expired (by ${-daysUntilExpiry} days), attempting Firebase renewal")
             val auth = authProvider ?: injectedAuthProvider
-            val credentials = auth.acquireFirebaseCredentials()
-            if (credentials == null) {
-                Log.w(TAG, "Cert expired but Firebase credentials unavailable, will retry later")
-                recordLastAttempt(Outcome.EXPIRED_NO_AUTH)
-                return Result.retry()
-            }
-            activeRenewer.renewWithFirebase(credentials.token, credentials.signature, domain)
+            activeRenewer.renewWithFirebase(auth, domain)
         } else {
             Log.i(TAG, "Cert expires in $daysUntilExpiry days, attempting mTLS renewal")
             activeRenewer.renewWithMtls(domain)
@@ -153,6 +159,11 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
             // mTLS path noticed an expired cert; next periodic run will take the Firebase path.
             Log.w(TAG, "mTLS renewal rejected: cert reported as expired")
             recordLastAttempt(Outcome.EXPIRED_MTLS_REJECTED)
+            Result.retry()
+        }
+        is RenewalResult.FirebaseAuthUnavailable -> {
+            Log.w(TAG, "Cert expired but Firebase credentials unavailable, will retry later")
+            recordLastAttempt(Outcome.EXPIRED_NO_AUTH)
             Result.retry()
         }
         is RenewalResult.RateLimited -> {
