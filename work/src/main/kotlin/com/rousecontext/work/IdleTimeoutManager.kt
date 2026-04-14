@@ -15,20 +15,16 @@ import kotlinx.coroutines.launch
  * CONNECTED without any live streams means the wake was either spurious or the
  * client has gone away, and the service should stop to save battery.
  *
- * The timer is disabled entirely when [batteryExempt] is true.
- *
  * When a full wake cycle (CONNECTED -> ... -> DISCONNECTED) completes, the
  * optional [recorder] is notified so the app can track spurious wakes (wake
  * cycles that never reached ACTIVE).
  *
  * @param timeoutMillis How long to wait in CONNECTED state before triggering disconnect.
- * @param batteryExempt If true, idle timeout is disabled.
  * @param onTimeout Called when the idle timeout fires.
  * @param recorder Optional sink for wake-cycle observability.
  */
 class IdleTimeoutManager(
     private val timeoutMillis: Long,
-    private val batteryExempt: Boolean,
     private val onTimeout: suspend () -> Unit,
     private val recorder: SpuriousWakeRecorder? = null
 ) {
@@ -49,12 +45,6 @@ class IdleTimeoutManager(
      */
     suspend fun observe(stateFlow: StateFlow<TunnelState>) {
         timeoutFired = false
-
-        if (batteryExempt) {
-            // Just consume the flow without starting any timers
-            stateFlow.collect { /* no-op */ }
-            return
-        }
 
         coroutineScope {
             var timerJob: Job? = null
