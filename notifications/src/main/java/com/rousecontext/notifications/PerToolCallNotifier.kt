@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Fires on every audit event recorded by
  * [com.rousecontext.notifications.audit.RoomAuditListener]. Gate-checks the
  * current [PostSessionMode] and no-ops for [PostSessionMode.SUMMARY] or
- * [PostSessionMode.SUPPRESS] — see [SessionSummaryPoster] for the
+ * [PostSessionMode.SUPPRESS] — see [SessionSummaryNotifier] for the
  * session-end summary path.
  *
  * Implements [PerCallObserver] so it can be plugged into [RoomAuditListener]

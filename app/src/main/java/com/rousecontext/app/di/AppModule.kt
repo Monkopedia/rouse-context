@@ -52,7 +52,7 @@ import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.LaunchRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SecurityCheckNotifier
-import com.rousecontext.notifications.SessionSummaryPoster
+import com.rousecontext.notifications.SessionSummaryNotifier
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.PerCallObserver
 import com.rousecontext.notifications.audit.RoomAuditListener
@@ -273,7 +273,7 @@ val appModule = module {
 
     // --- Session summary poster ---
     single {
-        SessionSummaryPoster(
+        SessionSummaryNotifier(
             context = androidContext(),
             auditDao = get(),
             settingsProvider = get(),
