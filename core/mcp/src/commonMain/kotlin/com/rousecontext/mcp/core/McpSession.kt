@@ -43,7 +43,7 @@ class McpSession(
     private val securityAlertCheck: (() -> Boolean)? = null,
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0",
-    private val log: (String) -> Unit = {}
+    private val log: (LogLevel, String) -> Unit = { _, _ -> }
 ) {
 
     private val done = CompletableDeferred<Unit>()

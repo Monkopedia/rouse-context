@@ -77,7 +77,7 @@ fun Application.configureMcpRouting(
     securityAlertCheck: (() -> Boolean)? = null,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0",
-    log: (String) -> Unit = {}
+    log: (LogLevel, String) -> Unit = { _, _ -> }
 ) {
     install(ContentNegotiation) {
         json(mcpJson)
@@ -140,7 +140,7 @@ internal class McpRoutes(
     private val securityAlertCheck: (() -> Boolean)?,
     private val serverName: String,
     private val serverVersion: String,
-    private val log: (String) -> Unit
+    private val log: (LogLevel, String) -> Unit
 ) {
     // Per-integration MCP servers, created lazily and cached
     private val integrationServers = mutableMapOf<String, IntegrationServer>()
@@ -231,6 +231,7 @@ internal class McpRoutes(
             mcpJson.parseToJsonElement(text).jsonObject
         } catch (e: Exception) {
             log(
+                LogLevel.WARN,
                 "McpRouting: /register body read failed: " +
                     "${e::class.simpleName}: ${e.message}"
             )
@@ -570,6 +571,7 @@ internal class McpRoutes(
             }
         } catch (e: Exception) {
             log(
+                LogLevel.WARN,
                 "McpRouting: /mcp body read failed: " +
                     "${e::class.simpleName}: ${e.message}"
             )
@@ -876,7 +878,7 @@ private fun emitAuditEvent(
     integration: String,
     startMs: Long,
     clock: Clock,
-    log: (String) -> Unit
+    log: (LogLevel, String) -> Unit
 ) {
     val method = try {
         request["method"]?.jsonPrimitive?.content
@@ -919,7 +921,7 @@ private fun emitRequestEvent(
     method: String,
     startMs: Long,
     durationMs: Long,
-    log: (String) -> Unit
+    log: (LogLevel, String) -> Unit
 ) {
     try {
         val params = request["params"]
@@ -936,7 +938,7 @@ private fun emitRequestEvent(
             )
         )
     } catch (e: Exception) {
-        log("Audit: failed to emit onRequest event: ${e.message}")
+        log(LogLevel.ERROR, "Audit: failed to emit onRequest event: ${e.message}")
     }
 }
 
@@ -948,7 +950,7 @@ private fun emitToolCallEvent(
     integration: String,
     startMs: Long,
     durationMs: Long,
-    log: (String) -> Unit
+    log: (LogLevel, String) -> Unit
 ) {
     try {
         val params = request["params"]?.jsonObject ?: return
@@ -972,7 +974,7 @@ private fun emitToolCallEvent(
         )
     } catch (e: Exception) {
         // Audit is best-effort; never fail the request due to audit errors
-        log("Audit: failed to emit tool-call event: ${e.message}")
+        log(LogLevel.ERROR, "Audit: failed to emit tool-call event: ${e.message}")
     }
 }
 

@@ -347,11 +347,12 @@ val appModule = module {
                 ) ?: ""
                 self == "alert" || ct == "alert"
             },
-            log = { msg ->
-                if (msg.startsWith("Audit:")) {
-                    Log.e("McpRouting", msg)
-                } else {
-                    Log.w("McpRouting", msg)
+            log = { level, msg ->
+                when (level) {
+                    com.rousecontext.mcp.core.LogLevel.DEBUG -> Log.d("McpRouting", msg)
+                    com.rousecontext.mcp.core.LogLevel.INFO -> Log.i("McpRouting", msg)
+                    com.rousecontext.mcp.core.LogLevel.WARN -> Log.w("McpRouting", msg)
+                    com.rousecontext.mcp.core.LogLevel.ERROR -> Log.e("McpRouting", msg)
                 }
             }
         ).also { session ->
@@ -384,15 +385,30 @@ val appModule = module {
         TunnelClientImpl(
             scope = get(named("appScope")),
             webSocketFactory = get<LazyWebSocketFactory>(),
-            log = { msg ->
-                if (msg.startsWith("TunnelClient: disconnected:")) {
-                    Log.i("TunnelClient", msg)
-                } else {
-                    Log.w("TunnelClient", msg)
+            log = { level, msg ->
+                when (level) {
+                    com.rousecontext.tunnel.LogLevel.DEBUG -> Log.d("TunnelClient", msg)
+                    com.rousecontext.tunnel.LogLevel.INFO -> Log.i("TunnelClient", msg)
+                    com.rousecontext.tunnel.LogLevel.WARN -> Log.w("TunnelClient", msg)
+                    com.rousecontext.tunnel.LogLevel.ERROR -> Log.e("TunnelClient", msg)
                 }
             },
-            stateMachineLog = { msg -> Log.w("ConnectionStateMachine", msg) },
-            muxDemuxLog = { msg -> Log.w("MuxDemux", msg) }
+            stateMachineLog = { level, msg ->
+                when (level) {
+                    com.rousecontext.tunnel.LogLevel.DEBUG -> Log.d("ConnectionStateMachine", msg)
+                    com.rousecontext.tunnel.LogLevel.INFO -> Log.i("ConnectionStateMachine", msg)
+                    com.rousecontext.tunnel.LogLevel.WARN -> Log.w("ConnectionStateMachine", msg)
+                    com.rousecontext.tunnel.LogLevel.ERROR -> Log.e("ConnectionStateMachine", msg)
+                }
+            },
+            muxDemuxLog = { level, msg ->
+                when (level) {
+                    com.rousecontext.tunnel.LogLevel.DEBUG -> Log.d("MuxDemux", msg)
+                    com.rousecontext.tunnel.LogLevel.INFO -> Log.i("MuxDemux", msg)
+                    com.rousecontext.tunnel.LogLevel.WARN -> Log.w("MuxDemux", msg)
+                    com.rousecontext.tunnel.LogLevel.ERROR -> Log.e("MuxDemux", msg)
+                }
+            }
         )
     }
 

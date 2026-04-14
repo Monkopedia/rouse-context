@@ -14,7 +14,7 @@ import kotlinx.coroutines.sync.withLock
  *
  * Thread-safe: all access to the stream map is synchronized via a [Mutex].
  */
-class MuxDemux(private val log: (String) -> Unit = {}) {
+class MuxDemux(private val log: (LogLevel, String) -> Unit = { _, _ -> }) {
 
     private val streams = mutableMapOf<UInt, MuxStreamImpl>()
     private val streamsMutex = Mutex()
@@ -62,6 +62,7 @@ class MuxDemux(private val log: (String) -> Unit = {}) {
                     incomingChannel.send(stream)
                 } else {
                     log(
+                        LogLevel.WARN,
                         "MuxDemux: rejecting stream ${frame.streamId}, " +
                             "limit $maxStreams reached"
                     )

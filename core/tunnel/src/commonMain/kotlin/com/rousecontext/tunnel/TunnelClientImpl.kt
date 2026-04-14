@@ -19,9 +19,9 @@ import kotlinx.coroutines.launch
 class TunnelClientImpl(
     private val scope: CoroutineScope,
     private val webSocketFactory: WebSocketFactory,
-    private val log: (String) -> Unit = {},
-    private val stateMachineLog: (String) -> Unit = {},
-    private val muxDemuxLog: (String) -> Unit = {}
+    private val log: (LogLevel, String) -> Unit = { _, _ -> },
+    private val stateMachineLog: (LogLevel, String) -> Unit = { _, _ -> },
+    private val muxDemuxLog: (LogLevel, String) -> Unit = { _, _ -> }
 ) : TunnelClient {
     private val stateMachine = ConnectionStateMachine(log = stateMachineLog)
     private var muxDemux: MuxDemux? = null
@@ -41,6 +41,7 @@ class TunnelClientImpl(
     override suspend fun connect(url: String) {
         if (!stateMachine.transition(TunnelState.CONNECTING)) {
             log(
+                LogLevel.WARN,
                 "TunnelClient: connect() ignored, current state is ${stateMachine.state.value}"
             )
             return
@@ -62,7 +63,10 @@ class TunnelClientImpl(
                             try {
                                 demux.handleFrame(muxFrame)
                             } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
-                                log("TunnelClient: frame arrived after disconnect, ignoring")
+                                log(
+                                    LogLevel.DEBUG,
+                                    "TunnelClient: frame arrived after disconnect, ignoring"
+                                )
                             }
                         }
                     }
@@ -153,7 +157,7 @@ class TunnelClientImpl(
     }
 
     private suspend fun handleDisconnect(error: TunnelError) {
-        log("TunnelClient: disconnected: ${error.message}")
+        log(LogLevel.INFO, "TunnelClient: disconnected: ${error.message}")
         _errors.emit(error)
         // Use quiet cleanup -- transport is already broken, don't try to send CLOSE frames
         muxDemux?.closeAllQuietly()

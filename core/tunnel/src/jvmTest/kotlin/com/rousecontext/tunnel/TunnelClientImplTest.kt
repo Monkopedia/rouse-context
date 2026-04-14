@@ -405,11 +405,11 @@ class TunnelClientImplTest {
 
     @Test
     fun `connection failure invokes log lambda`() = runBlocking {
-        val captured = mutableListOf<String>()
+        val captured = mutableListOf<Pair<LogLevel, String>>()
         val client = TunnelClientImpl(
             this,
             KtorWebSocketFactory(),
-            log = { captured.add(it) }
+            log = { level, msg -> captured.add(level to msg) }
         )
 
         // Connect to a port that nothing is listening on -- triggers handleDisconnect
@@ -420,8 +420,11 @@ class TunnelClientImplTest {
         delay(200)
 
         assertTrue(
-            captured.any { it.startsWith("TunnelClient: disconnected:") },
-            "Expected log message starting with 'TunnelClient: disconnected:', got $captured"
+            captured.any {
+                it.first == LogLevel.INFO &&
+                    it.second.startsWith("TunnelClient: disconnected:")
+            },
+            "Expected INFO log starting with 'TunnelClient: disconnected:', got $captured"
         )
 
         coroutineContext.cancelChildren()
