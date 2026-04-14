@@ -390,7 +390,6 @@ val appModule = module {
         val recorder: SpuriousWakeRecorder = get()
         IdleTimeoutManager(
             timeoutMillis = IDLE_TIMEOUT_MS,
-            batteryExempt = false,
             onTimeout = { tunnelClient.disconnect() },
             recorder = recorder
         )

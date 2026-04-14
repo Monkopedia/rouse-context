@@ -22,7 +22,6 @@ class IdleTimeoutTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -44,7 +43,6 @@ class IdleTimeoutTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -66,7 +64,6 @@ class IdleTimeoutTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -87,31 +84,10 @@ class IdleTimeoutTest {
     }
 
     @Test
-    fun `timer disabled when battery exempt`() = runTest {
-        val disconnected = CompletableDeferred<Unit>()
-        val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
-            batteryExempt = true,
-            onTimeout = { disconnected.complete(Unit) }
-        )
-
-        val job = launch { manager.observe(stateFlow) }
-
-        stateFlow.value = TunnelState.CONNECTED
-        stateFlow.value = TunnelState.ACTIVE
-        stateFlow.value = TunnelState.CONNECTED
-        advanceTimeBy(60_000L)
-
-        assertFalse("Timeout should NOT fire when battery exempt", disconnected.isCompleted)
-        job.cancel()
-    }
-
-    @Test
     fun `timer restarts when returning to CONNECTED from ACTIVE`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -136,7 +112,6 @@ class IdleTimeoutTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -165,7 +140,6 @@ class IdleTimeoutTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { },
             recorder = recorder
         )
@@ -189,7 +163,6 @@ class IdleTimeoutTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { },
             recorder = recorder
         )
@@ -213,7 +186,6 @@ class IdleTimeoutTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
             timeoutMillis = 30_000L,
-            batteryExempt = false,
             onTimeout = { },
             recorder = recorder
         )
