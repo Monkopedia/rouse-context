@@ -32,7 +32,6 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -115,7 +114,7 @@ fun Application.configureMcpRouting(
             if (securityAlertCheck?.invoke() == true) {
                 respond(
                     HttpStatusCode.ServiceUnavailable,
-                    buildJsonObject { put("error", "security_alert") }
+                    OAuthError("security_alert")
                 )
                 return true
             }
@@ -133,17 +132,10 @@ fun Application.configureMcpRouting(
             }
             val baseUrl = "https://${call.resolveHostname()}"
             call.respond(
-                buildJsonObject {
-                    put("resource", "$baseUrl/mcp")
-                    put(
-                        "authorization_servers",
-                        JsonArray(
-                            listOf(
-                                JsonPrimitive(baseUrl)
-                            )
-                        )
-                    )
-                }
+                ProtectedResourceMetadata(
+                    resource = "$baseUrl/mcp",
+                    authorizationServers = listOf(baseUrl)
+                )
             )
         }
 
@@ -218,13 +210,10 @@ fun Application.configureMcpRouting(
             if (validUris.isEmpty()) {
                 call.respond(
                     HttpStatusCode.BadRequest,
-                    buildJsonObject {
-                        put("error", "invalid_redirect_uri")
-                        put(
-                            "error_description",
-                            "At least one http or https redirect_uri is required"
-                        )
-                    }
+                    OAuthError(
+                        error = "invalid_redirect_uri",
+                        errorDescription = "At least one http or https redirect_uri is required"
+                    )
                 )
                 return@post
             }
@@ -235,49 +224,30 @@ fun Application.configureMcpRouting(
                 authorizationCodeManager.registerClient(clientId, clientName, redirectUris)
             } catch (e: IllegalArgumentException) {
                 call.respondText(
-                    buildJsonObject {
-                        put("error", "invalid_redirect_uri")
-                        put("error_description", e.message ?: "Invalid redirect_uri")
-                    }.toString(),
+                    mcpJson.encodeToString(
+                        OAuthError.serializer(),
+                        OAuthError(
+                            error = "invalid_redirect_uri",
+                            errorDescription = e.message ?: "Invalid redirect_uri"
+                        )
+                    ),
                     ContentType.Application.Json,
                     HttpStatusCode.BadRequest
                 )
                 return@post
             }
-            val response = buildJsonObject {
-                put("client_id", clientId)
-                put("client_name", clientName)
-                put(
-                    "redirect_uris",
-                    JsonArray(
-                        validUris.map { JsonPrimitive(it) }
-                    )
-                )
-                put(
-                    "grant_types",
-                    JsonArray(
-                        listOf(
-                            JsonPrimitive(
-                                "authorization_code"
-                            ),
-                            JsonPrimitive(
-                                "urn:ietf:params:oauth:grant-type:device_code"
-                            )
-                        )
-                    )
-                )
-                put(
-                    "response_types",
-                    JsonArray(
-                        listOf(
-                            JsonPrimitive("code")
-                        )
-                    )
-                )
-                put("token_endpoint_auth_method", "none")
-            }
+            val response = ClientRegistrationResponse(
+                clientId = clientId,
+                clientName = clientName,
+                redirectUris = validUris,
+                grantTypes = listOf(
+                    "authorization_code",
+                    "urn:ietf:params:oauth:grant-type:device_code"
+                ),
+                responseTypes = listOf("code")
+            )
             call.respondText(
-                response.toString(),
+                mcpJson.encodeToString(ClientRegistrationResponse.serializer(), response),
                 ContentType.Application.Json,
                 HttpStatusCode.Created
             )
@@ -293,16 +263,13 @@ fun Application.configureMcpRouting(
 
             val response = deviceCodeManager.authorize(ri)
             call.respond(
-                buildJsonObject {
-                    put("device_code", response.deviceCode)
-                    put("user_code", response.userCode)
-                    put("interval", response.interval)
-                    put(
-                        "verification_uri",
-                        "https://${call.resolveHostname()}/device"
-                    )
-                    put("expires_in", 600)
-                }
+                DeviceAuthorizationResponse(
+                    deviceCode = response.deviceCode,
+                    userCode = response.userCode,
+                    verificationUri = "https://${call.resolveHostname()}/device",
+                    expiresIn = DEVICE_CODE_EXPIRES_IN_SECONDS,
+                    interval = response.interval.toLong()
+                )
             )
         }
 
@@ -394,21 +361,23 @@ fun Application.configureMcpRouting(
             }
 
             val status = authorizationCodeManager.getStatus(requestId)
-            val json = when (status) {
+            val response: AuthorizationStatusResponse = when (status) {
                 is AuthorizationRequestStatus.Pending ->
-                    buildJsonObject { put("status", "pending") }
+                    AuthorizationStatusResponse.Pending
                 is AuthorizationRequestStatus.Approved ->
-                    buildJsonObject {
-                        put("status", "approved")
-                        put("code", status.code)
-                        put("state", status.state)
-                    }
+                    AuthorizationStatusResponse.Approved(
+                        code = status.code,
+                        state = status.state
+                    )
                 is AuthorizationRequestStatus.Denied ->
-                    buildJsonObject { put("status", "denied") }
+                    AuthorizationStatusResponse.Denied
                 is AuthorizationRequestStatus.Expired ->
-                    buildJsonObject { put("status", "expired") }
+                    AuthorizationStatusResponse.Expired
             }
-            call.respond(json)
+            call.respondText(
+                mcpJson.encodeToString(AuthorizationStatusResponse.serializer(), response),
+                ContentType.Application.Json
+            )
         }
 
         // Token exchange -- handles both authorization_code and device_code
@@ -443,17 +412,16 @@ fun Application.configureMcpRouting(
                     val pair = authorizationCodeManager.exchangeCode(code, codeVerifier)
                     if (pair != null) {
                         call.respond(
-                            buildJsonObject {
-                                put("access_token", pair.accessToken)
-                                put("token_type", "Bearer")
-                                put("expires_in", pair.expiresIn)
-                                put("refresh_token", pair.refreshToken)
-                            }
+                            TokenResponse(
+                                accessToken = pair.accessToken,
+                                expiresIn = pair.expiresIn,
+                                refreshToken = pair.refreshToken
+                            )
                         )
                     } else {
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            buildJsonObject { put("error", "invalid_grant") }
+                            OAuthError("invalid_grant")
                         )
                     }
                 }
@@ -477,24 +445,23 @@ fun Application.configureMcpRouting(
                     )
                     if (pair != null) {
                         call.respond(
-                            buildJsonObject {
-                                put("access_token", pair.accessToken)
-                                put("token_type", "Bearer")
-                                put("expires_in", pair.expiresIn)
-                                put("refresh_token", pair.refreshToken)
-                            }
+                            TokenResponse(
+                                accessToken = pair.accessToken,
+                                expiresIn = pair.expiresIn,
+                                refreshToken = pair.refreshToken
+                            )
                         )
                     } else {
                         call.respond(
                             HttpStatusCode.BadRequest,
-                            buildJsonObject { put("error", "invalid_grant") }
+                            OAuthError("invalid_grant")
                         )
                     }
                 }
                 else -> {
                     call.respond(
                         HttpStatusCode.BadRequest,
-                        buildJsonObject { put("error", "unsupported_grant_type") }
+                        OAuthError("unsupported_grant_type")
                     )
                 }
             }
@@ -604,36 +571,35 @@ private suspend fun respondToDeviceCodePoll(
         DeviceCodeStatus.APPROVED -> {
             val pair = result.tokenPair!!
             call.respond(
-                buildJsonObject {
-                    put("access_token", pair.accessToken)
-                    put("token_type", "Bearer")
-                    put("expires_in", pair.expiresIn)
-                    put("refresh_token", pair.refreshToken)
-                }
+                TokenResponse(
+                    accessToken = pair.accessToken,
+                    expiresIn = pair.expiresIn,
+                    refreshToken = pair.refreshToken
+                )
             )
         }
         DeviceCodeStatus.AUTHORIZATION_PENDING -> {
             call.respond(
                 HttpStatusCode.BadRequest,
-                buildJsonObject { put("error", "authorization_pending") }
+                OAuthError("authorization_pending")
             )
         }
         DeviceCodeStatus.ACCESS_DENIED -> {
             call.respond(
                 HttpStatusCode.BadRequest,
-                buildJsonObject { put("error", "access_denied") }
+                OAuthError("access_denied")
             )
         }
         DeviceCodeStatus.EXPIRED_TOKEN -> {
             call.respond(
                 HttpStatusCode.BadRequest,
-                buildJsonObject { put("error", "expired_token") }
+                OAuthError("expired_token")
             )
         }
         DeviceCodeStatus.INVALID_CODE -> {
             call.respond(
                 HttpStatusCode.BadRequest,
-                buildJsonObject { put("error", "invalid_grant") }
+                OAuthError("invalid_grant")
             )
         }
     }
@@ -1002,6 +968,9 @@ internal fun htmlEscapeForJs(value: String): String {
 
 /** Timeout for reading the MCP request body and dispatching it (30 seconds). */
 private const val MCP_REQUEST_TIMEOUT_MS = 30_000L
+
+/** RFC 8628 device code lifetime (10 minutes). Matches [DeviceCodeManager]. */
+private const val DEVICE_CODE_EXPIRES_IN_SECONDS = 600L
 
 private fun jsonRpcError(id: JsonElement, code: Int, message: String): JsonObject =
     buildJsonObject {
