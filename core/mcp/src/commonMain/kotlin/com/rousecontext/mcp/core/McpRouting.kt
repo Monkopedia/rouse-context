@@ -304,9 +304,14 @@ internal class McpRoutes(
 
     // Device code authorize -- no auth required
     suspend fun RoutingCall.handleDeviceAuthorize() {
+        if (rejectIfSecurityAlert()) return
         val ri = resolveIntegration()
         if (registry.providerForPath(ri) == null) {
             respond(HttpStatusCode.NotFound)
+            return
+        }
+        if (rateLimiter != null && !rateLimiter.tryAcquire("$ri/device_authorize")) {
+            respond(HttpStatusCode.TooManyRequests)
             return
         }
 
