@@ -179,6 +179,94 @@ class CertRenewalWorkerTest {
         assertNull(rescheduleDelay)
     }
 
+    @Test
+    fun `relay error result returns retry and does not record terminal outcome`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        val renewer = FakeRenewer(
+            mtlsResult = RenewalResult.RelayError(statusCode = 502, message = "bad gateway")
+        )
+        val auth = RecordingAuthProvider(null)
+        var rescheduleDelay: Long? = null
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now },
+            onReschedule = { rescheduleDelay = it }
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.retry(), result)
+        assertTrue("mTLS renewal should be attempted", renewer.mtlsAttempted)
+        assertNull("RelayError should not reschedule with a delay", rescheduleDelay)
+        val outcome = readLastOutcome()
+        assertEquals(CertRenewalWorker.Outcome.RELAY_ERROR.name, outcome)
+        assertFalse(
+            "RelayError is retryable, not a terminal failure",
+            outcome == CertRenewalWorker.Outcome.KEY_GEN_FAILED.name ||
+                outcome == CertRenewalWorker.Outcome.CN_MISMATCH.name
+        )
+    }
+
+    @Test
+    fun `key generation failure returns success and records terminal outcome`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        val renewer = FakeRenewer(
+            mtlsResult = RenewalResult.KeyGenerationFailed(RuntimeException("keystore boom"))
+        )
+        val auth = RecordingAuthProvider(null)
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now }
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertTrue("mTLS renewal should be attempted", renewer.mtlsAttempted)
+        assertEquals(
+            CertRenewalWorker.Outcome.KEY_GEN_FAILED.name,
+            readLastOutcome()
+        )
+    }
+
+    @Test
+    fun `CN mismatch returns success and records terminal outcome`() = runBlocking {
+        val now = 1_000_000L
+        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        val renewer = FakeRenewer(
+            mtlsResult = RenewalResult.CnMismatch(
+                expected = "abc.rousecontext.test",
+                actual = "xyz.rousecontext.test"
+            )
+        )
+        val auth = RecordingAuthProvider(null)
+        val worker = buildWorker(
+            renewer = renewer,
+            store = store,
+            auth = auth,
+            clock = { now }
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(Result.success(), result)
+        assertTrue("mTLS renewal should be attempted", renewer.mtlsAttempted)
+        assertEquals(
+            CertRenewalWorker.Outcome.CN_MISMATCH.name,
+            readLastOutcome()
+        )
+    }
+
+    private fun readLastOutcome(): String? = context
+        .getSharedPreferences(CertRenewalWorker.PREFS_NAME, Context.MODE_PRIVATE)
+        .getString(CertRenewalWorker.KEY_LAST_OUTCOME, null)
+
     private fun buildWorker(
         renewer: CertRenewer,
         store: CertificateStore,
