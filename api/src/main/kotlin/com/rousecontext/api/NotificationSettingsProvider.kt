@@ -17,6 +17,12 @@ interface NotificationSettingsProvider {
      * Settings screen when the user picks a different option.
      */
     suspend fun setPostSessionMode(mode: PostSessionMode)
+
+    /**
+     * Persist whether the audit history UI should show every MCP JSON-RPC
+     * message (not just tool calls). See issue #105.
+     */
+    suspend fun setShowAllMcpMessages(enabled: Boolean)
 }
 
 /**
@@ -27,7 +33,13 @@ data class NotificationSettings(
     val postSessionMode: PostSessionMode,
 
     /** Whether the notification permission has been granted (Android 13+). */
-    val notificationPermissionGranted: Boolean
+    val notificationPermissionGranted: Boolean,
+
+    /**
+     * Whether the audit history UI should show every MCP JSON-RPC message,
+     * not just tool calls. Default false. See issue #105.
+     */
+    val showAllMcpMessages: Boolean = false
 )
 
 /**

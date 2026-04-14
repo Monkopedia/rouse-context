@@ -15,6 +15,18 @@ interface AuditListener {
      * Default no-op so existing implementations don't break.
      */
     fun onTokenGranted(event: TokenGrantEvent) {}
+
+    /**
+     * Called for every MCP JSON-RPC method (initialize, tools/list, tools/call,
+     * resources/list, resources/read, ping, notifications/initialized, etc.).
+     *
+     * For `tools/call`, both [onRequest] and [onToolCall] fire so the existing
+     * tool-call UI stays intact while the broader message log receives every
+     * request.
+     *
+     * Default no-op so existing implementations don't break.
+     */
+    fun onRequest(event: McpRequestEvent) {}
 }
 
 data class ToolCallEvent(
@@ -36,4 +48,23 @@ data class TokenGrantEvent(
     val clientId: String,
     val clientName: String?,
     val grantType: String
+)
+
+/**
+ * Audit event emitted for every MCP JSON-RPC request. Captures the method
+ * name, raw params (opaque, may contain user data for `prompts/get` /
+ * `resources/read` -- downstream persistence is expected to encrypt at rest),
+ * approximate result size, and wall-clock duration.
+ *
+ * @property resultBytes serialized JSON length of the response for requests,
+ *   or `null` for notifications (no response), parse failures, and errors.
+ */
+data class McpRequestEvent(
+    val sessionId: String,
+    val providerId: String,
+    val timestamp: Long,
+    val method: String,
+    val params: JsonElement?,
+    val resultBytes: Int?,
+    val durationMs: Long
 )

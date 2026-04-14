@@ -10,10 +10,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Room database for audit log persistence.
  */
-@Database(entities = [AuditEntry::class], version = 2, exportSchema = false)
+@Database(
+    entities = [AuditEntry::class, McpRequestEntry::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class AuditDatabase : RoomDatabase() {
 
     abstract fun auditDao(): AuditDao
+
+    abstract fun mcpRequestDao(): McpRequestDao
 
     companion object {
         private const val DB_NAME = "rouse_audit.db"
@@ -26,9 +32,29 @@ abstract class AuditDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the `mcp_request_entries` table for auditing every MCP
+         * JSON-RPC request (not just tool calls). See issue #105.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `mcp_request_entries` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`sessionId` TEXT NOT NULL, " +
+                        "`provider` TEXT NOT NULL, " +
+                        "`method` TEXT NOT NULL, " +
+                        "`timestampMillis` INTEGER NOT NULL, " +
+                        "`durationMillis` INTEGER NOT NULL, " +
+                        "`resultBytes` INTEGER, " +
+                        "`paramsJson` TEXT)"
+                )
+            }
+        }
+
         fun create(context: Context): AuditDatabase =
             Room.databaseBuilder(context.applicationContext, AuditDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
 
         /**

@@ -624,4 +624,137 @@ class McpProtocolTest {
         val result = json["result"]?.jsonObject
         assertNotNull("Tool call should still succeed without audit listener", result)
     }
+
+    // -- onRequest audit coverage (issue #105) --
+
+    private class CollectingAuditListener : AuditListener {
+        val toolCalls = mutableListOf<ToolCallEvent>()
+        val requests = mutableListOf<McpRequestEvent>()
+        override fun onToolCall(event: ToolCallEvent) {
+            toolCalls.add(event)
+        }
+        override fun onRequest(event: McpRequestEvent) {
+            requests.add(event)
+        }
+    }
+
+    @Test
+    fun `onRequest fires for every JSON-RPC method`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val listener = CollectingAuditListener()
+        configureTestApp(registry, tokenStore, auditListener = listener).invoke(this)
+
+        client.initialize(token)
+        client.mcpPost(token, mcpJsonRpc("tools/list", id = 2))
+        client.mcpPost(token, mcpJsonRpc("resources/list", id = 3))
+        client.mcpPost(
+            token,
+            mcpJsonRpc("resources/read", """{"uri":"health://profile"}""", id = 4)
+        )
+        client.mcpPost(
+            token,
+            mcpJsonRpc(
+                "tools/call",
+                """{"name":"get_steps","arguments":{"date":"2024-01-15"}}""",
+                id = 5
+            )
+        )
+
+        val methods = listener.requests.map { it.method }
+        assertTrue("initialize should fire onRequest, got $methods", "initialize" in methods)
+        assertTrue("tools/list should fire onRequest, got $methods", "tools/list" in methods)
+        assertTrue(
+            "resources/list should fire onRequest, got $methods",
+            "resources/list" in methods
+        )
+        assertTrue(
+            "resources/read should fire onRequest, got $methods",
+            "resources/read" in methods
+        )
+        assertTrue("tools/call should fire onRequest, got $methods", "tools/call" in methods)
+
+        // Every request carried provider + session
+        listener.requests.forEach { event ->
+            assertEquals("health", event.providerId)
+            assertEquals("health", event.sessionId)
+        }
+    }
+
+    @Test
+    fun `tools call fires both onRequest and onToolCall`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val listener = CollectingAuditListener()
+        configureTestApp(registry, tokenStore, auditListener = listener).invoke(this)
+
+        client.initialize(token)
+        client.mcpPost(
+            token,
+            mcpJsonRpc(
+                "tools/call",
+                """{"name":"get_steps","arguments":{"date":"2024-01-15"}}""",
+                id = 2
+            )
+        )
+
+        // onToolCall fires exactly once for tools/call
+        assertEquals(1, listener.toolCalls.size)
+        // onRequest fires for initialize AND tools/call
+        val toolCallRequests = listener.requests.filter { it.method == "tools/call" }
+        assertEquals(
+            "tools/call should fire onRequest exactly once",
+            1,
+            toolCallRequests.size
+        )
+    }
+
+    @Test
+    fun `onRequest captures method params and duration`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val listener = CollectingAuditListener()
+        val clock = FakeClock(1000L)
+        configureTestApp(
+            registry,
+            tokenStore,
+            auditListener = listener,
+            clock = clock
+        ).invoke(this)
+
+        client.initialize(token)
+        client.mcpPost(
+            token,
+            mcpJsonRpc("resources/read", """{"uri":"health://profile"}""", id = 2)
+        )
+
+        val readRequest = listener.requests.firstOrNull { it.method == "resources/read" }
+        assertNotNull("Expected resources/read onRequest event", readRequest)
+        val params = readRequest!!.params
+        assertNotNull("params should be captured", params)
+        // duration is best-effort non-negative
+        assertTrue("durationMs non-negative", readRequest.durationMs >= 0)
+        // resultBytes is captured for successful responses
+        assertNotNull("resultBytes should be captured", readRequest.resultBytes)
+        assertTrue("resultBytes > 0 for non-empty response", readRequest.resultBytes!! > 0)
+    }
+
+    @Test
+    fun `onRequest does not fire onToolCall for non-tool methods`() = testApplication {
+        val (registry, tokenStore, token) = buildTestEnv()
+        val listener = CollectingAuditListener()
+        configureTestApp(registry, tokenStore, auditListener = listener).invoke(this)
+
+        client.initialize(token)
+        client.mcpPost(token, mcpJsonRpc("tools/list", id = 2))
+        client.mcpPost(token, mcpJsonRpc("resources/list", id = 3))
+
+        assertEquals(
+            "onToolCall must not fire for non-tool-call methods",
+            0,
+            listener.toolCalls.size
+        )
+        assertTrue(
+            "onRequest must fire for list methods",
+            listener.requests.any { it.method == "tools/list" } &&
+                listener.requests.any { it.method == "resources/list" }
+        )
+    }
 }

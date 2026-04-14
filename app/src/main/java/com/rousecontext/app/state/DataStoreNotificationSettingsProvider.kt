@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -29,15 +30,18 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
 
     override val settings: NotificationSettings
         get() {
-            val mode = runBlocking {
-                val stored = dataStore.data.first()[POST_SESSION_MODE_KEY]
-                stored?.let {
+            val (mode, showAll) = runBlocking {
+                val prefs = dataStore.data.first()
+                val modeStored = prefs[POST_SESSION_MODE_KEY]
+                val parsedMode = modeStored?.let {
                     try {
                         PostSessionMode.valueOf(it)
                     } catch (_: IllegalArgumentException) {
                         PostSessionMode.SUMMARY
                     }
                 } ?: PostSessionMode.SUMMARY
+                val showAllStored = prefs[SHOW_ALL_MCP_MESSAGES_KEY] ?: false
+                parsedMode to showAllStored
             }
 
             val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -51,7 +55,8 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
 
             return NotificationSettings(
                 postSessionMode = mode,
-                notificationPermissionGranted = permissionGranted
+                notificationPermissionGranted = permissionGranted,
+                showAllMcpMessages = showAll
             )
         }
 
@@ -61,7 +66,14 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
         }
     }
 
+    override suspend fun setShowAllMcpMessages(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[SHOW_ALL_MCP_MESSAGES_KEY] = enabled
+        }
+    }
+
     companion object {
         private val POST_SESSION_MODE_KEY = stringPreferencesKey("post_session_mode")
+        private val SHOW_ALL_MCP_MESSAGES_KEY = booleanPreferencesKey("show_all_mcp_messages")
     }
 }
