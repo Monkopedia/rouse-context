@@ -152,13 +152,12 @@ class EndToEndSessionTest {
             aiSocket.outputStream.flush()
 
             val buf = ByteArray(4096)
-            val n = session.input.read(buf, 0, buf.size)
+            val n = session.read(buf, 0, buf.size)
             assertTrue(n > 0, "Should read plaintext from AI client")
             assertEquals("hello from AI client", String(buf, 0, n))
 
             // Device -> Client
-            session.output.write("hello from device".toByteArray())
-            session.output.flush()
+            session.write("hello from device".toByteArray())
 
             val buf2 = ByteArray(4096)
             val n2 = aiSocket.inputStream.read(buf2, 0, buf2.size)
@@ -738,15 +737,14 @@ class EndToEndSessionTest {
                 aiSocket.outputStream.flush()
 
                 val buf = ByteArray(4096)
-                val n = session.input.read(buf, 0, buf.size)
+                val n = session.read(buf, 0, buf.size)
                 assertTrue(n > 0, "Should read message: $msg")
                 assertEquals(msg, String(buf, 0, n))
             }
 
             // And in the other direction
             for (msg in messages) {
-                session.output.write(msg.toByteArray())
-                session.output.flush()
+                session.write(msg.toByteArray())
 
                 val buf = ByteArray(4096)
                 val n = aiSocket.inputStream.read(buf, 0, buf.size)
@@ -804,11 +802,10 @@ class EndToEndSessionTest {
         aiSocket1.outputStream.write("phase1-request".toByteArray())
         aiSocket1.outputStream.flush()
         val buf1 = ByteArray(4096)
-        val n1 = tls1.input.read(buf1, 0, buf1.size)
+        val n1 = tls1.read(buf1, 0, buf1.size)
         assertEquals("phase1-request", String(buf1, 0, n1))
 
-        tls1.output.write("phase1-response".toByteArray())
-        tls1.output.flush()
+        tls1.write("phase1-response".toByteArray())
         val buf1r = ByteArray(4096)
         val n1r = aiSocket1.inputStream.read(buf1r, 0, buf1r.size)
         assertEquals("phase1-response", String(buf1r, 0, n1r))
@@ -850,11 +847,10 @@ class EndToEndSessionTest {
         aiSocket2.outputStream.write("phase2-request".toByteArray())
         aiSocket2.outputStream.flush()
         val buf2 = ByteArray(4096)
-        val n2 = tls2.input.read(buf2, 0, buf2.size)
+        val n2 = tls2.read(buf2, 0, buf2.size)
         assertEquals("phase2-request", String(buf2, 0, n2))
 
-        tls2.output.write("phase2-response".toByteArray())
-        tls2.output.flush()
+        tls2.write("phase2-response".toByteArray())
         val buf2r = ByteArray(4096)
         val n2r = aiSocket2.inputStream.read(buf2r, 0, buf2r.size)
         assertEquals("phase2-response", String(buf2r, 0, n2r))
