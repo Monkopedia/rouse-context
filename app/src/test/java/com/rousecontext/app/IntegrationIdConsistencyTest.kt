@@ -16,11 +16,18 @@ import org.junit.Test
  * through Koin) exactly matches the id used to READ the secret back (the
  * route arg the screen is opened with -- also [McpIntegration.id]).
  *
- * This test pins that contract for the canonical integration id set the
- * app ships with. If someone renames an integration id on either the
- * push or the read side without updating both, buildUrl will start
- * returning null again and this test will fail loudly rather than
- * shipping an empty URL card to users.
+ * This test freezes the canonical integration id set the app currently
+ * ships with as string literals and exercises the push → read contract
+ * end-to-end through [CertificateStore]. It does NOT catch a rename on
+ * its own -- if every production site updates in lockstep the test keeps
+ * passing against the old literals (which is wrong). What it does catch:
+ *  - Breakage of the CertificateStore.storeIntegrationSecrets →
+ *    getIntegrationSecrets → McpUrlProvider.buildUrl round-trip for the
+ *    id shape the app uses (lowercase, no separators).
+ *  - A deliberate change to the shipped id set, because updating the
+ *    production constants then requires the author to come here and
+ *    update the frozen list -- which makes the cross-cutting rename
+ *    visible in review.
  */
 class IntegrationIdConsistencyTest {
 
@@ -33,9 +40,11 @@ class IntegrationIdConsistencyTest {
      *    "notifications"
      *  - [com.rousecontext.app.registry.UsageIntegration.id] = "usage"
      *
-     * Kept as string literals (not references) on purpose: the point of
-     * the test is to catch accidental renames in the integration classes,
-     * which would silently pass if we mirrored the constant here.
+     * Kept as string literals rather than pulling the constants from
+     * production so the shipped id set is frozen here. A deliberate id
+     * change to production will not silently pass: the author must also
+     * update this list, which makes the cross-cutting rename visible in
+     * code review.
      */
     private val canonicalIntegrationIds = listOf(
         "health",
