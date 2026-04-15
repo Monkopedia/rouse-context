@@ -7,6 +7,8 @@ import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
 import com.rousecontext.app.ui.screens.AuditHistoryItem
 import com.rousecontext.app.ui.screens.AuditHistoryState
+import com.rousecontext.app.ui.screens.DateFilterOption
+import com.rousecontext.app.ui.screens.ProviderFilterOption
 import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
@@ -46,8 +48,9 @@ class AuditHistoryViewModel(
     settingsProvider: NotificationSettingsProvider? = null
 ) : ViewModel() {
 
-    private val providerFilter = MutableStateFlow("All providers")
-    private val dateFilter = MutableStateFlow("Today")
+    private val providerFilter =
+        MutableStateFlow<ProviderFilterOption>(ProviderFilterOption.All)
+    private val dateFilter = MutableStateFlow(DateFilterOption.TODAY)
     private val refreshTrigger = MutableStateFlow(0)
 
     private val showAllFlow: Flow<Boolean> = settingsProvider
@@ -65,8 +68,7 @@ class AuditHistoryViewModel(
         QueryInputs(provider, date, showAll)
     }.flatMapLatest { inputs ->
         val (startMillis, endMillis) = dateRangeFor(inputs.dateFilter)
-        val providerArg =
-            if (inputs.providerFilter == "All providers") null else inputs.providerFilter
+        val providerArg = inputs.providerFilter.providerIdOrNull
         val toolCalls = auditDao.observeByDateRange(startMillis, endMillis, providerArg)
         val requests = if (inputs.showAll && mcpRequestDao != null) {
             mcpRequestDao.observeByDateRange(startMillis, endMillis, providerArg)
@@ -98,8 +100,8 @@ class AuditHistoryViewModel(
     )
 
     private data class QueryInputs(
-        val providerFilter: String,
-        val dateFilter: String,
+        val providerFilter: ProviderFilterOption,
+        val dateFilter: DateFilterOption,
         val showAll: Boolean
     )
 
@@ -111,11 +113,11 @@ class AuditHistoryViewModel(
         refreshTrigger.value++
     }
 
-    fun setProviderFilter(provider: String) {
+    fun setProviderFilter(provider: ProviderFilterOption) {
         providerFilter.value = provider
     }
 
-    fun setDateFilter(date: String) {
+    fun setDateFilter(date: DateFilterOption) {
         dateFilter.value = date
     }
 
@@ -130,7 +132,7 @@ class AuditHistoryViewModel(
         private const val STOP_TIMEOUT_MS = 5_000L
         private val TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-        internal fun dateRangeFor(filter: String): Pair<Long, Long> {
+        internal fun dateRangeFor(filter: DateFilterOption): Pair<Long, Long> {
             val now = System.currentTimeMillis()
             val dayMs = 24 * 60 * 60 * 1000L
             val startOfToday = LocalDate.now()
@@ -139,10 +141,10 @@ class AuditHistoryViewModel(
                 .toEpochMilli()
 
             return when (filter) {
-                "Yesterday" -> Pair(startOfToday - dayMs, startOfToday)
-                "Last 7 days" -> Pair(now - 7 * dayMs, now)
-                "Last 30 days" -> Pair(now - 30 * dayMs, now)
-                else -> Pair(startOfToday, now) // "Today"
+                DateFilterOption.YESTERDAY -> Pair(startOfToday - dayMs, startOfToday)
+                DateFilterOption.LAST_7_DAYS -> Pair(now - 7 * dayMs, now)
+                DateFilterOption.LAST_30_DAYS -> Pair(now - 30 * dayMs, now)
+                DateFilterOption.TODAY -> Pair(startOfToday, now)
             }
         }
 

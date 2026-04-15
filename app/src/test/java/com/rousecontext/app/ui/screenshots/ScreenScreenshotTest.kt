@@ -933,8 +933,8 @@ class ScreenScreenshotTest {
     )
 
     private fun auditHistoryFilteredState() = AuditHistoryState(
-        providerFilter = "health",
-        dateFilter = "Last 7 days",
+        providerFilter = com.rousecontext.app.ui.screens.ProviderFilterOption.Specific("health"),
+        dateFilter = com.rousecontext.app.ui.screens.DateFilterOption.LAST_7_DAYS,
         groups = listOf(
             AuditHistoryGroup.ofEntries(
                 "Today",

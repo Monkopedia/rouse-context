@@ -59,6 +59,57 @@ import com.rousecontext.app.ui.components.navBarContainerColor
 import com.rousecontext.app.ui.components.navBarItemColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
+/**
+ * Audit-history provider filter. Either "all providers" (no filter) or a
+ * specific provider id such as `health`. The UI resolves this to a display
+ * string via [label]; the ViewModel uses [providerIdOrNull] to drive
+ * the underlying DAO query.
+ */
+@Immutable
+sealed class ProviderFilterOption {
+    @Immutable
+    object All : ProviderFilterOption()
+
+    @Immutable
+    data class Specific(val providerId: String) : ProviderFilterOption()
+
+    /** Provider id to pass to the DAO, or null to query across all providers. */
+    val providerIdOrNull: String?
+        get() = when (this) {
+            is All -> null
+            is Specific -> providerId
+        }
+}
+
+/**
+ * Display label for [ProviderFilterOption]. Splits out the composable so the
+ * option type can remain a pure data class (Compose-free) and still carry
+ * an `All` label resolved from resources.
+ */
+@Composable
+fun ProviderFilterOption.label(): String = when (this) {
+    is ProviderFilterOption.All -> stringResource(R.string.screen_audit_history_provider_all)
+    is ProviderFilterOption.Specific -> providerId
+}
+
+/**
+ * Audit-history date filter. Each variant maps to a concrete time range in
+ * [com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel.dateRangeFor].
+ */
+enum class DateFilterOption {
+    TODAY,
+    YESTERDAY,
+    LAST_7_DAYS,
+    LAST_30_DAYS;
+
+    fun labelRes(): Int = when (this) {
+        TODAY -> R.string.screen_audit_history_date_today
+        YESTERDAY -> R.string.screen_audit_history_date_yesterday
+        LAST_7_DAYS -> R.string.screen_audit_history_date_last_7
+        LAST_30_DAYS -> R.string.screen_audit_history_date_last_30
+    }
+}
+
 @Immutable
 data class AuditHistoryEntry(
     val id: Long = 0,
@@ -124,10 +175,13 @@ data class AuditHistoryGroup(val dateLabel: String, val items: List<AuditHistory
 @Immutable
 data class AuditHistoryState(
     val groups: List<AuditHistoryGroup> = emptyList(),
-    val providerFilter: String = "All providers",
-    val dateFilter: String = "Today",
-    val availableProviders: List<String> = listOf("All providers", "health"),
-    val availableDates: List<String> = listOf("Today", "Yesterday", "Last 7 days", "Last 30 days"),
+    val providerFilter: ProviderFilterOption = ProviderFilterOption.All,
+    val dateFilter: DateFilterOption = DateFilterOption.TODAY,
+    val availableProviders: List<ProviderFilterOption> = listOf(
+        ProviderFilterOption.All,
+        ProviderFilterOption.Specific("health")
+    ),
+    val availableDates: List<DateFilterOption> = DateFilterOption.entries,
     /** Whether the user has opted to see every MCP JSON-RPC message (see #105). */
     val showAllMcpMessages: Boolean = false,
     val isLoading: Boolean = false,
@@ -142,8 +196,8 @@ data class AuditHistoryState(
 @Composable
 fun AuditHistoryContent(
     state: AuditHistoryState = AuditHistoryState(),
-    onProviderFilterChanged: (String) -> Unit = {},
-    onDateFilterChanged: (String) -> Unit = {},
+    onProviderFilterChanged: (ProviderFilterOption) -> Unit = {},
+    onDateFilterChanged: (DateFilterOption) -> Unit = {},
     onClearHistory: () -> Unit = {},
     onEntryClick: (Long) -> Unit = {},
     onRetry: () -> Unit = {},
@@ -176,6 +230,7 @@ fun AuditHistoryContent(
                 label = stringResource(R.string.screen_audit_history_filter_provider),
                 selected = state.providerFilter,
                 options = state.availableProviders,
+                labelFor = { it.label() },
                 onSelected = onProviderFilterChanged,
                 modifier = Modifier.weight(1f)
             )
@@ -183,6 +238,7 @@ fun AuditHistoryContent(
                 label = stringResource(R.string.screen_audit_history_filter_date),
                 selected = state.dateFilter,
                 options = state.availableDates,
+                labelFor = { stringResource(it.labelRes()) },
                 onSelected = onDateFilterChanged,
                 modifier = Modifier.weight(1f)
             )
@@ -280,8 +336,8 @@ fun AuditHistoryContent(
 @Composable
 fun AuditHistoryScreen(
     state: AuditHistoryState = AuditHistoryState(),
-    onProviderFilterChanged: (String) -> Unit = {},
-    onDateFilterChanged: (String) -> Unit = {},
+    onProviderFilterChanged: (ProviderFilterOption) -> Unit = {},
+    onDateFilterChanged: (DateFilterOption) -> Unit = {},
     onClearHistory: () -> Unit = {},
     onEntryClick: (Long) -> Unit = {},
     onRetry: () -> Unit = {},
@@ -451,13 +507,19 @@ private fun RequestRow(item: AuditHistoryItem.Request) {
     }
 }
 
+/**
+ * Typed filter dropdown: each option is an arbitrary value of type [T] and
+ * its display label is resolved via [labelFor]. Keeps the selected state
+ * typed so the caller never has to string-match on the result.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FilterDropdown(
+private fun <T> FilterDropdown(
     label: String,
-    selected: String,
-    options: List<String>,
-    onSelected: (String) -> Unit,
+    selected: T,
+    options: List<T>,
+    labelFor: @Composable (T) -> String,
+    onSelected: (T) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -468,7 +530,7 @@ private fun FilterDropdown(
         modifier = modifier
     ) {
         OutlinedTextField(
-            value = selected,
+            value = labelFor(selected),
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
@@ -481,8 +543,9 @@ private fun FilterDropdown(
             onDismissRequest = { expanded = false }
         ) {
             options.forEach { option ->
+                val optionLabel = labelFor(option)
                 DropdownMenuItem(
-                    text = { Text(option) },
+                    text = { Text(optionLabel) },
                     onClick = {
                         onSelected(option)
                         expanded = false
@@ -556,8 +619,8 @@ fun AuditHistoryFilteredPreview() {
     RouseContextTheme(darkTheme = true) {
         AuditHistoryScreen(
             state = AuditHistoryState(
-                providerFilter = "health",
-                dateFilter = "Last 7 days",
+                providerFilter = ProviderFilterOption.Specific("health"),
+                dateFilter = DateFilterOption.LAST_7_DAYS,
                 groups = listOf(
                     AuditHistoryGroup.ofEntries(
                         dateLabel = "Today",
