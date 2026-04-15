@@ -1,4 +1,4 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.notifications
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec

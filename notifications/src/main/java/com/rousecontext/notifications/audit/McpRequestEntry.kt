@@ -13,7 +13,7 @@ import androidx.room.PrimaryKey
  *
  * `paramsJson` may contain user-data-relevant fields for methods such as
  * `prompts/get` and `resources/read`, so it is encrypted at rest via the
- * same [com.rousecontext.notifications.capture.FieldEncryptor] used for
+ * same [com.rousecontext.notifications.FieldEncryptor] used for
  * tool-call arguments.
  */
 @Entity(tableName = "mcp_request_entries")

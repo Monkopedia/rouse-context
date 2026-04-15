@@ -1,4 +1,4 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.integrations.notifications
 
 import androidx.room.Dao
 import androidx.room.Insert

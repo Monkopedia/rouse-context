@@ -1,7 +1,8 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.integrations.notifications
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import com.rousecontext.notifications.FieldEncryptor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob

@@ -1,4 +1,4 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.integrations.notifications
 
 import android.service.notification.StatusBarNotification
 import io.mockk.every
