@@ -215,6 +215,13 @@
     <string name="screen_settings_time_hours_ago">%1$d hours ago</string>
     <string name="screen_settings_time_days_ago">%1$d days ago</string>
     <string name="screen_settings_idle_timeout_value">%1$d min</string>
+    <string name="screen_settings_theme_light">Light</string>
+    <string name="screen_settings_theme_dark">Dark</string>
+    <string name="screen_settings_theme_auto">Auto</string>
+    <string name="screen_settings_post_session_summary">Summary</string>
+    <string name="screen_settings_post_session_each_usage">Each usage</string>
+    <string name="screen_settings_post_session_suppress">Suppress</string>
+    <string name="screen_settings_check_interval_value">%1$d hours</string>
 
     <!-- Main Dashboard screen -->
     <string name="screen_dashboard_title">Rouse Context</string>

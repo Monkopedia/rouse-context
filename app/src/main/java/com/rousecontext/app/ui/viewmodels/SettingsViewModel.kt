@@ -8,7 +8,10 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.ui.screens.PostSessionModeOption
+import com.rousecontext.app.ui.screens.SecurityCheckIntervalOption
 import com.rousecontext.app.ui.screens.SettingsState
+import com.rousecontext.app.ui.screens.ThemeModeOption
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.tunnel.CertificateStore
@@ -110,9 +113,9 @@ class SettingsViewModel(
         val rotateErr = tuple.c
         val spurious = tuple.d
         SettingsState(
-            postSessionMode = settings.postSessionMode.toDisplayString(),
-            themeMode = themeMode.toDisplayString(),
-            securityCheckInterval = "$intervalHours hours",
+            postSessionMode = settings.postSessionMode.toOption(),
+            themeMode = themeMode.toOption(),
+            securityCheckInterval = SecurityCheckIntervalOption.forHours(intervalHours),
             trustStatus = trust,
             canRotateAddress = !rotating,
             rotationCooldownMessage = rotateErr,
@@ -160,35 +163,22 @@ class SettingsViewModel(
         refresh()
     }
 
-    fun setPostSessionMode(mode: String) {
-        val parsed = when (mode) {
-            "Summary" -> PostSessionMode.SUMMARY
-            "Each usage" -> PostSessionMode.EACH_USAGE
-            "Suppress" -> PostSessionMode.SUPPRESS
-            else -> return
-        }
+    fun setPostSessionMode(mode: PostSessionModeOption) {
         viewModelScope.launch {
-            notificationSettingsProvider.setPostSessionMode(parsed)
+            notificationSettingsProvider.setPostSessionMode(mode.toDomain())
             refresh()
         }
     }
 
-    fun setThemeMode(mode: String) {
-        val themeMode = when (mode) {
-            "Light" -> ThemeMode.LIGHT
-            "Dark" -> ThemeMode.DARK
-            else -> ThemeMode.AUTO
-        }
+    fun setThemeMode(mode: ThemeModeOption) {
         viewModelScope.launch {
-            themePreference.setThemeMode(themeMode)
+            themePreference.setThemeMode(mode.toDomain())
         }
     }
 
-    fun setSecurityCheckInterval(interval: String) {
-        val hours = interval.replace(" hours", "").toIntOrNull()
-            ?: AppStatePreferences.DEFAULT_INTERVAL_HOURS
+    fun setSecurityCheckInterval(interval: SecurityCheckIntervalOption) {
         viewModelScope.launch {
-            appStatePreferences?.setSecurityCheckIntervalHours(hours)
+            appStatePreferences?.setSecurityCheckIntervalHours(interval.hours)
             refresh()
         }
     }
@@ -256,16 +246,28 @@ class SettingsViewModel(
             SpuriousWakeStats(rolling24h = rolling, total = counters.total)
         }
 
-        private fun PostSessionMode.toDisplayString(): String = when (this) {
-            PostSessionMode.SUMMARY -> "Summary"
-            PostSessionMode.EACH_USAGE -> "Each usage"
-            PostSessionMode.SUPPRESS -> "Suppress"
+        private fun PostSessionMode.toOption(): PostSessionModeOption = when (this) {
+            PostSessionMode.SUMMARY -> PostSessionModeOption.SUMMARY
+            PostSessionMode.EACH_USAGE -> PostSessionModeOption.EACH_USAGE
+            PostSessionMode.SUPPRESS -> PostSessionModeOption.SUPPRESS
         }
 
-        private fun ThemeMode.toDisplayString(): String = when (this) {
-            ThemeMode.LIGHT -> "Light"
-            ThemeMode.DARK -> "Dark"
-            ThemeMode.AUTO -> "Auto"
+        private fun PostSessionModeOption.toDomain(): PostSessionMode = when (this) {
+            PostSessionModeOption.SUMMARY -> PostSessionMode.SUMMARY
+            PostSessionModeOption.EACH_USAGE -> PostSessionMode.EACH_USAGE
+            PostSessionModeOption.SUPPRESS -> PostSessionMode.SUPPRESS
+        }
+
+        private fun ThemeMode.toOption(): ThemeModeOption = when (this) {
+            ThemeMode.LIGHT -> ThemeModeOption.LIGHT
+            ThemeMode.DARK -> ThemeModeOption.DARK
+            ThemeMode.AUTO -> ThemeModeOption.AUTO
+        }
+
+        private fun ThemeModeOption.toDomain(): ThemeMode = when (this) {
+            ThemeModeOption.LIGHT -> ThemeMode.LIGHT
+            ThemeModeOption.DARK -> ThemeMode.DARK
+            ThemeModeOption.AUTO -> ThemeMode.AUTO
         }
 
         internal fun computeOverallStatus(
