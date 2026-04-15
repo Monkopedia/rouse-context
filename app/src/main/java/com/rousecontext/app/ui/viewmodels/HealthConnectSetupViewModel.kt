@@ -3,8 +3,8 @@ package com.rousecontext.app.ui.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
-import com.rousecontext.mcp.health.HEALTH_DATA_HISTORY_PERMISSION
-import com.rousecontext.mcp.health.HealthConnectRepository
+import com.rousecontext.integrations.health.HEALTH_DATA_HISTORY_PERMISSION
+import com.rousecontext.integrations.health.HealthConnectRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,7 +40,7 @@ class HealthConnectSetupViewModel(
 
     /**
      * Set of record-type names (matching
-     * [com.rousecontext.mcp.health.RecordTypeRegistry] keys, e.g. `"Steps"`,
+     * [com.rousecontext.integrations.health.RecordTypeRegistry] keys, e.g. `"Steps"`,
      * `"HeartRate"`) that currently have read permission granted.
      *
      * Updated by [refreshPermissions] and by [onPermissionsResult]. Used by

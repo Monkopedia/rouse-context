@@ -2,8 +2,8 @@ package com.rousecontext.app.ui.viewmodels
 
 import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
-import com.rousecontext.mcp.health.HEALTH_DATA_HISTORY_PERMISSION
-import com.rousecontext.mcp.health.HealthConnectRepository
+import com.rousecontext.integrations.health.HEALTH_DATA_HISTORY_PERMISSION
+import com.rousecontext.integrations.health.HealthConnectRepository
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

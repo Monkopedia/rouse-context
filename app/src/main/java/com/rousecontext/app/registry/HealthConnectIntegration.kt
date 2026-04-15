@@ -3,9 +3,9 @@ package com.rousecontext.app.registry
 import android.content.Context
 import android.os.Build
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.integrations.health.HealthConnectMcpServer
+import com.rousecontext.integrations.health.RealHealthConnectRepository
 import com.rousecontext.mcp.core.McpServerProvider
-import com.rousecontext.mcp.health.HealthConnectMcpServer
-import com.rousecontext.mcp.health.RealHealthConnectRepository
 
 /**
  * [McpIntegration] for Health Connect.

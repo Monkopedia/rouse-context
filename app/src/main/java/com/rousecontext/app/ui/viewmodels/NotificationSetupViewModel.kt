@@ -8,7 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.ui.screens.SetupMode
-import com.rousecontext.notifications.capture.NotificationCaptureService
+import com.rousecontext.integrations.notifications.NotificationCaptureService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow

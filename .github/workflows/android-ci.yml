@@ -53,7 +53,5 @@ jobs:
             :api:testDebugUnitTest \
             :notifications:testDebugUnitTest \
             :work:testDebugUnitTest \
-            :health:testDebugUnitTest \
-            :outreach:testDebugUnitTest \
-            :usage:testDebugUnitTest \
+            :integrations:testDebugUnitTest \
             :app:testDebugUnitTest

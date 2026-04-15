@@ -5,11 +5,11 @@ import android.content.Context
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.integrations.notifications.NotificationCaptureService
+import com.rousecontext.integrations.notifications.NotificationDao
+import com.rousecontext.integrations.notifications.NotificationMcpProvider
 import com.rousecontext.mcp.core.McpServerProvider
-import com.rousecontext.notifications.capture.FieldEncryptor
-import com.rousecontext.notifications.capture.NotificationCaptureService
-import com.rousecontext.notifications.capture.NotificationDao
-import com.rousecontext.notifications.capture.NotificationMcpProvider
+import com.rousecontext.notifications.FieldEncryptor
 
 /**
  * [McpIntegration] for device notifications.

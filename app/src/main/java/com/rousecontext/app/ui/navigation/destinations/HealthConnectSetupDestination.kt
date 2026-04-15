@@ -22,7 +22,7 @@ import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.HealthConnectSetupContent
 import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
-import com.rousecontext.mcp.health.RecordTypeRegistry
+import com.rousecontext.integrations.health.RecordTypeRegistry
 import org.koin.androidx.compose.koinViewModel
 
 /**
