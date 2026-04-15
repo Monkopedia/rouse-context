@@ -4,9 +4,16 @@ import java.security.KeyPairGenerator
 import java.security.Signature
 import java.util.Base64
 
-actual class CsrGenerator actual constructor() {
+/**
+ * Generates a PKCS#10 Certificate Signing Request.
+ */
+class CsrGenerator {
 
-    actual fun generate(commonName: String): CsrResult {
+    /**
+     * Generate a new keypair and return a PEM-encoded CSR for the given common name.
+     * Returns a [CsrResult] containing the CSR PEM and the private key PEM.
+     */
+    fun generate(commonName: String): CsrResult {
         val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
         keyPairGenerator.initialize(2048)
         val keyPair = keyPairGenerator.generateKeyPair()
@@ -94,5 +101,30 @@ actual class CsrGenerator actual constructor() {
     private fun derToPem(der: ByteArray, label: String): String {
         val base64 = Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(der)
         return "-----BEGIN $label-----\n$base64\n-----END $label-----\n"
+    }
+}
+
+/**
+ * Result of CSR generation, containing the PEM-encoded CSR, the raw DER-encoded CSR bytes
+ * (needed for SHA256withECDSA signing during Firebase-path renewal), and the private key PEM.
+ */
+data class CsrResult(
+    val csrPem: String,
+    val privateKeyPem: String,
+    val csrDer: ByteArray = ByteArray(0)
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is CsrResult) return false
+        return csrPem == other.csrPem &&
+            privateKeyPem == other.privateKeyPem &&
+            csrDer.contentEquals(other.csrDer)
+    }
+
+    override fun hashCode(): Int {
+        var result = csrPem.hashCode()
+        result = 31 * result + privateKeyPem.hashCode()
+        result = 31 * result + csrDer.contentHashCode()
+        return result
     }
 }
