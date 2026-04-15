@@ -6,6 +6,7 @@ on:
     paths-ignore: ['relay/**', 'docs/**', 'deploy/**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -29,6 +30,15 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
           key: gradle-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml') }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo (relay integration-test binary)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: relay
+      - name: Build relay binary (for :core:tunnel:integrationTest)
+        working-directory: relay
+        run: cargo build
       - name: Generate debug keystore
         run: |
           mkdir -p .signing
@@ -48,6 +58,7 @@ jobs:
         run: |
           ./gradlew \
             :core:tunnel:jvmTest \
+            :core:tunnel:integrationTest \
             :core:mcp:jvmTest \
             :core:bridge:jvmTest \
             :api:testDebugUnitTest \
@@ -55,3 +66,9 @@ jobs:
             :work:testDebugUnitTest \
             :integrations:testDebugUnitTest \
             :app:testDebugUnitTest
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: "**/build/reports/tests/"
