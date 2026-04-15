@@ -484,6 +484,7 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         Arc::new(rouse_relay::cloudflare_dns::CloudflareDnsProvider::new(
             api_token,
             cf.zone_id.clone(),
+            base_domain.clone(),
             config.acme.dns_propagation_timeout_secs,
             config.acme.dns_poll_interval_secs,
         ));

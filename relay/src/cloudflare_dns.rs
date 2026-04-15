@@ -1,17 +1,125 @@
 //! Cloudflare implementation of [`DnsChallengeProvider`].
 //!
 //! Uses the Cloudflare v4 DNS API to publish, wait for, and delete TXT
-//! records for ACME DNS-01 challenges. Propagation is checked against
-//! public DNS resolvers (Google + Cloudflare) rather than the Cloudflare
-//! authoritative servers, because what matters is whether the ACME server's
-//! resolver sees the record.
+//! records for ACME DNS-01 challenges.
+//!
+//! Propagation is checked by querying the zone's authoritative nameservers
+//! directly (looked up at runtime, not hard-coded) rather than a public
+//! recursive resolver. See issue #171: a recursive resolver can cache the
+//! pre-publish NXDOMAIN for the zone's SOA negative-cache TTL (1800s on
+//! Cloudflare by default), causing our 60s propagation poll to fail even
+//! after the record has been published. Authoritative servers have no cache
+//! and serve the truth as soon as Cloudflare's own edge has loaded the
+//! record, which is also what Let's Encrypt's validator queries.
+//!
+//! If the NS lookup fails or yields no IPs (weird network conditions) we
+//! fall back to Google's recursive resolver with a WARN log, so broken name
+//! resolution doesn't brick cert provisioning.
 
 use async_trait::async_trait;
-use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+use hickory_resolver::config::{NameServerConfigGroup, ResolverConfig, ResolverOpts};
 use hickory_resolver::TokioAsyncResolver;
+use std::net::IpAddr;
+use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use crate::dns_challenge::{DnsChallengeProvider, DnsError, TxtHandle};
+
+/// Resolves the authoritative nameserver IPs for a DNS zone.
+///
+/// This is split out behind a trait so that [`CloudflareDnsProvider`]'s
+/// propagation loop can be unit-tested without touching the real DNS system:
+/// tests inject a canned list of IPs (or an empty list to exercise the
+/// fallback path).
+#[async_trait]
+pub trait NameServerResolver: Send + Sync {
+    /// Return the IP addresses of the authoritative nameservers for
+    /// `zone_apex` (e.g. `rousecontext.com`). Returning an empty `Vec` is
+    /// allowed and causes [`CloudflareDnsProvider::wait_for_propagation`] to
+    /// fall back to Google's recursive resolver.
+    async fn resolve_auth_ns(&self, zone_apex: &str) -> Vec<IpAddr>;
+}
+
+/// Default [`NameServerResolver`] that walks the public DNS: resolve NS
+/// records for the zone via Google, then resolve each NS hostname to IPs.
+/// This one-shot lookup is fine to cache at the OS/resolver level — it's
+/// the *per-poll* queries we have to route around the negative cache.
+pub struct SystemNameServerResolver;
+
+#[async_trait]
+impl NameServerResolver for SystemNameServerResolver {
+    async fn resolve_auth_ns(&self, zone_apex: &str) -> Vec<IpAddr> {
+        let resolver = TokioAsyncResolver::tokio(ResolverConfig::google(), ResolverOpts::default());
+
+        let ns_names: Vec<String> = match resolver.ns_lookup(zone_apex).await {
+            Ok(lookup) => lookup.iter().map(|ns| ns.to_string()).collect(),
+            Err(e) => {
+                warn!(
+                    zone_apex = %zone_apex,
+                    error = %e,
+                    "NS lookup for zone apex failed; will fall back to recursive resolver"
+                );
+                return Vec::new();
+            }
+        };
+
+        if ns_names.is_empty() {
+            warn!(
+                zone_apex = %zone_apex,
+                "NS lookup returned no names; will fall back to recursive resolver"
+            );
+            return Vec::new();
+        }
+
+        let mut ips: Vec<IpAddr> = Vec::new();
+        for ns_name in &ns_names {
+            match resolver.lookup_ip(ns_name.as_str()).await {
+                Ok(lookup) => {
+                    for ip in lookup.iter() {
+                        ips.push(ip);
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        zone_apex = %zone_apex,
+                        ns_name = %ns_name,
+                        error = %e,
+                        "Failed to resolve NS hostname to IP"
+                    );
+                }
+            }
+        }
+
+        if ips.is_empty() {
+            warn!(
+                zone_apex = %zone_apex,
+                ns_names = ?ns_names,
+                "Resolved zero IPs across all NS hostnames; will fall back to recursive resolver"
+            );
+        } else {
+            debug!(
+                zone_apex = %zone_apex,
+                ns_names = ?ns_names,
+                ns_ips = ?ips,
+                "Resolved authoritative NS IPs for zone"
+            );
+        }
+        ips
+    }
+}
+
+/// Build a [`ResolverConfig`] that queries the given IPs directly (UDP+TCP
+/// on port 53). Returns `None` if `ns_ips` is empty — the caller should then
+/// fall back to a public recursive resolver.
+fn auth_ns_resolver_config(ns_ips: &[IpAddr]) -> Option<ResolverConfig> {
+    if ns_ips.is_empty() {
+        return None;
+    }
+    // `trust_negative_responses = false` so a transient NXDOMAIN from one
+    // NS doesn't stop the resolver from consulting the others.
+    let group = NameServerConfigGroup::from_ips_clear(ns_ips, 53, false);
+    Some(ResolverConfig::from_parts(None, vec![], group))
+}
 
 /// Default Cloudflare API base URL. Overridden in tests.
 pub(crate) const CLOUDFLARE_API_BASE: &str = "https://api.cloudflare.com";
@@ -27,19 +135,49 @@ pub struct CloudflareDnsProvider {
     /// Base URL for Cloudflare API calls. Defaults to [`CLOUDFLARE_API_BASE`].
     /// Overridden in tests to point at a local mock server.
     api_base: String,
+    /// Zone apex (e.g. `rousecontext.com`). Used to look up the
+    /// authoritative nameservers we should query directly during
+    /// propagation checks. See [`NameServerResolver`].
+    base_domain: String,
+    ns_resolver: Arc<dyn NameServerResolver>,
     propagation_timeout_secs: u64,
     poll_interval_secs: u64,
 }
 
 impl CloudflareDnsProvider {
-    /// Create a Cloudflare DNS provider with the given API token and zone ID.
+    /// Create a Cloudflare DNS provider with the given API token, zone ID,
+    /// and zone apex.
     ///
     /// `propagation_timeout_secs` is the maximum time to wait for a TXT
-    /// record to become visible on public resolvers; `poll_interval_secs`
-    /// is the gap between DNS lookup attempts.
+    /// record to become visible; `poll_interval_secs` is the gap between
+    /// DNS lookup attempts.
+    ///
+    /// Uses [`SystemNameServerResolver`] to look up the zone's auth NS IPs
+    /// at propagation-check time.
     pub fn new(
         api_token: String,
         zone_id: String,
+        base_domain: String,
+        propagation_timeout_secs: u64,
+        poll_interval_secs: u64,
+    ) -> Self {
+        Self::with_ns_resolver(
+            api_token,
+            zone_id,
+            base_domain,
+            Arc::new(SystemNameServerResolver),
+            propagation_timeout_secs,
+            poll_interval_secs,
+        )
+    }
+
+    /// Create a Cloudflare DNS provider with a caller-supplied
+    /// [`NameServerResolver`]. Tests use this to inject canned NS IPs.
+    pub fn with_ns_resolver(
+        api_token: String,
+        zone_id: String,
+        base_domain: String,
+        ns_resolver: Arc<dyn NameServerResolver>,
         propagation_timeout_secs: u64,
         poll_interval_secs: u64,
     ) -> Self {
@@ -48,6 +186,8 @@ impl CloudflareDnsProvider {
             api_token,
             zone_id,
             api_base: CLOUDFLARE_API_BASE.to_string(),
+            base_domain,
+            ns_resolver,
             propagation_timeout_secs,
             poll_interval_secs,
         }
@@ -68,6 +208,32 @@ impl CloudflareDnsProvider {
             api_token,
             zone_id,
             api_base,
+            base_domain: "rousecontext.com".to_string(),
+            ns_resolver: Arc::new(SystemNameServerResolver),
+            propagation_timeout_secs,
+            poll_interval_secs,
+        }
+    }
+
+    /// Variant of [`Self::with_api_base`] that also takes a custom NS
+    /// resolver. Test-only.
+    #[cfg(test)]
+    pub(crate) fn with_api_base_and_ns_resolver(
+        api_token: String,
+        zone_id: String,
+        api_base: String,
+        base_domain: String,
+        ns_resolver: Arc<dyn NameServerResolver>,
+        propagation_timeout_secs: u64,
+        poll_interval_secs: u64,
+    ) -> Self {
+        Self {
+            http: reqwest::Client::new(),
+            api_token,
+            zone_id,
+            api_base,
+            base_domain,
+            ns_resolver,
             propagation_timeout_secs,
             poll_interval_secs,
         }
@@ -225,10 +391,24 @@ impl DnsChallengeProvider for CloudflareDnsProvider {
         let poll_interval = std::time::Duration::from_secs(self.poll_interval_secs);
         let start = std::time::Instant::now();
 
-        // Use Google public DNS to avoid local caching issues.
-        let resolver = TokioAsyncResolver::tokio(ResolverConfig::google(), {
+        // Look up the zone's authoritative NS IPs once, up front, so we can
+        // poll them directly and bypass recursive resolvers' negative cache
+        // (see module docs / issue #171).
+        let ns_ips = self.ns_resolver.resolve_auth_ns(&self.base_domain).await;
+        let resolver_config = auth_ns_resolver_config(&ns_ips);
+        let using_auth_ns = resolver_config.is_some();
+        let resolver_config = resolver_config.unwrap_or_else(|| {
+            warn!(
+                zone_apex = %self.base_domain,
+                "Falling back to Google recursive resolver for propagation check; \
+                 negative-cache poisoning may delay verification"
+            );
+            ResolverConfig::google()
+        });
+
+        let resolver = TokioAsyncResolver::tokio(resolver_config, {
             let mut opts = ResolverOpts::default();
-            // Disable the resolver cache so each poll does a fresh lookup
+            // Disable the resolver cache so each poll does a fresh lookup.
             opts.cache_size = 0;
             opts
         });
@@ -237,6 +417,9 @@ impl DnsChallengeProvider for CloudflareDnsProvider {
             txt_name = %name,
             expected_value = %value,
             timeout_secs = self.propagation_timeout_secs,
+            zone_apex = %self.base_domain,
+            using_auth_ns = using_auth_ns,
+            ns_ips = ?ns_ips,
             "Waiting for DNS TXT record propagation"
         );
 
@@ -641,5 +824,146 @@ mod tests {
         assert!(!handle.0.is_empty());
         let g = state.inner.lock().unwrap();
         assert!(!g.delete_calls.is_empty(), "expected at least one delete");
+    }
+
+    // --- Propagation resolver routing tests (issue #171) -------------------
+
+    use hickory_resolver::config::Protocol;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    /// Spy resolver that records the zone apex it was asked about and
+    /// returns a canned IP list supplied at construction time.
+    struct SpyNameServerResolver {
+        requested: Mutex<Vec<String>>,
+        response: Vec<IpAddr>,
+    }
+
+    impl SpyNameServerResolver {
+        fn new(response: Vec<IpAddr>) -> Arc<Self> {
+            Arc::new(Self {
+                requested: Mutex::new(Vec::new()),
+                response,
+            })
+        }
+
+        fn requested(&self) -> Vec<String> {
+            self.requested.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl NameServerResolver for SpyNameServerResolver {
+        async fn resolve_auth_ns(&self, zone_apex: &str) -> Vec<IpAddr> {
+            self.requested.lock().unwrap().push(zone_apex.to_string());
+            self.response.clone()
+        }
+    }
+
+    #[test]
+    fn auth_ns_resolver_config_returns_none_when_no_ips() {
+        assert!(auth_ns_resolver_config(&[]).is_none());
+    }
+
+    #[test]
+    fn auth_ns_resolver_config_builds_udp_and_tcp_entries_on_port_53() {
+        let ips = vec![
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)),
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2)),
+        ];
+
+        let cfg = auth_ns_resolver_config(&ips).expect("should build config when IPs given");
+        let servers: Vec<_> = cfg.name_servers().iter().collect();
+
+        // Two IPs x two protocols (UDP + TCP) = 4 entries.
+        assert_eq!(servers.len(), 4, "expected UDP+TCP per IP: {servers:?}");
+        for srv in &servers {
+            assert_eq!(srv.socket_addr.port(), 53);
+            let ip = srv.socket_addr.ip();
+            assert!(ips.contains(&ip), "unexpected server IP in config: {ip:?}");
+        }
+        let protocols: Vec<Protocol> = servers.iter().map(|s| s.protocol).collect();
+        assert!(protocols.contains(&Protocol::Udp));
+        assert!(protocols.contains(&Protocol::Tcp));
+
+        // `trust_negative_responses = false` so one misbehaving NS doesn't
+        // short-circuit the whole lookup on NXDOMAIN.
+        for srv in &servers {
+            assert!(
+                !srv.trust_negative_responses,
+                "auth-NS config must not trust negative responses"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_for_propagation_queries_ns_resolver_with_zone_apex() {
+        // Use a blackhole IP so the resolver times out quickly without
+        // succeeding -- we don't care about the TXT result here, only that
+        // the resolver was asked about the right zone apex.
+        let spy = SpyNameServerResolver::new(vec![IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]);
+
+        let provider = CloudflareDnsProvider::with_api_base_and_ns_resolver(
+            "test-token".to_string(),
+            "test-zone".to_string(),
+            "http://127.0.0.1:1".to_string(),
+            "rousecontext.com".to_string(),
+            spy.clone(),
+            1,
+            1,
+        );
+
+        // Short timeout -- just need to let the poll loop start and run once.
+        let _ = provider
+            .wait_for_propagation("_acme-challenge.abc.rousecontext.com", "value")
+            .await;
+
+        let requested = spy.requested();
+        assert_eq!(
+            requested,
+            vec!["rousecontext.com".to_string()],
+            "expected NS resolver to be asked for the zone apex exactly once"
+        );
+    }
+
+    #[tokio::test]
+    async fn wait_for_propagation_falls_back_when_ns_resolver_empty() {
+        // Empty response -> provider should fall back to Google recursive
+        // resolver. We can't observe the Google query itself in a unit
+        // test, but we *can* verify that the spy was called (so the
+        // fallback branch was taken for the right reason) and that the
+        // call still completes with a timeout rather than hanging.
+        let spy = SpyNameServerResolver::new(Vec::new());
+
+        let provider = CloudflareDnsProvider::with_api_base_and_ns_resolver(
+            "test-token".to_string(),
+            "test-zone".to_string(),
+            "http://127.0.0.1:1".to_string(),
+            "rousecontext.com".to_string(),
+            spy.clone(),
+            1,
+            1,
+        );
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            provider.wait_for_propagation(
+                "_acme-challenge.nonexistent-fallback-test.rousecontext.com",
+                "value",
+            ),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "wait_for_propagation must not hang when falling back to recursive resolver"
+        );
+
+        let requested = spy.requested();
+        assert_eq!(
+            requested.len(),
+            1,
+            "NS resolver should be consulted exactly once on entry"
+        );
+        assert_eq!(requested[0], "rousecontext.com");
     }
 }
