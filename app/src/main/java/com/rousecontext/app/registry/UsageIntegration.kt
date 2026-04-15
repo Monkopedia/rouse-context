@@ -2,8 +2,8 @@ package com.rousecontext.app.registry
 
 import android.content.Context
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.integrations.usage.UsageMcpProvider
 import com.rousecontext.mcp.core.McpServerProvider
-import com.rousecontext.usage.UsageMcpProvider
 
 /**
  * [McpIntegration] for device usage statistics.

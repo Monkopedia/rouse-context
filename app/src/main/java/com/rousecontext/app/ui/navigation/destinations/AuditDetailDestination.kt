@@ -15,8 +15,8 @@ import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AuditDetailContent
 import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditDetailUiState
+import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
-import com.rousecontext.notifications.capture.FieldEncryptor
 import org.koin.compose.koinInject
 
 fun NavGraphBuilder.auditDetailDestination(navController: NavController) {

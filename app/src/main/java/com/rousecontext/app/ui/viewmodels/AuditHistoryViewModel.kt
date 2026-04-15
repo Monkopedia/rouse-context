@@ -7,11 +7,11 @@ import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
 import com.rousecontext.app.ui.screens.AuditHistoryItem
 import com.rousecontext.app.ui.screens.AuditHistoryState
+import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.notifications.audit.McpRequestDao
 import com.rousecontext.notifications.audit.McpRequestEntry
-import com.rousecontext.notifications.capture.FieldEncryptor
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate

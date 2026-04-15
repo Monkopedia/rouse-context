@@ -44,8 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
-import com.rousecontext.mcp.health.RecordCategory
-import com.rousecontext.mcp.health.RecordTypeRegistry
+import com.rousecontext.integrations.health.RecordCategory
+import com.rousecontext.integrations.health.RecordTypeRegistry
 
 /**
  * Content-only variant used inside the persistent Scaffold in AppNavigation.

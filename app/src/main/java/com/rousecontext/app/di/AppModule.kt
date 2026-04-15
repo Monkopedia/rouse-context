@@ -49,14 +49,16 @@ import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
 import com.rousecontext.bridge.McpSessionFactory
 import com.rousecontext.bridge.SessionHandler
 import com.rousecontext.bridge.TlsCertProvider
+import com.rousecontext.integrations.health.HealthConnectRepository
+import com.rousecontext.integrations.health.RealHealthConnectRepository
+import com.rousecontext.integrations.notifications.NotificationDatabase
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
-import com.rousecontext.mcp.health.HealthConnectRepository
-import com.rousecontext.mcp.health.RealHealthConnectRepository
 import com.rousecontext.notifications.AndroidSecurityCheckNotifier
 import com.rousecontext.notifications.AuthRequestNotifier
+import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.LaunchRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SecurityCheckNotifier
@@ -64,8 +66,6 @@ import com.rousecontext.notifications.SessionSummaryNotifier
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.PerCallObserver
 import com.rousecontext.notifications.audit.RoomAuditListener
-import com.rousecontext.notifications.capture.FieldEncryptor
-import com.rousecontext.notifications.capture.NotificationDatabase
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore

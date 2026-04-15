@@ -6,8 +6,8 @@ import android.os.Build
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.state.IntegrationSettingsStore
+import com.rousecontext.integrations.outreach.OutreachMcpProvider
 import com.rousecontext.mcp.core.McpServerProvider
-import com.rousecontext.outreach.OutreachMcpProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow

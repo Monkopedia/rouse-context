@@ -42,10 +42,8 @@ Each integration is independently enabled and gets its own MCP endpoint with OAu
 | `:core:mcp` | MCP session routing, HTTP server, OAuth (device code + auth code + PKCE), token management |
 | `:core:bridge` | Bridges tunnel mux streams to MCP sessions via TLS |
 | `:api` | `McpIntegration` interface, `IntegrationStateStore` |
-| `:health` | Health Connect MCP server |
-| `:notifications` | Notification listener, audit persistence (Room) |
-| `:outreach` | Device actions — calls, SMS, DND |
-| `:usage` | App usage stats via UsageStatsManager |
+| `:integrations` | MCP providers: Health Connect, outreach (calls/SMS/DND), usage stats, notification capture |
+| `:notifications` | Cross-cutting notification infrastructure, audit persistence (Room) |
 | `:work` | Foreground service, FCM receiver, WorkManager |
 
 ### Relay Server (`relay/`)
