@@ -43,12 +43,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.BuildConfig
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
@@ -175,7 +177,7 @@ fun HomeDashboardContent(
 
         // Integrations header
         item {
-            SectionHeader("Integrations")
+            SectionHeader(stringResource(R.string.screen_dashboard_section_integrations))
         }
 
         // Empty state or integration list
@@ -208,7 +210,7 @@ fun HomeDashboardContent(
         // Recent activity
         item {
             Spacer(modifier = Modifier.height(16.dp))
-            SectionHeader("Recent Activity")
+            SectionHeader(stringResource(R.string.screen_dashboard_section_recent_activity))
         }
 
         if (state.recentActivity.isEmpty()) {
@@ -234,7 +236,7 @@ fun HomeDashboardContent(
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(onClick = onViewAllActivity) {
-                        Text("View all")
+                        Text(stringResource(R.string.screen_dashboard_view_all))
                     }
                 }
             }
@@ -262,7 +264,7 @@ fun MainDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Rouse Context") },
+                title = { Text(stringResource(R.string.screen_dashboard_title)) },
                 colors = appBarColors()
             )
         },
@@ -275,27 +277,42 @@ fun MainDashboardScreen(
                     selected = selectedTab == 0,
                     onClick = { onTabSelected(0) },
                     icon = {
-                        Icon(Icons.Default.Home, contentDescription = "Home")
+                        Icon(
+                            Icons.Default.Home,
+                            contentDescription = stringResource(
+                                R.string.screen_dashboard_nav_home
+                            )
+                        )
                     },
-                    label = { Text("Home") },
+                    label = { Text(stringResource(R.string.screen_dashboard_nav_home)) },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { onTabSelected(1) },
                     icon = {
-                        Icon(Icons.Default.History, contentDescription = "Audit")
+                        Icon(
+                            Icons.Default.History,
+                            contentDescription = stringResource(
+                                R.string.screen_dashboard_nav_audit
+                            )
+                        )
                     },
-                    label = { Text("Audit") },
+                    label = { Text(stringResource(R.string.screen_dashboard_nav_audit)) },
                     colors = itemColors
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { onTabSelected(2) },
                     icon = {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = stringResource(
+                                R.string.screen_dashboard_nav_settings
+                            )
+                        )
                     },
-                    label = { Text("Settings") },
+                    label = { Text(stringResource(R.string.screen_dashboard_nav_settings)) },
                     colors = itemColors
                 )
             }
@@ -331,10 +348,13 @@ private fun ConnectionStatusRow(status: ConnectionStatus, sessionCount: Int) {
         Text(
             text = when (status) {
                 ConnectionStatus.CONNECTED ->
-                    "Connected ($sessionCount active session${
-                        if (sessionCount != 1) "s" else ""
-                    })"
-                ConnectionStatus.DISCONNECTED -> "Disconnected"
+                    if (sessionCount == 1) {
+                        stringResource(R.string.screen_dashboard_connected_one, sessionCount)
+                    } else {
+                        stringResource(R.string.screen_dashboard_connected_many, sessionCount)
+                    }
+                ConnectionStatus.DISCONNECTED ->
+                    stringResource(R.string.screen_dashboard_disconnected)
             },
             style = MaterialTheme.typography.bodyMedium
         )
@@ -364,13 +384,15 @@ private fun NotificationBannerCard(onClick: () -> Unit) {
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Notifications disabled",
+                    text = stringResource(R.string.screen_dashboard_notifications_disabled_title),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Approval requests won't alert you. Tap to enable.",
+                    text = stringResource(
+                        R.string.screen_dashboard_notifications_disabled_subtitle
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -451,13 +473,15 @@ private fun SpuriousWakeBannerCard(banner: SpuriousWakeBanner, onClick: () -> Un
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Background activity higher than expected",
+                    text = stringResource(R.string.screen_dashboard_spurious_wake_title),
                     style = MaterialTheme.typography.titleSmall
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "The relay may be sending spurious wakes (${banner.rolling24hCount} " +
-                        "in the last 24h). Tap for details.",
+                    text = stringResource(
+                        R.string.screen_dashboard_spurious_wake_subtitle,
+                        banner.rolling24hCount
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -551,12 +575,12 @@ private fun BannerBody(banner: CertBanner, onRetry: () -> Unit) {
 @Composable
 private fun RenewingBody() {
     Text(
-        "Provisioning your certificate...",
+        stringResource(R.string.screen_dashboard_cert_renewing_title),
         style = MaterialTheme.typography.titleSmall
     )
     Spacer(modifier = Modifier.height(2.dp))
     Text(
-        "Integrations may be briefly unavailable.",
+        stringResource(R.string.screen_dashboard_cert_renewing_subtitle),
         style = MaterialTheme.typography.bodySmall
     )
 }
@@ -565,22 +589,22 @@ private fun RenewingBody() {
 private fun ExpiredBody(banner: CertBanner.Expired, onRetry: () -> Unit) {
     if (banner.renewalInProgress) {
         Text(
-            "Certificate expired. Renewing...",
+            stringResource(R.string.screen_dashboard_cert_expired_renewing_title),
             style = MaterialTheme.typography.titleSmall
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-            "Integrations are offline until this completes.",
+            stringResource(R.string.screen_dashboard_cert_expired_renewing_subtitle),
             style = MaterialTheme.typography.bodySmall
         )
     } else {
         Text(
-            "Certificate expired",
+            stringResource(R.string.screen_dashboard_cert_expired_title),
             style = MaterialTheme.typography.titleSmall
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(
-            "Renewal failed. Check your connection.",
+            stringResource(R.string.screen_dashboard_cert_expired_subtitle),
             style = MaterialTheme.typography.bodySmall
         )
         Spacer(modifier = Modifier.height(12.dp))
@@ -590,19 +614,19 @@ private fun ExpiredBody(banner: CertBanner.Expired, onRetry: () -> Unit) {
                 containerColor = MaterialTheme.colorScheme.onErrorContainer,
                 contentColor = MaterialTheme.colorScheme.errorContainer
             )
-        ) { Text("Retry") }
+        ) { Text(stringResource(R.string.common_retry)) }
     }
 }
 
 @Composable
 private fun RateLimitedBody(banner: CertBanner.RateLimited) {
     Text(
-        "Certificate issuance delayed",
+        stringResource(R.string.screen_dashboard_cert_rate_limited_title),
         style = MaterialTheme.typography.titleSmall
     )
     Spacer(modifier = Modifier.height(2.dp))
     Text(
-        "Will retry automatically on ${banner.retryDate}.",
+        stringResource(R.string.screen_dashboard_cert_rate_limited_subtitle, banner.retryDate),
         style = MaterialTheme.typography.bodySmall
     )
 }
@@ -610,16 +634,22 @@ private fun RateLimitedBody(banner: CertBanner.RateLimited) {
 @Composable
 private fun OnboardingBody(banner: CertBanner.Onboarding) {
     Text(
-        "Setting up your device...",
+        stringResource(R.string.screen_dashboard_cert_onboarding_title),
         style = MaterialTheme.typography.titleSmall
     )
     Spacer(modifier = Modifier.height(8.dp))
-    OnboardingStep("Generating keys", banner.generatingKeysDone)
-    Spacer(modifier = Modifier.height(4.dp))
-    OnboardingStep("Registering", banner.registeringDone)
+    OnboardingStep(
+        stringResource(R.string.screen_dashboard_cert_onboarding_step_keys),
+        banner.generatingKeysDone
+    )
     Spacer(modifier = Modifier.height(4.dp))
     OnboardingStep(
-        "Issuing certificate",
+        stringResource(R.string.screen_dashboard_cert_onboarding_step_registering),
+        banner.registeringDone
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    OnboardingStep(
+        stringResource(R.string.screen_dashboard_cert_onboarding_step_issuing),
         done = false,
         active = banner.issuingCert
     )
@@ -628,13 +658,13 @@ private fun OnboardingBody(banner: CertBanner.Onboarding) {
 @Composable
 private fun TerminalFailureBody(banner: CertBanner.TerminalFailure) {
     Text(
-        "Certificate renewal failed permanently",
+        stringResource(R.string.screen_dashboard_cert_terminal_title),
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.onErrorContainer
     )
     Spacer(modifier = Modifier.height(2.dp))
     Text(
-        "The device can't re-establish a secure connection.",
+        stringResource(R.string.screen_dashboard_cert_terminal_subtitle),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onErrorContainer
     )
@@ -642,9 +672,9 @@ private fun TerminalFailureBody(banner: CertBanner.TerminalFailure) {
     Text(
         text = when (banner.reason) {
             TerminalReason.KeyGenerationFailed ->
-                "Keystore error: a new key could not be generated."
+                stringResource(R.string.screen_dashboard_cert_terminal_key_gen)
             TerminalReason.CnMismatch ->
-                "The relay returned an unexpected certificate."
+                stringResource(R.string.screen_dashboard_cert_terminal_cn_mismatch)
         },
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onErrorContainer
@@ -697,14 +727,14 @@ private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "No integrations enabled yet.",
+                text = stringResource(R.string.screen_dashboard_empty_integrations_title),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Connect AI assistants to your phone's data.",
+                text = stringResource(R.string.screen_dashboard_empty_integrations_subtitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -713,7 +743,7 @@ private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
             Button(onClick = onAdd) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Add your first")
+                Text(stringResource(R.string.screen_dashboard_empty_add_first))
             }
         }
     }
@@ -744,7 +774,7 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit) {
                 Text(integration.name, style = MaterialTheme.typography.bodyLarge)
                 if (integration.status == IntegrationStatus.PENDING) {
                     Text(
-                        "Waiting for AI client",
+                        stringResource(R.string.screen_dashboard_integration_pending_subtitle),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -753,8 +783,10 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit) {
         }
         Text(
             text = when (integration.status) {
-                IntegrationStatus.ACTIVE -> "Active"
-                IntegrationStatus.PENDING -> "Pending"
+                IntegrationStatus.ACTIVE ->
+                    stringResource(R.string.screen_dashboard_integration_active)
+                IntegrationStatus.PENDING ->
+                    stringResource(R.string.screen_dashboard_integration_pending)
             },
             style = MaterialTheme.typography.labelMedium,
             color = when (integration.status) {
@@ -782,7 +814,7 @@ private fun EmptyRecentActivityCard() {
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "No recent activity",
+                text = stringResource(R.string.screen_dashboard_empty_recent_activity),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -810,10 +842,11 @@ private fun ActivityRow(entry: AuditEntry) {
     }
 }
 
+@Composable
 fun formatDuration(ms: Long): String = if (ms >= 1000) {
-    "%.1fs".format(ms / 1000.0)
+    stringResource(R.string.screen_dashboard_duration_seconds, ms / 1000.0)
 } else {
-    "${ms}ms"
+    stringResource(R.string.screen_dashboard_duration_ms, ms)
 }
 
 @Composable
@@ -854,7 +887,7 @@ private fun AddIntegrationCard(onAddIntegration: () -> Unit) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Add Integration",
+                text = stringResource(R.string.screen_dashboard_add_integration),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
