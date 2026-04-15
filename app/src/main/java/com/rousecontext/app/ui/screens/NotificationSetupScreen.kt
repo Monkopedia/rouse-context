@@ -37,8 +37,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.FloatingSaveBar
 import com.rousecontext.app.ui.components.PrivacyWarningCard
 import com.rousecontext.app.ui.components.SectionHeader
@@ -95,11 +97,14 @@ fun NotificationSetupScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Notification Access") },
+                title = { Text(stringResource(R.string.screen_notification_setup_title)) },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
@@ -143,8 +148,7 @@ private fun NotificationSetupBody(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Allow Rouse Context to read your notifications so AI " +
-                    "clients can help you manage them.",
+                text = stringResource(R.string.screen_notification_setup_description),
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -152,26 +156,27 @@ private fun NotificationSetupBody(
 
             // Privacy warning
             PrivacyWarningCard(
-                text = "AI clients will be able to see notification titles " +
-                    "and content, including messages and alerts."
+                text = stringResource(R.string.screen_notification_setup_privacy)
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // Permission status
-            SectionHeader("Permission")
+            SectionHeader(stringResource(R.string.common_section_permission))
 
             if (state.permissionGranted) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
-                        contentDescription = "Granted",
+                        contentDescription = stringResource(R.string.common_granted),
                         modifier = Modifier.size(20.dp),
                         tint = SuccessGreen
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Access granted",
+                        text = stringResource(
+                            R.string.screen_notification_setup_access_granted
+                        ),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -180,14 +185,16 @@ private fun NotificationSetupBody(
                     onClick = onGrantAccess,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Grant Access")
+                    Text(stringResource(R.string.common_grant_access))
                 }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
 
             // Retention picker
-            SectionHeader("Keep notification history for")
+            SectionHeader(
+                stringResource(R.string.screen_notification_setup_retention_heading)
+            )
 
             RetentionDropdown(
                 selectedDays = state.retentionDays,
@@ -199,9 +206,12 @@ private fun NotificationSetupBody(
             // Action toggle
             Card(modifier = Modifier.fillMaxWidth()) {
                 SwitchRow(
-                    title = "Allow AI to act on notifications",
-                    subtitle = "When enabled, AI clients can perform actions " +
-                        "on and dismiss your notifications.",
+                    title = stringResource(
+                        R.string.screen_notification_setup_allow_actions_title
+                    ),
+                    subtitle = stringResource(
+                        R.string.screen_notification_setup_allow_actions_subtitle
+                    ),
                     checked = state.allowActions,
                     onCheckedChange = onAllowActionsChanged
                 )
@@ -219,7 +229,7 @@ private fun NotificationSetupBody(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = state.permissionGranted
                 ) {
-                    Text("Enable")
+                    Text(stringResource(R.string.common_enable))
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -228,7 +238,7 @@ private fun NotificationSetupBody(
                     onClick = onCancel,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
 
@@ -279,12 +289,13 @@ private fun RetentionDropdown(selectedDays: Int, onSelected: (Int) -> Unit) {
     }
 }
 
+@Composable
 private fun formatRetention(days: Int): String = when (days) {
-    1 -> "1 day"
-    7 -> "1 week"
-    30 -> "1 month"
-    90 -> "3 months"
-    else -> "$days days"
+    1 -> stringResource(R.string.screen_notification_setup_retention_1_day)
+    7 -> stringResource(R.string.screen_notification_setup_retention_1_week)
+    30 -> stringResource(R.string.screen_notification_setup_retention_1_month)
+    90 -> stringResource(R.string.screen_notification_setup_retention_3_months)
+    else -> stringResource(R.string.screen_notification_setup_retention_days, days)
 }
 
 @Preview(showBackground = true, showSystemUi = true)

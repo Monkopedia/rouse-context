@@ -26,8 +26,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.PrivacyWarningCard
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.appBarColors
@@ -68,11 +70,14 @@ fun UsageSetupScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Usage Stats") },
+                title = { Text(stringResource(R.string.screen_usage_setup_title)) },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
@@ -106,8 +111,7 @@ private fun UsageSetupBody(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Allow AI clients to see how you use your device \u2014 " +
-                "which apps you use and how much time you spend in them.",
+            text = stringResource(R.string.screen_usage_setup_description),
             style = MaterialTheme.typography.bodyLarge
         )
 
@@ -115,27 +119,25 @@ private fun UsageSetupBody(
 
         // Privacy warning
         PrivacyWarningCard(
-            text = "AI clients will be able to see your complete app " +
-                "usage history, including which apps you use, how " +
-                "often, and when."
+            text = stringResource(R.string.screen_usage_setup_privacy)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
         // Permission status
-        SectionHeader("Permission")
+        SectionHeader(stringResource(R.string.common_section_permission))
 
         if (state.permissionGranted) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
-                    contentDescription = "Granted",
+                    contentDescription = stringResource(R.string.common_granted),
                     modifier = Modifier.size(20.dp),
                     tint = SuccessGreen
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Access granted",
+                    text = stringResource(R.string.screen_usage_setup_access_granted),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -144,14 +146,14 @@ private fun UsageSetupBody(
                 onClick = onGrantAccess,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Grant Access")
+                Text(stringResource(R.string.common_grant_access))
             }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Every access is logged in the app's audit history.",
+            text = stringResource(R.string.common_audit_log_note),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -169,7 +171,7 @@ private fun UsageSetupBody(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = state.permissionGranted
             ) {
-                Text("Enable")
+                Text(stringResource(R.string.common_enable))
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -178,7 +180,7 @@ private fun UsageSetupBody(
                 onClick = onCancel,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         }
 

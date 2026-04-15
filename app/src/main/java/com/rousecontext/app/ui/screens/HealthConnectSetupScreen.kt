@@ -39,8 +39,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
@@ -77,11 +79,16 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Health Connect Setup") },
+                title = {
+                    Text(stringResource(R.string.screen_health_connect_setup_title))
+                },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
@@ -121,15 +128,14 @@ private fun HealthConnectSetupBody(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = "Health Connect lets AI clients read your health data " +
-                "to give personalized responses.",
+            text = stringResource(R.string.screen_health_connect_setup_description),
             style = MaterialTheme.typography.bodyLarge
         )
 
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "We'll request access to all supported data types:",
+            text = stringResource(R.string.screen_health_connect_setup_request_list_heading),
             style = MaterialTheme.typography.titleSmall
         )
 
@@ -176,9 +182,15 @@ private fun HealthConnectSetupBody(
                                         Icons.Outlined.RadioButtonUnchecked
                                     },
                                     contentDescription = if (isGranted) {
-                                        "${recordType.displayName} granted"
+                                        stringResource(
+                                            R.string.screen_health_connect_setup_granted_cd,
+                                            recordType.displayName
+                                        )
                                     } else {
-                                        "${recordType.displayName} not granted"
+                                        stringResource(
+                                            R.string.screen_health_connect_setup_not_granted_cd,
+                                            recordType.displayName
+                                        )
                                     },
                                     tint = if (isGranted) {
                                         SuccessGreen
@@ -189,7 +201,9 @@ private fun HealthConnectSetupBody(
                                 )
                             } else {
                                 Text(
-                                    text = "\u2022",
+                                    text = stringResource(
+                                        R.string.screen_health_connect_setup_bullet
+                                    ),
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
@@ -214,7 +228,9 @@ private fun HealthConnectSetupBody(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "You can change these permissions at any time in system settings.",
+            text = stringResource(
+                R.string.screen_health_connect_setup_system_settings_note
+            ),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -222,7 +238,7 @@ private fun HealthConnectSetupBody(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Every access is logged in the app's audit history.",
+            text = stringResource(R.string.common_audit_log_note),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -238,9 +254,9 @@ private fun HealthConnectSetupBody(
         Spacer(modifier = Modifier.height(32.dp))
 
         val buttonText = if (mode == SetupMode.SETTINGS) {
-            "Manage in Health Connect"
+            stringResource(R.string.screen_health_connect_setup_manage)
         } else {
-            "Grant All Health Access"
+            stringResource(R.string.screen_health_connect_setup_grant_all)
         }
 
         Button(
@@ -261,7 +277,7 @@ private fun HealthConnectSetupBody(
                 onClick = onCancel,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Cancel")
+                Text(stringResource(R.string.common_cancel))
             }
         }
 
@@ -291,13 +307,16 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
             Spacer(modifier = Modifier.width(12.dp))
             Column {
                 Text(
-                    text = "Historical access enabled",
+                    text = stringResource(
+                        R.string.screen_health_connect_setup_historical_enabled_title
+                    ),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
                 Text(
-                    text = "AI clients can read health data recorded before " +
-                        "you enabled this integration.",
+                    text = stringResource(
+                        R.string.screen_health_connect_setup_historical_enabled_description
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
@@ -322,16 +341,17 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = "Allow historical data",
+                    text = stringResource(
+                        R.string.screen_health_connect_setup_historical_disabled_title
+                    ),
                     style = MaterialTheme.typography.titleSmall
                 )
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Without this permission, AI clients only see data " +
-                    "recorded after you enabled the integration. Grant access " +
-                    "so past records (steps, sleep, workouts, etc.) are also " +
-                    "available.",
+                text = stringResource(
+                    R.string.screen_health_connect_setup_historical_disabled_description
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -340,7 +360,7 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
                 onClick = onRequestHistoricalAccess,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Grant historical access")
+                Text(stringResource(R.string.screen_health_connect_setup_grant_historical))
             }
         }
     }
@@ -357,9 +377,16 @@ private fun CategoryHeader(
 ) {
     val allGranted = grantedCount == totalCount
     val countText = if (showGrantedFraction) {
-        "$grantedCount/$totalCount"
+        stringResource(
+            R.string.screen_health_connect_setup_count_fraction,
+            grantedCount,
+            totalCount
+        )
     } else {
-        "$totalCount"
+        stringResource(
+            R.string.screen_health_connect_setup_count_total,
+            totalCount
+        )
     }
     val countColor = if (!showGrantedFraction || allGranted) {
         MaterialTheme.colorScheme.onSurfaceVariant
@@ -391,7 +418,17 @@ private fun CategoryHeader(
         Spacer(modifier = Modifier.width(8.dp))
         Icon(
             imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = if (expanded) "Collapse $category" else "Expand $category",
+            contentDescription = if (expanded) {
+                stringResource(
+                    R.string.screen_health_connect_setup_collapse_content_description,
+                    category.toString()
+                )
+            } else {
+                stringResource(
+                    R.string.screen_health_connect_setup_expand_content_description,
+                    category.toString()
+                )
+            },
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }

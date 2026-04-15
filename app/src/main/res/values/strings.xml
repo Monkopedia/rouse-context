@@ -7,8 +7,14 @@
     <string name="common_cancel">Cancel</string>
     <string name="common_continue">Continue</string>
     <string name="common_dismiss">Dismiss</string>
+    <string name="common_enable">Enable</string>
+    <string name="common_grant_access">Grant Access</string>
+    <string name="common_granted">Granted</string>
+    <string name="common_permission_granted">Permission granted</string>
     <string name="common_retry">Retry</string>
     <string name="common_save">Save</string>
+    <string name="common_section_permission">Permission</string>
+    <string name="common_audit_log_note">Every access is logged in the app\'s audit history.</string>
 
     <!-- Destination (TopAppBar) titles -->
     <string name="destination_title_add_integration">Add Integration</string>
@@ -99,6 +105,62 @@
     <string name="screen_audit_history_nav_home">Home</string>
     <string name="screen_audit_history_nav_audit">Audit</string>
     <string name="screen_audit_history_nav_settings">Settings</string>
+
+    <!-- Health Connect setup screen -->
+    <string name="screen_health_connect_setup_title">Health Connect Setup</string>
+    <string name="screen_health_connect_setup_description">Health Connect lets AI clients read your health data to give personalized responses.</string>
+    <string name="screen_health_connect_setup_request_list_heading">We\'ll request access to all supported data types:</string>
+    <string name="screen_health_connect_setup_system_settings_note">You can change these permissions at any time in system settings.</string>
+    <string name="screen_health_connect_setup_historical_enabled_title">Historical access enabled</string>
+    <string name="screen_health_connect_setup_historical_enabled_description">AI clients can read health data recorded before you enabled this integration.</string>
+    <string name="screen_health_connect_setup_historical_disabled_title">Allow historical data</string>
+    <string name="screen_health_connect_setup_historical_disabled_description">Without this permission, AI clients only see data recorded after you enabled the integration. Grant access so past records (steps, sleep, workouts, etc.) are also available.</string>
+    <string name="screen_health_connect_setup_grant_historical">Grant historical access</string>
+    <string name="screen_health_connect_setup_manage">Manage in Health Connect</string>
+    <string name="screen_health_connect_setup_grant_all">Grant All Health Access</string>
+    <string name="screen_health_connect_setup_granted_cd">%1$s granted</string>
+    <string name="screen_health_connect_setup_not_granted_cd">%1$s not granted</string>
+    <string name="screen_health_connect_setup_bullet">\u2022</string>
+    <string name="screen_health_connect_setup_count_fraction">%1$d/%2$d</string>
+    <string name="screen_health_connect_setup_count_total">%1$d</string>
+    <string name="screen_health_connect_setup_collapse_content_description">Collapse %1$s</string>
+    <string name="screen_health_connect_setup_expand_content_description">Expand %1$s</string>
+
+    <!-- Notification setup screen -->
+    <string name="screen_notification_setup_title">Notification Access</string>
+    <string name="screen_notification_setup_description">Allow Rouse Context to read your notifications so AI clients can help you manage them.</string>
+    <string name="screen_notification_setup_privacy">AI clients will be able to see notification titles and content, including messages and alerts.</string>
+    <string name="screen_notification_setup_access_granted">Access granted</string>
+    <string name="screen_notification_setup_retention_heading">Keep notification history for</string>
+    <string name="screen_notification_setup_allow_actions_title">Allow AI to act on notifications</string>
+    <string name="screen_notification_setup_allow_actions_subtitle">When enabled, AI clients can perform actions on and dismiss your notifications.</string>
+    <string name="screen_notification_setup_retention_days">%1$d days</string>
+    <string name="screen_notification_setup_retention_1_day">1 day</string>
+    <string name="screen_notification_setup_retention_1_week">1 week</string>
+    <string name="screen_notification_setup_retention_1_month">1 month</string>
+    <string name="screen_notification_setup_retention_3_months">3 months</string>
+
+    <!-- Outreach setup screen -->
+    <string name="screen_outreach_setup_audit_note">Every action is logged in the app\'s audit history.</string>
+    <string name="screen_outreach_setup_title">Outreach</string>
+    <string name="screen_outreach_setup_description">Allow AI clients to take actions on your device: launch apps, open links, copy to clipboard, and send you notifications.</string>
+    <string name="screen_outreach_setup_no_permissions_note">No special permissions are needed for basic tools.</string>
+    <string name="screen_outreach_setup_dnd_section">Do Not Disturb Control</string>
+    <string name="screen_outreach_setup_dnd_toggle_title">Allow DND changes</string>
+    <string name="screen_outreach_setup_dnd_toggle_subtitle">This is a sensitive permission. When enabled, AI clients can change your Do Not Disturb settings.</string>
+    <string name="screen_outreach_setup_dnd_explainer">DND access requires a special permission. You\'ll be taken to system settings to grant it.</string>
+    <string name="screen_outreach_setup_grant_dnd">Grant DND Access</string>
+    <string name="screen_outreach_setup_background_section">Background Launch</string>
+    <string name="screen_outreach_setup_background_toggle_title">Directly open apps and links on your phone</string>
+    <string name="screen_outreach_setup_background_toggle_subtitle">Without this, AI requests to open apps or URLs while your phone is locked or backgrounded will arrive as a tappable notification.</string>
+    <string name="screen_outreach_setup_background_explainer">Android 14 restricts apps from launching activities in the background. Granting \"display over other apps\" lets Rouse open apps and links directly; otherwise you\'ll see a notification to tap.</string>
+    <string name="screen_outreach_setup_grant_background">Grant Background Launch</string>
+
+    <!-- Usage setup screen -->
+    <string name="screen_usage_setup_title">Usage Stats</string>
+    <string name="screen_usage_setup_description">Allow AI clients to see how you use your device \u2014 which apps you use and how much time you spend in them.</string>
+    <string name="screen_usage_setup_privacy">AI clients will be able to see your complete app usage history, including which apps you use, how often, and when.</string>
+    <string name="screen_usage_setup_access_granted">Access granted</string>
 
     <!-- Integration Enabled screen -->
     <string name="screen_integration_enabled_title">%1$s Ready</string>
