@@ -1,7 +1,6 @@
 package com.rousecontext.app.di
 
 import android.app.NotificationManager
-import android.content.Context
 import android.os.PowerManager
 import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
@@ -20,6 +19,7 @@ import com.rousecontext.app.registry.NotificationIntegration
 import com.rousecontext.app.registry.OutreachIntegration
 import com.rousecontext.app.registry.UsageIntegration
 import com.rousecontext.app.session.McpSessionBridge
+import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
@@ -76,22 +76,28 @@ import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelClientImpl
 import com.rousecontext.work.AndroidKeystoreSigner
 import com.rousecontext.work.CertRenewalFlowRenewer
+import com.rousecontext.work.CertRenewalPreferences
 import com.rousecontext.work.CertRenewalWorker
 import com.rousecontext.work.CertRenewer
 import com.rousecontext.work.CtLogMonitorSource
+import com.rousecontext.work.DataStoreSpuriousWakeRecorder
 import com.rousecontext.work.DeviceKeystoreSigner
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.FirebaseRenewalAuthProvider
 import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.RenewalAuthProvider
+import com.rousecontext.work.SecurityCheckPreferences
 import com.rousecontext.work.SecurityCheckSource
 import com.rousecontext.work.SessionHandler
-import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
+import com.rousecontext.work.SpuriousWakePreferences
 import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
@@ -203,6 +209,14 @@ val appModule = module {
 
     // --- Integration settings (per-integration preferences) ---
     single { IntegrationSettingsStore(androidContext()) }
+
+    // --- App-level preferences (first-launch marker, security-check schedule) ---
+    single { AppStatePreferences(androidContext()) }
+
+    // --- Worker-owned preferences (DataStore-backed, replaces legacy SharedPrefs) ---
+    single { SecurityCheckPreferences(androidContext()) }
+    single { CertRenewalPreferences(androidContext()) }
+    single { SpuriousWakePreferences(androidContext()) }
 
     // --- Theme preference ---
     single { ThemePreference(androidContext()) }
@@ -362,20 +376,19 @@ val appModule = module {
             auditListener = get(),
             hostname = initialHostname,
             integration = defaultIntegration,
-            securityAlertCheck = {
-                val prefs = androidContext().getSharedPreferences(
-                    com.rousecontext.work.SecurityCheckWorker.PREFS_NAME,
-                    Context.MODE_PRIVATE
-                )
-                val self = prefs.getString(
-                    com.rousecontext.work.SecurityCheckWorker.KEY_SELF_CERT_RESULT,
-                    ""
-                ) ?: ""
-                val ct = prefs.getString(
-                    com.rousecontext.work.SecurityCheckWorker.KEY_CT_LOG_RESULT,
-                    ""
-                ) ?: ""
-                self == "alert" || ct == "alert"
+            securityAlertCheck = run {
+                val securityPrefs = get<SecurityCheckPreferences>()
+                val alertFlag = combine(
+                    securityPrefs.observeSelfCertResult(),
+                    securityPrefs.observeCtLogResult()
+                ) { self, ct -> self == "alert" || ct == "alert" }
+                    .stateIn(
+                        scope = appScope,
+                        started = SharingStarted.Eagerly,
+                        initialValue = false
+                    )
+                val capture: () -> Boolean = { alertFlag.value }
+                capture
             },
             log = { level, msg ->
                 when (level) {
@@ -452,7 +465,7 @@ val appModule = module {
     }
 
     single<SpuriousWakeRecorder> {
-        SharedPreferencesSpuriousWakeRecorder.create(androidContext())
+        DataStoreSpuriousWakeRecorder(prefs = get())
     }
 
     single {
@@ -467,14 +480,6 @@ val appModule = module {
 
     // --- ViewModels ---
     viewModel {
-        val certRenewalPrefs = androidContext().getSharedPreferences(
-            com.rousecontext.work.CertRenewalWorker.PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
-        val spuriousWakePrefs = androidContext().getSharedPreferences(
-            SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
         val refresher: NotificationPermissionRefresher = get()
         MainDashboardViewModel(
             integrations = get(),
@@ -483,37 +488,27 @@ val appModule = module {
             auditDao = get(),
             urlProvider = get(),
             tunnelClient = get(),
-            certRenewalBanner = com.rousecontext.app.cert.certRenewalBannerFlow(certRenewalPrefs),
+            certRenewalBanner = com.rousecontext.app.cert.certRenewalBannerFlow(get()),
             notificationsEnabled = notificationPermissionFlow(
                 context = androidContext(),
                 triggers = refresher.ticks
             ),
-            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(spuriousWakePrefs)
+            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get())
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
     viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get(), get(), get(), get()) }
     viewModel {
-        val spuriousWakePrefs = androidContext().getSharedPreferences(
-            SharedPreferencesSpuriousWakeRecorder.PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
         SettingsViewModel(
             notificationSettingsProvider = get(),
             themePreference = get(),
             relayApiClient = get(),
             certStore = get(),
             integrations = get(),
-            securityCheckPrefs = androidContext().getSharedPreferences(
-                com.rousecontext.work.SecurityCheckWorker.PREFS_NAME,
-                Context.MODE_PRIVATE
-            ),
-            settingsPrefs = androidContext().getSharedPreferences(
-                com.rousecontext.app.RouseApplication.PREFS_NAME,
-                Context.MODE_PRIVATE
-            ),
-            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(spuriousWakePrefs)
+            securityCheckPreferences = get(),
+            appStatePreferences = get(),
+            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get())
         )
     }
     viewModel {

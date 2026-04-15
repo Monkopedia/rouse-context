@@ -51,6 +51,7 @@ class WorkManagerFactoryIntegrationTest {
                         StubCheckSource(SecurityCheckResult.Verified)
                     }
                     single<SecurityCheckNotifier> { AndroidSecurityCheckNotifier(context) }
+                    single { SecurityCheckPreferences(context) }
                 }
             )
         }
@@ -62,9 +63,10 @@ class WorkManagerFactoryIntegrationTest {
             .build()
         WorkManagerTestInitHelper.initializeTestWorkManager(context, config)
 
-        // Clear any prior run state.
-        context.getSharedPreferences(SecurityCheckWorker.PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().clear().commit()
+        // Reset DataStore-backed state to a known baseline.
+        kotlinx.coroutines.runBlocking {
+            SecurityCheckPreferences(context).clearResults()
+        }
     }
 
     @After
@@ -90,18 +92,11 @@ class WorkManagerFactoryIntegrationTest {
 
         // Prefs write only happens if both `selfCertVerifier` and `ctLogMonitor` were
         // injected — otherwise the lateinit access in doWork() throws first.
-        val prefs = context.getSharedPreferences(
-            SecurityCheckWorker.PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
-        assertEquals(
-            "verified",
-            prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null)
-        )
-        assertEquals(
-            "verified",
-            prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null)
-        )
+        val prefs = SecurityCheckPreferences(context)
+        kotlinx.coroutines.runBlocking {
+            assertEquals("verified", prefs.selfCertResult())
+            assertEquals("verified", prefs.ctLogResult())
+        }
     }
 }
 

@@ -22,6 +22,7 @@ private const val TEST_BASE_DOMAIN = "rousecontext.test"
 class CertRenewalWorkerTest {
 
     private val context: Context = ApplicationProvider.getApplicationContext()
+    private val renewalPrefs = CertRenewalPreferences(context)
 
     @Test
     fun `cert valid and not in renewal window is skipped`() = runBlocking {
@@ -269,9 +270,9 @@ class CertRenewalWorkerTest {
         )
     }
 
-    private fun readLastOutcome(): String? = context
-        .getSharedPreferences(CertRenewalWorker.PREFS_NAME, Context.MODE_PRIVATE)
-        .getString(CertRenewalWorker.KEY_LAST_OUTCOME, null)
+    private fun readLastOutcome(): String? = kotlinx.coroutines.runBlocking {
+        renewalPrefs.lastOutcome()
+    }
 
     private fun buildWorker(
         renewer: CertRenewer,
@@ -288,6 +289,7 @@ class CertRenewalWorkerTest {
         worker.clock = clock
         worker.rescheduleWithDelay = onReschedule
         worker.renewalWindowDays = CertRenewalWorker.DEFAULT_RENEWAL_WINDOW_DAYS
+        worker.preferences = renewalPrefs
         return worker
     }
 }

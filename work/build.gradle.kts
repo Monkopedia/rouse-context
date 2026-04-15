@@ -31,6 +31,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.service)
+    implementation(libs.datastore.preferences)
     implementation(libs.koin.android)
     implementation(libs.workmanager)
     implementation(platform(libs.firebase.bom))
@@ -40,6 +41,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation(libs.turbine)
     testImplementation(libs.workmanager.testing)
     testImplementation(libs.robolectric)
     testImplementation("androidx.test:core:1.6.1")

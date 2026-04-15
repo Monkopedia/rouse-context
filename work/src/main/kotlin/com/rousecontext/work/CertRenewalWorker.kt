@@ -96,11 +96,13 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
     private val injectedStore: CertificateStore by inject()
     private val injectedAuthProvider: RenewalAuthProvider by inject()
     private val injectedBaseDomain: String by inject(named(KOIN_BASE_DOMAIN_NAME))
+    private val injectedPreferences: CertRenewalPreferences by inject()
 
     var renewer: CertRenewer? = null
     var certificateStore: CertificateStore? = null
     var authProvider: RenewalAuthProvider? = null
     var baseDomain: String? = null
+    var preferences: CertRenewalPreferences? = null
 
     var clock: () -> Long = { System.currentTimeMillis() }
     var renewalWindowDays: Long = DEFAULT_RENEWAL_WINDOW_DAYS
@@ -144,7 +146,7 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
         return handleResult(result)
     }
 
-    private fun handleResult(result: RenewalResult): Result = when (result) {
+    private suspend fun handleResult(result: RenewalResult): Result = when (result) {
         is RenewalResult.Success -> {
             Log.i(TAG, "Cert renewed successfully")
             recordLastAttempt(Outcome.SUCCESS)
@@ -198,12 +200,11 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
         }
     }
 
-    private fun recordLastAttempt(outcome: Outcome) {
-        val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putLong(KEY_LAST_ATTEMPT_TIME, clock())
-            .putString(KEY_LAST_OUTCOME, outcome.name)
-            .apply()
+    private suspend fun recordLastAttempt(outcome: Outcome) {
+        (preferences ?: injectedPreferences).recordAttempt(
+            attemptAt = clock(),
+            outcome = outcome.name
+        )
     }
 
     /** Enumerated outcomes persisted for UI visibility. */
@@ -224,10 +225,6 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
         const val TAG = "CertRenewalWorker"
         const val WORK_NAME = "cert_renewal"
         const val WORK_NAME_DELAYED = "cert_renewal_delayed"
-
-        const val PREFS_NAME = "cert_renewal_prefs"
-        const val KEY_LAST_ATTEMPT_TIME = "last_attempt_time"
-        const val KEY_LAST_OUTCOME = "last_outcome"
 
         /** Renew when certificate expires within this many days (ACME ~90d lifetime). */
         const val DEFAULT_RENEWAL_WINDOW_DAYS = 21L
