@@ -68,15 +68,22 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     }
 
     override suspend fun storeSubdomain(subdomain: String) {
-        subdomainFile.writeText(subdomain)
+        atomicWrite(subdomainFile, subdomain)
     }
 
-    override suspend fun getSubdomain(): String? =
-        if (subdomainFile.exists()) subdomainFile.readText().trim() else null
+    override suspend fun getSubdomain(): String? {
+        if (!subdomainFile.exists()) return null
+        // A blank file indicates either a partially-written state from a previous
+        // crash or an intentional clear. Either way it is NOT a valid subdomain,
+        // so treat it as "unregistered" and let the caller retry onboarding
+        // rather than silently returning "" (issue #163).
+        val text = subdomainFile.readText().trim()
+        return text.ifBlank { null }
+    }
 
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {
         val json = JsonObject(secrets.mapValues { (_, v) -> JsonPrimitive(v) })
-        integrationSecretsFile.writeText(json.toString())
+        atomicWrite(integrationSecretsFile, json.toString())
     }
 
     override suspend fun getIntegrationSecrets(): Map<String, String>? {
@@ -193,13 +200,21 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     }
 
     override suspend fun clear() {
+        clearCertificates()
+        subdomainFile.delete()
+        integrationSecretsFile.delete()
+        legacySecretPrefixFile.delete()
+    }
+
+    override suspend fun clearCertificates() {
+        // Narrow rollback for cert-provisioning failures. Must NOT touch the
+        // subdomain or integration-secrets files -- those represent completed
+        // onboarding state that outlives any individual cert-provisioning
+        // attempt (issue #163).
         certFile.delete()
         File(filesDir, CLIENT_CERT_PEM_FILE).delete()
         File(filesDir, RELAY_CA_PEM_FILE).delete()
         File(filesDir, KEY_PEM_FILE).delete()
-        subdomainFile.delete()
-        integrationSecretsFile.delete()
-        legacySecretPrefixFile.delete()
         fingerprintsFile.delete()
         val keyStore = androidKeyStore()
         if (keyStore.containsAlias(KEY_ALIAS)) {
@@ -207,6 +222,33 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         }
         if (keyStore.containsAlias(ENCRYPTION_KEY_ALIAS)) {
             keyStore.deleteEntry(ENCRYPTION_KEY_ALIAS)
+        }
+    }
+
+    /**
+     * Atomically write text to [target] using a temp-file + rename dance.
+     *
+     * `File.writeText` truncates the target first; if the process dies between
+     * truncation and the actual write, the file is left empty and the caller
+     * loses data. Writing to a sibling `.tmp` and renaming on completion means
+     * the target either contains the previous value (rename never happened) or
+     * the new complete value (rename succeeded) -- never a zero-byte torso.
+     * This is what the "device bounced to onboarding" bug in issue #163 looks
+     * like in the wild.
+     */
+    private fun atomicWrite(target: File, content: String) {
+        val tmp = File(target.parentFile, "${target.name}.tmp")
+        tmp.writeText(content)
+        if (!tmp.renameTo(target)) {
+            // Rename can fail on some filesystems if the target already exists.
+            // Fall back to delete-then-rename, accepting a slightly wider window
+            // (rare in practice on ext4 / f2fs used by Android).
+            target.delete()
+            if (!tmp.renameTo(target)) {
+                // Last-resort copy: still better than leaving nothing.
+                target.writeText(content)
+                tmp.delete()
+            }
         }
     }
 

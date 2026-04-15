@@ -160,4 +160,5 @@ private class StubCertStore : CertificateStore {
     override suspend fun storePrivateKey(pemKey: String) = Unit
     override suspend fun getPrivateKey(): String? = null
     override suspend fun clear() = Unit
+    override suspend fun clearCertificates() = Unit
 }

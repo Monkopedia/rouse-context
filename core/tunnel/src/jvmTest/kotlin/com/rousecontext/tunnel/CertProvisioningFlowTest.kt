@@ -3,6 +3,7 @@ package com.rousecontext.tunnel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -113,6 +114,38 @@ class CertProvisioningFlowTest {
         assertTrue(result is CertProvisioningResult.StorageFailed)
         assertNull(store.getCertificate())
         assertNull(store.getPrivateKey())
+    }
+
+    @Test
+    fun `storage failure preserves subdomain (onboarding state)`(): Unit = runBlocking {
+        // Regression for issue #163: a cert-provisioning storage failure must
+        // not roll back the onboarding-completed state. Otherwise the user is
+        // sent back to the Welcome screen on next launch even though the device
+        // already has an assigned subdomain.
+        store.storeSubdomain("abc123")
+        // The relay returns a cert response, but local storage fails.
+        mockServer.certHandler = { _ ->
+            MockCertResponse(
+                status = 201,
+                body = CertResponse(
+                    subdomain = "abc123",
+                    serverCert = MockRelayServer.MOCK_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM,
+                    relayHost = "relay.rousecontext.com"
+                )
+            )
+        }
+        store.throwOnStore = RuntimeException("Disk full")
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN)
+
+        assertTrue(result is CertProvisioningResult.StorageFailed)
+        assertEquals(
+            expected = "abc123",
+            actual = store.getSubdomain(),
+            message = "Subdomain (onboarding state) must survive cert provisioning rollback"
+        )
     }
 
     @Test
