@@ -30,10 +30,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.SectionHeader
@@ -85,7 +87,9 @@ fun IntegrationManageContent(
                 IconButton(onClick = onSettings) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Settings"
+                        contentDescription = stringResource(
+                            R.string.screen_integration_manage_settings_content_description
+                        )
                     )
                 }
             }
@@ -123,12 +127,20 @@ fun IntegrationManageScreen(
                 title = { Text(state.integrationName) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 },
                 actions = {
                     IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = stringResource(
+                                R.string.screen_integration_manage_settings_content_description
+                            )
+                        )
                     }
                 }
             )
@@ -169,7 +181,7 @@ private fun IntegrationManageBody(
         Spacer(modifier = Modifier.height(12.dp))
 
         // -- Authorized Clients (top) --
-        SectionHeader("Authorized Clients")
+        SectionHeader(stringResource(R.string.screen_integration_manage_authorized_clients))
 
         if (state.authorizedClients.isEmpty()) {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -187,14 +199,18 @@ private fun IntegrationManageBody(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Waiting for first AI client",
+                        text = stringResource(
+                            R.string.screen_integration_manage_waiting_title
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Tap \"Add AI Client\" to get the integration URL",
+                        text = stringResource(
+                            R.string.screen_integration_manage_waiting_subtitle
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -213,7 +229,11 @@ private fun IntegrationManageBody(
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Text(
-                                    "${client.authorizedDate} \u00B7 ${client.lastUsed}",
+                                    stringResource(
+                                        R.string.screen_integration_manage_client_meta,
+                                        client.authorizedDate,
+                                        client.lastUsed
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -222,7 +242,7 @@ private fun IntegrationManageBody(
                                 onClick = { onRevokeClient(client.name) }
                             ) {
                                 Text(
-                                    "Revoke",
+                                    stringResource(R.string.screen_integration_manage_revoke),
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }
@@ -246,7 +266,12 @@ private fun IntegrationManageBody(
         ) {
             if (state.authorizedClients.size > maxVisibleClients) {
                 TextButton(onClick = onViewAllClients) {
-                    Text("View all (${state.authorizedClients.size})")
+                    Text(
+                        stringResource(
+                            R.string.screen_integration_manage_view_all_count,
+                            state.authorizedClients.size
+                        )
+                    )
                 }
             }
             TextButton(onClick = onAddClient) {
@@ -256,7 +281,7 @@ private fun IntegrationManageBody(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Add AI Client")
+                Text(stringResource(R.string.screen_integration_manage_add_client))
             }
         }
 
@@ -264,7 +289,7 @@ private fun IntegrationManageBody(
 
         // -- Recent Activity --
         if (state.status != IntegrationStatus.PENDING) {
-            SectionHeader("Recent Activity")
+            SectionHeader(stringResource(R.string.screen_integration_manage_recent_activity))
 
             if (state.recentActivity.isEmpty()) {
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -282,7 +307,9 @@ private fun IntegrationManageBody(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "No recent activity",
+                            text = stringResource(
+                                R.string.screen_integration_manage_no_recent_activity
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -322,7 +349,7 @@ private fun IntegrationManageBody(
                     horizontalArrangement = Arrangement.End
                 ) {
                     TextButton(onClick = onViewAllActivity) {
-                        Text("View all")
+                        Text(stringResource(R.string.screen_integration_manage_view_all))
                     }
                 }
             }
@@ -341,9 +368,9 @@ private fun IntegrationManageBody(
         ) {
             Text(
                 if (state.status == IntegrationStatus.PENDING) {
-                    "Cancel Setup"
+                    stringResource(R.string.screen_integration_manage_cancel_setup)
                 } else {
-                    "Disable Integration"
+                    stringResource(R.string.screen_integration_manage_disable)
                 }
             )
         }
