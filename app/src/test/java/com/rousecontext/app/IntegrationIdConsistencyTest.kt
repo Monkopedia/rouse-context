@@ -127,4 +127,5 @@ private class RecordingCertStore(private val subdomain: String?) : CertificateSt
     override suspend fun clear() {
         secrets = emptyMap()
     }
+    override suspend fun clearCertificates() = Unit
 }

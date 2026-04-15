@@ -149,4 +149,5 @@ private class SubdomainAndSecretsStore(
     override suspend fun clear() {
         secrets = emptyMap()
     }
+    override suspend fun clearCertificates() = Unit
 }
