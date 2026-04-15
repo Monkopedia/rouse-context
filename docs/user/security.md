@@ -49,6 +49,8 @@ Here is what the common ones mean.
 
 ### "Foreground service limit reached"
 
+![Foreground service limit notification](assets/fgs-limit-notification.png)
+
 **What it means:** Android restricts how long an app can run a foreground service. Every few hours the wake-up cycle needs a short foreground service, and occasionally Android refuses to start it. Usually transient.
 
 **What to do:** Tap the notification to dismiss it. If you see it repeatedly, see [Troubleshooting](troubleshooting.md).
