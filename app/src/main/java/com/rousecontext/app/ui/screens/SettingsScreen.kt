@@ -49,8 +49,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
@@ -148,11 +150,11 @@ fun SettingsContent(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Appearance section
-        SectionHeader("Appearance")
+        SectionHeader(stringResource(R.string.screen_settings_section_appearance))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(16.dp)) {
                 SettingsDropdown(
-                    label = "Theme",
+                    label = stringResource(R.string.screen_settings_label_theme),
                     selected = state.themeMode,
                     options = listOf("Light", "Dark", "Auto"),
                     onSelected = onThemeModeChanged
@@ -163,12 +165,15 @@ fun SettingsContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Connection section
-        SectionHeader("Connection")
+        SectionHeader(stringResource(R.string.screen_settings_section_connection))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                 SettingsDropdown(
-                    label = "Idle timeout",
-                    selected = "${state.idleTimeoutMinutes} min",
+                    label = stringResource(R.string.screen_settings_label_idle_timeout),
+                    selected = stringResource(
+                        R.string.screen_settings_idle_timeout_value,
+                        state.idleTimeoutMinutes
+                    ),
                     options = listOf("2 min", "5 min", "10 min"),
                     onSelected = { value ->
                         val minutes = value.replace(" min", "").toIntOrNull() ?: 5
@@ -177,9 +182,11 @@ fun SettingsContent(
                 )
             }
             SwitchRow(
-                title = "Disable timeout",
+                title = stringResource(R.string.screen_settings_disable_timeout_title),
                 subtitle = if (!state.batteryOptimizationExempt) {
-                    "(requires battery exemption)"
+                    stringResource(
+                        R.string.screen_settings_disable_timeout_requires_battery
+                    )
                 } else {
                     null
                 },
@@ -192,26 +199,25 @@ fun SettingsContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Audit notifications section
-        SectionHeader("Audit Notifications")
+        SectionHeader(stringResource(R.string.screen_settings_section_audit_notifications))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Show a notification when AI clients use your tools",
+                    text = stringResource(R.string.screen_settings_audit_tool_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 SettingsDropdown(
-                    label = "After session",
+                    label = stringResource(R.string.screen_settings_label_after_session),
                     selected = state.postSessionMode,
                     options = listOf("Summary", "Each usage", "Suppress"),
                     onSelected = onPostSessionModeChanged
                 )
             }
             SwitchRow(
-                title = "Show all MCP messages in audit history",
-                subtitle = "By default, only tool calls are shown. Enable to also see " +
-                    "tools/list, initialize, prompts/get, and other MCP methods.",
+                title = stringResource(R.string.screen_settings_show_all_mcp_title),
+                subtitle = stringResource(R.string.screen_settings_show_all_mcp_subtitle),
                 checked = state.showAllMcpMessages,
                 onCheckedChange = onShowAllMcpMessagesChanged
             )
@@ -220,11 +226,11 @@ fun SettingsContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Security section
-        SectionHeader("Security")
+        SectionHeader(stringResource(R.string.screen_settings_section_security))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(16.dp)) {
                 SettingsDropdown(
-                    label = "Check interval",
+                    label = stringResource(R.string.screen_settings_label_check_interval),
                     selected = state.securityCheckInterval,
                     options = listOf("6 hours", "12 hours", "24 hours"),
                     onSelected = onSecurityCheckIntervalChanged
@@ -235,10 +241,15 @@ fun SettingsContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Generate new address", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            stringResource(R.string.screen_settings_generate_new_address),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
                         Text(
                             text = state.rotationCooldownMessage
-                                ?: "Changes take effect immediately",
+                                ?: stringResource(
+                                    R.string.screen_settings_rotate_changes_immediately
+                                ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -250,7 +261,7 @@ fun SettingsContent(
                             contentColor = MaterialTheme.colorScheme.primary
                         )
                     ) {
-                        Text("Rotate")
+                        Text(stringResource(R.string.screen_settings_rotate_button))
                     }
                 }
             }
@@ -278,12 +289,14 @@ fun SettingsContent(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Battery optimization",
+                            stringResource(R.string.screen_settings_battery_optimization_title),
                             style = MaterialTheme.typography.bodyLarge,
                             color = ext.warningAccent
                         )
                         Text(
-                            "Disable to ensure reliable wake-ups.",
+                            stringResource(
+                                R.string.screen_settings_battery_optimization_subtitle
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = ext.onWarningContainer
                         )
@@ -295,7 +308,7 @@ fun SettingsContent(
                         ),
                         border = BorderStroke(1.dp, ext.warningAccent)
                     ) {
-                        Text("Fix this")
+                        Text(stringResource(R.string.screen_settings_battery_fix_this))
                     }
                 }
             }
@@ -305,17 +318,20 @@ fun SettingsContent(
         // been observed. Read-only, purely informational.
         if (state.spuriousWakesLast24h > 0) {
             Spacer(modifier = Modifier.height(16.dp))
-            SectionHeader("Diagnostics")
+            SectionHeader(stringResource(R.string.screen_settings_section_diagnostics))
             SettingsSectionCard {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        "Background wakes without client (24h): " +
-                            "${state.spuriousWakesLast24h} / total: ${state.totalWakesLifetime}",
+                        stringResource(
+                            R.string.screen_settings_spurious_wakes,
+                            state.spuriousWakesLast24h,
+                            state.totalWakesLifetime
+                        ),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "A high count may indicate the relay is sending spurious wakes.",
+                        stringResource(R.string.screen_settings_spurious_wakes_note),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -326,7 +342,7 @@ fun SettingsContent(
         // Trust Status section
         if (state.trustStatus != null) {
             Spacer(modifier = Modifier.height(16.dp))
-            SectionHeader("Trust Status")
+            SectionHeader(stringResource(R.string.screen_settings_section_trust_status))
             TrustStatusSection(
                 trustStatus = state.trustStatus,
                 onAcknowledgeAlert = onAcknowledgeAlert
@@ -336,30 +352,32 @@ fun SettingsContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // About section
-        SectionHeader("About")
+        SectionHeader(stringResource(R.string.screen_settings_section_about))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    "Version ${state.versionName}",
+                    stringResource(R.string.screen_settings_version, state.versionName),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 HorizontalDivider(
                     modifier = Modifier.padding(vertical = 8.dp),
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
-                Text("Apache 2.0 License", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    stringResource(R.string.screen_settings_license),
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // Support section
-        SectionHeader("Support")
+        SectionHeader(stringResource(R.string.screen_settings_section_support))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Your device model and app state are included. " +
-                        "Personal integration data is not.",
+                    text = stringResource(R.string.screen_settings_support_privacy_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -372,11 +390,11 @@ fun SettingsContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Report a bug",
+                            text = stringResource(R.string.screen_settings_report_bug),
                             style = MaterialTheme.typography.bodyLarge
                         )
                         Text(
-                            text = "Opens GitHub with device info prefilled",
+                            text = stringResource(R.string.screen_settings_report_bug_subtitle),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -417,7 +435,7 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.screen_settings_title)) },
                 colors = appBarColors()
             )
         },
@@ -428,9 +446,14 @@ fun SettingsScreen(
                     selected = false,
                     onClick = { onTabSelected(0) },
                     icon = {
-                        Icon(Icons.Default.Home, contentDescription = "Home")
+                        Icon(
+                            Icons.Default.Home,
+                            contentDescription = stringResource(
+                                R.string.screen_settings_nav_home
+                            )
+                        )
                     },
-                    label = { Text("Home") },
+                    label = { Text(stringResource(R.string.screen_settings_nav_home)) },
                     colors = itemColors
                 )
                 NavigationBarItem(
@@ -439,10 +462,12 @@ fun SettingsScreen(
                     icon = {
                         Icon(
                             Icons.Default.History,
-                            contentDescription = "Audit"
+                            contentDescription = stringResource(
+                                R.string.screen_settings_nav_audit
+                            )
                         )
                     },
-                    label = { Text("Audit") },
+                    label = { Text(stringResource(R.string.screen_settings_nav_audit)) },
                     colors = itemColors
                 )
                 NavigationBarItem(
@@ -451,10 +476,12 @@ fun SettingsScreen(
                     icon = {
                         Icon(
                             Icons.Default.Settings,
-                            contentDescription = "Settings"
+                            contentDescription = stringResource(
+                                R.string.screen_settings_nav_settings
+                            )
                         )
                     },
-                    label = { Text("Settings") },
+                    label = { Text(stringResource(R.string.screen_settings_nav_settings)) },
                     colors = itemColors
                 )
             }
@@ -484,9 +511,21 @@ private const val FINGERPRINT_TRUNCATE_LENGTH = 23
 private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert: () -> Unit = {}) {
     val ext = LocalExtendedColors.current
     val (statusIcon, statusColor, statusLabel) = when (trustStatus.overallStatus) {
-        TrustOverallStatus.VERIFIED -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
-        TrustOverallStatus.WARNING -> Triple(Icons.Default.Warning, ext.warningAccent, "Warning")
-        TrustOverallStatus.ALERT -> Triple(Icons.Default.Error, ext.alertContent, "Alert")
+        TrustOverallStatus.VERIFIED -> Triple(
+            Icons.Default.CheckCircle,
+            SuccessGreen,
+            stringResource(R.string.screen_settings_trust_verified)
+        )
+        TrustOverallStatus.WARNING -> Triple(
+            Icons.Default.Warning,
+            ext.warningAccent,
+            stringResource(R.string.screen_settings_trust_warning)
+        )
+        TrustOverallStatus.ALERT -> Triple(
+            Icons.Default.Error,
+            ext.alertContent,
+            stringResource(R.string.screen_settings_trust_alert)
+        )
     }
 
     val timeAgo = formatTimeAgo(trustStatus.lastCheckTime)
@@ -525,7 +564,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
 
             // Self-check row
             TrustCheckRow(
-                label = "Self-check",
+                label = stringResource(R.string.screen_settings_trust_self_check),
                 result = trustStatus.selfCheckResult,
                 timeAgo = timeAgo
             )
@@ -534,7 +573,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
 
             // CT log row
             TrustCheckRow(
-                label = "CT log",
+                label = stringResource(R.string.screen_settings_trust_ct_log),
                 result = trustStatus.ctCheckResult,
                 timeAgo = timeAgo
             )
@@ -553,7 +592,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Integration requests are blocked while an alert is active.",
+                    text = stringResource(R.string.screen_settings_trust_alert_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = statusColor
                 )
@@ -566,7 +605,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
                     ),
                     border = BorderStroke(1.dp, statusColor)
                 ) {
-                    Text("Acknowledge")
+                    Text(stringResource(R.string.screen_settings_trust_acknowledge))
                 }
             }
         }
@@ -577,13 +616,25 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
 private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
     val ext = LocalExtendedColors.current
     val (icon, color, displayResult) = when (result) {
-        "verified" -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Verified")
-        "warning" -> Triple(Icons.Default.Warning, ext.warningAccent, "Unable to verify")
-        "alert" -> Triple(Icons.Default.Error, ext.alertContent, "Verification failed")
+        "verified" -> Triple(
+            Icons.Default.CheckCircle,
+            SuccessGreen,
+            stringResource(R.string.screen_settings_trust_result_verified)
+        )
+        "warning" -> Triple(
+            Icons.Default.Warning,
+            ext.warningAccent,
+            stringResource(R.string.screen_settings_trust_result_warning)
+        )
+        "alert" -> Triple(
+            Icons.Default.Error,
+            ext.alertContent,
+            stringResource(R.string.screen_settings_trust_result_alert)
+        )
         else -> Triple(
             Icons.Default.Warning,
             MaterialTheme.colorScheme.onSurfaceVariant,
-            "Not checked"
+            stringResource(R.string.screen_settings_trust_result_unchecked)
         )
     }
 
@@ -599,7 +650,7 @@ private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-            text = "$label: $displayResult",
+            text = stringResource(R.string.screen_settings_trust_row, label, displayResult),
             style = MaterialTheme.typography.bodyMedium,
             color = color,
             modifier = Modifier.weight(1f)
@@ -629,7 +680,7 @@ private fun CertFingerprintRow(fingerprint: String) {
             .clickable { expanded = !expanded }
     ) {
         Text(
-            text = "Certificate fingerprint",
+            text = stringResource(R.string.screen_settings_cert_fingerprint_label),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -641,15 +692,25 @@ private fun CertFingerprintRow(fingerprint: String) {
     }
 }
 
+@Composable
 private fun formatTimeAgo(epochMillis: Long): String {
     if (epochMillis == 0L) return ""
     val now = System.currentTimeMillis()
     val diffMinutes = (now - epochMillis) / 60_000
     return when {
-        diffMinutes < 1 -> "just now"
-        diffMinutes < 60 -> "$diffMinutes min ago"
-        diffMinutes < 1440 -> "${diffMinutes / 60} hours ago"
-        else -> "${diffMinutes / 1440} days ago"
+        diffMinutes < 1 -> stringResource(R.string.screen_settings_time_just_now)
+        diffMinutes < 60 -> stringResource(
+            R.string.screen_settings_time_min_ago,
+            diffMinutes
+        )
+        diffMinutes < 1440 -> stringResource(
+            R.string.screen_settings_time_hours_ago,
+            diffMinutes / 60
+        )
+        else -> stringResource(
+            R.string.screen_settings_time_days_ago,
+            diffMinutes / 1440
+        )
     }
 }
 
