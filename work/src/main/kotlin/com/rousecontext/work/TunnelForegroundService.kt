@@ -15,6 +15,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessaging
+import com.rousecontext.bridge.SessionHandler
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.FgsLimitNotifier
 import com.rousecontext.notifications.ForegroundNotifier
@@ -214,7 +215,7 @@ class TunnelForegroundService : LifecycleService() {
             lifecycleScope.launch {
                 Log.i(TAG, "New mux stream ${stream.id}, starting session handler")
                 try {
-                    sessionHandler.handle(stream)
+                    sessionHandler.handleStream(stream)
                 } catch (e: Exception) {
                     Log.e(TAG, "Session handler failed for stream ${stream.id}", e)
                 } finally {

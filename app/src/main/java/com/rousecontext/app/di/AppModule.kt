@@ -19,7 +19,11 @@ import com.rousecontext.app.registry.IntegrationProviderRegistry
 import com.rousecontext.app.registry.NotificationIntegration
 import com.rousecontext.app.registry.OutreachIntegration
 import com.rousecontext.app.registry.UsageIntegration
-import com.rousecontext.app.session.McpSessionBridge
+import com.rousecontext.app.session.CertStoreTlsCertProvider
+import com.rousecontext.app.session.SharedMcpSessionFactory
+import com.rousecontext.bridge.McpSessionFactory
+import com.rousecontext.bridge.SessionHandler
+import com.rousecontext.bridge.TlsCertProvider
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
@@ -86,7 +90,6 @@ import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.RenewalAuthProvider
 import com.rousecontext.work.SecurityCheckSource
-import com.rousecontext.work.SessionHandler
 import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
 import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
@@ -394,10 +397,19 @@ val appModule = module {
     }
 
     // --- Session handler (TLS accept + bridge to MCP) ---
+    // Uses the consolidated :core:bridge implementation; adapters below wire
+    // the existing CertificateStore and McpSession singletons to the
+    // TlsCertProvider / McpSessionFactory abstractions consumed by SessionHandler.
+    single<TlsCertProvider> {
+        CertStoreTlsCertProvider(certStore = get<CertificateStore>())
+    }
+    single<McpSessionFactory> {
+        SharedMcpSessionFactory(session = get<McpSession>())
+    }
     single<SessionHandler> {
-        McpSessionBridge(
-            mcpSession = get(),
-            certStore = get()
+        SessionHandler(
+            certProvider = get(),
+            mcpSessionFactory = get()
         )
     }
 
