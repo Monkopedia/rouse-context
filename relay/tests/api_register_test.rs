@@ -126,18 +126,27 @@ async fn register_with_integrations_returns_generated_secrets() {
         );
     }
 
-    // Firestore should have stored the generated values as valid_secrets.
+    // Firestore should have stored the generated values in both shapes:
+    //   valid_secrets — flat list, used by the SNI fast path
+    //   integration_secrets — mapping, used for merge-missing rotation
     let devices = firestore.devices.lock().unwrap();
     let stored = devices
         .get(&subdomain)
         .expect("device missing in firestore");
     assert_eq!(stored.valid_secrets.len(), 3);
-    for (_, expected) in secrets {
+    assert_eq!(stored.integration_secrets.len(), 3);
+    for (id, expected) in secrets {
         let expected = expected.as_str().unwrap().to_string();
         assert!(
             stored.valid_secrets.contains(&expected),
             "Firestore valid_secrets {:?} missing {expected}",
             stored.valid_secrets
+        );
+        assert_eq!(
+            stored.integration_secrets.get(id).map(|s| s.as_str()),
+            Some(expected.as_str()),
+            "Firestore integration_secrets {:?} should map {id} -> {expected}",
+            stored.integration_secrets
         );
     }
 }
@@ -205,6 +214,7 @@ async fn re_register_without_signature_returns_403() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -262,6 +272,7 @@ async fn force_new_within_cooldown_returns_429() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -321,6 +332,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = MockFirestore::new().with_device("brave-falcon", existing_record);
     let acme = MockAcme::new("new-cert-chain");
@@ -380,6 +392,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let acme = MockAcme::new("rotated-cert");
@@ -455,6 +468,7 @@ async fn force_new_deletes_old_dns_records() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let dns = Arc::new(MockDns::new());
@@ -520,6 +534,7 @@ async fn force_new_succeeds_even_if_dns_cleanup_fails() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     // DNS client that always fails
@@ -585,6 +600,7 @@ async fn re_register_same_subdomain_does_not_delete_dns() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", existing_record));
     let dns = Arc::new(MockDns::new());

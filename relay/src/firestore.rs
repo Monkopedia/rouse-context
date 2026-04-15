@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::SystemTime;
 use thiserror::Error;
 
@@ -35,11 +36,21 @@ pub struct DeviceRecord {
     /// Clients must connect to `{secret_prefix}.{subdomain}.rousecontext.com`.
     /// Deprecated: use `valid_secrets` for new registrations.
     pub secret_prefix: Option<String>,
-    /// Client-provided secret strings for SNI validation.
-    /// Each entry is a valid first-label for the SNI hostname (e.g. "brave-health").
-    /// The relay does not know or care which integration a secret maps to.
+    /// Flat list of secret strings used by the SNI fast path for membership
+    /// checks. Each entry is a valid first-label for the SNI hostname
+    /// (e.g. "brave-health"). Authoritative for SNI routing; derived from
+    /// [`Self::integration_secrets`] on writes that populate both.
     #[serde(default)]
     pub valid_secrets: Vec<String>,
+    /// Mapping of integration id → its generated secret. Lets the relay
+    /// implement merge-missing semantics on rotate-secret so unrelated
+    /// integrations keep their existing secrets (and their in-flight MCP
+    /// sessions) when a new integration is added.
+    ///
+    /// Defaults to an empty map for legacy Firestore documents written before
+    /// this field existed.
+    #[serde(default)]
+    pub integration_secrets: HashMap<String, String>,
 }
 
 /// A pending certificate record stored in `pending_certs/{subdomain}`.

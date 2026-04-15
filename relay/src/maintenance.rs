@@ -326,6 +326,7 @@ mod tests {
             renewal_nudge_sent: None,
             secret_prefix: None,
             valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
         }
     }
 
@@ -559,6 +560,7 @@ mod tests {
             renewal_nudge_sent: None,
             secret_prefix: None,
             valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
         };
         let threshold = Duration::from_secs(180 * 86400);
         assert!(!is_stale_device(&record, now, threshold));
