@@ -21,9 +21,6 @@ import com.rousecontext.app.registry.OutreachIntegration
 import com.rousecontext.app.registry.UsageIntegration
 import com.rousecontext.app.session.CertStoreTlsCertProvider
 import com.rousecontext.app.session.SharedMcpSessionFactory
-import com.rousecontext.bridge.McpSessionFactory
-import com.rousecontext.bridge.SessionHandler
-import com.rousecontext.bridge.TlsCertProvider
 import com.rousecontext.app.state.DataStoreIntegrationStateStore
 import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
@@ -49,6 +46,9 @@ import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import com.rousecontext.app.ui.viewmodels.OutreachSetupViewModel
 import com.rousecontext.app.ui.viewmodels.SettingsViewModel
 import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
+import com.rousecontext.bridge.McpSessionFactory
+import com.rousecontext.bridge.SessionHandler
+import com.rousecontext.bridge.TlsCertProvider
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry

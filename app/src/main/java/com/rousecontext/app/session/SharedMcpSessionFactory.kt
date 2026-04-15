@@ -14,9 +14,7 @@ import com.rousecontext.mcp.core.McpSession
  * [McpSessionHandle.stop] is a no-op — stopping the shared server per-stream
  * would tear down every other in-flight connection.
  */
-class SharedMcpSessionFactory(
-    private val session: McpSession
-) : McpSessionFactory {
+class SharedMcpSessionFactory(private val session: McpSession) : McpSessionFactory {
 
     override suspend fun create(): McpSessionHandle {
         val port = session.resolvePort()

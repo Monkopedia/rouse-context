@@ -22,9 +22,7 @@ import javax.net.ssl.SSLContext
  * If either the certificate or key is missing, returns null so the caller can
  * surface a meaningful "device not onboarded" error.
  */
-class CertStoreTlsCertProvider(
-    private val certStore: CertificateStore
-) : TlsCertProvider {
+class CertStoreTlsCertProvider(private val certStore: CertificateStore) : TlsCertProvider {
 
     override suspend fun serverSslContext(): SSLContext? {
         val certPem = certStore.getCertificate() ?: return null
