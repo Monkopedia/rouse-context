@@ -24,18 +24,14 @@ object FgsLimitNotifier {
     /** Fixed id so repeated posts replace instead of stacking. */
     const val NOTIFICATION_ID = 4201
 
-    private const val TITLE = "Rouse Context paused"
-    private const val TEXT =
-        "Rouse Context hit Android's 6-hour daily service limit. " +
-            "Wake requests won't be served until the limit resets. " +
-            "This usually means something is waking the app too often."
-
     fun postLimitReachedNotification(context: Context) {
+        val title = context.getString(ApiR.string.notification_fgs_limit_title)
+        val text = context.getString(ApiR.string.notification_fgs_limit_text)
         val notification = NotificationCompat
             .Builder(context, NotificationChannels.FGS_LIMIT_CHANNEL_ID)
-            .setContentTitle(TITLE)
-            .setContentText(TEXT)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(TEXT))
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setColor(ContextCompat.getColor(context, ApiR.color.rouse_navy_dark))
             .setPriority(NotificationCompat.PRIORITY_HIGH)

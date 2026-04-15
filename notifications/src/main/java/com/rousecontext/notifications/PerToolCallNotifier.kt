@@ -88,8 +88,12 @@ class PerToolCallNotifier(
             NotificationChannels.SESSION_SUMMARY_CHANNEL_ID
         )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setContentTitle("Tool call: ${event.toolName}")
-            .setContentText("$displayName \u00B7 $timeText")
+            .setContentTitle(
+                context.getString(ApiR.string.notification_tool_call_title, event.toolName)
+            )
+            .setContentText(
+                context.getString(ApiR.string.notification_tool_call_text, displayName, timeText)
+            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)

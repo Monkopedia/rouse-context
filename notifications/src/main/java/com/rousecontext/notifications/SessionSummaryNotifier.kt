@@ -122,13 +122,7 @@ class SessionSummaryNotifier(
         val perProvider = entries.groupingBy { it.provider }.eachCount()
         val providerCount = perProvider.size
 
-        val title = if (providerCount == 1) {
-            "$total tool ${plural(total, "call", "calls")}"
-        } else {
-            "$total tool ${plural(total, "call", "calls")} across " +
-                "$providerCount ${plural(providerCount, "integration", "integrations")}"
-        }
-
+        val title = buildSummaryTitle(total, providerCount)
         val breakdown = perProvider.entries
             .sortedByDescending { it.value }
             .joinToString(", ") { (provider, count) -> "$provider $count" }
@@ -162,7 +156,33 @@ class SessionSummaryNotifier(
         manager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun plural(n: Int, one: String, many: String): String = if (n == 1) one else many
+    private fun buildSummaryTitle(total: Int, providerCount: Int): String {
+        val callsLabel = context.getString(
+            if (total == 1) {
+                ApiR.string.notification_session_summary_calls_one
+            } else {
+                ApiR.string.notification_session_summary_calls_many
+            }
+        )
+        return if (providerCount == 1) {
+            context.getString(
+                ApiR.string.notification_session_summary_single_integration,
+                total,
+                callsLabel
+            )
+        } else {
+            val integrationsLabel = context.getString(
+                ApiR.string.notification_session_summary_integrations_many
+            )
+            context.getString(
+                ApiR.string.notification_session_summary_multi_integration,
+                total,
+                callsLabel,
+                providerCount,
+                integrationsLabel
+            )
+        }
+    }
 
     companion object {
         /** Notification id used for the summary notification. */
