@@ -8,8 +8,14 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -78,5 +84,42 @@ class FcmTokenRegistrarTest {
         registrar.registerToken("token-abc")
 
         coVerify(exactly = 1) { tunnelClient.sendFcmToken("token-abc") }
+    }
+
+    @Test
+    fun `registerToken propagates cancellation when scope is cancelled mid-send`() = runBlocking {
+        val tunnelClient = mockk<TunnelClient>()
+        every { tunnelClient.state } returns MutableStateFlow(TunnelState.CONNECTED)
+        val sendStarted = CompletableDeferred<Unit>()
+        val neverCompletes = CompletableDeferred<Unit>()
+        coEvery { tunnelClient.sendFcmToken(any()) } coAnswers {
+            sendStarted.complete(Unit)
+            // Suspend until cancelled — simulates a slow send that never returns.
+            neverCompletes.await()
+        }
+
+        val registrar = FcmTokenRegistrar(tunnelClient)
+        val caught = CompletableDeferred<Throwable>()
+        val job: Job = launch {
+            try {
+                registrar.registerToken("token-abc")
+                caught.complete(IllegalStateException("registerToken returned normally"))
+            } catch (e: CancellationException) {
+                caught.complete(e)
+                throw e
+            }
+        }
+
+        // Wait until sendFcmToken is actually suspended, then cancel.
+        sendStarted.await()
+        job.cancel()
+        job.join()
+
+        val thrown = caught.await()
+        assertTrue(
+            "registerToken must propagate CancellationException, got ${thrown::class}",
+            thrown is CancellationException
+        )
+        assertNotNull(thrown)
     }
 }

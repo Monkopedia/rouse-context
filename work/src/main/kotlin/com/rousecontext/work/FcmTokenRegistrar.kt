@@ -3,6 +3,7 @@ package com.rousecontext.work
 import android.util.Log
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
+import kotlinx.coroutines.CancellationException
 
 /**
  * Forwards refreshed FCM tokens to the relay over the active tunnel connection.
@@ -34,6 +35,8 @@ class FcmTokenRegistrar(private val tunnelClient: TunnelClient) {
         try {
             tunnelClient.sendFcmToken(token)
             Log.i(TAG, "Forwarded refreshed FCM token to relay")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to push refreshed FCM token; next wake will pull", e)
         }
