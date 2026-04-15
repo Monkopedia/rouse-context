@@ -162,6 +162,21 @@
     <string name="screen_usage_setup_privacy">AI clients will be able to see your complete app usage history, including which apps you use, how often, and when.</string>
     <string name="screen_usage_setup_access_granted">Access granted</string>
 
+    <!-- Integration Manage screen -->
+    <string name="screen_integration_manage_settings_content_description">Settings</string>
+    <string name="screen_integration_manage_authorized_clients">Authorized Clients</string>
+    <string name="screen_integration_manage_waiting_title">Waiting for first AI client</string>
+    <string name="screen_integration_manage_waiting_subtitle">Tap \"Add AI Client\" to get the integration URL</string>
+    <string name="screen_integration_manage_client_meta">%1$s \u00b7 %2$s</string>
+    <string name="screen_integration_manage_revoke">Revoke</string>
+    <string name="screen_integration_manage_view_all_count">View all (%1$d)</string>
+    <string name="screen_integration_manage_add_client">Add AI Client</string>
+    <string name="screen_integration_manage_recent_activity">Recent Activity</string>
+    <string name="screen_integration_manage_no_recent_activity">No recent activity</string>
+    <string name="screen_integration_manage_view_all">View all</string>
+    <string name="screen_integration_manage_cancel_setup">Cancel Setup</string>
+    <string name="screen_integration_manage_disable">Disable Integration</string>
+
     <!-- Integration Enabled screen -->
     <string name="screen_integration_enabled_title">%1$s Ready</string>
     <string name="screen_integration_enabled_heading">%1$s is set up</string>
