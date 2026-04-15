@@ -24,9 +24,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.appBarColors
@@ -75,11 +77,14 @@ fun AuditDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Audit Detail") },
+                title = { Text(stringResource(R.string.screen_audit_detail_title)) },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
@@ -94,7 +99,7 @@ private fun AuditDetailBody(uiState: AuditDetailUiState, modifier: Modifier = Mo
     when (uiState) {
         is AuditDetailUiState.Loading -> LoadingIndicator(modifier = modifier)
         is AuditDetailUiState.NotFound -> ErrorState(
-            message = "This entry is no longer available.",
+            message = stringResource(R.string.screen_audit_detail_not_found),
             modifier = modifier
         )
         is AuditDetailUiState.Loaded -> LoadedAuditDetail(
@@ -114,15 +119,18 @@ private fun LoadedAuditDetail(state: AuditDetailState, modifier: Modifier = Modi
     ) {
         Spacer(modifier = Modifier.height(16.dp))
 
+        val unknownTimestamp = stringResource(R.string.screen_audit_detail_timestamp_unknown)
+        val nonePlaceholder = stringResource(R.string.screen_audit_detail_none)
+
         // Tool name & provider
-        DetailSection(label = "Tool") {
+        DetailSection(label = stringResource(R.string.screen_audit_detail_tool)) {
             Text(
                 text = state.toolName,
                 style = MaterialTheme.typography.headlineSmall
             )
         }
 
-        DetailSection(label = "Provider") {
+        DetailSection(label = stringResource(R.string.screen_audit_detail_provider)) {
             Text(
                 text = state.provider,
                 style = MaterialTheme.typography.bodyLarge
@@ -130,33 +138,36 @@ private fun LoadedAuditDetail(state: AuditDetailState, modifier: Modifier = Modi
         }
 
         // Timestamp
-        DetailSection(label = "Timestamp") {
+        DetailSection(label = stringResource(R.string.screen_audit_detail_timestamp)) {
             Text(
-                text = formatTimestamp(state.timestampMillis),
+                text = formatTimestamp(state.timestampMillis, unknownTimestamp),
                 style = MaterialTheme.typography.bodyLarge
             )
         }
 
         // Duration
-        DetailSection(label = "Duration") {
+        DetailSection(label = stringResource(R.string.screen_audit_detail_duration)) {
             Text(
-                text = "${state.durationMs}ms",
+                text = stringResource(
+                    R.string.screen_audit_detail_duration_ms,
+                    state.durationMs
+                ),
                 style = MaterialTheme.typography.bodyLarge
             )
         }
 
         // Arguments
-        DetailSection(label = "Arguments") {
+        DetailSection(label = stringResource(R.string.screen_audit_detail_arguments)) {
             CodeBlock(
-                text = formatJsonOrRaw(state.argumentsJson),
+                text = formatJsonOrRaw(state.argumentsJson, nonePlaceholder),
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
         // Result
-        DetailSection(label = "Result") {
+        DetailSection(label = stringResource(R.string.screen_audit_detail_result)) {
             CodeBlock(
-                text = formatJsonOrRaw(state.resultJson),
+                text = formatJsonOrRaw(state.resultJson, nonePlaceholder),
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -197,13 +208,13 @@ private fun CodeBlock(text: String, modifier: Modifier = Modifier) {
 private val DETAIL_TIMESTAMP_FORMAT =
     SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
 
-private fun formatTimestamp(millis: Long): String {
-    if (millis == 0L) return "Unknown"
+private fun formatTimestamp(millis: Long, unknownLabel: String): String {
+    if (millis == 0L) return unknownLabel
     return DETAIL_TIMESTAMP_FORMAT.format(Date(millis))
 }
 
-private fun formatJsonOrRaw(json: String?): String {
-    if (json.isNullOrBlank()) return "(none)"
+private fun formatJsonOrRaw(json: String?, noneLabel: String): String {
+    if (json.isNullOrBlank()) return noneLabel
     // Simple pretty-print: indent by inserting newlines after { and , and before }
     return try {
         prettyPrintJson(json)

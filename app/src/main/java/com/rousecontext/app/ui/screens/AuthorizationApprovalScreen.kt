@@ -29,10 +29,12 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.appBarColors
@@ -115,13 +117,13 @@ fun AuthorizationApprovalScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Approve AI Client") },
+                title = { Text(stringResource(R.string.screen_auth_approval_title)) },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.common_back)
                         )
                     }
                 }
@@ -153,12 +155,12 @@ private fun LoadedAuthorizationApproval(
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "No Pending Requests",
+                text = stringResource(R.string.screen_auth_approval_empty_title),
                 style = MaterialTheme.typography.headlineMedium
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Authorization requests from AI clients will appear here.",
+                text = stringResource(R.string.screen_auth_approval_empty_description),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -175,7 +177,11 @@ private fun LoadedAuthorizationApproval(
         ) {
             if (pendingRequests.size > 1) {
                 Text(
-                    text = "1 of ${pendingRequests.size}",
+                    text = stringResource(
+                        R.string.screen_auth_approval_counter,
+                        1,
+                        pendingRequests.size
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -220,7 +226,7 @@ private fun AuthorizationRequestCard(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Confirm this code matches the one shown by the AI client.",
+                text = stringResource(R.string.screen_auth_approval_confirm_code),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -243,7 +249,7 @@ private fun AuthorizationRequestCard(
                         MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                     )
                 ) {
-                    Text("Deny")
+                    Text(stringResource(R.string.screen_auth_approval_deny))
                 }
                 Button(
                     onClick = { onApprove(request.displayCode) },
@@ -253,7 +259,7 @@ private fun AuthorizationRequestCard(
                         contentColor = Color.White
                     )
                 ) {
-                    Text("Approve")
+                    Text(stringResource(R.string.screen_auth_approval_approve))
                 }
             }
         }

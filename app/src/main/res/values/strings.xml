@@ -64,6 +64,42 @@
     <string name="screen_notification_preferences_suppress_title">Suppress notifications</string>
     <string name="screen_notification_preferences_suppress_description">Only see activity in audit log</string>
 
+    <!-- Authorization Approval screen -->
+    <string name="screen_auth_approval_title">Approve AI Client</string>
+    <string name="screen_auth_approval_empty_title">No Pending Requests</string>
+    <string name="screen_auth_approval_empty_description">Authorization requests from AI clients will appear here.</string>
+    <string name="screen_auth_approval_counter">%1$d of %2$d</string>
+    <string name="screen_auth_approval_confirm_code">Confirm this code matches the one shown by the AI client.</string>
+    <string name="screen_auth_approval_deny">Deny</string>
+    <string name="screen_auth_approval_approve">Approve</string>
+
+    <!-- Audit Detail screen -->
+    <string name="screen_audit_detail_title">Audit Detail</string>
+    <string name="screen_audit_detail_not_found">This entry is no longer available.</string>
+    <string name="screen_audit_detail_tool">Tool</string>
+    <string name="screen_audit_detail_provider">Provider</string>
+    <string name="screen_audit_detail_timestamp">Timestamp</string>
+    <string name="screen_audit_detail_duration">Duration</string>
+    <string name="screen_audit_detail_arguments">Arguments</string>
+    <string name="screen_audit_detail_result">Result</string>
+    <string name="screen_audit_detail_duration_ms">%1$dms</string>
+    <string name="screen_audit_detail_timestamp_unknown">Unknown</string>
+    <string name="screen_audit_detail_none">(none)</string>
+
+    <!-- Audit History screen -->
+    <string name="screen_audit_history_title">Audit History</string>
+    <string name="screen_audit_history_filter_provider">Provider</string>
+    <string name="screen_audit_history_filter_date">Date</string>
+    <string name="screen_audit_history_empty_title">No tool calls recorded yet</string>
+    <string name="screen_audit_history_empty_description">Activity will appear here after\nAI clients access your data.</string>
+    <string name="screen_audit_history_retention_note">Audit history is kept until you clear it manually.</string>
+    <string name="screen_audit_history_clear">Clear history</string>
+    <string name="screen_audit_history_duration_ms">%1$dms</string>
+    <string name="screen_audit_history_result_bytes">%1$dB</string>
+    <string name="screen_audit_history_nav_home">Home</string>
+    <string name="screen_audit_history_nav_audit">Audit</string>
+    <string name="screen_audit_history_nav_settings">Settings</string>
+
     <!-- Integration Enabled screen -->
     <string name="screen_integration_enabled_title">%1$s Ready</string>
     <string name="screen_integration_enabled_heading">%1$s is set up</string>

@@ -42,10 +42,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
@@ -170,14 +172,14 @@ fun AuditHistoryContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             FilterDropdown(
-                label = "Provider",
+                label = stringResource(R.string.screen_audit_history_filter_provider),
                 selected = state.providerFilter,
                 options = state.availableProviders,
                 onSelected = onProviderFilterChanged,
                 modifier = Modifier.weight(1f)
             )
             FilterDropdown(
-                label = "Date",
+                label = stringResource(R.string.screen_audit_history_filter_date),
                 selected = state.dateFilter,
                 options = state.availableDates,
                 onSelected = onDateFilterChanged,
@@ -203,14 +205,14 @@ fun AuditHistoryContent(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "No tool calls recorded yet",
+                    text = stringResource(R.string.screen_audit_history_empty_title),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Activity will appear here after\nAI clients access your data.",
+                    text = stringResource(R.string.screen_audit_history_empty_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
@@ -245,7 +247,7 @@ fun AuditHistoryContent(
             }
 
             Text(
-                text = "Audit history is kept until you clear it manually.",
+                text = stringResource(R.string.screen_audit_history_retention_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 12.dp)
@@ -264,7 +266,7 @@ fun AuditHistoryContent(
                     MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
                 )
             ) {
-                Text("Clear history")
+                Text(stringResource(R.string.screen_audit_history_clear))
             }
         }
     }
@@ -287,7 +289,7 @@ fun AuditHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Audit History") },
+                title = { Text(stringResource(R.string.screen_audit_history_title)) },
                 colors = appBarColors()
             )
         },
@@ -298,9 +300,14 @@ fun AuditHistoryScreen(
                     selected = false,
                     onClick = { onTabSelected(0) },
                     icon = {
-                        Icon(Icons.Default.Home, contentDescription = "Home")
+                        Icon(
+                            Icons.Default.Home,
+                            contentDescription = stringResource(
+                                R.string.screen_audit_history_nav_home
+                            )
+                        )
                     },
-                    label = { Text("Home") },
+                    label = { Text(stringResource(R.string.screen_audit_history_nav_home)) },
                     colors = itemColors
                 )
                 NavigationBarItem(
@@ -309,10 +316,12 @@ fun AuditHistoryScreen(
                     icon = {
                         Icon(
                             Icons.Default.History,
-                            contentDescription = "Audit"
+                            contentDescription = stringResource(
+                                R.string.screen_audit_history_nav_audit
+                            )
                         )
                     },
-                    label = { Text("Audit") },
+                    label = { Text(stringResource(R.string.screen_audit_history_nav_audit)) },
                     colors = itemColors
                 )
                 NavigationBarItem(
@@ -321,10 +330,12 @@ fun AuditHistoryScreen(
                     icon = {
                         Icon(
                             Icons.Default.Settings,
-                            contentDescription = "Settings"
+                            contentDescription = stringResource(
+                                R.string.screen_audit_history_nav_settings
+                            )
                         )
                     },
-                    label = { Text("Settings") },
+                    label = { Text(stringResource(R.string.screen_audit_history_nav_settings)) },
                     colors = itemColors
                 )
             }
@@ -366,7 +377,10 @@ private fun ToolCallRow(entry: AuditHistoryEntry, onClick: () -> Unit) {
             Spacer(modifier = Modifier.height(2.dp))
             Row {
                 Text(
-                    "${entry.durationMs}ms",
+                    stringResource(
+                        R.string.screen_audit_history_duration_ms,
+                        entry.durationMs
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -413,14 +427,20 @@ private fun RequestRow(item: AuditHistoryItem.Request) {
             Spacer(modifier = Modifier.height(2.dp))
             Row {
                 Text(
-                    "${item.durationMs}ms",
+                    stringResource(
+                        R.string.screen_audit_history_duration_ms,
+                        item.durationMs
+                    ),
                     style = MaterialTheme.typography.labelSmall,
                     color = mutedContent
                 )
                 if (item.resultBytes != null) {
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        "${item.resultBytes}B",
+                        stringResource(
+                            R.string.screen_audit_history_result_bytes,
+                            item.resultBytes
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = mutedContent
                     )
