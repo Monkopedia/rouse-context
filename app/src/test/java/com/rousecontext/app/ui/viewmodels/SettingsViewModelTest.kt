@@ -1,14 +1,15 @@
 package com.rousecontext.app.ui.viewmodels
 
-import android.content.SharedPreferences
+import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.TrustOverallStatus
-import com.rousecontext.work.SecurityCheckWorker
+import com.rousecontext.work.SecurityCheckPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -18,6 +19,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -30,8 +32,11 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
 class SettingsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
@@ -99,7 +104,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `trust status is null when no checks have run`() = runTest(testDispatcher) {
-        val prefs = createMockPrefs(lastCheckTime = 0L)
+        val prefs = freshSecurityPrefs()
         val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
         vm.state.test {
             val state = awaitItem()
@@ -109,12 +114,15 @@ class SettingsViewModelTest {
 
     @Test
     fun `trust status shows verified when both checks pass`() = runTest(testDispatcher) {
-        val prefs = createMockPrefs(
-            lastCheckTime = 1000L,
-            selfResult = "verified",
-            ctResult = "verified",
-            fingerprint = "AA:BB:CC"
-        )
+        val prefs = freshSecurityPrefs()
+        runBlocking {
+            prefs.recordCheck(
+                lastCheckAt = 1_000L,
+                selfCertResult = "verified",
+                ctLogResult = "verified"
+            )
+            prefs.setCertFingerprint("AA:BB:CC")
+        }
         val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
         vm.state.test {
             awaitItem()
@@ -129,11 +137,10 @@ class SettingsViewModelTest {
 
     @Test
     fun `trust status shows warning when self-check warns`() = runTest(testDispatcher) {
-        val prefs = createMockPrefs(
-            lastCheckTime = 1000L,
-            selfResult = "warning",
-            ctResult = "verified"
-        )
+        val prefs = freshSecurityPrefs()
+        runBlocking {
+            prefs.recordCheck(1_000L, "warning", "verified")
+        }
         val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
         vm.state.test {
             awaitItem()
@@ -144,11 +151,10 @@ class SettingsViewModelTest {
 
     @Test
     fun `trust status shows alert when ct check alerts`() = runTest(testDispatcher) {
-        val prefs = createMockPrefs(
-            lastCheckTime = 1000L,
-            selfResult = "verified",
-            ctResult = "alert"
-        )
+        val prefs = freshSecurityPrefs()
+        runBlocking {
+            prefs.recordCheck(1_000L, "verified", "alert")
+        }
         val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
         vm.state.test {
             awaitItem()
@@ -159,11 +165,10 @@ class SettingsViewModelTest {
 
     @Test
     fun `alert takes precedence over warning`() = runTest(testDispatcher) {
-        val prefs = createMockPrefs(
-            lastCheckTime = 1000L,
-            selfResult = "warning",
-            ctResult = "alert"
-        )
+        val prefs = freshSecurityPrefs()
+        runBlocking {
+            prefs.recordCheck(1_000L, "warning", "alert")
+        }
         val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
         vm.state.test {
             awaitItem()
@@ -348,14 +353,24 @@ class SettingsViewModelTest {
         )
     }
 
+    private fun freshSecurityPrefs(): SecurityCheckPreferences {
+        val prefs = SecurityCheckPreferences(ApplicationProvider.getApplicationContext())
+        runBlocking {
+            // Reset any state left over from a sibling test in the same VM.
+            prefs.clearResults()
+            prefs.setCertFingerprint("")
+        }
+        return prefs
+    }
+
     private fun createViewModel(
         mode: PostSessionMode,
-        securityPrefs: SharedPreferences? = null
+        securityPrefs: SecurityCheckPreferences? = null
     ): SettingsViewModel = createViewModel(mode, securityPrefs, provider = null)
 
     private fun createViewModel(
         mode: PostSessionMode,
-        securityPrefs: SharedPreferences?,
+        securityPrefs: SecurityCheckPreferences?,
         provider: NotificationSettingsProvider?,
         spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
     ): SettingsViewModel {
@@ -372,6 +387,7 @@ class SettingsViewModelTest {
         val themePref = mockk<ThemePreference> {
             every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
         }
+        val appStatePrefs: AppStatePreferences? = null
         return SettingsViewModel(
             resolvedProvider,
             themePref,
@@ -379,25 +395,8 @@ class SettingsViewModelTest {
             mockk(relaxed = true),
             emptyList(),
             securityPrefs,
+            appStatePrefs,
             spuriousWakesFlow = spuriousWakesFlow
         )
-    }
-
-    private fun createMockPrefs(
-        lastCheckTime: Long = 0L,
-        selfResult: String = "",
-        ctResult: String = "",
-        fingerprint: String = ""
-    ): SharedPreferences = mockk {
-        every { getLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L) } returns lastCheckTime
-        every {
-            getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, "")
-        } returns selfResult
-        every {
-            getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, "")
-        } returns ctResult
-        every {
-            getString(SettingsViewModel.KEY_CERT_FINGERPRINT, "")
-        } returns fingerprint
     }
 }

@@ -1,12 +1,11 @@
 package com.rousecontext.app.ui.viewmodels
 
-import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
-import com.rousecontext.app.RouseApplication
+import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.SettingsState
@@ -15,14 +14,12 @@ import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
-import com.rousecontext.work.SecurityCheckWorker
-import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
-import kotlinx.coroutines.channels.awaitClose
+import com.rousecontext.work.SecurityCheckPreferences
+import com.rousecontext.work.SpuriousWakePreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -54,14 +51,45 @@ class SettingsViewModel(
     private val relayApiClient: RelayApiClient,
     private val certStore: CertificateStore,
     private val integrations: List<McpIntegration> = emptyList(),
-    private val securityCheckPrefs: SharedPreferences? = null,
-    private val settingsPrefs: SharedPreferences? = null,
+    private val securityCheckPreferences: SecurityCheckPreferences? = null,
+    private val appStatePreferences: AppStatePreferences? = null,
     spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
     private val rotateInProgress = MutableStateFlow(false)
     private val rotateError = MutableStateFlow<String?>(null)
+
+    /**
+     * Reactive trust status: recomputed whenever the underlying
+     * [SecurityCheckPreferences] values change. Falls back to a single emission
+     * of `null` when the accessor is absent (tests only).
+     */
+    private val trustStatusFlow: Flow<TrustStatusState?> =
+        securityCheckPreferences?.let { prefs ->
+            combine(
+                prefs.observeLastCheckAt(),
+                prefs.observeSelfCertResult(),
+                prefs.observeCtLogResult(),
+                prefs.observeCertFingerprint()
+            ) { lastCheck, self, ct, fingerprint ->
+                if (lastCheck == 0L) {
+                    null
+                } else {
+                    TrustStatusState(
+                        lastCheckTime = lastCheck,
+                        selfCheckResult = self,
+                        ctCheckResult = ct,
+                        certFingerprint = fingerprint,
+                        overallStatus = computeOverallStatus(self, ct)
+                    )
+                }
+            }
+        } ?: flowOf(null)
+
+    private val intervalFlow: Flow<Int> = appStatePreferences
+        ?.observeSecurityCheckIntervalHours()
+        ?: flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
 
     val state: StateFlow<SettingsState> = combine(
         combine(
@@ -73,21 +101,19 @@ class SettingsViewModel(
         ) { _, themeMode, rotating, rotateErr, spurious ->
             Quint(themeMode, rotating, rotateErr, spurious, Unit)
         },
-        notificationSettingsProvider.observeSettings()
-    ) { tuple, settings ->
+        notificationSettingsProvider.observeSettings(),
+        trustStatusFlow,
+        intervalFlow
+    ) { tuple, settings, trust, intervalHours ->
         val themeMode = tuple.a
         val rotating = tuple.b
         val rotateErr = tuple.c
         val spurious = tuple.d
-        val intervalHours = settingsPrefs?.getInt(
-            RouseApplication.KEY_SECURITY_CHECK_INTERVAL_HOURS,
-            RouseApplication.DEFAULT_INTERVAL_HOURS
-        ) ?: RouseApplication.DEFAULT_INTERVAL_HOURS
         SettingsState(
             postSessionMode = settings.postSessionMode.toDisplayString(),
             themeMode = themeMode.toDisplayString(),
             securityCheckInterval = "$intervalHours hours",
-            trustStatus = readTrustStatus(),
+            trustStatus = trust,
             canRotateAddress = !rotating,
             rotationCooldownMessage = rotateErr,
             spuriousWakesLast24h = spurious.rolling24h,
@@ -160,12 +186,11 @@ class SettingsViewModel(
 
     fun setSecurityCheckInterval(interval: String) {
         val hours = interval.replace(" hours", "").toIntOrNull()
-            ?: RouseApplication.DEFAULT_INTERVAL_HOURS
-        settingsPrefs?.edit()?.putInt(
-            RouseApplication.KEY_SECURITY_CHECK_INTERVAL_HOURS,
-            hours
-        )?.apply()
-        refresh()
+            ?: AppStatePreferences.DEFAULT_INTERVAL_HOURS
+        viewModelScope.launch {
+            appStatePreferences?.setSecurityCheckIntervalHours(hours)
+            refresh()
+        }
     }
 
     fun rotateSecret() {
@@ -200,12 +225,10 @@ class SettingsViewModel(
     }
 
     fun acknowledgeAlert() {
-        securityCheckPrefs?.edit()
-            ?.putString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, "")
-            ?.putString(SecurityCheckWorker.KEY_CT_LOG_RESULT, "")
-            ?.putLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L)
-            ?.apply()
-        refresh()
+        viewModelScope.launch {
+            securityCheckPreferences?.clearResults()
+            refresh()
+        }
     }
 
     fun refresh() {
@@ -214,65 +237,23 @@ class SettingsViewModel(
         }
     }
 
-    private fun readTrustStatus(): TrustStatusState? {
-        val prefs = securityCheckPrefs ?: return null
-        val lastCheckTime = prefs.getLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L)
-        if (lastCheckTime == 0L) return null
-
-        val selfResult = prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, "") ?: ""
-        val ctResult = prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, "") ?: ""
-        val fingerprint = prefs.getString(KEY_CERT_FINGERPRINT, "") ?: ""
-
-        val overallStatus = computeOverallStatus(selfResult, ctResult)
-
-        return TrustStatusState(
-            lastCheckTime = lastCheckTime,
-            selfCheckResult = selfResult,
-            ctCheckResult = ctResult,
-            certFingerprint = fingerprint,
-            overallStatus = overallStatus
-        )
-    }
-
     companion object {
         private const val STOP_TIMEOUT_MS = 5_000L
-        const val KEY_CERT_FINGERPRINT = "cert_fingerprint"
 
         /**
          * Build a flow that tracks spurious-wake stats written by
-         * [com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder]. Emits
-         * on first collection and whenever the recorder prefs change.
+         * [com.rousecontext.work.DataStoreSpuriousWakeRecorder]. Emits on
+         * first collection and whenever the underlying DataStore changes.
          */
         fun spuriousWakeStatsFlow(
-            prefs: SharedPreferences,
+            preferences: SpuriousWakePreferences,
             clock: () -> Long = { System.currentTimeMillis() }
-        ): Flow<SpuriousWakeStats> = callbackFlow {
-            fun emitCurrent() {
-                val total = prefs.getLong(
-                    SharedPreferencesSpuriousWakeRecorder.KEY_TOTAL,
-                    0L
-                )
-                val tsJson = prefs.getString(
-                    SharedPreferencesSpuriousWakeRecorder.KEY_SPURIOUS_TIMESTAMPS,
-                    null
-                )
-                val rolling = SharedPreferencesSpuriousWakeRecorder.countWithinWindow(
-                    tsJson,
-                    clock()
-                )
-                trySend(SpuriousWakeStats(rolling24h = rolling, total = total))
-            }
-
-            val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-                if (key == SharedPreferencesSpuriousWakeRecorder.KEY_TOTAL ||
-                    key == SharedPreferencesSpuriousWakeRecorder.KEY_SPURIOUS_TIMESTAMPS
-                ) {
-                    emitCurrent()
-                }
-            }
-            prefs.registerOnSharedPreferenceChangeListener(listener)
-            emitCurrent()
-            awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+        ): Flow<SpuriousWakeStats> = preferences.observeCounters().map { counters ->
+            val rolling = SpuriousWakePreferences.countWithinWindow(
+                counters.serializedTimestamps,
+                clock()
+            )
+            SpuriousWakeStats(rolling24h = rolling, total = counters.total)
         }
 
         private fun PostSessionMode.toDisplayString(): String = when (this) {

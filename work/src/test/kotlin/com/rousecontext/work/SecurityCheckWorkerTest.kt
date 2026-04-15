@@ -1,7 +1,6 @@
 package com.rousecontext.work
 
 import android.content.Context
-import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.testing.TestListenableWorkerBuilder
@@ -20,17 +19,14 @@ import org.robolectric.RobolectricTestRunner
 class SecurityCheckWorkerTest {
 
     private lateinit var context: Context
-    private lateinit var prefs: SharedPreferences
+    private lateinit var prefs: SecurityCheckPreferences
     private lateinit var fakeNotifier: FakeSecurityCheckNotifier
 
     @Before
-    fun setUp() {
+    fun setUp() = runBlocking {
         context = ApplicationProvider.getApplicationContext()
-        prefs = context.getSharedPreferences(
-            SecurityCheckWorker.PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
-        prefs.edit().clear().commit()
+        prefs = SecurityCheckPreferences(context)
+        prefs.clearResults()
         fakeNotifier = FakeSecurityCheckNotifier()
     }
 
@@ -44,9 +40,9 @@ class SecurityCheckWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals("verified", prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null))
-        assertEquals("verified", prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null))
-        assertTrue(prefs.getLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L) > 0)
+        assertEquals("verified", prefs.selfCertResult())
+        assertEquals("verified", prefs.ctLogResult())
+        assertTrue(prefs.lastCheckAt() > 0)
         assertEquals(emptyList<FakeSecurityCheckNotifier.Call>(), fakeNotifier.calls)
     }
 
@@ -61,14 +57,8 @@ class SecurityCheckWorkerTest {
             val result = worker.doWork()
 
             assertEquals(ListenableWorker.Result.success(), result)
-            assertEquals(
-                "alert",
-                prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null)
-            )
-            assertEquals(
-                "verified",
-                prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null)
-            )
+            assertEquals("alert", prefs.selfCertResult())
+            assertEquals("verified", prefs.ctLogResult())
             assertEquals(
                 listOf(
                     FakeSecurityCheckNotifier.Call.Alert(
@@ -91,14 +81,8 @@ class SecurityCheckWorkerTest {
             val result = worker.doWork()
 
             assertEquals(ListenableWorker.Result.success(), result)
-            assertEquals(
-                "verified",
-                prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null)
-            )
-            assertEquals(
-                "alert",
-                prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null)
-            )
+            assertEquals("verified", prefs.selfCertResult())
+            assertEquals("alert", prefs.ctLogResult())
             assertEquals(
                 listOf(
                     FakeSecurityCheckNotifier.Call.Alert(
@@ -110,8 +94,8 @@ class SecurityCheckWorkerTest {
             )
 
             // Simulate the alert gate used by McpSession (see AppModule.kt securityAlertCheck).
-            val selfResult = prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, "") ?: ""
-            val ctResult = prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, "") ?: ""
+            val selfResult = prefs.selfCertResult()
+            val ctResult = prefs.ctLogResult()
             val alertGateTriggered = selfResult == "alert" || ctResult == "alert"
             assertTrue(
                 "CT log alert must trigger the same alert gate as SelfCertVerifier",
@@ -129,8 +113,8 @@ class SecurityCheckWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals("verified", prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null))
-        assertEquals("warning", prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null))
+        assertEquals("verified", prefs.selfCertResult())
+        assertEquals("warning", prefs.ctLogResult())
         assertEquals(
             listOf(
                 FakeSecurityCheckNotifier.Call.Info(
@@ -152,8 +136,8 @@ class SecurityCheckWorkerTest {
         val result = worker.doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals("warning", prefs.getString(SecurityCheckWorker.KEY_SELF_CERT_RESULT, null))
-        assertEquals("warning", prefs.getString(SecurityCheckWorker.KEY_CT_LOG_RESULT, null))
+        assertEquals("warning", prefs.selfCertResult())
+        assertEquals("warning", prefs.ctLogResult())
         assertEquals(
             listOf(
                 FakeSecurityCheckNotifier.Call.Info(
@@ -177,6 +161,7 @@ class SecurityCheckWorkerTest {
         worker.selfCertVerifier = StubSecurityCheck(selfCertResult)
         worker.ctLogMonitor = StubSecurityCheck(ctResult)
         worker.notifier = fakeNotifier
+        worker.preferences = prefs
         return worker
     }
 }

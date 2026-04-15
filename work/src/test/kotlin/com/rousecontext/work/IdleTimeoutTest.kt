@@ -225,7 +225,7 @@ class IdleTimeoutTest {
         var totalCount: Int = 0
             private set
 
-        override fun recordWakeCycle(hadActiveStream: Boolean) {
+        override suspend fun recordWakeCycle(hadActiveStream: Boolean) {
             totalCount++
             if (!hadActiveStream) spuriousCount++
         }

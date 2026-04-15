@@ -1,7 +1,6 @@
 package com.rousecontext.work
 
 import android.app.ForegroundServiceStartNotAllowedException
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -52,6 +51,7 @@ class TunnelForegroundService : LifecycleService() {
     private val idleTimeoutManager: IdleTimeoutManager by inject()
     private val providerRegistry: ProviderRegistry by inject()
     private val sessionSummaryNotifier: SessionSummaryNotifier by inject()
+    private val securityCheckPreferences: SecurityCheckPreferences by inject()
     private val relayUrl: String by inject(named("relayUrl"))
 
     /** Set true when idle timeout fires or user explicitly stops - suppresses reconnect. */
@@ -178,12 +178,8 @@ class TunnelForegroundService : LifecycleService() {
         }
     }
 
-    private fun triggerOpportunisticSecurityCheck() {
-        val prefs = getSharedPreferences(
-            SecurityCheckWorker.PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
-        val lastCheck = prefs.getLong(SecurityCheckWorker.KEY_LAST_CHECK_TIME, 0L)
+    private suspend fun triggerOpportunisticSecurityCheck() {
+        val lastCheck = securityCheckPreferences.lastCheckAt()
         val elapsed = System.currentTimeMillis() - lastCheck
         if (elapsed > STALE_CHECK_THRESHOLD_MS) {
             Log.i(TAG, "Last security check was ${elapsed / 3_600_000}h ago, triggering check")

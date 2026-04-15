@@ -7,6 +7,8 @@ import androidx.work.WorkerParameters
 import com.rousecontext.notifications.SecurityCheckNotifier
 import com.rousecontext.notifications.SecurityCheckNotifier.SecurityCheck
 import com.rousecontext.tunnel.SecurityCheckResult
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
 
 /**
  * Abstraction for a security check that can be verified.
@@ -22,14 +24,15 @@ interface SecurityCheckSource {
  * 1. Self-cert verification (fingerprint match against known certs)
  * 2. CT log monitoring (unexpected certificate issuers)
  *
- * Results are stored in SharedPreferences for UI consumption.
+ * Results are stored via [SecurityCheckPreferences] (DataStore-backed) for UI consumption.
  * Alerts and warnings are posted by [SecurityCheckNotifier] using stable ids per
  * (check, severity) pair, so repeated runs replace the existing notification rather
  * than stacking or clobbering prior runs' unrelated notifications.
  * Always returns [Result.success] since the checks handle their own graceful degradation.
  */
 class SecurityCheckWorker(context: Context, params: WorkerParameters) :
-    CoroutineWorker(context, params) {
+    CoroutineWorker(context, params),
+    KoinComponent {
 
     /** Injected by WorkerFactory in production, set directly in tests. */
     lateinit var selfCertVerifier: SecurityCheckSource
@@ -40,18 +43,22 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
     /** Injected by WorkerFactory in production, set directly in tests. */
     lateinit var notifier: SecurityCheckNotifier
 
+    private val injectedPreferences: SecurityCheckPreferences by inject()
+
+    /** Optional override for tests; production reads via Koin. */
+    var preferences: SecurityCheckPreferences? = null
+
     override suspend fun doWork(): Result {
         Log.d(TAG, "Starting security checks")
 
         val selfCertResult = selfCertVerifier.check()
         val ctResult = ctLogMonitor.check()
 
-        val prefs = applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
-            .putLong(KEY_LAST_CHECK_TIME, System.currentTimeMillis())
-            .putString(KEY_SELF_CERT_RESULT, resultToString(selfCertResult))
-            .putString(KEY_CT_LOG_RESULT, resultToString(ctResult))
-            .apply()
+        (preferences ?: injectedPreferences).recordCheck(
+            lastCheckAt = System.currentTimeMillis(),
+            selfCertResult = resultToString(selfCertResult),
+            ctLogResult = resultToString(ctResult)
+        )
 
         handleResult(SecurityCheck.SELF_CERT, "Self-cert verification", selfCertResult)
         handleResult(SecurityCheck.CT_LOG, "CT log check", ctResult)
@@ -81,11 +88,6 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
     companion object {
         const val TAG = "SecurityCheckWorker"
         const val WORK_NAME = "security_check"
-        const val PREFS_NAME = "security_check_prefs"
-
-        const val KEY_LAST_CHECK_TIME = "last_check_time"
-        const val KEY_SELF_CERT_RESULT = "self_cert_result"
-        const val KEY_CT_LOG_RESULT = "ct_log_result"
 
         private fun resultToString(result: SecurityCheckResult): String = when (result) {
             is SecurityCheckResult.Verified -> "verified"

@@ -1,13 +1,13 @@
 package com.rousecontext.app
 
 import android.app.Application
-import android.content.Context
 import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
+import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.work.CertRenewalScheduler
 import com.rousecontext.work.KoinWorkerFactory
@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.GlobalContext
 import org.koin.core.context.startKoin
@@ -67,30 +68,31 @@ class RouseApplication :
         CertRenewalScheduler.enqueuePeriodic(this)
     }
 
+    /**
+     * Enqueue the periodic security-check worker. Interval is read from
+     * [AppStatePreferences]; we launch into [appScope] because the read is
+     * suspending and onCreate must not block.
+     */
     private fun scheduleSecurityChecks() {
-        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val intervalHours = prefs.getInt(KEY_SECURITY_CHECK_INTERVAL_HOURS, DEFAULT_INTERVAL_HOURS)
-        val flexHours = (intervalHours / 4).coerceAtLeast(1)
-        val request = PeriodicWorkRequestBuilder<SecurityCheckWorker>(
-            intervalHours.toLong(),
-            TimeUnit.HOURS,
-            flexHours.toLong(),
-            TimeUnit.HOURS
-        ).build()
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "security-check",
-            ExistingPeriodicWorkPolicy.UPDATE,
-            request
-        )
+        appScope.launch {
+            val appState = AppStatePreferences(this@RouseApplication)
+            val intervalHours = appState.securityCheckIntervalHours()
+            val flexHours = (intervalHours / 4).coerceAtLeast(1)
+            val request = PeriodicWorkRequestBuilder<SecurityCheckWorker>(
+                intervalHours.toLong(),
+                TimeUnit.HOURS,
+                flexHours.toLong(),
+                TimeUnit.HOURS
+            ).build()
+            WorkManager.getInstance(this@RouseApplication).enqueueUniquePeriodicWork(
+                "security-check",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request
+            )
+        }
     }
 
     private fun scopeModule() = module {
         single(named("appScope")) { appScope }
-    }
-
-    companion object {
-        const val PREFS_NAME = "rouse_settings"
-        const val KEY_SECURITY_CHECK_INTERVAL_HOURS = "security_check_interval_hours"
-        const val DEFAULT_INTERVAL_HOURS = 12
     }
 }
