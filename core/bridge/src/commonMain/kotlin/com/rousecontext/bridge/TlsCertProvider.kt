@@ -16,5 +16,5 @@ interface TlsCertProvider {
      *
      * Returns null if no certificate is available (e.g., onboarding not complete).
      */
-    fun serverSslContext(): SSLContext?
+    suspend fun serverSslContext(): SSLContext?
 }

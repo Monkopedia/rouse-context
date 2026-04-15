@@ -90,7 +90,7 @@ class TunnelMcpIntegrationTest {
      * Wraps [TestCertificateStore] as a [TlsCertProvider] for [SessionHandler].
      */
     private class TestCertAdapter(private val certStore: TestCertificateStore) : TlsCertProvider {
-        override fun serverSslContext(): SSLContext = certStore.sslContext
+        override suspend fun serverSslContext(): SSLContext = certStore.sslContext
     }
 
     /**
