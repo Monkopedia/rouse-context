@@ -105,6 +105,11 @@
     <string name="screen_audit_history_nav_home">Home</string>
     <string name="screen_audit_history_nav_audit">Audit</string>
     <string name="screen_audit_history_nav_settings">Settings</string>
+    <string name="screen_audit_history_provider_all">All providers</string>
+    <string name="screen_audit_history_date_today">Today</string>
+    <string name="screen_audit_history_date_yesterday">Yesterday</string>
+    <string name="screen_audit_history_date_last_7">Last 7 days</string>
+    <string name="screen_audit_history_date_last_30">Last 30 days</string>
 
     <!-- Health Connect setup screen -->
     <string name="screen_health_connect_setup_title">Health Connect Setup</string>

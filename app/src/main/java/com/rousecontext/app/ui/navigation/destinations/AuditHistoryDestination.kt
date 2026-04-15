@@ -18,6 +18,7 @@ import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.navigation.tabSlideDirection
 import com.rousecontext.app.ui.screens.AuditHistoryContent
+import com.rousecontext.app.ui.screens.ProviderFilterOption
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import org.koin.androidx.compose.koinViewModel
 
@@ -59,7 +60,7 @@ fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
             ?.getString("provider")
         LaunchedEffect(providerArg) {
             if (providerArg != null) {
-                viewModel.setProviderFilter(providerArg)
+                viewModel.setProviderFilter(ProviderFilterOption.Specific(providerArg))
             }
         }
         val state by viewModel.state.collectAsState()

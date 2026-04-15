@@ -5,6 +5,8 @@ import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.ui.screens.AuditHistoryItem
+import com.rousecontext.app.ui.screens.DateFilterOption
+import com.rousecontext.app.ui.screens.ProviderFilterOption
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.notifications.audit.McpRequestDao
@@ -60,8 +62,8 @@ class AuditHistoryViewModelTest {
             val loaded = awaitItem()
             assertFalse(loaded.isLoading)
             assertTrue(loaded.groups.isEmpty())
-            assertEquals("All providers", loaded.providerFilter)
-            assertEquals("Today", loaded.dateFilter)
+            assertEquals(ProviderFilterOption.All, loaded.providerFilter)
+            assertEquals(DateFilterOption.TODAY, loaded.dateFilter)
         }
     }
 
@@ -115,9 +117,9 @@ class AuditHistoryViewModelTest {
 
         vm.state.test {
             awaitItem()
-            vm.setProviderFilter("health")
+            vm.setProviderFilter(ProviderFilterOption.Specific("health"))
             val state = awaitItem()
-            assertEquals("health", state.providerFilter)
+            assertEquals(ProviderFilterOption.Specific("health"), state.providerFilter)
         }
 
         verify { auditDao.observeByDateRange(any(), any(), "health") }
@@ -237,7 +239,7 @@ class AuditHistoryViewModelTest {
 
     @Test
     fun `dateRangeFor returns correct range for Today`() {
-        val (start, end) = AuditHistoryViewModel.dateRangeFor("Today")
+        val (start, end) = AuditHistoryViewModel.dateRangeFor(DateFilterOption.TODAY)
         assertTrue(start <= System.currentTimeMillis())
         assertTrue(end >= start)
     }
