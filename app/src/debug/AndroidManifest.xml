@@ -12,6 +12,18 @@
                 <action android:name="com.rousecontext.action.TEST_WAKE" />
             </intent-filter>
         </receiver>
+        <!--
+          Debug-only: fires the production "Foreground service limit reached"
+          notification on demand so maintainers can screenshot it for the
+          user-facing docs. See DebugFgsLimitReceiver for the adb command.
+        -->
+        <receiver
+            android:name=".debug.DebugFgsLimitReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.rousecontext.debug.FIRE_FGS_LIMIT" />
+            </intent-filter>
+        </receiver>
         <provider
             android:name=".testing.TestCommandProvider"
             android:authorities="com.rousecontext.debug.test"
