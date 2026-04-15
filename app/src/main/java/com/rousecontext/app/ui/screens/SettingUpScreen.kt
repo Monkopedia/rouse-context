@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -103,13 +104,13 @@ private fun SettingUpBody(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(dimensionResource(R.dimen.spacing_xxl)),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             SettingUpLeadingGlyph(state.variant)
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xxl)))
 
             Text(
                 text = when (state.variant) {
@@ -126,7 +127,7 @@ private fun SettingUpBody(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             when (state.variant) {
                 is SettingUpVariant.Registering -> {
@@ -169,13 +170,13 @@ private fun SettingUpBody(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xxl)))
 
             if (state.variant is SettingUpVariant.Failed && onRetry != null) {
                 Button(onClick = onRetry) {
                     Text(stringResource(R.string.common_retry))
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
             }
 
             TextButton(onClick = onCancel) {

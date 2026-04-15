@@ -37,9 +37,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.FloatingSaveBar
 import com.rousecontext.app.ui.components.PrivacyWarningCard
@@ -142,24 +142,24 @@ private fun NotificationSetupBody(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             Text(
                 text = stringResource(R.string.screen_notification_setup_description),
                 style = MaterialTheme.typography.bodyLarge
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             // Privacy warning
             PrivacyWarningCard(
                 text = stringResource(R.string.screen_notification_setup_privacy)
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             // Permission status
             SectionHeader(stringResource(R.string.common_section_permission))
@@ -169,10 +169,10 @@ private fun NotificationSetupBody(
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = stringResource(R.string.common_granted),
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
                         tint = SuccessGreen
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
                     Text(
                         text = stringResource(
                             R.string.screen_notification_setup_access_granted
@@ -189,7 +189,7 @@ private fun NotificationSetupBody(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             // Retention picker
             SectionHeader(
@@ -201,7 +201,7 @@ private fun NotificationSetupBody(
                 onSelected = onRetentionChanged
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             // Action toggle
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -232,7 +232,7 @@ private fun NotificationSetupBody(
                     Text(stringResource(R.string.common_enable))
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
 
                 OutlinedButton(
                     onClick = onCancel,
@@ -242,7 +242,7 @@ private fun NotificationSetupBody(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
         }
         if (mode == SetupMode.SETTINGS) {
             FloatingSaveBar(

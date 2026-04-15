@@ -43,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -166,7 +167,7 @@ fun HomeDashboardContent(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
     ) {
         dashboardBannerItems(
             state = state,
@@ -201,7 +202,7 @@ fun HomeDashboardContent(
                     }
                 }
                 if (state.hasMoreIntegrationsToAdd) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                     AddIntegrationCard(onAddIntegration)
                 }
             }
@@ -209,7 +210,7 @@ fun HomeDashboardContent(
 
         // Recent activity
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             SectionHeader(stringResource(R.string.screen_dashboard_section_recent_activity))
         }
 
@@ -230,7 +231,7 @@ fun HomeDashboardContent(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -338,13 +339,13 @@ private fun ConnectionStatusRow(status: ConnectionStatus, sessionCount: Int) {
         Icon(
             imageVector = Icons.Default.Circle,
             contentDescription = null,
-            modifier = Modifier.size(12.dp),
+            modifier = Modifier.size(dimensionResource(R.dimen.spacing_md)),
             tint = when (status) {
                 ConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.primary
                 ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.outline
             }
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
         Text(
             text = when (status) {
                 ConnectionStatus.CONNECTED ->
@@ -372,16 +373,16 @@ private fun NotificationBannerCard(onClick: () -> Unit) {
         )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
             verticalAlignment = Alignment.Top
         ) {
             Icon(
                 imageVector = Icons.Default.NotificationsOff,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
                 tint = MaterialTheme.colorScheme.onErrorContainer
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(R.string.screen_dashboard_notifications_disabled_title),
@@ -410,9 +411,9 @@ private fun LazyListScope.dashboardBannerItems(
     // Cert banner (most urgent — show first).
     state.certBanner?.let { banner ->
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             CertBannerCard(banner, onRetryRenewal)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         }
     }
 
@@ -420,10 +421,10 @@ private fun LazyListScope.dashboardBannerItems(
     if (state.notificationBanner != null) {
         item {
             if (state.certBanner == null) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             }
             NotificationBannerCard(onClick = onOpenNotificationSettings)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         }
     }
 
@@ -431,10 +432,10 @@ private fun LazyListScope.dashboardBannerItems(
     state.spuriousWakeBanner?.let { banner ->
         item {
             if (state.certBanner == null && state.notificationBanner == null) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             }
             SpuriousWakeBannerCard(banner, onClick = onOpenSettings)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         }
     }
 
@@ -442,10 +443,10 @@ private fun LazyListScope.dashboardBannerItems(
     if (BuildConfig.DEBUG) {
         item {
             if (state.certBanner == null) {
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             }
             ConnectionStatusRow(state.connectionStatus, state.activeSessionCount)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         }
     }
 }
@@ -461,16 +462,16 @@ private fun SpuriousWakeBannerCard(banner: SpuriousWakeBanner, onClick: () -> Un
         )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
             verticalAlignment = Alignment.Top
         ) {
             Icon(
                 imageVector = Icons.Default.Schedule,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(R.string.screen_dashboard_spurious_wake_title),
@@ -497,11 +498,11 @@ private fun CertBannerCard(banner: CertBanner, onRetry: () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = bannerContainerColor(banner))
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
             verticalAlignment = Alignment.Top
         ) {
             BannerIcon(banner)
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Column(modifier = Modifier.weight(1f)) {
                 BannerBody(banner, onRetry)
             }
@@ -526,36 +527,36 @@ private fun BannerIcon(banner: CertBanner) {
         is CertBanner.Renewing -> Icon(
             Icons.Default.Sync,
             contentDescription = null,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm))
         )
         is CertBanner.Expired -> if (banner.renewalInProgress) {
             Icon(
                 Icons.Default.Sync,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm))
             )
         } else {
             Icon(
                 Icons.Default.ErrorOutline,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
                 tint = MaterialTheme.colorScheme.onErrorContainer
             )
         }
         is CertBanner.RateLimited -> Icon(
             Icons.Default.Schedule,
             contentDescription = null,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm))
         )
         is CertBanner.Onboarding -> Icon(
             Icons.Default.Build,
             contentDescription = null,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm))
         )
         is CertBanner.TerminalFailure -> Icon(
             Icons.Default.ErrorOutline,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
             tint = MaterialTheme.colorScheme.onErrorContainer
         )
     }
@@ -607,7 +608,7 @@ private fun ExpiredBody(banner: CertBanner.Expired, onRetry: () -> Unit) {
             stringResource(R.string.screen_dashboard_cert_expired_subtitle),
             style = MaterialTheme.typography.bodySmall
         )
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
         Button(
             onClick = onRetry,
             colors = ButtonDefaults.buttonColors(
@@ -637,17 +638,17 @@ private fun OnboardingBody(banner: CertBanner.Onboarding) {
         stringResource(R.string.screen_dashboard_cert_onboarding_title),
         style = MaterialTheme.typography.titleSmall
     )
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
     OnboardingStep(
         stringResource(R.string.screen_dashboard_cert_onboarding_step_keys),
         banner.generatingKeysDone
     )
-    Spacer(modifier = Modifier.height(4.dp))
+    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
     OnboardingStep(
         stringResource(R.string.screen_dashboard_cert_onboarding_step_registering),
         banner.registeringDone
     )
-    Spacer(modifier = Modifier.height(4.dp))
+    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
     OnboardingStep(
         stringResource(R.string.screen_dashboard_cert_onboarding_step_issuing),
         done = false,
@@ -668,7 +669,7 @@ private fun TerminalFailureBody(banner: CertBanner.TerminalFailure) {
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onErrorContainer
     )
-    Spacer(modifier = Modifier.height(4.dp))
+    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
     Text(
         text = when (banner.reason) {
             TerminalReason.KeyGenerationFailed ->
@@ -688,7 +689,7 @@ private fun OnboardingStep(label: String, done: Boolean, active: Boolean = false
             done -> Icon(
                 Icons.Default.Circle,
                 contentDescription = null,
-                modifier = Modifier.size(8.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.spacing_sm)),
                 tint = MaterialTheme.colorScheme.primary
             )
             active -> CircularProgressIndicator(
@@ -698,11 +699,11 @@ private fun OnboardingStep(label: String, done: Boolean, active: Boolean = false
             else -> Icon(
                 Icons.Default.Circle,
                 contentDescription = null,
-                modifier = Modifier.size(8.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.spacing_sm)),
                 tint = MaterialTheme.colorScheme.outline
             )
         }
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
@@ -723,7 +724,7 @@ private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(dimensionResource(R.dimen.spacing_xl)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -732,17 +733,17 @@ private fun EmptyIntegrationsCard(onAdd: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
             Text(
                 text = stringResource(R.string.screen_dashboard_empty_integrations_subtitle),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             Button(onClick = onAdd) {
                 Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
                 Text(stringResource(R.string.screen_dashboard_empty_add_first))
             }
         }
@@ -755,7 +756,7 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(16.dp),
+            .padding(dimensionResource(R.dimen.spacing_lg)),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -769,7 +770,7 @@ private fun IntegrationRow(integration: IntegrationItem, onClick: () -> Unit) {
                     IntegrationStatus.PENDING -> MaterialTheme.colorScheme.tertiary
                 }
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Column {
                 Text(integration.name, style = MaterialTheme.typography.bodyLarge)
                 if (integration.status == IntegrationStatus.PENDING) {
@@ -803,16 +804,16 @@ private fun EmptyRecentActivityCard() {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(dimensionResource(R.dimen.spacing_xl)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = Icons.Default.History,
                 contentDescription = null,
-                modifier = Modifier.size(32.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.spacing_xxl)),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
             Text(
                 text = stringResource(R.string.screen_dashboard_empty_recent_activity),
                 style = MaterialTheme.typography.bodyMedium,
@@ -837,7 +838,7 @@ private fun ActivityRow(entry: AuditEntry) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
         DurationText(entry.durationMs)
     }
 }
@@ -875,17 +876,17 @@ private fun AddIntegrationCard(onAddIntegration: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(dimensionResource(R.dimen.spacing_lg)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
             Icon(
                 Icons.Default.Add,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
                 tint = MaterialTheme.colorScheme.primary
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
             Text(
                 text = stringResource(R.string.screen_dashboard_add_integration),
                 style = MaterialTheme.typography.labelLarge,

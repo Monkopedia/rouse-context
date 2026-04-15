@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -36,7 +37,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(dimensionResource(R.dimen.spacing_xxl)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.weight(1f))
@@ -44,7 +45,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
             Box(
                 modifier = Modifier
                     .size(120.dp)
-                    .clip(RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(dimensionResource(R.dimen.spacing_xl)))
                     .background(Color(0xFF1A2744))
             ) {
                 Image(
@@ -56,7 +57,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             Text(
                 text = stringResource(R.string.screen_welcome_title),
@@ -64,7 +65,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
                 fontWeight = FontWeight.SemiBold
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             Text(
                 text = stringResource(R.string.screen_welcome_tagline),

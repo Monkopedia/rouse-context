@@ -23,6 +23,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -52,28 +53,28 @@ fun AddIntegrationPickerContent(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(integrations) { integration ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp)
+                        .padding(vertical = dimensionResource(R.dimen.spacing_xs))
                         .clickable { onSetUp(integration.id) },
                     border = BorderStroke(
                         1.5.dp,
                         MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                    Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                         Text(
                             text = integration.name,
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
                         Text(
                             text = integration.description,
                             style = MaterialTheme.typography.bodyMedium,

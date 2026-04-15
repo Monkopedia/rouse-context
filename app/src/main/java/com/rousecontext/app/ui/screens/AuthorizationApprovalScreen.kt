@@ -29,6 +29,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
@@ -150,7 +151,7 @@ private fun LoadedAuthorizationApproval(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(dimensionResource(R.dimen.spacing_xxl)),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -158,7 +159,7 @@ private fun LoadedAuthorizationApproval(
                 text = stringResource(R.string.screen_auth_approval_empty_title),
                 style = MaterialTheme.typography.headlineMedium
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             Text(
                 text = stringResource(R.string.screen_auth_approval_empty_description),
                 style = MaterialTheme.typography.bodyLarge,
@@ -171,7 +172,7 @@ private fun LoadedAuthorizationApproval(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .padding(dimensionResource(R.dimen.spacing_xxl)),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -185,7 +186,7 @@ private fun LoadedAuthorizationApproval(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             }
             AuthorizationRequestCard(
                 request = request,
@@ -206,7 +207,7 @@ private fun AuthorizationRequestCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(dimensionResource(R.dimen.spacing_xl)),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
@@ -215,7 +216,7 @@ private fun AuthorizationRequestCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             Text(
                 text = request.displayCode,
@@ -223,7 +224,7 @@ private fun AuthorizationRequestCard(
                 fontFamily = FontFamily.Monospace
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
             Text(
                 text = stringResource(R.string.screen_auth_approval_confirm_code),
@@ -232,11 +233,11 @@ private fun AuthorizationRequestCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_md))
             ) {
                 OutlinedButton(
                     onClick = { onDeny(request.displayCode) },

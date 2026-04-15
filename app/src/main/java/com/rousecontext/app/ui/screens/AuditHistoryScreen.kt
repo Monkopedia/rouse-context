@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -163,13 +164,13 @@ fun AuditHistoryContent(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
     ) {
         // Filters
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_sm))
         ) {
             FilterDropdown(
                 label = stringResource(R.string.screen_audit_history_filter_provider),
@@ -187,7 +188,7 @@ fun AuditHistoryContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         if (state.groups.isEmpty()) {
             Column(
@@ -203,14 +204,14 @@ fun AuditHistoryContent(
                     modifier = Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
                 Text(
                     text = stringResource(R.string.screen_audit_history_empty_title),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
                 Text(
                     text = stringResource(R.string.screen_audit_history_empty_description),
                     style = MaterialTheme.typography.bodyMedium,
@@ -222,7 +223,7 @@ fun AuditHistoryContent(
             LazyColumn(modifier = Modifier.weight(1f)) {
                 state.groups.forEach { group ->
                     item {
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                         SectionHeader(group.dateLabel)
                     }
                     item {
@@ -250,14 +251,14 @@ fun AuditHistoryContent(
                 text = stringResource(R.string.screen_audit_history_retention_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 12.dp)
+                modifier = Modifier.padding(top = dimensionResource(R.dimen.spacing_md))
             )
 
             OutlinedButton(
                 onClick = onClearHistory,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 16.dp),
+                    .padding(vertical = dimensionResource(R.dimen.spacing_lg)),
                 colors = ButtonDefaults.outlinedButtonColors(
                     contentColor = MaterialTheme.colorScheme.error
                 ),
@@ -384,7 +385,7 @@ private fun ToolCallRow(entry: AuditHistoryEntry, onClick: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
                 Text(
                     entry.arguments,
                     style = MaterialTheme.typography.labelSmall,
@@ -403,9 +404,9 @@ private fun RequestRow(item: AuditHistoryItem.Request) {
             Icons.Default.Api,
             contentDescription = null,
             tint = mutedContent,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm))
         )
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -435,7 +436,7 @@ private fun RequestRow(item: AuditHistoryItem.Request) {
                     color = mutedContent
                 )
                 if (item.resultBytes != null) {
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
                     Text(
                         stringResource(
                             R.string.screen_audit_history_result_bytes,

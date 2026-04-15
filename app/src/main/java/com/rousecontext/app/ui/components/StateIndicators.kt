@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,7 +32,7 @@ fun LoadingIndicator(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(dimensionResource(R.dimen.spacing_xl)),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -47,7 +48,7 @@ fun ErrorState(message: String, modifier: Modifier = Modifier, onRetry: (() -> U
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(dimensionResource(R.dimen.spacing_xl)),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -57,7 +58,7 @@ fun ErrorState(message: String, modifier: Modifier = Modifier, onRetry: (() -> U
             modifier = Modifier.size(48.dp),
             tint = MaterialTheme.colorScheme.error
         )
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         Text(
             text = message,
             style = MaterialTheme.typography.bodyLarge,
@@ -66,7 +67,7 @@ fun ErrorState(message: String, modifier: Modifier = Modifier, onRetry: (() -> U
             modifier = Modifier.fillMaxWidth()
         )
         if (onRetry != null) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             OutlinedButton(onClick = onRetry) {
                 Text(stringResource(R.string.common_retry))
             }

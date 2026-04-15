@@ -24,10 +24,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
@@ -114,10 +114,10 @@ private fun LoadedAuditDetail(state: AuditDetailState, modifier: Modifier = Modi
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
             .verticalScroll(rememberScrollState())
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         val unknownTimestamp = stringResource(R.string.screen_audit_detail_timestamp_unknown)
         val nonePlaceholder = stringResource(R.string.screen_audit_detail_none)
@@ -172,7 +172,7 @@ private fun LoadedAuditDetail(state: AuditDetailState, modifier: Modifier = Modi
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
     }
 }
 
@@ -182,7 +182,10 @@ private fun DetailSection(label: String, content: @Composable () -> Unit) {
         text = label,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+        modifier = Modifier.padding(
+            top = dimensionResource(R.dimen.spacing_lg),
+            bottom = dimensionResource(R.dimen.spacing_xs)
+        )
     )
     content()
 }
@@ -199,7 +202,7 @@ private fun CodeBlock(text: String, modifier: Modifier = Modifier) {
             text = text,
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier
-                .padding(12.dp)
+                .padding(dimensionResource(R.dimen.spacing_md))
                 .horizontalScroll(rememberScrollState())
         )
     }
