@@ -120,6 +120,7 @@
     <string name="screen_health_connect_setup_historical_enabled_description">AI clients can read health data recorded before you enabled this integration.</string>
     <string name="screen_health_connect_setup_historical_disabled_title">Allow historical data</string>
     <string name="screen_health_connect_setup_historical_disabled_description">Without this permission, AI clients only see data recorded after you enabled the integration. Grant access so past records (steps, sleep, workouts, etc.) are also available.</string>
+    <string name="screen_health_connect_setup_historical_requires_base">Grant at least one Health Connect data type above first — historical access extends those permissions and can\'t be granted on its own.</string>
     <string name="screen_health_connect_setup_grant_historical">Grant historical access</string>
     <string name="screen_health_connect_setup_manage">Manage in Health Connect</string>
     <string name="screen_health_connect_setup_grant_all">Grant All Health Access</string>

@@ -32,46 +32,50 @@ fun NavGraphBuilder.notificationPreferencesDestination(navController: NavControl
         val state by prefsViewModel.state.collectAsState()
         val refresher: NotificationPermissionRefresher =
             koinInject()
+        val continueToHome = {
+            prefsViewModel.persistSelection()
+            // Kick off relay/FCM registration in the background now
+            // that the user has completed the one-time onboarding
+            // preferences. This mirrors the old Get-Started behaviour
+            // but delayed until after preferences are set.
+            onboardingViewModel.startOnboarding()
+            navController.navigate(Routes.HOME) {
+                popUpTo(Routes.ONBOARDING) {
+                    inclusive = true
+                }
+                launchSingleTop = true
+            }
+        }
         val notificationPermissionLauncher =
             rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
             ) { _ ->
-                // Don't block on result. Refresh so the dashboard
-                // banner reflects the new state on next render.
+                // Refresh so the dashboard banner reflects the new
+                // state on next render, then continue — navigating
+                // only after the system dialog dismisses prevents the
+                // home screen from rendering behind the prompt.
                 refresher.refresh()
+                continueToHome()
             }
         NotificationPreferencesScreen(
             state = state,
             onModeSelected = prefsViewModel::select,
             onRequestNotificationPermission = {
-                // Only request on Android 13+ where the runtime
-                // permission exists. On older devices the
-                // permission is implicit and the launcher would
-                // immediately resolve granted, but we skip the
-                // round-trip.
+                // On Android 13+ the launcher callback drives the
+                // subsequent navigation. On older devices there is
+                // no runtime permission and no system dialog, so
+                // navigate directly.
                 if (Build.VERSION.SDK_INT >=
                     Build.VERSION_CODES.TIRAMISU
                 ) {
                     notificationPermissionLauncher.launch(
                         Manifest.permission.POST_NOTIFICATIONS
                     )
+                } else {
+                    continueToHome()
                 }
             },
-            onContinue = {
-                prefsViewModel.persistSelection()
-                // Kick off relay/FCM registration in the
-                // background now that the user has completed the
-                // one-time onboarding preferences. This mirrors
-                // the old Get-Started behaviour but delayed
-                // until after preferences are set.
-                onboardingViewModel.startOnboarding()
-                navController.navigate(Routes.HOME) {
-                    popUpTo(Routes.ONBOARDING) {
-                        inclusive = true
-                    }
-                    launchSingleTop = true
-                }
-            },
+            onContinue = continueToHome,
             onBack = { navController.popBackStack() }
         )
     }

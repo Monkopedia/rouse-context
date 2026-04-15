@@ -251,6 +251,7 @@ private fun HealthConnectSetupBody(
 
         HistoricalAccessSection(
             granted = historicalAccessGranted,
+            canRequest = grantedRecordTypes.isNotEmpty(),
             onRequestHistoricalAccess = onRequestHistoricalAccess
         )
 
@@ -290,7 +291,11 @@ private fun HealthConnectSetupBody(
 }
 
 @Composable
-private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess: () -> Unit) {
+private fun HistoricalAccessSection(
+    granted: Boolean,
+    canRequest: Boolean,
+    onRequestHistoricalAccess: () -> Unit
+) {
     if (granted) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -354,7 +359,11 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 text = stringResource(
-                    R.string.screen_health_connect_setup_historical_disabled_description
+                    if (canRequest) {
+                        R.string.screen_health_connect_setup_historical_disabled_description
+                    } else {
+                        R.string.screen_health_connect_setup_historical_requires_base
+                    }
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -362,6 +371,7 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
             OutlinedButton(
                 onClick = onRequestHistoricalAccess,
+                enabled = canRequest,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(stringResource(R.string.screen_health_connect_setup_grant_historical))

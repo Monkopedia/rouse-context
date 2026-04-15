@@ -153,13 +153,12 @@ fun NotificationPreferencesScreen(
 
             Button(
                 onClick = {
-                    // Trigger the OS permission prompt before continuing so
-                    // the user grants notifications inline as part of
-                    // onboarding. The screen does not block on the result;
-                    // onContinue is invoked regardless so denial does not
-                    // strand the user. Issue #93.
+                    // Trigger the OS permission prompt; the destination
+                    // wires the launcher callback to continue afterwards
+                    // so navigation doesn't race with the system dialog.
+                    // On pre-Tiramisu devices the destination calls
+                    // onContinue directly since no dialog is shown.
                     onRequestNotificationPermission()
-                    onContinue()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
