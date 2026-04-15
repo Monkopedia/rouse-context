@@ -40,11 +40,40 @@ import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
+/**
+ * Tracks the lifecycle of the MCP URL lookup so the "Add this URL to your
+ * AI client" card can render the right affordance in each state (#164):
+ *  - [Loading]   -- suspend lookup still in flight.
+ *  - [Ready]     -- URL resolved; card shows the URL plus the copy button.
+ *  - [Unavailable] -- subdomain or per-integration secret missing; card
+ *    shows a diagnostic placeholder plus a Retry action instead of an
+ *    empty box.
+ */
+@Immutable
+sealed interface IntegrationEnabledUrlState {
+    data object Loading : IntegrationEnabledUrlState
+    data class Ready(val url: String) : IntegrationEnabledUrlState
+    data object Unavailable : IntegrationEnabledUrlState
+}
+
 @Immutable
 data class IntegrationEnabledState(
     val integrationName: String = "Health Connect",
-    val url: String = ""
-)
+    val url: String = "",
+    val urlState: IntegrationEnabledUrlState? = null
+) {
+    /**
+     * Effective url state: prefers the explicit [urlState] if the caller
+     * provided one, otherwise derives from [url] for backwards-compat with
+     * screenshot/preview callers that pass a plain URL string.
+     */
+    val effectiveUrlState: IntegrationEnabledUrlState
+        get() = urlState ?: if (url.isEmpty()) {
+            IntegrationEnabledUrlState.Loading
+        } else {
+            IntegrationEnabledUrlState.Ready(url)
+        }
+}
 
 /**
  * Content-only variant used inside the persistent Scaffold in AppNavigation.
@@ -54,12 +83,14 @@ fun IntegrationEnabledContent(
     state: IntegrationEnabledState = IntegrationEnabledState(),
     onCopyUrl: () -> Unit = {},
     onCancel: () -> Unit = {},
+    onRetryUrl: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     IntegrationEnabledBody(
         state = state,
         onCopyUrl = onCopyUrl,
         onCancel = onCancel,
+        onRetryUrl = onRetryUrl,
         modifier = modifier
     )
 }
@@ -70,6 +101,7 @@ fun IntegrationEnabledScreen(
     state: IntegrationEnabledState = IntegrationEnabledState(),
     onCopyUrl: () -> Unit = {},
     onCancel: () -> Unit = {},
+    onRetryUrl: () -> Unit = {},
     onBack: () -> Unit = {}
 ) {
     Scaffold(
@@ -99,6 +131,7 @@ fun IntegrationEnabledScreen(
             state = state,
             onCopyUrl = onCopyUrl,
             onCancel = onCancel,
+            onRetryUrl = onRetryUrl,
             modifier = Modifier.padding(padding)
         )
     }
@@ -109,6 +142,7 @@ private fun IntegrationEnabledBody(
     state: IntegrationEnabledState,
     onCopyUrl: () -> Unit = {},
     onCancel: () -> Unit = {},
+    onRetryUrl: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -148,34 +182,11 @@ private fun IntegrationEnabledBody(
 
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(dimensionResource(R.dimen.spacing_lg)),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = state.url,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = onCopyUrl) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = stringResource(
-                                R.string.screen_integration_enabled_copy_url_content_description
-                            )
-                        )
-                    }
-                }
-            }
+            IntegrationEnabledUrlCard(
+                urlState = state.effectiveUrlState,
+                onCopyUrl = onCopyUrl,
+                onRetryUrl = onRetryUrl
+            )
 
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
@@ -206,6 +217,99 @@ private fun IntegrationEnabledBody(
 
             TextButton(onClick = onCancel) {
                 Text(stringResource(R.string.screen_integration_enabled_finish_later))
+            }
+        }
+    }
+}
+
+/**
+ * URL-state-aware card body (#164). Keeps the previous "URL + copy button"
+ * row as the happy path, and adds an explicit affordance for the two
+ * degenerate states so users never see an empty card again:
+ *  - Loading     -- spinner + "Preparing URL..."
+ *  - Unavailable -- diagnostic text + Retry button
+ */
+@Composable
+private fun IntegrationEnabledUrlCard(
+    urlState: IntegrationEnabledUrlState,
+    onCopyUrl: () -> Unit,
+    onRetryUrl: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    ) {
+        when (urlState) {
+            is IntegrationEnabledUrlState.Ready -> {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(dimensionResource(R.dimen.spacing_lg)),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = urlState.url,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onCopyUrl) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = stringResource(
+                                R.string.screen_integration_enabled_copy_url_content_description
+                            )
+                        )
+                    }
+                }
+            }
+            is IntegrationEnabledUrlState.Loading -> {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(dimensionResource(R.dimen.spacing_lg)),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(
+                            dimensionResource(R.dimen.spacing_lg)
+                        ),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+                    Text(
+                        text = stringResource(
+                            R.string.screen_integration_enabled_url_preparing
+                        ),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+            is IntegrationEnabledUrlState.Unavailable -> {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(dimensionResource(R.dimen.spacing_lg)),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.screen_integration_enabled_url_unavailable
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onRetryUrl) {
+                        Text(
+                            stringResource(
+                                R.string.screen_integration_enabled_url_retry
+                            )
+                        )
+                    }
+                }
             }
         }
     }

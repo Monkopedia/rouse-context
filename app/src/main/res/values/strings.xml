@@ -294,4 +294,7 @@
     <string name="screen_integration_enabled_approval_hint">The first time your AI client connects, you\'ll be asked to approve it with a code.</string>
     <string name="screen_integration_enabled_waiting">Waiting for AI client...</string>
     <string name="screen_integration_enabled_finish_later">Finish Later</string>
+    <string name="screen_integration_enabled_url_preparing">Preparing URL\u2026</string>
+    <string name="screen_integration_enabled_url_unavailable">URL not available yet.</string>
+    <string name="screen_integration_enabled_url_retry">Retry</string>
 </resources>

@@ -88,4 +88,65 @@ class UrlBuilderTest {
 
         assertNull(provider.buildUrl("health"))
     }
+
+    /**
+     * Regression guard for #164: when onboarding has assigned a subdomain but no
+     * secret has been provisioned yet for the requested integration, buildUrl
+     * must return null (so the UI can render a diagnostic placeholder instead
+     * of an empty card).
+     */
+    @Test
+    fun `buildUrl returns null then real URL once secret is stored`() = runBlocking {
+        val store = SubdomainAndSecretsStore(subdomain = "abc123")
+        val provider = McpUrlProvider(store, "rousecontext.com")
+
+        assertNull(
+            "buildUrl must be null when no secret is stored for the integration",
+            provider.buildUrl("health")
+        )
+
+        store.secrets = mapOf("health" to "brave-health")
+
+        assertEquals(
+            "buildUrl must resolve once a secret exists",
+            "https://brave-health.abc123.rousecontext.com/mcp",
+            provider.buildUrl("health")
+        )
+    }
+}
+
+/**
+ * Minimal in-file [CertificateStore] fake for #164 regression tests.
+ * Only the two methods buildUrl touches are meaningful; everything else
+ * is a safe default so the test stays readable.
+ */
+private class SubdomainAndSecretsStore(
+    private val subdomain: String?,
+    var secrets: Map<String, String> = emptyMap()
+) : CertificateStore {
+    override suspend fun getSubdomain(): String? = subdomain
+    override suspend fun getIntegrationSecrets(): Map<String, String>? =
+        if (secrets.isEmpty()) null else secrets
+
+    override suspend fun getCertChain(): List<ByteArray>? = null
+    override suspend fun getPrivateKeyBytes(): ByteArray? = null
+    override suspend fun storeCertChain(chain: List<ByteArray>) = Unit
+    override suspend fun getCertExpiry(): Long? = null
+    override suspend fun getKnownFingerprints(): Set<String> = emptySet()
+    override suspend fun storeFingerprint(fingerprint: String) = Unit
+    override suspend fun storeCertificate(pemChain: String) = Unit
+    override suspend fun getCertificate(): String? = null
+    override suspend fun storeClientCertificate(pemChain: String) = Unit
+    override suspend fun getClientCertificate(): String? = null
+    override suspend fun storeRelayCaCert(pem: String) = Unit
+    override suspend fun getRelayCaCert(): String? = null
+    override suspend fun storeSubdomain(subdomain: String) = Unit
+    override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {
+        this.secrets = secrets
+    }
+    override suspend fun storePrivateKey(pemKey: String) = Unit
+    override suspend fun getPrivateKey(): String? = null
+    override suspend fun clear() {
+        secrets = emptyMap()
+    }
 }
