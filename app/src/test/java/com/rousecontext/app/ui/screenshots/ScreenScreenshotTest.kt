@@ -778,32 +778,56 @@ class ScreenScreenshotTest {
 
     @Test
     fun trustCardWarningLight() = captureLight("50a_trust_card_warning") {
-        TrustCardDocsFrame(TrustOverallStatus.WARNING, selfCheckResult = "verified", ctResult = "warning")
+        TrustCardDocsFrame(
+            TrustOverallStatus.WARNING,
+            selfCheckResult = "verified",
+            ctResult = "warning"
+        )
     }
 
     @Test
     fun trustCardWarningDark() = captureDark("50a_trust_card_warning") {
-        TrustCardDocsFrame(TrustOverallStatus.WARNING, selfCheckResult = "verified", ctResult = "warning")
+        TrustCardDocsFrame(
+            TrustOverallStatus.WARNING,
+            selfCheckResult = "verified",
+            ctResult = "warning"
+        )
     }
 
     @Test
     fun trustCardCtLogAlertLight() = captureLight("50b_trust_card_ct_log_alert") {
-        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "verified", ctResult = "alert")
+        TrustCardDocsFrame(
+            TrustOverallStatus.ALERT,
+            selfCheckResult = "verified",
+            ctResult = "alert"
+        )
     }
 
     @Test
     fun trustCardCtLogAlertDark() = captureDark("50b_trust_card_ct_log_alert") {
-        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "verified", ctResult = "alert")
+        TrustCardDocsFrame(
+            TrustOverallStatus.ALERT,
+            selfCheckResult = "verified",
+            ctResult = "alert"
+        )
     }
 
     @Test
     fun trustCardSelfCheckAlertLight() = captureLight("50c_trust_card_self_check_alert") {
-        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "alert", ctResult = "verified")
+        TrustCardDocsFrame(
+            TrustOverallStatus.ALERT,
+            selfCheckResult = "alert",
+            ctResult = "verified"
+        )
     }
 
     @Test
     fun trustCardSelfCheckAlertDark() = captureDark("50c_trust_card_self_check_alert") {
-        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "alert", ctResult = "verified")
+        TrustCardDocsFrame(
+            TrustOverallStatus.ALERT,
+            selfCheckResult = "alert",
+            ctResult = "verified"
+        )
     }
 
     // =========================================================================
