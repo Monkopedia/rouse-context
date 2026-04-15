@@ -1,4 +1,4 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.integrations.notifications
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider

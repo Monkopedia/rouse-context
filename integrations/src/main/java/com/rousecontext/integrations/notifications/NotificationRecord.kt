@@ -1,4 +1,4 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.integrations.notifications
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

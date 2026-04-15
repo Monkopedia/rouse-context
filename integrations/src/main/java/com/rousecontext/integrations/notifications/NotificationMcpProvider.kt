@@ -1,7 +1,8 @@
-package com.rousecontext.notifications.capture
+package com.rousecontext.integrations.notifications
 
 import android.service.notification.StatusBarNotification
 import com.rousecontext.mcp.core.McpServerProvider
+import com.rousecontext.notifications.FieldEncryptor
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent

@@ -3,7 +3,7 @@ package com.rousecontext.notifications.audit
 import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.McpRequestEvent
 import com.rousecontext.mcp.core.ToolCallEvent
-import com.rousecontext.notifications.capture.FieldEncryptor
+import com.rousecontext.notifications.FieldEncryptor
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
