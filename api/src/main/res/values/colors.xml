@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Shared brand palette for modules that cannot depend on :app
+    (:notifications, :work, etc.).
+
+    These values MIRROR the Kotlin Color vals in
+    app/src/main/java/com/rousecontext/app/ui/theme/Theme.kt.
+    Keep them in sync. The :app module continues to use the Compose
+    Color literals directly; this file exists so non-Compose consumers
+    can reach the same palette via R.color.*.
+-->
+<resources>
+    <!-- Brand palette -->
+    <color name="rouse_navy_dark">#FF0A1628</color>
+    <color name="rouse_navy_primary">#FF1A2744</color>
+    <color name="rouse_navy_light">#FF2A3A5C</color>
+    <color name="rouse_amber_accent">#FFEF9F27</color>
+    <color name="rouse_amber_dark">#FFBA7517</color>
+    <color name="rouse_surface_dark">#FF0F1C32</color>
+    <color name="rouse_warm_white">#FFFAF8F4</color>
+    <color name="rouse_surface_light">#FFF5F4F0</color>
+    <color name="rouse_warning_container_dark">#FF3A2800</color>
+    <color name="rouse_on_warning_container_dark">#FFFFE0A0</color>
+    <color name="rouse_warning_container_light">#FFFFF3E0</color>
+    <color name="rouse_on_warning_container_light">#FF5D4200</color>
+    <color name="rouse_success_green">#FF4CAF50</color>
+    <color name="rouse_alert_container_dark">#FF3A0000</color>
+    <color name="rouse_alert_container_light">#FFFFEBEE</color>
+    <color name="rouse_alert_content_dark">#FFFF6B6B</color>
+    <color name="rouse_alert_content_light">#FFBA1A1A</color>
+    <color name="rouse_code_box_border_empty">#FF404950</color>
+
+    <!-- Semantic (notification accents) -->
+    <color name="rouse_notification_auth_accent">#FFEA4335</color>
+</resources>

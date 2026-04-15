@@ -3,6 +3,7 @@ package com.rousecontext.notifications
 import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.rousecontext.api.R as ApiR
 
 /**
@@ -36,7 +37,7 @@ object FgsLimitNotifier {
             .setContentText(TEXT)
             .setStyle(NotificationCompat.BigTextStyle().bigText(TEXT))
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setColor(0xFF0a1628.toInt())
+            .setColor(ContextCompat.getColor(context, ApiR.color.rouse_navy_dark))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
