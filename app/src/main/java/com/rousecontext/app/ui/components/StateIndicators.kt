@@ -18,8 +18,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 
 /**
  * Centered indeterminate progress indicator for screen-level loading states.
@@ -66,7 +68,7 @@ fun ErrorState(message: String, modifier: Modifier = Modifier, onRetry: (() -> U
         if (onRetry != null) {
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedButton(onClick = onRetry) {
-                Text("Retry")
+                Text(stringResource(R.string.common_retry))
             }
         }
     }

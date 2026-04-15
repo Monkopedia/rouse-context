@@ -7,6 +7,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -15,6 +16,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.OutreachSetupContent
@@ -41,9 +43,9 @@ fun NavGraphBuilder.outreachSetupDestination(navController: NavController) {
         }
         ConfigureNavBar(
             title = if (mode == SetupMode.SETTINGS) {
-                "Outreach Settings"
+                stringResource(R.string.destination_title_outreach_settings)
             } else {
-                "Outreach"
+                stringResource(R.string.destination_title_outreach)
             },
             showBackButton = true,
             onBackPressed = { navController.popBackStack() }

@@ -17,7 +17,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 
 /**
  * A pinned Save button that animates in from the bottom when there are
@@ -42,7 +44,7 @@ fun FloatingSaveBar(
     visible: Boolean,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
-    text: String = "Save",
+    text: String = stringResource(R.string.common_save),
     enabled: Boolean = true
 ) {
     AnimatedVisibility(
@@ -86,7 +88,7 @@ fun FloatingSaveBarOverlay(
     visible: Boolean,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
-    text: String = "Save",
+    text: String = stringResource(R.string.common_save),
     enabled: Boolean = true,
     content: @Composable () -> Unit
 ) {

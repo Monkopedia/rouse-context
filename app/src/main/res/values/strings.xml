@@ -1,4 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Rouse Context</string>
+
+    <!-- Common/shared -->
+    <string name="common_retry">Retry</string>
+    <string name="common_save">Save</string>
+
+    <!-- Destination (TopAppBar) titles -->
+    <string name="destination_title_add_integration">Add Integration</string>
+    <string name="destination_title_audit_detail">Audit Detail</string>
+    <string name="destination_title_audit_history">Audit History</string>
+    <string name="destination_title_auth_approval">Approve AI Client</string>
+    <string name="destination_title_health_connect_settings">Health Connect Settings</string>
+    <string name="destination_title_health_connect_setup">Health Connect Setup</string>
+    <string name="destination_title_integration_enabled">%1$s Ready</string>
+    <string name="destination_title_integration_setup">Setting Up</string>
+    <string name="destination_title_main_dashboard">Rouse Context</string>
+    <string name="destination_title_notification_settings">Notification Settings</string>
+    <string name="destination_title_notification_access">Notification Access</string>
+    <string name="destination_title_outreach_settings">Outreach Settings</string>
+    <string name="destination_title_outreach">Outreach</string>
+    <string name="destination_title_settings">Settings</string>
+    <string name="destination_title_usage_settings">Usage Stats Settings</string>
+    <string name="destination_title_usage">Usage Stats</string>
+
+    <!-- Welcome screen -->
+    <string name="screen_welcome_logo_content_description">Rouse Context</string>
+    <string name="screen_welcome_title">Rouse Context</string>
+    <string name="screen_welcome_tagline">Turn your phone into a secure AI context server. Your data stays on your device. AI clients connect through an encrypted tunnel.</string>
+    <string name="screen_welcome_get_started">Get Started</string>
 </resources>

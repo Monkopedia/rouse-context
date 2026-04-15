@@ -8,6 +8,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.health.connect.client.PermissionController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -17,6 +18,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.HealthConnectSetupContent
@@ -60,9 +62,9 @@ fun NavGraphBuilder.healthConnectSetupDestination(navController: NavController) 
         }
         ConfigureNavBar(
             title = if (mode == SetupMode.SETTINGS) {
-                "Health Connect Settings"
+                stringResource(R.string.destination_title_health_connect_settings)
             } else {
-                "Health Connect Setup"
+                stringResource(R.string.destination_title_health_connect_setup)
             },
             showBackButton = true,
             onBackPressed = { navController.popBackStack() }

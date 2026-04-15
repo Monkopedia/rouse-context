@@ -2,10 +2,12 @@ package com.rousecontext.app.ui.navigation.destinations
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.google.firebase.auth.FirebaseAuth
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
@@ -27,7 +29,7 @@ import org.koin.core.qualifier.named
 fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
     composable(Routes.ADD_INTEGRATION) {
         ConfigureNavBar(
-            title = "Add Integration",
+            title = stringResource(R.string.destination_title_add_integration),
             showBackButton = true,
             onBackPressed = { navController.popBackStack() }
         )
