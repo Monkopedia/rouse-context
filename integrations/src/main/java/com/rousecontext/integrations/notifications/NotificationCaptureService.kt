@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import org.koin.android.ext.android.inject
 
 /**
  * Captures device notifications and persists them to Room for MCP history queries.
@@ -22,13 +23,9 @@ class NotificationCaptureService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val dao: NotificationDao by lazy {
-        NotificationDatabase.create(applicationContext).notificationDao()
-    }
+    private val dao: NotificationDao by inject()
 
-    private val encryptor: FieldEncryptor by lazy {
-        FieldEncryptor(applicationContext)
-    }
+    private val encryptor: FieldEncryptor by inject()
 
     override fun onListenerConnected() {
         instance = this
