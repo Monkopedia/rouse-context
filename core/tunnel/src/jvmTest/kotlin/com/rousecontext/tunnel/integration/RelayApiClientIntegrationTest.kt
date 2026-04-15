@@ -286,23 +286,23 @@ class RelayApiClientIntegrationTest {
     }
 
     /**
-     * KNOWN SCHEMA MISMATCH (to be fixed under a separate ticket):
+     * /renew wire-contract check for the mTLS-equivalent (signature-only) path.
      *
-     * `RelayApiClient.renewWithMtls` serializes `csrPem`, `authMethod`,
-     * `currentCertPem`; the relay's `POST /renew` expects `csr`, `subdomain`,
-     * `firebase_token`, `signature`. The response shape also differs —
-     * client reads `certificatePem`, relay sends `server_cert` + `client_cert`
-     * + `relay_ca_cert`. This test locks in the *current* failure mode so
-     * that fixing the mismatch produces a test failure, forcing the fix to
-     * also replace this assertion with a proper success-shape check.
+     * The request must now deserialize cleanly on the relay side (no 422 from
+     * a schema mismatch as in the pre-#170 state) and reach the
+     * signature-verification layer. We don't have access to the registered
+     * device's private key from this HTTP-level test -- the key pair used by
+     * `CsrGenerator` for the *renewal* CSR is a fresh one -- so the relay
+     * returns 403 at signature verification. That's deliberate: it proves
+     * the body shape is correct and the relay got as far as crypto without
+     * tripping on field names.
      *
-     * The value of this test today is the same as the issue #167 rationale
-     * for /rotate-secret: it proves the client and relay are wired together
-     * well enough to deserialize an error response, and will go red the
-     * moment either side's wire contract changes.
+     * A full success-shape renewal is covered by `CertRenewalFlowTest` and
+     * the Rust-side `api_renew_test.rs` where the test code can hold onto
+     * the signing key that matches the registered public key.
      */
     @Test
-    fun `renewWithMtls currently fails because of client or relay schema mismatch`(): Unit =
+    fun `renewWithMtls request body deserializes and reaches signature verification`(): Unit =
         runBlocking {
             val firebaseToken = DUMMY_FIREBASE_TOKEN + "-renew-mtls"
             val reg = assertSuccess(
@@ -312,46 +312,46 @@ class RelayApiClientIntegrationTest {
                     integrationIds = emptyList()
                 )
             )
+            // Round 2: registerCerts populates `public_key` on the device
+            // record; without it the relay's signature verification has
+            // nothing to check against and returns a different error.
+            val regCsr = CsrGenerator().generate(
+                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            )
+            assertSuccess(
+                api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
+            )
             val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
 
-            val keyStoreForSubdomain = ca.createDeviceKeyStore(reg.subdomain)
-            val scopedApi = buildMtlsApiClientFor(keyStoreForSubdomain)
+            val result = api.renewWithMtls(
+                csrPem = renewCsr.csrPem,
+                subdomain = reg.subdomain,
+                // The test harness does not carry forward the registration
+                // key, so any signature here will fail verification -- but
+                // only *after* the body has deserialized, which is the
+                // invariant we're locking in.
+                signature = "MEUCIQDdummysignaturebase64padding="
+            )
 
-            try {
-                val result = scopedApi.second.renewWithMtls(
-                    csrPem = renewCsr.csrPem,
-                    currentCertPem = "unused-by-relay"
-                )
-
-                assertTrue(
-                    result is RelayApiResult.Error,
-                    "expected an Error result while the renew schema mismatch is unresolved, " +
-                        "got $result"
-                )
-                val err = result as RelayApiResult.Error
-                assertEquals(
-                    422,
-                    err.statusCode,
-                    "relay should report a 422 for the missing 'csr' field"
-                )
-                assertTrue(
-                    err.message.contains("csr", ignoreCase = true) ||
-                        err.message.contains("Unprocessable", ignoreCase = true),
-                    "error body must reference the schema failure, was '${err.message}'"
-                )
-            } finally {
-                scopedApi.first.close()
-            }
+            assertTrue(
+                result is RelayApiResult.Error,
+                "expected an Error result (post-#170 signature verification fails), got $result"
+            )
+            val err = result as RelayApiResult.Error
+            assertTrue(
+                err.statusCode == 403,
+                "relay must reach signature verification (403), not schema failure " +
+                    "(422). Got status=${err.statusCode} message='${err.message}'"
+            )
         }
 
     /**
-     * Same KNOWN SCHEMA MISMATCH as the mTLS renewal path. See that test's
-     * comment. /renew does not distinguish auth path at the wire level
-     * except by which optional fields are set; both paths currently fail
-     * against the real relay for the same `csrPem` vs `csr` reason.
+     * /renew wire-contract check for the Firebase (expired-cert) path. See
+     * the mTLS variant above for why we assert 403 rather than a success
+     * shape.
      */
     @Test
-    fun `renewWithFirebase currently fails because of client or relay schema mismatch`(): Unit =
+    fun `renewWithFirebase request body deserializes and reaches auth verification`(): Unit =
         runBlocking {
             val firebaseToken = DUMMY_FIREBASE_TOKEN + "-renew-firebase"
             val reg = assertSuccess(
@@ -361,29 +361,34 @@ class RelayApiClientIntegrationTest {
                     integrationIds = emptyList()
                 )
             )
+            val regCsr = CsrGenerator().generate(
+                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            )
+            assertSuccess(
+                api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
+            )
             val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
 
             val result = api.renewWithFirebase(
                 csrPem = renewCsr.csrPem,
+                subdomain = reg.subdomain,
                 firebaseToken = firebaseToken,
-                signature = "dummy-signature-base64"
+                signature = "MEUCIQDdummysignaturebase64padding="
             )
 
             assertTrue(
                 result is RelayApiResult.Error,
-                "expected an Error result while the renew schema mismatch is unresolved, " +
-                    "got $result"
+                "expected an Error result (post-#170 signature verification fails), got $result"
             )
             val err = result as RelayApiResult.Error
-            assertEquals(
-                422,
-                err.statusCode,
-                "relay should report a 422 for the missing 'csr' field"
-            )
+            // 403 = Firebase UID mismatch or signature mismatch (both reached
+            // post-deserialize). 401 = Firebase token rejected. Anything in
+            // this band proves the body deserialized correctly; the pre-#170
+            // state would have been 422.
             assertTrue(
-                err.message.contains("csr", ignoreCase = true) ||
-                    err.message.contains("Unprocessable", ignoreCase = true),
-                "error body must reference the schema failure, was '${err.message}'"
+                err.statusCode in setOf(401, 403),
+                "relay must reach auth verification (401/403), not schema failure " +
+                    "(422). Got status=${err.statusCode} message='${err.message}'"
             )
         }
 
