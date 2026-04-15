@@ -1,4 +1,4 @@
-package com.rousecontext.outreach
+package com.rousecontext.integrations.outreach
 
 import android.app.NotificationManager
 import android.content.Context
