@@ -153,7 +153,8 @@ class SecurityCertificateStore(
     override suspend fun getIntegrationSecrets(): Map<String, String>? = null
     override suspend fun storePrivateKey(pemKey: String) {}
     override suspend fun getPrivateKey(): String? = null
-    override suspend fun clear() {}
+    override suspend fun clear() = Unit
+    override suspend fun clearCertificates() = Unit
 }
 
 /** CertificateStore that throws on fingerprint access, simulating a storage error. */
@@ -178,5 +179,6 @@ class FailingCertificateStore : CertificateStore {
     override suspend fun getIntegrationSecrets(): Map<String, String>? = null
     override suspend fun storePrivateKey(pemKey: String) {}
     override suspend fun getPrivateKey(): String? = null
-    override suspend fun clear() {}
+    override suspend fun clear() = Unit
+    override suspend fun clearCertificates() = Unit
 }

@@ -75,4 +75,14 @@ interface CertificateStore {
 
     /** Remove all stored identity state (for rollback on partial failure). */
     suspend fun clear()
+
+    /**
+     * Remove only cert-related state (server cert, client cert, relay CA cert,
+     * private key, fingerprints). Leaves the onboarding state (subdomain,
+     * integration secrets) intact so a failed cert provisioning does not
+     * roll back the user to the Welcome screen.
+     *
+     * Used by [CertProvisioningFlow] for narrow rollback on storage failures.
+     */
+    suspend fun clearCertificates()
 }

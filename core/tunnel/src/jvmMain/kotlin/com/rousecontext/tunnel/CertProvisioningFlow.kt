@@ -62,7 +62,12 @@ class CertProvisioningFlow(
                     certificateStore.storeRelayCaCert(certResponse.data.relayCaCert)
                     CertProvisioningResult.Success
                 } catch (e: Exception) {
-                    certificateStore.clear()
+                    // Narrow rollback: only clear cert-related state. The onboarding
+                    // state (subdomain, integration secrets) is set earlier by
+                    // OnboardingFlow and must survive a cert-provisioning failure,
+                    // otherwise the user is bounced back to the Welcome screen on
+                    // next launch even though registration completed (issue #163).
+                    certificateStore.clearCertificates()
                     CertProvisioningResult.StorageFailed(e)
                 }
             }

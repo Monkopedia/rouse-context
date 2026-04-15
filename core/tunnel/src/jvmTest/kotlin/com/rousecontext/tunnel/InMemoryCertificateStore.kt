@@ -77,7 +77,19 @@ class InMemoryCertificateStore : CertificateStore {
         subdomain = null
         integrationSecrets = null
         privateKey = null
+        certChain = null
+        knownFingerprints.clear()
         storeCallCount = 0
+    }
+
+    override suspend fun clearCertificates() {
+        // Narrow rollback: cert-related only, leaves onboarding state.
+        certificate = null
+        clientCertificate = null
+        relayCaCert = null
+        privateKey = null
+        certChain = null
+        knownFingerprints.clear()
     }
 
     // --- Binary access (security monitoring) ---
