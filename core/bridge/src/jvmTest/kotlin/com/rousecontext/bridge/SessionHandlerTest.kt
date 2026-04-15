@@ -370,7 +370,7 @@ class SessionHandlerTest {
     // -- Test helpers --
 
     private class NullCertProvider : TlsCertProvider {
-        override fun serverSslContext(): SSLContext? = null
+        override suspend fun serverSslContext(): SSLContext? = null
     }
 
     // -- Test HTTP helpers (extracted from integration tests) --

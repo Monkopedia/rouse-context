@@ -69,7 +69,7 @@ class TestCertHelper : TlsCertProvider {
         trustingSslContext.init(null, tmf.trustManagers, null)
     }
 
-    override fun serverSslContext(): SSLContext = sslContext
+    override suspend fun serverSslContext(): SSLContext = sslContext
 
     companion object {
         private const val PASS_STR = "test123"

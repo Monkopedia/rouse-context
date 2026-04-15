@@ -451,7 +451,7 @@ class OAuthEndToEndTest {
     ) {
         val deviceSslContext = TestSslContexts.buildDeviceServer(deviceKeyStore)
         val certProvider = object : TlsCertProvider {
-            override fun serverSslContext(): SSLContext = deviceSslContext
+            override suspend fun serverSslContext(): SSLContext = deviceSslContext
         }
         val factory = object : McpSessionFactory {
             override suspend fun create(): McpSessionHandle {
