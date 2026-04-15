@@ -26,6 +26,7 @@ class IntParam(name: String, description: String) : ParamDef<Int>(name, descript
         defaultValue?.let { put("default", JsonPrimitive(it)) }
     }
 
+    @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<Int> {
         val raw = rawValue(args, name) ?: run {
             if (required) return ParamExtract.Error("Missing required parameter '$name'")
