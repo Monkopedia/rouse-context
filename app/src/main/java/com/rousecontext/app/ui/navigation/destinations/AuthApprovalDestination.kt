@@ -10,9 +10,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import com.rousecontext.app.R
 import com.rousecontext.app.state.NotificationPermissionMonitor
 import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
@@ -26,7 +28,7 @@ import org.koin.compose.koinInject
 fun NavGraphBuilder.authApprovalDestination(navController: NavController) {
     composable(Routes.AUTH_APPROVAL) {
         ConfigureNavBar(
-            title = "Approve AI Client",
+            title = stringResource(R.string.destination_title_auth_approval),
             showTopBar = true,
             showBackButton = true,
             onBackPressed = { navController.popBackStack() }

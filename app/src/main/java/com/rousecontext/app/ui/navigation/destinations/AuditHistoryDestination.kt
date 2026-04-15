@@ -7,11 +7,13 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.navigation.tabSlideDirection
@@ -49,7 +51,7 @@ fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
         }
     ) { backStackEntry ->
         ConfigureNavBar(
-            title = "Audit History",
+            title = stringResource(R.string.destination_title_audit_history),
             showBottomBar = true
         )
         val viewModel: AuditHistoryViewModel = koinViewModel()

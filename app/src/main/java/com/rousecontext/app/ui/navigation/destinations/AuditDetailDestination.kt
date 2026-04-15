@@ -5,11 +5,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AuditDetailContent
@@ -29,7 +31,7 @@ fun NavGraphBuilder.auditDetailDestination(navController: NavController) {
         )
     ) { backStackEntry ->
         ConfigureNavBar(
-            title = "Audit Detail",
+            title = stringResource(R.string.destination_title_audit_detail),
             showBackButton = true,
             onBackPressed = { navController.popBackStack() }
         )

@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -48,7 +49,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = "Rouse Context",
+                    contentDescription = stringResource(R.string.screen_welcome_logo_content_description),
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -56,7 +57,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Rouse Context",
+                text = stringResource(R.string.screen_welcome_title),
                 style = MaterialTheme.typography.headlineLarge,
                 fontWeight = FontWeight.SemiBold
             )
@@ -64,9 +65,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Turn your phone into a secure AI context server. " +
-                    "Your data stays on your device. AI clients connect " +
-                    "through an encrypted tunnel.",
+                text = stringResource(R.string.screen_welcome_tagline),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -81,7 +80,7 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
                     .fillMaxWidth()
                     .height(56.dp)
             ) {
-                Text("Get Started")
+                Text(stringResource(R.string.screen_welcome_get_started))
             }
 
             Spacer(modifier = Modifier.height(48.dp))

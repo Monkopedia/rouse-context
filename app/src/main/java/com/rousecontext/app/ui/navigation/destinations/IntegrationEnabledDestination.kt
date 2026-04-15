@@ -2,6 +2,7 @@ package com.rousecontext.app.ui.navigation.destinations
 
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
@@ -9,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.IntegrationEnabledContent
@@ -58,7 +60,10 @@ fun NavGraphBuilder.integrationEnabledDestination(navController: NavController) 
             }
         }
         ConfigureNavBar(
-            title = "$integrationName Ready",
+            title = stringResource(
+                R.string.destination_title_integration_enabled,
+                integrationName
+            ),
             showBackButton = true,
             onBackPressed = finishToManage
         )

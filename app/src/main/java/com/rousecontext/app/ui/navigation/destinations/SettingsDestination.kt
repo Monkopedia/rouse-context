@@ -9,9 +9,11 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
+import com.rousecontext.app.R
 import com.rousecontext.app.support.BugReportUriBuilder
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
@@ -45,7 +47,7 @@ fun NavGraphBuilder.settingsDestination(navController: NavController) {
         }
     ) {
         ConfigureNavBar(
-            title = "Settings",
+            title = stringResource(R.string.destination_title_settings),
             showBottomBar = true
         )
         val viewModel: SettingsViewModel = koinViewModel()
