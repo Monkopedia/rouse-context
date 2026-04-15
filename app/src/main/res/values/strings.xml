@@ -3,6 +3,10 @@
     <string name="app_name">Rouse Context</string>
 
     <!-- Common/shared -->
+    <string name="common_back">Back</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_continue">Continue</string>
+    <string name="common_dismiss">Dismiss</string>
     <string name="common_retry">Retry</string>
     <string name="common_save">Save</string>
 
@@ -29,4 +33,43 @@
     <string name="screen_welcome_title">Rouse Context</string>
     <string name="screen_welcome_tagline">Turn your phone into a secure AI context server. Your data stays on your device. AI clients connect through an encrypted tunnel.</string>
     <string name="screen_welcome_get_started">Get Started</string>
+
+    <!-- Setting Up screen -->
+    <string name="screen_setting_up_title">Setting Up</string>
+    <string name="screen_setting_up_registering">Registering your device...</string>
+    <string name="screen_setting_up_registering_hint">This usually takes a few seconds.</string>
+    <string name="screen_setting_up_requesting">Requesting your certificate...</string>
+    <string name="screen_setting_up_requesting_hint">This usually takes about 30 seconds.</string>
+    <string name="screen_setting_up_rate_limited">Certificate issuance is temporarily delayed.</string>
+    <string name="screen_setting_up_rate_limited_retry">Will retry on %1$s.</string>
+    <string name="screen_setting_up_failed">Setup didn\'t finish.</string>
+
+    <!-- All Clients screen -->
+    <string name="screen_all_clients_title">Authorized Clients</string>
+    <string name="screen_all_clients_empty">No authorized clients</string>
+    <string name="screen_all_clients_authorized_on">Authorized %1$s</string>
+    <string name="screen_all_clients_last_used">Last used %1$s</string>
+    <string name="screen_all_clients_revoke">Revoke</string>
+
+    <!-- Add Integration picker screen -->
+    <string name="screen_add_integration_title">Add Integration</string>
+
+    <!-- Notification Preferences screen -->
+    <string name="screen_notification_preferences_title">Notification Preferences</string>
+    <string name="screen_notification_preferences_prompt">How would you like to be notified after AI sessions?</string>
+    <string name="screen_notification_preferences_summary_title">Summary (recommended)</string>
+    <string name="screen_notification_preferences_summary_description">\"10 tool usages made\"</string>
+    <string name="screen_notification_preferences_each_title">Each tool usage</string>
+    <string name="screen_notification_preferences_each_description">Individual notification per data access</string>
+    <string name="screen_notification_preferences_suppress_title">Suppress notifications</string>
+    <string name="screen_notification_preferences_suppress_description">Only see activity in audit log</string>
+
+    <!-- Integration Enabled screen -->
+    <string name="screen_integration_enabled_title">%1$s Ready</string>
+    <string name="screen_integration_enabled_heading">%1$s is set up</string>
+    <string name="screen_integration_enabled_add_url">Add this URL to your AI client:</string>
+    <string name="screen_integration_enabled_copy_url_content_description">Copy URL</string>
+    <string name="screen_integration_enabled_approval_hint">The first time your AI client connects, you\'ll be asked to approve it with a code.</string>
+    <string name="screen_integration_enabled_waiting">Waiting for AI client...</string>
+    <string name="screen_integration_enabled_finish_later">Finish Later</string>
 </resources>

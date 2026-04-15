@@ -19,9 +19,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.SectionHeader
@@ -36,7 +38,7 @@ fun AllClientsContent(
     onBack: () -> Unit = {}
 ) {
     ConfigureNavBar(
-        title = "Authorized Clients",
+        title = stringResource(R.string.screen_all_clients_title),
         showBackButton = true,
         showBottomBar = false,
         showTopBar = true,
@@ -71,7 +73,7 @@ fun AllClientsContent(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "No authorized clients",
+                        text = stringResource(R.string.screen_all_clients_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
@@ -89,12 +91,18 @@ fun AllClientsContent(
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Text(
-                                    "Authorized ${client.authorizedDate}",
+                                    stringResource(
+                                        R.string.screen_all_clients_authorized_on,
+                                        client.authorizedDate
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Text(
-                                    "Last used ${client.lastUsed}",
+                                    stringResource(
+                                        R.string.screen_all_clients_last_used,
+                                        client.lastUsed
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -103,7 +111,7 @@ fun AllClientsContent(
                                 onClick = { onRevokeClient(client.name) }
                             ) {
                                 Text(
-                                    "Revoke",
+                                    stringResource(R.string.screen_all_clients_revoke),
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }

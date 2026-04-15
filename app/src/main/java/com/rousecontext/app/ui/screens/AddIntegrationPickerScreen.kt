@@ -23,8 +23,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
@@ -94,11 +96,14 @@ fun AddIntegrationPickerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Add Integration") },
+                title = { Text(stringResource(R.string.screen_add_integration_title)) },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
