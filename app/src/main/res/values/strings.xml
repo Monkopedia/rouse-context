@@ -216,6 +216,48 @@
     <string name="screen_settings_time_days_ago">%1$d days ago</string>
     <string name="screen_settings_idle_timeout_value">%1$d min</string>
 
+    <!-- Main Dashboard screen -->
+    <string name="screen_dashboard_title">Rouse Context</string>
+    <string name="screen_dashboard_nav_home">Home</string>
+    <string name="screen_dashboard_nav_audit">Audit</string>
+    <string name="screen_dashboard_nav_settings">Settings</string>
+    <string name="screen_dashboard_section_integrations">Integrations</string>
+    <string name="screen_dashboard_section_recent_activity">Recent Activity</string>
+    <string name="screen_dashboard_view_all">View all</string>
+    <string name="screen_dashboard_connected_one">Connected (%1$d active session)</string>
+    <string name="screen_dashboard_connected_many">Connected (%1$d active sessions)</string>
+    <string name="screen_dashboard_disconnected">Disconnected</string>
+    <string name="screen_dashboard_notifications_disabled_title">Notifications disabled</string>
+    <string name="screen_dashboard_notifications_disabled_subtitle">Approval requests won\'t alert you. Tap to enable.</string>
+    <string name="screen_dashboard_spurious_wake_title">Background activity higher than expected</string>
+    <string name="screen_dashboard_spurious_wake_subtitle">The relay may be sending spurious wakes (%1$d in the last 24h). Tap for details.</string>
+    <string name="screen_dashboard_cert_renewing_title">Provisioning your certificate...</string>
+    <string name="screen_dashboard_cert_renewing_subtitle">Integrations may be briefly unavailable.</string>
+    <string name="screen_dashboard_cert_expired_renewing_title">Certificate expired. Renewing...</string>
+    <string name="screen_dashboard_cert_expired_renewing_subtitle">Integrations are offline until this completes.</string>
+    <string name="screen_dashboard_cert_expired_title">Certificate expired</string>
+    <string name="screen_dashboard_cert_expired_subtitle">Renewal failed. Check your connection.</string>
+    <string name="screen_dashboard_cert_rate_limited_title">Certificate issuance delayed</string>
+    <string name="screen_dashboard_cert_rate_limited_subtitle">Will retry automatically on %1$s.</string>
+    <string name="screen_dashboard_cert_onboarding_title">Setting up your device...</string>
+    <string name="screen_dashboard_cert_onboarding_step_keys">Generating keys</string>
+    <string name="screen_dashboard_cert_onboarding_step_registering">Registering</string>
+    <string name="screen_dashboard_cert_onboarding_step_issuing">Issuing certificate</string>
+    <string name="screen_dashboard_cert_terminal_title">Certificate renewal failed permanently</string>
+    <string name="screen_dashboard_cert_terminal_subtitle">The device can\'t re-establish a secure connection.</string>
+    <string name="screen_dashboard_cert_terminal_key_gen">Keystore error: a new key could not be generated.</string>
+    <string name="screen_dashboard_cert_terminal_cn_mismatch">The relay returned an unexpected certificate.</string>
+    <string name="screen_dashboard_empty_integrations_title">No integrations enabled yet.</string>
+    <string name="screen_dashboard_empty_integrations_subtitle">Connect AI assistants to your phone\'s data.</string>
+    <string name="screen_dashboard_empty_add_first">Add your first</string>
+    <string name="screen_dashboard_integration_pending_subtitle">Waiting for AI client</string>
+    <string name="screen_dashboard_integration_active">Active</string>
+    <string name="screen_dashboard_integration_pending">Pending</string>
+    <string name="screen_dashboard_empty_recent_activity">No recent activity</string>
+    <string name="screen_dashboard_duration_seconds">%1$.1fs</string>
+    <string name="screen_dashboard_duration_ms">%1$dms</string>
+    <string name="screen_dashboard_add_integration">Add Integration</string>
+
     <!-- Integration Manage screen -->
     <string name="screen_integration_manage_settings_content_description">Settings</string>
     <string name="screen_integration_manage_authorized_clients">Authorized Clients</string>
