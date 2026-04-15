@@ -121,11 +121,31 @@ pub struct TlsConfig {
     pub ca_cert_path: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct FirebaseConfig {
     pub project_id: String,
     pub service_account_path: String,
+    /// If `false`, the relay accepts any Firebase ID token without verifying
+    /// its signature, deriving the `uid` claim from the token string itself.
+    /// This is ONLY intended for integration tests that run the real relay
+    /// binary but cannot mint real Firebase tokens. It must NEVER be disabled
+    /// in production: doing so lets anyone register a device under any UID.
+    ///
+    /// Defaults to `true`. Settable only from the config file; there is no
+    /// HTTP surface that can flip this at runtime. A loud WARN is emitted
+    /// at startup when disabled so it can't be missed in logs.
+    pub verify_tokens: bool,
+}
+
+impl Default for FirebaseConfig {
+    fn default() -> Self {
+        Self {
+            project_id: String::new(),
+            service_account_path: String::new(),
+            verify_tokens: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -170,6 +170,88 @@ class TestCertificateAuthority(
         deviceCert = deviceKeyStore.getCertificate("device") as X509Certificate
     }
 
+    /**
+     * Extract the CA private key to [keyFile] as a PKCS#8 PEM. Useful for
+     * handing to the relay as its device CA so it can sign client certs
+     * backed by the same trust root the tests already trust.
+     *
+     * Must be called after [generate].
+     */
+    fun writeCaKey(keyFile: File) {
+        val caKs = File(tempDir, "ca.p12")
+        extractPrivateKey(caKs, keyFile)
+    }
+
+    /**
+     * Absolute path to the CA certificate PEM written by [generate].
+     */
+    fun caCertPemFile(): File = File(tempDir, "ca-cert.pem")
+
+    /**
+     * Generate an *additional* device keypair + CA-signed cert with CN =
+     * `$subdomain.$relayHostname`. Returns a PKCS12 keystore containing
+     * that keypair; suitable for plugging into [TestSslContexts.buildMtls]
+     * to exercise mTLS as the newly-minted device.
+     *
+     * Must be called after [generate]. Unlike [deviceKeyStore] (which is
+     * fixed at construction time), this lets tests adapt to subdomains
+     * chosen dynamically by the relay during registration.
+     */
+    @Suppress("LongMethod")
+    fun createDeviceKeyStore(subdomain: String, alias: String = "device-$subdomain"): KeyStore {
+        val caKs = File(tempDir, "ca.p12")
+        val deviceKs = File(tempDir, "$alias.p12")
+        val csrFile = File(tempDir, "$alias.csr")
+        val signedFile = File(tempDir, "$alias-signed.pem")
+        val caCertFile = File(tempDir, "ca-cert.pem")
+        val deviceDomain = "$subdomain.$relayHostname"
+
+        keytool(
+            "-genkeypair", "-alias", alias,
+            "-keyalg", "RSA", "-keysize", "2048",
+            "-sigalg", "SHA256withRSA",
+            "-dname", "CN=$deviceDomain",
+            "-validity", "365",
+            "-storetype", "PKCS12",
+            "-keystore", deviceKs.absolutePath,
+            "-storepass", storePass,
+            "-keypass", storePass
+        )
+        keytool(
+            "-certreq", "-alias", alias,
+            "-keystore", deviceKs.absolutePath,
+            "-storepass", storePass,
+            "-file", csrFile.absolutePath
+        )
+        keytool(
+            "-gencert", "-alias", "ca",
+            "-keystore", caKs.absolutePath,
+            "-storepass", storePass,
+            "-infile", csrFile.absolutePath,
+            "-outfile", signedFile.absolutePath,
+            "-ext", "san=dns:$deviceDomain",
+            "-rfc",
+            "-validity", "365"
+        )
+        keytool(
+            "-importcert", "-alias", "ca",
+            "-keystore", deviceKs.absolutePath,
+            "-storepass", storePass,
+            "-file", caCertFile.absolutePath,
+            "-noprompt"
+        )
+        keytool(
+            "-importcert", "-alias", alias,
+            "-keystore", deviceKs.absolutePath,
+            "-storepass", storePass,
+            "-file", signedFile.absolutePath
+        )
+
+        val ks = KeyStore.getInstance("PKCS12")
+        deviceKs.inputStream().use { ks.load(it, storePass.toCharArray()) }
+        return ks
+    }
+
     private fun extractPrivateKey(keystoreFile: File, keyFile: File) {
         for (args in listOf(
             listOf(
@@ -227,8 +309,30 @@ class TestCertificateAuthority(
 
 /**
  * Manages the real Rust relay binary as a subprocess.
+ *
+ * [deviceCaPaths] optionally points at an on-disk device CA key + cert PEM so
+ * the relay's [`DeviceCa::load_or_create`] loads them (and the resulting
+ * client cert issuance actually works for `/register/certs`). When `null` the
+ * relay falls back to its hardcoded system paths and `device_ca` ends up
+ * `None`, which is fine for tests that only exercise the mux/WebSocket layer.
+ *
+ * [disableFirebaseVerification] sets `[firebase] verify_tokens = false` so
+ * handlers that verify Firebase ID tokens accept the dummy strings used in
+ * tests. Default `false` matches prior test behavior.
  */
-class TestRelayManager(private val tempDir: File, private val relayHostname: String) {
+class TestRelayManager(
+    private val tempDir: File,
+    private val relayHostname: String,
+    private val deviceCaPaths: Pair<File, File>? = null,
+    private val disableFirebaseVerification: Boolean = false,
+    /**
+     * If non-null, written to `[server] base_domain` in the relay config.
+     * Useful when `relayHostname` doesn't follow the default `relay.<domain>`
+     * convention (e.g. when tests use a non-literal local hostname so SNI
+     * isn't suppressed).
+     */
+    private val baseDomainOverride: String? = null
+) {
     var process: Process? = null
         private set
 
@@ -251,11 +355,38 @@ class TestRelayManager(private val tempDir: File, private val relayHostname: Str
         process = null
     }
 
+    /** Snapshot of the relay subprocess's captured stdout/stderr so far. */
+    fun capturedOutput(): String = synchronized(capturedStdout) { capturedStdout.toString() }
+
+    private val capturedStdout = StringBuilder()
+
     private fun writeRelayConfig(port: Int) {
+        val deviceCaBlock = deviceCaPaths?.let { (keyFile, certFile) ->
+            """
+
+            [device_ca]
+            ca_key_path = "${keyFile.absolutePath}"
+            ca_cert_path = "${certFile.absolutePath}"
+            """.trimIndent()
+        } ?: ""
+
+        val firebaseBlock = if (disableFirebaseVerification) {
+            """
+
+            [firebase]
+            verify_tokens = false
+            """.trimIndent()
+        } else {
+            ""
+        }
+
+        val baseDomainLine = baseDomainOverride?.let { "base_domain = \"$it\"" } ?: ""
+
         val config = """
             [server]
             bind_addr = "127.0.0.1:$port"
             relay_hostname = "$relayHostname"
+            $baseDomainLine
 
             [tls]
             cert_path = "${tempDir.absolutePath}/relay-cert.pem"
@@ -266,6 +397,8 @@ class TestRelayManager(private val tempDir: File, private val relayHostname: Str
             max_streams_per_device = 8
             wake_rate_limit = 60
             fcm_wakeup_timeout_secs = 5
+            $deviceCaBlock
+            $firebaseBlock
         """.trimIndent()
 
         File(tempDir, "relay.toml").writeText(config)
@@ -281,11 +414,10 @@ class TestRelayManager(private val tempDir: File, private val relayHostname: Str
         val process = pb.start()
         val deadline = System.currentTimeMillis() + RELAY_STARTUP_TIMEOUT_MS
 
-        val outputCapture = StringBuilder()
         val readerThread = Thread {
             try {
                 process.inputStream.bufferedReader().forEachLine { line ->
-                    synchronized(outputCapture) { outputCapture.appendLine(line) }
+                    synchronized(capturedStdout) { capturedStdout.appendLine(line) }
                 }
             } catch (_: Exception) {
                 // Process killed
@@ -297,7 +429,7 @@ class TestRelayManager(private val tempDir: File, private val relayHostname: Str
         var started = false
         while (System.currentTimeMillis() < deadline) {
             if (!process.isAlive) {
-                val output = synchronized(outputCapture) { outputCapture.toString() }
+                val output = synchronized(capturedStdout) { capturedStdout.toString() }
                 fail("Relay process died during startup. Output:\n$output")
             }
             try {
@@ -310,7 +442,7 @@ class TestRelayManager(private val tempDir: File, private val relayHostname: Str
 
         if (!started) {
             process.destroyForcibly()
-            val output = synchronized(outputCapture) { outputCapture.toString() }
+            val output = synchronized(capturedStdout) { capturedStdout.toString() }
             fail(
                 "Relay did not start within ${RELAY_STARTUP_TIMEOUT_MS}ms. Output:\n$output"
             )

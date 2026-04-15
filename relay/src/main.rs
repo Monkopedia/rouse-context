@@ -545,6 +545,21 @@ fn build_service_clients(
 ) {
     let sa_path = &config.firebase.service_account_path;
 
+    // TEST-ONLY: if verify_tokens is explicitly disabled, swap in a Noop
+    // Firebase auth that accepts any token. This knob is only ever set in
+    // test fixtures; production configs never flip it.
+    let firebase_auth_override: Option<Arc<dyn rouse_relay::firebase_auth::FirebaseAuth>> =
+        if !config.firebase.verify_tokens {
+            warn!(
+                "firebase.verify_tokens = false — accepting any Firebase ID token WITHOUT \
+                 verification. This is only safe in integration tests. Do NOT enable in \
+                 production: it allows anyone to register a device under any UID."
+            );
+            Some(Arc::new(NoopFirebaseAuth))
+        } else {
+            None
+        };
+
     if sa_path.is_empty() || !Path::new(sa_path).exists() {
         if sa_path.is_empty() {
             info!("No firebase.service_account_path configured, using stub FCM + Firebase Auth");
@@ -554,7 +569,8 @@ fn build_service_clients(
                 "Service account file not found, using stub FCM + Firebase Auth"
             );
         }
-        return (Arc::new(StubFcm), Arc::new(StubFirebaseAuth));
+        let firebase_auth = firebase_auth_override.unwrap_or_else(|| Arc::new(StubFirebaseAuth));
+        return (Arc::new(StubFcm), firebase_auth);
     }
 
     // Load service account key
@@ -591,9 +607,10 @@ fn build_service_clients(
         auth_manager,
     ));
 
-    let firebase_auth: Arc<dyn rouse_relay::firebase_auth::FirebaseAuth> = Arc::new(
-        rouse_relay::firebase_auth::RealFirebaseAuth::new(project_id),
-    );
+    let firebase_auth: Arc<dyn rouse_relay::firebase_auth::FirebaseAuth> =
+        firebase_auth_override.unwrap_or_else(|| {
+            Arc::new(rouse_relay::firebase_auth::RealFirebaseAuth::new(project_id))
+        });
 
     (fcm, firebase_auth)
 }
@@ -864,4 +881,40 @@ impl rouse_relay::firebase_auth::FirebaseAuth for StubFirebaseAuth {
             "stub".to_string(),
         ))
     }
+}
+
+/// TEST-ONLY Firebase auth that accepts any non-empty token and derives a
+/// deterministic `uid` from the token bytes. Selected via the `FirebaseConfig::
+/// verify_tokens = false` config knob. See the comment on that field for
+/// security notes.
+struct NoopFirebaseAuth;
+
+#[async_trait::async_trait]
+impl rouse_relay::firebase_auth::FirebaseAuth for NoopFirebaseAuth {
+    async fn verify_id_token(
+        &self,
+        token: &str,
+    ) -> Result<
+        rouse_relay::firebase_auth::FirebaseClaims,
+        rouse_relay::firebase_auth::FirebaseAuthError,
+    > {
+        if token.is_empty() {
+            return Err(rouse_relay::firebase_auth::FirebaseAuthError::InvalidToken(
+                "empty token".to_string(),
+            ));
+        }
+        // Derive a deterministic uid so repeated calls with the same token
+        // map to the same device record, matching real Firebase behavior.
+        Ok(rouse_relay::firebase_auth::FirebaseClaims {
+            uid: format!("test-uid-{}", stable_uid_hash(token)),
+        })
+    }
+}
+
+fn stable_uid_hash(token: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    token.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }

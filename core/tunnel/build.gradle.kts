@@ -19,6 +19,23 @@ kotlin {
         }
     }
 
+    // Runs only the `@Tag("integration")` tests. Each test uses
+    // `Assumptions.assumeTrue` to skip gracefully when the real Rust relay
+    // binary is absent, so this task degrades to skips rather than hard
+    // failures on machines where `relay/target/debug/rouse-relay` hasn't
+    // been built (see relay/README.md for the build command).
+    tasks.register<Test>("integrationTest") {
+        group = "verification"
+        description = "Runs @Tag(\"integration\") tests against the real relay binary."
+        val jvmTest = tasks.named<Test>("jvmTest").get()
+        testClassesDirs = jvmTest.testClassesDirs
+        classpath = jvmTest.classpath
+        systemProperty("repo.root", rootProject.projectDir.absolutePath)
+        useJUnitPlatform {
+            includeTags("integration")
+        }
+    }
+
     sourceSets {
         val jvmMain by getting {
             dependencies {
@@ -36,6 +53,7 @@ kotlin {
                 implementation(kotlin("test"))
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.ktor.client.mock)
+                implementation(libs.ktor.client.okhttp)
                 implementation(libs.ktor.server.core)
                 implementation(libs.ktor.server.cio)
                 implementation(libs.ktor.server.netty)
