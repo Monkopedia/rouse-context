@@ -1,0 +1,34 @@
+title: Rouse Context
+description: Your phone as an on-demand MCP server for AI assistants.
+url: https://rousecontext.com
+
+remote_theme: just-the-docs/just-the-docs
+
+# Navigation
+nav_sort: case_insensitive
+search_enabled: true
+
+# Appearance
+color_scheme: light
+
+# Footer
+footer_content: "Source at <a href=\"https://github.com/Monkopedia/rouse-context\">github.com/Monkopedia/rouse-context</a>. Content licensed Apache 2.0."
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+# Exclude from processing
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
