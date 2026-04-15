@@ -49,7 +49,9 @@ fun WelcomeScreen(onGetStarted: () -> Unit = {}) {
             ) {
                 Image(
                     painter = painterResource(R.drawable.ic_launcher_foreground),
-                    contentDescription = stringResource(R.string.screen_welcome_logo_content_description),
+                    contentDescription = stringResource(
+                        R.string.screen_welcome_logo_content_description
+                    ),
                     modifier = Modifier.fillMaxSize()
                 )
             }

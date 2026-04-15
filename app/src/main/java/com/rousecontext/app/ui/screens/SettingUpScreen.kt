@@ -24,9 +24,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -73,7 +75,10 @@ fun SettingUpScreen(
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Setting Up") }, colors = appBarColors())
+            TopAppBar(
+                title = { Text(stringResource(R.string.screen_setting_up_title)) },
+                colors = appBarColors()
+            )
         }
     ) { padding ->
         SettingUpBody(
@@ -109,13 +114,13 @@ private fun SettingUpBody(
             Text(
                 text = when (state.variant) {
                     is SettingUpVariant.Registering ->
-                        "Registering your device..."
+                        stringResource(R.string.screen_setting_up_registering)
                     is SettingUpVariant.Requesting ->
-                        "Requesting your certificate..."
+                        stringResource(R.string.screen_setting_up_requesting)
                     is SettingUpVariant.RateLimited ->
-                        "Certificate issuance is temporarily delayed."
+                        stringResource(R.string.screen_setting_up_rate_limited)
                     is SettingUpVariant.Failed ->
-                        "Setup didn't finish."
+                        stringResource(R.string.screen_setting_up_failed)
                 },
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center
@@ -126,7 +131,9 @@ private fun SettingUpBody(
             when (state.variant) {
                 is SettingUpVariant.Registering -> {
                     Text(
-                        text = "This usually takes a few seconds.",
+                        text = stringResource(
+                            R.string.screen_setting_up_registering_hint
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -134,7 +141,9 @@ private fun SettingUpBody(
                 }
                 is SettingUpVariant.Requesting -> {
                     Text(
-                        text = "This usually takes about 30 seconds.",
+                        text = stringResource(
+                            R.string.screen_setting_up_requesting_hint
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -142,7 +151,10 @@ private fun SettingUpBody(
                 }
                 is SettingUpVariant.RateLimited -> {
                     Text(
-                        text = "Will retry on ${state.variant.expectedDate}.",
+                        text = stringResource(
+                            R.string.screen_setting_up_rate_limited_retry,
+                            state.variant.expectedDate
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center
                     )
@@ -161,7 +173,7 @@ private fun SettingUpBody(
 
             if (state.variant is SettingUpVariant.Failed && onRetry != null) {
                 Button(onClick = onRetry) {
-                    Text("Retry")
+                    Text(stringResource(R.string.common_retry))
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -169,8 +181,9 @@ private fun SettingUpBody(
             TextButton(onClick = onCancel) {
                 Text(
                     when (state.variant) {
-                        is SettingUpVariant.RateLimited -> "Dismiss"
-                        else -> "Cancel"
+                        is SettingUpVariant.RateLimited ->
+                            stringResource(R.string.common_dismiss)
+                        else -> stringResource(R.string.common_cancel)
                     }
                 )
             }

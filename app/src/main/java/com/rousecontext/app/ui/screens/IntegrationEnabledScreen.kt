@@ -30,9 +30,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -72,13 +74,20 @@ fun IntegrationEnabledScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("${state.integrationName} Ready") },
+                title = {
+                    Text(
+                        stringResource(
+                            R.string.screen_integration_enabled_title,
+                            state.integrationName
+                        )
+                    )
+                },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.common_back)
                         )
                     }
                 }
@@ -122,14 +131,17 @@ private fun IntegrationEnabledBody(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "${state.integrationName} is set up",
+                text = stringResource(
+                    R.string.screen_integration_enabled_heading,
+                    state.integrationName
+                ),
                 style = MaterialTheme.typography.headlineSmall
             )
 
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "Add this URL to your AI client:",
+                text = stringResource(R.string.screen_integration_enabled_add_url),
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -154,7 +166,12 @@ private fun IntegrationEnabledBody(
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onCopyUrl) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy URL")
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = stringResource(
+                                R.string.screen_integration_enabled_copy_url_content_description
+                            )
+                        )
                     }
                 }
             }
@@ -162,8 +179,7 @@ private fun IntegrationEnabledBody(
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "The first time your AI client connects, " +
-                    "you'll be asked to approve it with a code.",
+                text = stringResource(R.string.screen_integration_enabled_approval_hint),
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -179,7 +195,7 @@ private fun IntegrationEnabledBody(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Waiting for AI client...",
+                    text = stringResource(R.string.screen_integration_enabled_waiting),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -188,7 +204,7 @@ private fun IntegrationEnabledBody(
             Spacer(modifier = Modifier.weight(1f))
 
             TextButton(onClick = onCancel) {
-                Text("Finish Later")
+                Text(stringResource(R.string.screen_integration_enabled_finish_later))
             }
         }
     }

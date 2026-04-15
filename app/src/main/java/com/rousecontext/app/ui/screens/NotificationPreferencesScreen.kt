@@ -31,9 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -63,11 +65,16 @@ fun NotificationPreferencesScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Notification Preferences") },
+                title = {
+                    Text(stringResource(R.string.screen_notification_preferences_title))
+                },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
@@ -91,7 +98,7 @@ fun NotificationPreferencesScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "How would you like to be notified after AI sessions?",
+                text = stringResource(R.string.screen_notification_preferences_prompt),
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -99,8 +106,12 @@ fun NotificationPreferencesScreen(
 
             Column(modifier = Modifier.selectableGroup()) {
                 NotificationOption(
-                    title = "Summary (recommended)",
-                    description = "\"10 tool usages made\"",
+                    title = stringResource(
+                        R.string.screen_notification_preferences_summary_title
+                    ),
+                    description = stringResource(
+                        R.string.screen_notification_preferences_summary_description
+                    ),
                     selected = selected == NotificationMode.SUMMARY,
                     onClick = {
                         selected = NotificationMode.SUMMARY
@@ -109,8 +120,12 @@ fun NotificationPreferencesScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 NotificationOption(
-                    title = "Each tool usage",
-                    description = "Individual notification per data access",
+                    title = stringResource(
+                        R.string.screen_notification_preferences_each_title
+                    ),
+                    description = stringResource(
+                        R.string.screen_notification_preferences_each_description
+                    ),
                     selected = selected == NotificationMode.EACH_USAGE,
                     onClick = {
                         selected = NotificationMode.EACH_USAGE
@@ -119,8 +134,12 @@ fun NotificationPreferencesScreen(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 NotificationOption(
-                    title = "Suppress notifications",
-                    description = "Only see activity in audit log",
+                    title = stringResource(
+                        R.string.screen_notification_preferences_suppress_title
+                    ),
+                    description = stringResource(
+                        R.string.screen_notification_preferences_suppress_description
+                    ),
                     selected = selected == NotificationMode.SUPPRESS,
                     onClick = {
                         selected = NotificationMode.SUPPRESS
@@ -145,7 +164,7 @@ fun NotificationPreferencesScreen(
                     .fillMaxWidth()
                     .padding(bottom = 24.dp)
             ) {
-                Text("Continue")
+                Text(stringResource(R.string.common_continue))
             }
         }
     }
