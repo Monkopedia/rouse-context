@@ -26,7 +26,7 @@ This page gives a plain-English summary of each one. For the specific tool names
 
 **What it reads:** Active notifications on your phone and a searchable history of past ones, including the app name, title, text, and category.
 
-**What it does:** Can list current notifications, look up past ones by text or app, produce summary stats, and perform a notification's existing actions (reply, archive, and so on) if the AI asks. Notifications from Rouse Context itself are filtered out.
+**What it does:** Can list current notifications, look up past ones by text or app, produce summary stats, and perform a notification's existing actions (reply, archive, and so on) if the AI asks. Notifications from Rouse Context itself are unmodifiable — the AI can see them but cannot dismiss them or invoke their actions, so a Security Alert can't be cleared on your behalf.
 
 **Setup:**
 

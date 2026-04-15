@@ -16,7 +16,7 @@ No. The only outbound connections are to the relay (for tunnel traffic and certi
 
 ## Which AI clients does this work with?
 
-Anything that speaks MCP over HTTPS. Claude Desktop, Cursor, and similar MCP-capable clients. You give the client the per-integration URL and it connects when it needs data.
+Anything that speaks MCP over HTTPS. That includes Claude (Desktop, Code, claude.ai), ChatGPT, Cursor, Gemini, Microsoft Copilot, VS Code, Windsurf, and others. You give the client the per-integration URL and it connects when it needs data.
 
 ## What does the app cost?
 
@@ -57,4 +57,4 @@ Not today. The relay solves two problems: waking a sleeping phone, and traversin
 
 ## Where can I report a security issue?
 
-Open a GitHub issue, or email the maintainer. We would rather hear about a problem than read about it later.
+Email `security@rousecontext.com` for anything sensitive. For general bug reports, please open a GitHub issue — it's the fastest path and keeps the discussion public. If you can't use GitHub, `bugs@rousecontext.com` works as a fallback. We would rather hear about a problem than read about it later.

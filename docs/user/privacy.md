@@ -15,7 +15,7 @@ Only what the AI client asks for, and only while the AI client is connected. The
 Concretely:
 
 - When you enable an integration, the app reads data from the corresponding Android API (Health Connect, the notification listener, usage stats, and so on) only when an AI client calls a tool that needs it.
-- The result is sent directly to the AI client through the encrypted tunnel. The relay forwards the encrypted bytes but cannot read them.
+- The result is sent directly to the AI client through the encrypted tunnel. The relay forwards the encrypted bytes but has no way to read them.
 - When the AI disconnects, nothing further leaves the phone until the next connection.
 
 If you revoke an AI client's approval from the Authorization screen, that client cannot ask for anything else until you approve it again.

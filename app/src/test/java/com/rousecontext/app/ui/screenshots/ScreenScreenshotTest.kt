@@ -1,8 +1,15 @@
 package com.rousecontext.app.ui.screenshots
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditDetailScreen
@@ -43,6 +50,7 @@ import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.app.ui.screens.TerminalReason
 import com.rousecontext.app.ui.screens.TrustOverallStatus
+import com.rousecontext.app.ui.screens.TrustStatusSection
 import com.rousecontext.app.ui.screens.TrustStatusState
 import com.rousecontext.app.ui.screens.UsageSetupScreen
 import com.rousecontext.app.ui.screens.WelcomeScreen
@@ -763,6 +771,31 @@ class ScreenScreenshotTest {
         SettingsScreen(state = settingsTrustState(TrustOverallStatus.ALERT, "alert"))
     }
 
+    // Isolated trust-card renderings for the user-facing docs site. Each
+    // captures only the TrustStatusSection card inside an 8dp app-background
+    // border so the PNG reads as a minimal cropped screenshot without the
+    // rest of the Settings chrome.
+
+    @Test
+    fun trustCardWarningLight() = captureLight("50a_trust_card_warning") {
+        TrustCardDocsFrame(TrustOverallStatus.WARNING, ctResult = "warning")
+    }
+
+    @Test
+    fun trustCardWarningDark() = captureDark("50a_trust_card_warning") {
+        TrustCardDocsFrame(TrustOverallStatus.WARNING, ctResult = "warning")
+    }
+
+    @Test
+    fun trustCardAlertLight() = captureLight("50b_trust_card_alert") {
+        TrustCardDocsFrame(TrustOverallStatus.ALERT, ctResult = "alert")
+    }
+
+    @Test
+    fun trustCardAlertDark() = captureDark("50b_trust_card_alert") {
+        TrustCardDocsFrame(TrustOverallStatus.ALERT, ctResult = "alert")
+    }
+
     // =========================================================================
     // Audit Detail
     // =========================================================================
@@ -1027,6 +1060,26 @@ class ScreenScreenshotTest {
             overallStatus = overall
         )
     )
+
+    @Composable
+    private fun TrustCardDocsFrame(overall: TrustOverallStatus, ctResult: String) {
+        Box(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.background)
+                .padding(8.dp)
+                .width(360.dp)
+        ) {
+            TrustStatusSection(
+                trustStatus = TrustStatusState(
+                    lastCheckTime = System.currentTimeMillis() - 7_200_000,
+                    selfCheckResult = "verified",
+                    ctCheckResult = ctResult,
+                    certFingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+                    overallStatus = overall
+                )
+            )
+        }
+    }
 }
 
 /**

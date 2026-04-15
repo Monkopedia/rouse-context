@@ -8,7 +8,7 @@ nav_order: 1
 
 Your phone already knows a lot about you — your step count, your notifications, which apps you use. Rouse Context lets an AI assistant ask your phone for that context, on demand, without ever uploading it to a cloud service.
 
-It is an Android app that turns your phone into a private server that AI clients (Claude, Cursor, and similar) can connect to. When a client connects, your phone wakes up just long enough to answer, then goes back to sleep.
+It is an Android app that turns your phone into a private server that AI clients — Claude, ChatGPT, Cursor, Gemini, Microsoft Copilot, VS Code, and other MCP-capable clients — can connect to. When a client connects, your phone wakes up just long enough to answer, then goes back to sleep.
 
 ## What is it for?
 
@@ -29,8 +29,10 @@ You paste that URL into your AI client. When the AI wants to use it, the flow lo
 1. The AI client connects to the URL.
 2. A small relay server in the middle sees the connection request and sends a push notification to wake your phone.
 3. Your phone wakes up, connects back through the relay, and the relay splices the two encrypted streams together.
-4. The AI and your phone talk directly, end-to-end encrypted. The relay only forwards bytes — it cannot read them.
+4. The AI and your phone talk directly, end-to-end encrypted. The relay only forwards the encrypted bytes — it has no way to read them.
 5. When the AI disconnects, your phone goes back to sleep.
+
+Every time an AI client asks for data, your phone notifies you — so you can see what was requested and when, as it happens. The same events are recorded in the in-app audit log for later review.
 
 The first time a new AI client tries to use an integration, you have to approve it on the phone (like pairing). After that it can call the tools that integration exposes until you revoke the approval.
 

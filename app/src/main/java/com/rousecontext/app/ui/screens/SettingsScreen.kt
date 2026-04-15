@@ -569,7 +569,10 @@ fun SettingsScreen(
 private const val FINGERPRINT_TRUNCATE_LENGTH = 23
 
 @Composable
-private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert: () -> Unit = {}) {
+internal fun TrustStatusSection(
+    trustStatus: TrustStatusState,
+    onAcknowledgeAlert: () -> Unit = {}
+) {
     val ext = LocalExtendedColors.current
     val (statusIcon, statusColor, statusLabel) = when (trustStatus.overallStatus) {
         TrustOverallStatus.VERIFIED -> Triple(
