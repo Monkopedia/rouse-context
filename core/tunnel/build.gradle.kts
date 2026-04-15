@@ -20,7 +20,7 @@ kotlin {
     }
 
     sourceSets {
-        val commonMain by getting {
+        val jvmMain by getting {
             dependencies {
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
@@ -28,16 +28,6 @@ kotlin {
                 implementation(libs.ktor.client.websockets)
                 implementation(libs.ktor.client.content.negotiation)
                 implementation(libs.ktor.serialization.json)
-            }
-        }
-        val commonTest by getting {
-            dependencies {
-                implementation(kotlin("test"))
-                implementation(libs.kotlinx.coroutines.test)
-            }
-        }
-        val jvmMain by getting {
-            dependencies {
                 implementation(libs.ktor.client.cio)
             }
         }
