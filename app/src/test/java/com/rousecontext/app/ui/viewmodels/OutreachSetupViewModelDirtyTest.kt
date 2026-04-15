@@ -2,11 +2,11 @@ package com.rousecontext.app.ui.viewmodels
 
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.ui.screens.SetupMode
-import io.mockk.every
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -44,14 +44,14 @@ class OutreachSetupViewModelDirtyTest {
     fun `isDirty is false immediately after initForMode loads persisted value`() =
         runTest(testDispatcher) {
             val settingsStore = mockk<IntegrationSettingsStore> {
-                every {
+                coEvery {
                     getBoolean(
                         OutreachSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_DND_TOGGLED,
                         any()
                     )
                 } returns true
-                every {
+                coEvery {
                     getBoolean(
                         OutreachSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED,
@@ -74,7 +74,7 @@ class OutreachSetupViewModelDirtyTest {
     @Test
     fun `isDirty becomes true after DND toggle flips`() = runTest(testDispatcher) {
         val settingsStore = mockk<IntegrationSettingsStore> {
-            every { getBoolean(any(), any(), any()) } returns false
+            coEvery { getBoolean(any(), any(), any()) } returns false
         }
         val vm = OutreachSetupViewModel(
             context = mockk(relaxed = true),
@@ -94,8 +94,8 @@ class OutreachSetupViewModelDirtyTest {
     @Test
     fun `isDirty returns to false after saveSettings`() = runTest(testDispatcher) {
         val settingsStore = mockk<IntegrationSettingsStore> {
-            every { getBoolean(any(), any(), any()) } returns false
-            every { setBoolean(any(), any(), any()) } just runs
+            coEvery { getBoolean(any(), any(), any()) } returns false
+            coEvery { setBoolean(any(), any(), any()) } just runs
         }
         val vm = OutreachSetupViewModel(
             context = mockk(relaxed = true),
@@ -113,7 +113,7 @@ class OutreachSetupViewModelDirtyTest {
         advanceUntilIdle()
 
         assertFalse(vm.isDirty.value)
-        verify {
+        coVerify {
             settingsStore.setBoolean(
                 OutreachSetupViewModel.INTEGRATION_ID,
                 IntegrationSettingsStore.KEY_DND_TOGGLED,
@@ -126,8 +126,8 @@ class OutreachSetupViewModelDirtyTest {
     fun `directLaunchEnabled toggle flips isDirty and persists on save`() =
         runTest(testDispatcher) {
             val settingsStore = mockk<IntegrationSettingsStore> {
-                every { getBoolean(any(), any(), any()) } returns false
-                every { setBoolean(any(), any(), any()) } just runs
+                coEvery { getBoolean(any(), any(), any()) } returns false
+                coEvery { setBoolean(any(), any(), any()) } just runs
             }
             val vm = OutreachSetupViewModel(
                 context = mockk(relaxed = true),
@@ -148,7 +148,7 @@ class OutreachSetupViewModelDirtyTest {
             advanceUntilIdle()
 
             assertFalse(vm.isDirty.value)
-            verify {
+            coVerify {
                 settingsStore.setBoolean(
                     OutreachSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED,
@@ -160,14 +160,14 @@ class OutreachSetupViewModelDirtyTest {
     @Test
     fun `initForMode SETTINGS loads directLaunchEnabled from store`() = runTest(testDispatcher) {
         val settingsStore = mockk<IntegrationSettingsStore> {
-            every {
+            coEvery {
                 getBoolean(
                     OutreachSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_DND_TOGGLED,
                     any()
                 )
             } returns false
-            every {
+            coEvery {
                 getBoolean(
                     OutreachSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED,
@@ -192,7 +192,7 @@ class OutreachSetupViewModelDirtyTest {
     fun `isDirty flips back to false if user edits then reverts to saved value`() =
         runTest(testDispatcher) {
             val settingsStore = mockk<IntegrationSettingsStore> {
-                every { getBoolean(any(), any(), any()) } returns false
+                coEvery { getBoolean(any(), any(), any()) } returns false
             }
             val vm = OutreachSetupViewModel(
                 context = mockk(relaxed = true),

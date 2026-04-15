@@ -54,8 +54,8 @@ class IntegrationUrlTest {
         }
         val urlProvider = McpUrlProvider(certStore, "rousecontext.com")
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } returns true
-            every { wasEverEnabled("health") } returns true
+            coEvery { isUserEnabled("health") } returns true
+            coEvery { wasEverEnabled("health") } returns true
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
@@ -111,8 +111,8 @@ class IntegrationUrlTest {
         }
         val urlProvider = McpUrlProvider(certStore, "rousecontext.com")
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("notifications") } returns true
-            every { wasEverEnabled("notifications") } returns true
+            coEvery { isUserEnabled("notifications") } returns true
+            coEvery { wasEverEnabled("notifications") } returns true
             every { observeChanges() } returns flowOf(Unit)
         }
         val sampleToken = TokenInfo(
@@ -166,8 +166,8 @@ class IntegrationUrlTest {
         }
         val urlProvider = McpUrlProvider(certStore, "rousecontext.com")
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } returns true
-            every { wasEverEnabled("health") } returns true
+            coEvery { isUserEnabled("health") } returns true
+            coEvery { wasEverEnabled("health") } returns true
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {

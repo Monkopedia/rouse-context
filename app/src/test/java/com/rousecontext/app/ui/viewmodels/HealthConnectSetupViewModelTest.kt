@@ -271,13 +271,17 @@ class HealthConnectSetupViewModelTest {
 
     private class FakeStore : IntegrationStateStore {
         val enabled = mutableMapOf<String, Boolean>()
-        override fun isUserEnabled(integrationId: String): Boolean = enabled[integrationId] == true
-        override fun setUserEnabled(integrationId: String, enabled: Boolean) {
+        override suspend fun isUserEnabled(integrationId: String): Boolean =
+            enabled[integrationId] == true
+        override suspend fun setUserEnabled(integrationId: String, enabled: Boolean) {
             this.enabled[integrationId] = enabled
         }
         override fun observeUserEnabled(integrationId: String) =
             MutableStateFlow(enabled[integrationId] == true)
-        override fun wasEverEnabled(integrationId: String): Boolean = enabled[integrationId] == true
+        override suspend fun wasEverEnabled(integrationId: String): Boolean =
+            enabled[integrationId] == true
+        override fun observeEverEnabled(integrationId: String): Flow<Boolean> =
+            MutableStateFlow(enabled[integrationId] == true)
         override fun observeChanges(): Flow<Unit> = MutableStateFlow(0).map { }
     }
 }

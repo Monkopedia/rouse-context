@@ -58,8 +58,8 @@ class DashboardStateFlowTest {
         val stateChanges = MutableSharedFlow<Unit>()
         var enabled = false
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } answers { enabled }
-            every { wasEverEnabled("health") } answers { enabled }
+            coEvery { isUserEnabled("health") } answers { enabled }
+            coEvery { wasEverEnabled("health") } answers { enabled }
             every { observeChanges() } returns stateChanges
         }
         val tokenStore = mockk<TokenStore> {
@@ -104,8 +104,8 @@ class DashboardStateFlowTest {
         val stateChanges = MutableSharedFlow<Unit>()
         var enabled = true
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } answers { enabled }
-            every { wasEverEnabled("health") } answers { enabled }
+            coEvery { isUserEnabled("health") } answers { enabled }
+            coEvery { wasEverEnabled("health") } answers { enabled }
             every { observeChanges() } returns stateChanges
         }
         val tokenStore = mockk<TokenStore> {
@@ -156,10 +156,10 @@ class DashboardStateFlowTest {
         var healthEnabled = false
         var notifEnabled = false
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } answers { healthEnabled }
-            every { wasEverEnabled("health") } answers { healthEnabled }
-            every { isUserEnabled("notifications") } answers { notifEnabled }
-            every { wasEverEnabled("notifications") } answers { notifEnabled }
+            coEvery { isUserEnabled("health") } answers { healthEnabled }
+            coEvery { wasEverEnabled("health") } answers { healthEnabled }
+            coEvery { isUserEnabled("notifications") } answers { notifEnabled }
+            coEvery { wasEverEnabled("notifications") } answers { notifEnabled }
             every { observeChanges() } returns stateChanges
         }
         val tokenStore = mockk<TokenStore> {
@@ -211,8 +211,8 @@ class DashboardStateFlowTest {
     fun `audit entries update reactively via flow`() = runTest(testDispatcher) {
         val auditFlow = MutableSharedFlow<List<AuditEntry>>(replay = 1)
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled(any()) } returns false
-            every { wasEverEnabled(any()) } returns false
+            coEvery { isUserEnabled(any()) } returns false
+            coEvery { wasEverEnabled(any()) } returns false
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {

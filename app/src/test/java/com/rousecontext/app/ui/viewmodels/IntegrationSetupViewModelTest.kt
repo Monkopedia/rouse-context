@@ -14,7 +14,6 @@ import com.rousecontext.tunnel.UpdateSecretsResponse
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
@@ -61,9 +60,9 @@ class IntegrationSetupViewModelTest {
     @Test
     fun `enable integration - updateSecrets succeeds - Complete state`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true) {
-            every { isUserEnabled("health") } returns true
-            every { isUserEnabled("usage") } returns true
-            every { isUserEnabled(any()) } returns false
+            coEvery { isUserEnabled("health") } returns true
+            coEvery { isUserEnabled("usage") } returns true
+            coEvery { isUserEnabled(any()) } returns false
         }
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
             coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
@@ -118,9 +117,9 @@ class IntegrationSetupViewModelTest {
     fun `updateSecrets forwards integrationIds unchanged and stores response secrets`() =
         runTest(testDispatcher) {
             val stateStore = mockk<IntegrationStateStore>(relaxed = true) {
-                every { isUserEnabled(any()) } returns false
-                every { isUserEnabled("health") } returns true
-                every { isUserEnabled("usage") } returns true
+                coEvery { isUserEnabled(any()) } returns false
+                coEvery { isUserEnabled("health") } returns true
+                coEvery { isUserEnabled("usage") } returns true
             }
             val certProvisioningFlow = mockk<CertProvisioningFlow> {
                 coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned

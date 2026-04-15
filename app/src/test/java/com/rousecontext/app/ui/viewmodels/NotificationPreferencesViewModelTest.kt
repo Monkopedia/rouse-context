@@ -7,7 +7,6 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.ui.screens.NotificationMode
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,7 +37,7 @@ class NotificationPreferencesViewModelTest {
     @Test
     fun `initial state reflects persisted mode`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            coEvery { settings() } returns NotificationSettings(
                 postSessionMode = PostSessionMode.EACH_USAGE,
                 notificationPermissionGranted = true
             )
@@ -54,7 +53,7 @@ class NotificationPreferencesViewModelTest {
     @Test
     fun `select updates state without persisting`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            coEvery { settings() } returns NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
@@ -71,7 +70,7 @@ class NotificationPreferencesViewModelTest {
     @Test
     fun `persistSelection writes current selection to provider`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            coEvery { settings() } returns NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
@@ -90,7 +89,7 @@ class NotificationPreferencesViewModelTest {
     @Test
     fun `persistSelection maps each_usage`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            coEvery { settings() } returns NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )

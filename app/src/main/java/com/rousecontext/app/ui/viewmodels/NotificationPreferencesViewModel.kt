@@ -30,7 +30,7 @@ class NotificationPreferencesViewModel(
 
     init {
         viewModelScope.launch {
-            val current = notificationSettingsProvider.settings.postSessionMode
+            val current = notificationSettingsProvider.settings().postSessionMode
             _state.value = NotificationPreferencesState(selectedMode = current.toUiMode())
         }
     }

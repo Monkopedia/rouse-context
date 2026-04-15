@@ -25,6 +25,8 @@ import com.rousecontext.app.state.DataStoreNotificationSettingsProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.state.NotificationPermissionRefresher
+import com.rousecontext.app.state.OAuthHostnameProvider
+import com.rousecontext.app.state.PreferencesSnapshotHolder
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.support.BugReportUriBuilder
@@ -89,7 +91,8 @@ import com.rousecontext.work.SharedPreferencesSpuriousWakeRecorder
 import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
@@ -154,10 +157,14 @@ val appModule = module {
     // --- Device registration status ---
     single {
         val certStore: CertificateStore = get()
-        val alreadyRegistered = runBlocking {
-            certStore.getSubdomain() != null
+        val appScope: CoroutineScope = get(named("appScope"))
+        val status = DeviceRegistrationStatus(initiallyRegistered = false)
+        appScope.launch {
+            if (certStore.getSubdomain() != null) {
+                status.markComplete()
+            }
         }
-        DeviceRegistrationStatus(initiallyRegistered = alreadyRegistered)
+        status
     }
 
     // --- Onboarding ---
@@ -215,7 +222,8 @@ val appModule = module {
         OutreachIntegration(
             context = androidContext(),
             settingsStore = get(),
-            launchNotifier = get()
+            launchNotifier = get(),
+            appScope = get(named("appScope"))
         )
     }
     single<McpIntegration>(named("notifications")) {
@@ -237,7 +245,19 @@ val appModule = module {
     single<ProviderRegistry> {
         IntegrationProviderRegistry(
             integrations = get(),
-            stateStore = get()
+            stateStore = get(),
+            appScope = get(named("appScope"))
+        )
+    }
+
+    // --- Preferences snapshot holder (live reactive view of all prefs) ---
+    single {
+        PreferencesSnapshotHolder(
+            integrationStateStore = get(),
+            integrationSettingsStore = get(),
+            notificationSettingsProvider = get(),
+            integrations = get(),
+            appScope = get(named("appScope"))
         )
     }
 
@@ -305,32 +325,42 @@ val appModule = module {
     }
     single<SecurityCheckNotifier> { AndroidSecurityCheckNotifier(androidContext()) }
 
+    // --- OAuth hostname provider ---
+    // Resolves the public OAuth metadata hostname lazily at first use, avoiding
+    // blocking DataStore reads at Koin graph construction time. In practice the
+    // resolved hostname is only used as a fallback when the inbound request has
+    // no Host header; real traffic overrides via the Host header.
+    single {
+        OAuthHostnameProvider(
+            certStore = get(),
+            baseDomain = BuildConfig.BASE_DOMAIN,
+            integrations = get()
+        )
+    }
+
     // --- MCP session ---
     // TODO: With per-integration hostnames, each integration needs its own McpSession.
     // For now, create a single session for the first enabled integration.
     single {
-        val certStore: CertificateStore = get()
-        val baseDomain = BuildConfig.BASE_DOMAIN
         val notifier: AuthRequestNotifier = get()
         val integrations: List<McpIntegration> = get()
+        val hostnameProvider: OAuthHostnameProvider = get()
         // Default to first integration id
         val defaultIntegration = integrations.firstOrNull()?.id ?: "health"
-        // Build hostname from cert store for OAuth metadata URLs.
-        // With single-session, use the first available integration secret.
-        val hostname = runBlocking {
-            val subdomain = certStore.getSubdomain()
-            val secret = certStore.getSecretForIntegration(defaultIntegration)
-            if (subdomain != null && secret != null) {
-                "$secret.$subdomain.$baseDomain"
-            } else {
-                "localhost"
-            }
+        val appScope: CoroutineScope = get(named("appScope"))
+        // Start with a placeholder hostname; OAuthHostnameProvider resolves the
+        // real one asynchronously and we never read it outside suspend contexts.
+        val initialHostname = "localhost"
+        // Kick off async resolution so logs/metrics can see the hostname if needed;
+        // the fallback "localhost" is only used for responses lacking a Host header.
+        appScope.launch {
+            hostnameProvider.resolve()
         }
         McpSession(
             registry = get(),
             tokenStore = get(),
             auditListener = get(),
-            hostname = hostname,
+            hostname = initialHostname,
             integration = defaultIntegration,
             securityAlertCheck = {
                 val prefs = androidContext().getSharedPreferences(

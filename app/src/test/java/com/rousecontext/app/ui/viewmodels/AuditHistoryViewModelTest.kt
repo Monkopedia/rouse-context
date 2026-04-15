@@ -271,7 +271,7 @@ class AuditHistoryViewModelTest {
             showAllMcpMessages = value
         )
         return mockk {
-            every { settings } returns snapshot
+            coEvery { settings() } returns snapshot
             every { observeSettings() } returns flowOf(snapshot)
             coEvery { setPostSessionMode(any()) } returns Unit
             coEvery { setShowAllMcpMessages(any()) } returns Unit

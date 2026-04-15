@@ -59,7 +59,7 @@ class PerToolCallNotifier(
 
     private val idCounter = AtomicInteger(0)
 
-    override fun onToolCallRecorded(event: ToolCallEvent) {
+    override suspend fun onToolCallRecorded(event: ToolCallEvent) {
         notifyIfEnabled(event)
     }
 
@@ -67,8 +67,8 @@ class PerToolCallNotifier(
      * Post a notification for [event] if [PostSessionMode.EACH_USAGE] is active.
      * No-op otherwise.
      */
-    fun notifyIfEnabled(event: ToolCallEvent) {
-        if (settingsProvider.settings.postSessionMode != PostSessionMode.EACH_USAGE) return
+    suspend fun notifyIfEnabled(event: ToolCallEvent) {
+        if (settingsProvider.settings().postSessionMode != PostSessionMode.EACH_USAGE) return
 
         val notificationId = BASE_ID + idCounter.getAndIncrement()
         val displayName = integrationDisplayNames[event.providerId] ?: event.providerId

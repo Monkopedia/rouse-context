@@ -105,8 +105,8 @@ class SessionSummaryNotifier(
         }
     }
 
-    private fun postForMode(entries: List<AuditEntry>, startMillis: Long, endMillis: Long) {
-        val mode = settingsProvider.settings.postSessionMode
+    private suspend fun postForMode(entries: List<AuditEntry>, startMillis: Long, endMillis: Long) {
+        val mode = settingsProvider.settings().postSessionMode
         when (mode) {
             PostSessionMode.SUPPRESS -> return
             PostSessionMode.EACH_USAGE -> return

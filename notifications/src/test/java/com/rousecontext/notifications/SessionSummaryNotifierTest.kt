@@ -430,14 +430,15 @@ class SessionSummaryNotifierTest {
     private class FakeNotificationSettingsProvider(initial: PostSessionMode) :
         NotificationSettingsProvider {
         var mode: PostSessionMode = initial
-        override val settings: NotificationSettings
-            get() = NotificationSettings(
-                postSessionMode = mode,
-                notificationPermissionGranted = true
-            )
+        private fun currentSettings(): NotificationSettings = NotificationSettings(
+            postSessionMode = mode,
+            notificationPermissionGranted = true
+        )
+
+        override suspend fun settings(): NotificationSettings = currentSettings()
 
         override fun observeSettings(): kotlinx.coroutines.flow.Flow<NotificationSettings> =
-            kotlinx.coroutines.flow.flowOf(settings)
+            kotlinx.coroutines.flow.flowOf(currentSettings())
 
         override suspend fun setPostSessionMode(mode: PostSessionMode) {
             this.mode = mode

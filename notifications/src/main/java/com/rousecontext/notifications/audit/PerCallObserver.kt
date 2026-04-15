@@ -12,5 +12,5 @@ import com.rousecontext.mcp.core.ToolCallEvent
  * without type-erasure surprises and so implementations can carry state.
  */
 fun interface PerCallObserver {
-    fun onToolCallRecorded(event: ToolCallEvent)
+    suspend fun onToolCallRecorded(event: ToolCallEvent)
 }

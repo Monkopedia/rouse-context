@@ -17,7 +17,6 @@ import com.rousecontext.api.PostSessionMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 
 private val Context.notificationDataStore: DataStore<Preferences>
     by preferencesDataStore(name = "notification_settings")
@@ -30,64 +29,13 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
 
     private val dataStore get() = context.notificationDataStore
 
-    override val settings: NotificationSettings
-        get() {
-            val (mode, showAll) = runBlocking {
-                val prefs = dataStore.data.first()
-                val modeStored = prefs[POST_SESSION_MODE_KEY]
-                val parsedMode = modeStored?.let {
-                    try {
-                        PostSessionMode.valueOf(it)
-                    } catch (_: IllegalArgumentException) {
-                        PostSessionMode.SUMMARY
-                    }
-                } ?: PostSessionMode.SUMMARY
-                val showAllStored = prefs[SHOW_ALL_MCP_MESSAGES_KEY] ?: false
-                parsedMode to showAllStored
-            }
-
-            val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
-            } else {
-                true
-            }
-
-            return NotificationSettings(
-                postSessionMode = mode,
-                notificationPermissionGranted = permissionGranted,
-                showAllMcpMessages = showAll
-            )
-        }
-
-    override fun observeSettings(): Flow<NotificationSettings> = dataStore.data.map { prefs ->
-        val modeStored = prefs[POST_SESSION_MODE_KEY]
-        val parsedMode = modeStored?.let {
-            try {
-                PostSessionMode.valueOf(it)
-            } catch (_: IllegalArgumentException) {
-                PostSessionMode.SUMMARY
-            }
-        } ?: PostSessionMode.SUMMARY
-        val showAll = prefs[SHOW_ALL_MCP_MESSAGES_KEY] ?: false
-
-        val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-
-        NotificationSettings(
-            postSessionMode = parsedMode,
-            notificationPermissionGranted = permissionGranted,
-            showAllMcpMessages = showAll
-        )
+    override suspend fun settings(): NotificationSettings {
+        val prefs = dataStore.data.first()
+        return prefs.toSettings()
     }
+
+    override fun observeSettings(): Flow<NotificationSettings> =
+        dataStore.data.map { it.toSettings() }
 
     override suspend fun setPostSessionMode(mode: PostSessionMode) {
         dataStore.edit { prefs ->
@@ -99,6 +47,33 @@ class DataStoreNotificationSettingsProvider(private val context: Context) :
         dataStore.edit { prefs ->
             prefs[SHOW_ALL_MCP_MESSAGES_KEY] = enabled
         }
+    }
+
+    private fun Preferences.toSettings(): NotificationSettings {
+        val modeStored = this[POST_SESSION_MODE_KEY]
+        val parsedMode = modeStored?.let {
+            try {
+                PostSessionMode.valueOf(it)
+            } catch (_: IllegalArgumentException) {
+                PostSessionMode.SUMMARY
+            }
+        } ?: PostSessionMode.SUMMARY
+        val showAll = this[SHOW_ALL_MCP_MESSAGES_KEY] ?: false
+
+        val permissionGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+
+        return NotificationSettings(
+            postSessionMode = parsedMode,
+            notificationPermissionGranted = permissionGranted,
+            showAllMcpMessages = showAll
+        )
     }
 
     companion object {

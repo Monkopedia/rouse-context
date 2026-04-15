@@ -9,6 +9,7 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.mcp.core.ToolCallEvent
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -54,7 +55,7 @@ class PerToolCallNotifierTest {
 
     @Test
     fun `EACH_USAGE mode posts a notification for a tool call`() {
-        notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
 
         val shadow = Shadows.shadowOf(manager)
         val posted = shadow.allNotifications
@@ -80,7 +81,7 @@ class PerToolCallNotifierTest {
     fun `SUMMARY mode posts nothing`() {
         settings.mode = PostSessionMode.SUMMARY
 
-        notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
 
         val shadow = Shadows.shadowOf(manager)
         assertTrue(
@@ -93,7 +94,7 @@ class PerToolCallNotifierTest {
     fun `SUPPRESS mode posts nothing`() {
         settings.mode = PostSessionMode.SUPPRESS
 
-        notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
 
         val shadow = Shadows.shadowOf(manager)
         assertTrue(
@@ -104,9 +105,11 @@ class PerToolCallNotifierTest {
 
     @Test
     fun `Multiple calls post distinct grouped notifications`() {
-        notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
-        notifier.notifyIfEnabled(event(provider = "usage", toolName = "get_app_usage"))
-        notifier.notifyIfEnabled(event(provider = "health", toolName = "get_hr"))
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
+        runBlocking {
+            notifier.notifyIfEnabled(event(provider = "usage", toolName = "get_app_usage"))
+        }
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_hr")) }
 
         val shadow = Shadows.shadowOf(manager)
         assertEquals(
@@ -124,7 +127,7 @@ class PerToolCallNotifierTest {
 
     @Test
     fun `Falls back to provider id when display name is unknown`() {
-        notifier.notifyIfEnabled(event(provider = "unknown", toolName = "do_thing"))
+        runBlocking { notifier.notifyIfEnabled(event(provider = "unknown", toolName = "do_thing")) }
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.firstOrNull()
@@ -138,7 +141,7 @@ class PerToolCallNotifierTest {
 
     @Test
     fun `Notification is auto-cancel`() {
-        notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
 
         val shadow = Shadows.shadowOf(manager)
         val notification = shadow.allNotifications.first()
@@ -166,14 +169,15 @@ class PerToolCallNotifierTest {
     private class FakeNotificationSettingsProvider(initial: PostSessionMode) :
         NotificationSettingsProvider {
         var mode: PostSessionMode = initial
-        override val settings: NotificationSettings
-            get() = NotificationSettings(
-                postSessionMode = mode,
-                notificationPermissionGranted = true
-            )
+        private fun currentSettings(): NotificationSettings = NotificationSettings(
+            postSessionMode = mode,
+            notificationPermissionGranted = true
+        )
+
+        override suspend fun settings(): NotificationSettings = currentSettings()
 
         override fun observeSettings(): kotlinx.coroutines.flow.Flow<NotificationSettings> =
-            kotlinx.coroutines.flow.flowOf(settings)
+            kotlinx.coroutines.flow.flowOf(currentSettings())
 
         override suspend fun setPostSessionMode(mode: PostSessionMode) {
             this.mode = mode
