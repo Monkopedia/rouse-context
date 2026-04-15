@@ -21,25 +21,25 @@ class IntegrationStateStoreTest {
     }
 
     @Test
-    fun `default state is disabled`() {
+    fun `default state is disabled`() = runBlocking {
         assertFalse(store.isUserEnabled("health"))
     }
 
     @Test
-    fun `enable persists`() {
+    fun `enable persists`() = runBlocking {
         store.setUserEnabled("health", true)
         assertTrue(store.isUserEnabled("health"))
     }
 
     @Test
-    fun `disable after enable persists`() {
+    fun `disable after enable persists`() = runBlocking {
         store.setUserEnabled("health", true)
         store.setUserEnabled("health", false)
         assertFalse(store.isUserEnabled("health"))
     }
 
     @Test
-    fun `different integrations are independent`() {
+    fun `different integrations are independent`() = runBlocking {
         store.setUserEnabled("health", true)
         store.setUserEnabled("notifications", false)
 
@@ -71,18 +71,18 @@ class IntegrationStateStoreTest {
     }
 
     @Test
-    fun `wasEverEnabled is false by default`() {
+    fun `wasEverEnabled is false by default`() = runBlocking {
         assertFalse(store.wasEverEnabled("health"))
     }
 
     @Test
-    fun `wasEverEnabled becomes true after enabling`() {
+    fun `wasEverEnabled becomes true after enabling`() = runBlocking {
         store.setUserEnabled("health", true)
         assertTrue(store.wasEverEnabled("health"))
     }
 
     @Test
-    fun `wasEverEnabled stays true after disabling`() {
+    fun `wasEverEnabled stays true after disabling`() = runBlocking {
         store.setUserEnabled("health", true)
         store.setUserEnabled("health", false)
         assertTrue(store.wasEverEnabled("health"))
@@ -94,16 +94,20 @@ class IntegrationStateStoreTest {
  */
 private class FakeIntegrationStateStore : IntegrationStateStore {
     private val states = mutableMapOf<String, MutableStateFlow<Boolean>>()
-    private val everEnabled = mutableSetOf<String>()
+    private val everEnabledFlows = mutableMapOf<String, MutableStateFlow<Boolean>>()
 
     private fun flowFor(integrationId: String): MutableStateFlow<Boolean> =
         states.getOrPut(integrationId) { MutableStateFlow(false) }
 
-    override fun isUserEnabled(integrationId: String): Boolean = flowFor(integrationId).value
+    private fun everFlowFor(integrationId: String): MutableStateFlow<Boolean> =
+        everEnabledFlows.getOrPut(integrationId) { MutableStateFlow(false) }
 
-    override fun setUserEnabled(integrationId: String, enabled: Boolean) {
+    override suspend fun isUserEnabled(integrationId: String): Boolean =
+        flowFor(integrationId).value
+
+    override suspend fun setUserEnabled(integrationId: String, enabled: Boolean) {
         if (enabled) {
-            everEnabled.add(integrationId)
+            everFlowFor(integrationId).value = true
         }
         flowFor(integrationId).value = enabled
         changeSignal.value++
@@ -111,7 +115,11 @@ private class FakeIntegrationStateStore : IntegrationStateStore {
 
     override fun observeUserEnabled(integrationId: String) = flowFor(integrationId)
 
-    override fun wasEverEnabled(integrationId: String): Boolean = integrationId in everEnabled
+    override suspend fun wasEverEnabled(integrationId: String): Boolean =
+        everFlowFor(integrationId).value
+
+    override fun observeEverEnabled(integrationId: String): Flow<Boolean> =
+        everFlowFor(integrationId)
 
     private val changeSignal = MutableStateFlow(0)
 

@@ -36,6 +36,8 @@ import kotlinx.coroutines.launch
  * @property rolling24h count of spurious wakes within the last 24 hours
  * @property total lifetime count of all completed wake cycles
  */
+private data class Quint<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
+
 data class SpuriousWakeStats(val rolling24h: Int, val total: Long) {
     companion object {
         val EMPTY = SpuriousWakeStats(rolling24h = 0, total = 0L)
@@ -62,13 +64,21 @@ class SettingsViewModel(
     private val rotateError = MutableStateFlow<String?>(null)
 
     val state: StateFlow<SettingsState> = combine(
-        refreshTrigger,
-        themePreference.themeMode,
-        rotateInProgress,
-        rotateError,
-        spuriousWakesFlow
-    ) { _, themeMode, rotating, rotateErr, spurious ->
-        val settings = notificationSettingsProvider.settings
+        combine(
+            refreshTrigger,
+            themePreference.themeMode,
+            rotateInProgress,
+            rotateError,
+            spuriousWakesFlow
+        ) { _, themeMode, rotating, rotateErr, spurious ->
+            Quint(themeMode, rotating, rotateErr, spurious, Unit)
+        },
+        notificationSettingsProvider.observeSettings()
+    ) { tuple, settings ->
+        val themeMode = tuple.a
+        val rotating = tuple.b
+        val rotateErr = tuple.c
+        val spurious = tuple.d
         val intervalHours = settingsPrefs?.getInt(
             RouseApplication.KEY_SECURITY_CHECK_INTERVAL_HOURS,
             RouseApplication.DEFAULT_INTERVAL_HOURS

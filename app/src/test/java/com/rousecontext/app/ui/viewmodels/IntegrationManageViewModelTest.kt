@@ -56,8 +56,8 @@ class IntegrationManageViewModelTest {
         runTest(testDispatcher) {
             val tokensFlow = MutableStateFlow<List<TokenInfo>>(emptyList())
             val stateStore = mockk<IntegrationStateStore> {
-                every { isUserEnabled("health") } returns true
-                every { wasEverEnabled("health") } returns true
+                coEvery { isUserEnabled("health") } returns true
+                coEvery { wasEverEnabled("health") } returns true
                 every { observeChanges() } returns flowOf(Unit)
             }
             val tokenStore = mockk<TokenStore> {
@@ -109,8 +109,8 @@ class IntegrationManageViewModelTest {
         runTest(testDispatcher) {
             val auditFlow = MutableStateFlow<List<AuditEntry>>(emptyList())
             val stateStore = mockk<IntegrationStateStore> {
-                every { isUserEnabled("health") } returns true
-                every { wasEverEnabled("health") } returns true
+                coEvery { isUserEnabled("health") } returns true
+                coEvery { wasEverEnabled("health") } returns true
                 every { observeChanges() } returns flowOf(Unit)
             }
             val tokenStore = mockk<TokenStore> {

@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
 interface NotificationSettingsProvider {
 
     /** Current notification settings. */
-    val settings: NotificationSettings
+    suspend fun settings(): NotificationSettings
 
     /**
      * Reactive view of the settings. Emits the current value on collection and

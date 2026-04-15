@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession
+import kotlinx.coroutines.runBlocking
 import org.koin.java.KoinJavaComponent.getKoin
 
 /**
@@ -49,7 +50,7 @@ class TestCommandReceiver : BroadcastReceiver() {
         }
 
         val store = getKoin().get<IntegrationStateStore>()
-        store.setUserEnabled(id, true)
+        runBlocking { store.setUserEnabled(id, true) }
         Log.i(TAG, "Enabled integration: $id")
     }
 

@@ -78,8 +78,8 @@ class MainDashboardViewModelTest {
     @Test
     fun `initial state emits loading before first data emission`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled(any()) } returns false
-            every { wasEverEnabled(any()) } returns false
+            coEvery { isUserEnabled(any()) } returns false
+            coEvery { wasEverEnabled(any()) } returns false
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
@@ -107,8 +107,8 @@ class MainDashboardViewModelTest {
     @Test
     fun `audit dao failure surfaces error state`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled(any()) } returns false
-            every { wasEverEnabled(any()) } returns false
+            coEvery { isUserEnabled(any()) } returns false
+            coEvery { wasEverEnabled(any()) } returns false
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
@@ -142,8 +142,8 @@ class MainDashboardViewModelTest {
     @Test
     fun `active integration appears in dashboard`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } returns true
-            every { wasEverEnabled("health") } returns true
+            coEvery { isUserEnabled("health") } returns true
+            coEvery { wasEverEnabled("health") } returns true
             every { observeUserEnabled(any()) } returns flowOf(true)
             every { observeChanges() } returns flowOf(Unit)
         }
@@ -177,8 +177,8 @@ class MainDashboardViewModelTest {
     @Test
     fun `unavailable integration does not appear in dashboard`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } returns false
-            every { wasEverEnabled("health") } returns false
+            coEvery { isUserEnabled("health") } returns false
+            coEvery { wasEverEnabled("health") } returns false
             every { observeUserEnabled(any()) } returns flowOf(false)
             every { observeChanges() } returns flowOf(Unit)
         }
@@ -221,8 +221,8 @@ class MainDashboardViewModelTest {
             success = true
         )
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled(any()) } returns false
-            every { wasEverEnabled(any()) } returns false
+            coEvery { isUserEnabled(any()) } returns false
+            coEvery { wasEverEnabled(any()) } returns false
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {
@@ -256,8 +256,8 @@ class MainDashboardViewModelTest {
         val stateChanges = MutableSharedFlow<Unit>()
         var enabled = false
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled("health") } answers { enabled }
-            every { wasEverEnabled("health") } answers { enabled }
+            coEvery { isUserEnabled("health") } answers { enabled }
+            coEvery { wasEverEnabled("health") } answers { enabled }
             every { observeChanges() } returns stateChanges
         }
         val tokenStore = mockk<TokenStore> {
@@ -468,8 +468,8 @@ class MainDashboardViewModelTest {
             every { observeRecent(any(), any(), any()) } returns flowOf(emptyList())
         }
         val stateStore = mockk<IntegrationStateStore> {
-            every { isUserEnabled(any()) } returns false
-            every { wasEverEnabled(any()) } returns false
+            coEvery { isUserEnabled(any()) } returns false
+            coEvery { wasEverEnabled(any()) } returns false
             every { observeChanges() } returns flowOf(Unit)
         }
         val tokenStore = mockk<TokenStore> {

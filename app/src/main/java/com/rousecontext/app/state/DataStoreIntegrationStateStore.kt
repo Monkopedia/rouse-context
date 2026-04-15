@@ -10,7 +10,6 @@ import com.rousecontext.api.IntegrationStateStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
 
 private val Context.integrationDataStore: DataStore<Preferences>
     by preferencesDataStore(name = "integration_state")
@@ -18,25 +17,22 @@ private val Context.integrationDataStore: DataStore<Preferences>
 /**
  * [IntegrationStateStore] backed by Preferences DataStore.
  *
- * Note: The interface defines synchronous methods, so we use [runBlocking]
- * internally for reads. This is acceptable because DataStore reads from a
- * cached in-memory snapshot after the first access.
+ * All reads are suspending — callers in suspend contexts get fresh values;
+ * UI layers should prefer observing the [Flow]-returning methods via the
+ * [com.rousecontext.app.state.PreferencesSnapshotHolder].
  */
 class DataStoreIntegrationStateStore(private val context: Context) : IntegrationStateStore {
 
     private val dataStore get() = context.integrationDataStore
 
-    override fun isUserEnabled(integrationId: String): Boolean = runBlocking {
+    override suspend fun isUserEnabled(integrationId: String): Boolean =
         dataStore.data.first()[enabledKey(integrationId)] ?: false
-    }
 
-    override fun setUserEnabled(integrationId: String, enabled: Boolean) {
-        runBlocking {
-            dataStore.edit { prefs ->
-                prefs[enabledKey(integrationId)] = enabled
-                if (enabled) {
-                    prefs[everEnabledKey(integrationId)] = true
-                }
+    override suspend fun setUserEnabled(integrationId: String, enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[enabledKey(integrationId)] = enabled
+            if (enabled) {
+                prefs[everEnabledKey(integrationId)] = true
             }
         }
     }
@@ -46,9 +42,13 @@ class DataStoreIntegrationStateStore(private val context: Context) : Integration
             prefs[enabledKey(integrationId)] ?: false
         }
 
-    override fun wasEverEnabled(integrationId: String): Boolean = runBlocking {
+    override suspend fun wasEverEnabled(integrationId: String): Boolean =
         dataStore.data.first()[everEnabledKey(integrationId)] ?: false
-    }
+
+    override fun observeEverEnabled(integrationId: String): Flow<Boolean> =
+        dataStore.data.map { prefs ->
+            prefs[everEnabledKey(integrationId)] ?: false
+        }
 
     override fun observeChanges(): Flow<Unit> = dataStore.data.map { }
 

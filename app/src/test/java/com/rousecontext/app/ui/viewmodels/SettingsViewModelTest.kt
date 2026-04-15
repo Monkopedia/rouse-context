@@ -179,7 +179,7 @@ class SettingsViewModelTest {
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
-            every { settings } returns s
+            coEvery { settings() } returns s
             every { observeSettings() } returns flowOf(s)
             coEvery { setPostSessionMode(any()) } returns Unit
             coEvery { setShowAllMcpMessages(any()) } returns Unit
@@ -209,7 +209,7 @@ class SettingsViewModelTest {
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
-            every { settings } returns s
+            coEvery { settings() } returns s
             every { observeSettings() } returns flowOf(s)
             coEvery { setPostSessionMode(any()) } returns Unit
             coEvery { setShowAllMcpMessages(any()) } returns Unit
@@ -242,7 +242,7 @@ class SettingsViewModelTest {
             )
         )
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns flow.value
+            coEvery { settings() } returns flow.value
             every { observeSettings() } returns flow
             coEvery { setShowAllMcpMessages(any()) } returns Unit
             coEvery { setPostSessionMode(any()) } returns Unit
@@ -266,7 +266,7 @@ class SettingsViewModelTest {
     @Test
     fun `setShowAllMcpMessages calls provider`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
-            every { settings } returns NotificationSettings(
+            coEvery { settings() } returns NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
                 notificationPermissionGranted = true
             )
@@ -364,7 +364,7 @@ class SettingsViewModelTest {
                 postSessionMode = mode,
                 notificationPermissionGranted = true
             )
-            every { settings } returns s
+            coEvery { settings() } returns s
             every { observeSettings() } returns flowOf(s)
             coEvery { setPostSessionMode(any()) } returns Unit
             coEvery { setShowAllMcpMessages(any()) } returns Unit

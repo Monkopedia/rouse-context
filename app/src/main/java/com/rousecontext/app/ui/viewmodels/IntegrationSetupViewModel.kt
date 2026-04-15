@@ -88,11 +88,13 @@ class IntegrationSetupViewModel(
 
     fun startSetup(id: String) {
         integrationId = id
-        stateStore.setUserEnabled(id, true)
         _state.value = IntegrationSetupState.Provisioning(
             SettingUpState(variant = SettingUpVariant.Requesting)
         )
-        beginProvisioning()
+        viewModelScope.launch {
+            stateStore.setUserEnabled(id, true)
+            beginProvisioningAsync()
+        }
     }
 
     /**
@@ -134,50 +136,56 @@ class IntegrationSetupViewModel(
     }
 
     private fun beginProvisioning() {
-        viewModelScope.launch {
-            awaitRegistrationIfNeeded()
+        viewModelScope.launch { beginProvisioningAsync() }
+    }
 
-            val firebaseToken = try {
-                firebaseTokenProvider()
-                    ?: return@launch setFailed("Failed to obtain Firebase ID token.")
-            } catch (e: Exception) {
-                return@launch setFailed("Authentication error: ${e.message}")
+    @Suppress("LongMethod")
+    private suspend fun beginProvisioningAsync() {
+        awaitRegistrationIfNeeded()
+
+        val firebaseToken = try {
+            firebaseTokenProvider() ?: run {
+                setFailed("Failed to obtain Firebase ID token.")
+                return
             }
+        } catch (e: Exception) {
+            setFailed("Authentication error: ${e.message}")
+            return
+        }
 
-            when (val result = certProvisioningFlow.execute(firebaseToken)) {
-                is CertProvisioningResult.Success -> {
-                    lazyWebSocketFactory.invalidate()
-                    pushIntegrationSecrets()
-                }
-                is CertProvisioningResult.AlreadyProvisioned -> {
-                    pushIntegrationSecrets()
-                }
-                is CertProvisioningResult.NotOnboarded -> {
-                    setFailed("Device not registered. Please complete setup first.")
-                }
-                is CertProvisioningResult.RateLimited -> {
-                    val retryDate = result.retryAfterSeconds?.let { seconds ->
-                        val date = Date(System.currentTimeMillis() + seconds * MILLIS_PER_SECOND)
-                        DATE_FORMAT.format(date)
-                    } ?: "later"
-                    _state.value = IntegrationSetupState.RateLimited(retryDate = retryDate)
-                }
-                is CertProvisioningResult.RelayError -> {
-                    Log.e(TAG, "Relay error: ${result.statusCode} - ${result.message}")
-                    setFailed("Server error: ${result.message}")
-                }
-                is CertProvisioningResult.NetworkError -> {
-                    Log.e(TAG, "Network error", result.cause)
-                    setFailed("Network error. Check your connection and try again.")
-                }
-                is CertProvisioningResult.KeyGenerationFailed -> {
-                    Log.e(TAG, "Key generation failed", result.cause)
-                    setFailed("Failed to generate device keys.")
-                }
-                is CertProvisioningResult.StorageFailed -> {
-                    Log.e(TAG, "Storage failed", result.cause)
-                    setFailed("Failed to save certificate.")
-                }
+        when (val result = certProvisioningFlow.execute(firebaseToken)) {
+            is CertProvisioningResult.Success -> {
+                lazyWebSocketFactory.invalidate()
+                pushIntegrationSecrets()
+            }
+            is CertProvisioningResult.AlreadyProvisioned -> {
+                pushIntegrationSecrets()
+            }
+            is CertProvisioningResult.NotOnboarded -> {
+                setFailed("Device not registered. Please complete setup first.")
+            }
+            is CertProvisioningResult.RateLimited -> {
+                val retryDate = result.retryAfterSeconds?.let { seconds ->
+                    val date = Date(System.currentTimeMillis() + seconds * MILLIS_PER_SECOND)
+                    DATE_FORMAT.format(date)
+                } ?: "later"
+                _state.value = IntegrationSetupState.RateLimited(retryDate = retryDate)
+            }
+            is CertProvisioningResult.RelayError -> {
+                Log.e(TAG, "Relay error: ${result.statusCode} - ${result.message}")
+                setFailed("Server error: ${result.message}")
+            }
+            is CertProvisioningResult.NetworkError -> {
+                Log.e(TAG, "Network error", result.cause)
+                setFailed("Network error. Check your connection and try again.")
+            }
+            is CertProvisioningResult.KeyGenerationFailed -> {
+                Log.e(TAG, "Key generation failed", result.cause)
+                setFailed("Failed to generate device keys.")
+            }
+            is CertProvisioningResult.StorageFailed -> {
+                Log.e(TAG, "Storage failed", result.cause)
+                setFailed("Failed to save certificate.")
             }
         }
     }

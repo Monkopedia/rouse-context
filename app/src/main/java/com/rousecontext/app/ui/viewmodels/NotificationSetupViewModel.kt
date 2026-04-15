@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class NotificationSetupState(
     val permissionGranted: Boolean = false,
@@ -69,19 +70,22 @@ class NotificationSetupViewModel(
     /** Load persisted settings when opening in SETTINGS mode. */
     fun initForMode(mode: SetupMode) {
         if (mode == SetupMode.SETTINGS) {
-            val retention = settingsStore.getInt(
-                INTEGRATION_ID,
-                IntegrationSettingsStore.KEY_RETENTION_DAYS,
-                NotificationSetupState.DEFAULT_RETENTION_DAYS
-            )
-            val allow = settingsStore.getBoolean(
-                INTEGRATION_ID,
-                IntegrationSettingsStore.KEY_ALLOW_ACTIONS
-            )
-            _state.update {
-                it.copy(retentionDays = retention, allowActions = allow)
+            viewModelScope.launch {
+                val retention = settingsStore.getInt(
+                    INTEGRATION_ID,
+                    IntegrationSettingsStore.KEY_RETENTION_DAYS,
+                    NotificationSetupState.DEFAULT_RETENTION_DAYS
+                )
+                val allow = settingsStore.getBoolean(
+                    INTEGRATION_ID,
+                    IntegrationSettingsStore.KEY_ALLOW_ACTIONS
+                )
+                _state.update {
+                    it.copy(retentionDays = retention, allowActions = allow)
+                }
+                savedSnapshot.value =
+                    SavedSnapshot(retentionDays = retention, allowActions = allow)
             }
-            savedSnapshot.value = SavedSnapshot(retentionDays = retention, allowActions = allow)
         }
     }
 
@@ -104,17 +108,19 @@ class NotificationSetupViewModel(
      */
     fun enable(): Boolean {
         if (!_state.value.permissionGranted) return false
-        persistSettings()
-        stateStore.setUserEnabled(INTEGRATION_ID, true)
+        viewModelScope.launch {
+            persistSettings()
+            stateStore.setUserEnabled(INTEGRATION_ID, true)
+        }
         return true
     }
 
     /** Save settings without changing the enabled state (SETTINGS mode). */
     fun saveSettings() {
-        persistSettings()
+        viewModelScope.launch { persistSettings() }
     }
 
-    private fun persistSettings() {
+    private suspend fun persistSettings() {
         val s = _state.value
         settingsStore.setInt(
             INTEGRATION_ID,

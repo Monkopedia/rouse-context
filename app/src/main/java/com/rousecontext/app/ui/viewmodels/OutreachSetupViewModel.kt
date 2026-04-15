@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class OutreachSetupState(
     val dndToggled: Boolean = false,
@@ -75,19 +76,21 @@ class OutreachSetupViewModel(
     /** Load persisted settings when opening in SETTINGS mode. */
     fun initForMode(mode: SetupMode) {
         if (mode == SetupMode.SETTINGS) {
-            val dnd = settingsStore.getBoolean(
-                INTEGRATION_ID,
-                IntegrationSettingsStore.KEY_DND_TOGGLED
-            )
-            val direct = settingsStore.getBoolean(
-                INTEGRATION_ID,
-                IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED
-            )
-            _state.update {
-                it.copy(directLaunchEnabled = direct, dndToggled = dnd)
+            viewModelScope.launch {
+                val dnd = settingsStore.getBoolean(
+                    INTEGRATION_ID,
+                    IntegrationSettingsStore.KEY_DND_TOGGLED
+                )
+                val direct = settingsStore.getBoolean(
+                    INTEGRATION_ID,
+                    IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED
+                )
+                _state.update {
+                    it.copy(directLaunchEnabled = direct, dndToggled = dnd)
+                }
+                savedDndToggled.value = dnd
+                savedDirectLaunchEnabled.value = direct
             }
-            savedDndToggled.value = dnd
-            savedDirectLaunchEnabled.value = direct
         }
     }
 
@@ -111,16 +114,18 @@ class OutreachSetupViewModel(
 
     /** Enable the integration. Always succeeds (no required permissions). */
     fun enable() {
-        persistSettings()
-        stateStore.setUserEnabled(INTEGRATION_ID, true)
+        viewModelScope.launch {
+            persistSettings()
+            stateStore.setUserEnabled(INTEGRATION_ID, true)
+        }
     }
 
     /** Save settings without changing the enabled state (SETTINGS mode). */
     fun saveSettings() {
-        persistSettings()
+        viewModelScope.launch { persistSettings() }
     }
 
-    private fun persistSettings() {
+    private suspend fun persistSettings() {
         val snapshot = _state.value
         settingsStore.setBoolean(
             INTEGRATION_ID,

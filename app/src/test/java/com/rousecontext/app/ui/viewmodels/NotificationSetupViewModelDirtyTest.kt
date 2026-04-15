@@ -4,11 +4,11 @@ import android.content.Context
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.ui.screens.SetupMode
-import io.mockk.every
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -46,14 +46,14 @@ class NotificationSetupViewModelDirtyTest {
     fun `isDirty is false immediately after initForMode loads persisted values`() =
         runTest(testDispatcher) {
             val settingsStore = mockk<IntegrationSettingsStore> {
-                every {
+                coEvery {
                     getInt(
                         NotificationSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_RETENTION_DAYS,
                         any()
                     )
                 } returns 30
-                every {
+                coEvery {
                     getBoolean(
                         NotificationSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
@@ -79,14 +79,14 @@ class NotificationSetupViewModelDirtyTest {
     @Test
     fun `isDirty becomes true after retentionDays is changed`() = runTest(testDispatcher) {
         val settingsStore = mockk<IntegrationSettingsStore> {
-            every {
+            coEvery {
                 getInt(
                     NotificationSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_RETENTION_DAYS,
                     any()
                 )
             } returns 7
-            every {
+            coEvery {
                 getBoolean(
                     NotificationSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
@@ -111,14 +111,14 @@ class NotificationSetupViewModelDirtyTest {
     @Test
     fun `isDirty becomes true after allowActions toggled`() = runTest(testDispatcher) {
         val settingsStore = mockk<IntegrationSettingsStore> {
-            every {
+            coEvery {
                 getInt(
                     NotificationSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_RETENTION_DAYS,
                     any()
                 )
             } returns 7
-            every {
+            coEvery {
                 getBoolean(
                     NotificationSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
@@ -144,22 +144,22 @@ class NotificationSetupViewModelDirtyTest {
     fun `isDirty returns to false after saveSettings persists the change`() =
         runTest(testDispatcher) {
             val settingsStore = mockk<IntegrationSettingsStore> {
-                every {
+                coEvery {
                     getInt(
                         NotificationSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_RETENTION_DAYS,
                         any()
                     )
                 } returns 7
-                every {
+                coEvery {
                     getBoolean(
                         NotificationSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
                         any()
                     )
                 } returns false
-                every { setInt(any(), any(), any()) } just runs
-                every { setBoolean(any(), any(), any()) } just runs
+                coEvery { setInt(any(), any(), any()) } just runs
+                coEvery { setBoolean(any(), any(), any()) } just runs
             }
             val vm = NotificationSetupViewModel(
                 context = mockk(relaxed = true),
@@ -180,7 +180,7 @@ class NotificationSetupViewModelDirtyTest {
                 "After saveSettings the new value is the saved snapshot; isDirty must clear",
                 vm.isDirty.value
             )
-            verify {
+            coVerify {
                 settingsStore.setInt(
                     NotificationSetupViewModel.INTEGRATION_ID,
                     IntegrationSettingsStore.KEY_RETENTION_DAYS,
@@ -193,14 +193,14 @@ class NotificationSetupViewModelDirtyTest {
     fun `isDirty flips back to false if user edits then reverts to saved value`() =
         runTest(testDispatcher) {
             val settingsStore = mockk<IntegrationSettingsStore> {
-                every {
+                coEvery {
                     getInt(
                         NotificationSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_RETENTION_DAYS,
                         any()
                     )
                 } returns 7
-                every {
+                coEvery {
                     getBoolean(
                         NotificationSetupViewModel.INTEGRATION_ID,
                         IntegrationSettingsStore.KEY_ALLOW_ACTIONS,

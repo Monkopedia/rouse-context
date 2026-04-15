@@ -90,7 +90,9 @@ class HealthConnectSetupViewModel(
         _historicalAccessGranted.value = HISTORY_PERMISSION in grantedPermissions
         refreshPermissions()
         if (grantedPermissions.isEmpty()) return false
-        stateStore.setUserEnabled(HEALTH_INTEGRATION_ID, true)
+        viewModelScope.launch {
+            stateStore.setUserEnabled(HEALTH_INTEGRATION_ID, true)
+        }
         return true
     }
 

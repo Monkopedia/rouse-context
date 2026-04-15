@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 interface IntegrationStateStore {
 
     /** Returns whether the user has enabled the given integration. */
-    fun isUserEnabled(integrationId: String): Boolean
+    suspend fun isUserEnabled(integrationId: String): Boolean
 
     /**
      * Sets the user-enabled state for an integration.
@@ -20,7 +20,7 @@ interface IntegrationStateStore {
      * Setting [enabled] to true also marks the integration as "ever enabled",
      * which affects state derivation (Available vs Disabled).
      */
-    fun setUserEnabled(integrationId: String, enabled: Boolean)
+    suspend fun setUserEnabled(integrationId: String, enabled: Boolean)
 
     /**
      * Observes the user-enabled state for an integration as a [Flow].
@@ -32,7 +32,12 @@ interface IntegrationStateStore {
      * Returns whether the user has ever enabled this integration.
      * Used to distinguish [IntegrationState.Available] from [IntegrationState.Disabled].
      */
-    fun wasEverEnabled(integrationId: String): Boolean
+    suspend fun wasEverEnabled(integrationId: String): Boolean
+
+    /**
+     * Observes whether the user has ever enabled this integration.
+     */
+    fun observeEverEnabled(integrationId: String): Flow<Boolean>
 
     /**
      * Emits [Unit] whenever any integration state changes. The ViewModel can

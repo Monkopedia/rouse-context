@@ -226,7 +226,7 @@ class RoomAuditListenerTest {
         var lastEvent: ToolCallEvent? = null
         val signal = CompletableDeferred<Unit>()
 
-        override fun onToolCallRecorded(event: ToolCallEvent) {
+        override suspend fun onToolCallRecorded(event: ToolCallEvent) {
             calls.add(event)
             lastEvent = event
             if (calls.size >= expectedCount && !signal.isCompleted) {

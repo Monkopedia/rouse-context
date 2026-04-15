@@ -37,6 +37,34 @@ jobs:
       - name: detekt
         run: ./gradlew detekt
         continue-on-error: true
+      - name: Block production runBlocking (issue #136)
+        run: |
+          set -e
+          # Fail if runBlocking appears in any production source tree. Test
+          # sources (**/src/**Test/**) are excluded. KDoc lines beginning with
+          # "* " and the known synchronous-API bridge in TlsAcceptor.kt (which
+          # implements java.io.InputStream#read / OutputStream#write, both
+          # non-suspending by contract) are explicitly permitted.
+          matches=$(grep -rn '\brunBlocking\b' --include='*.kt' \
+            app/src/main \
+            work/src/main \
+            notifications/src/main \
+            api/src/main \
+            outreach/src/main \
+            usage/src/main \
+            health/src/main \
+            core/*/src/main \
+            core/*/src/commonMain \
+            core/*/src/jvmMain \
+            2>/dev/null \
+            | grep -v ':[[:space:]]*\*' \
+            | grep -v 'core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/TlsAcceptor.kt' \
+            || true)
+          if [ -n "$matches" ]; then
+            echo "Found production runBlocking (issue #136 regression):"
+            echo "$matches"
+            exit 1
+          fi
 
   build:
     name: Build & Test

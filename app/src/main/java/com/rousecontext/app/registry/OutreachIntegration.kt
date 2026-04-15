@@ -8,6 +8,11 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.outreach.OutreachMcpProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
  * [McpIntegration] for Outreach actions (launch apps, open links, clipboard, notifications, DND).
@@ -18,7 +23,8 @@ import com.rousecontext.outreach.OutreachMcpProvider
 class OutreachIntegration(
     private val context: Context,
     private val settingsStore: IntegrationSettingsStore,
-    private val launchNotifier: LaunchRequestNotifierApi
+    private val launchNotifier: LaunchRequestNotifierApi,
+    appScope: CoroutineScope
 ) : McpIntegration {
 
     override val id = "outreach"
@@ -28,6 +34,22 @@ class OutreachIntegration(
     override val path = "/outreach"
     override val onboardingRoute = "setup"
     override val settingsRoute = "settings"
+
+    /**
+     * Live view of the user's direct-launch opt-in. Read synchronously by
+     * [OutreachMcpProvider]'s canLaunchDirectly predicate on every tool call.
+     */
+    private val _directLaunchEnabled = MutableStateFlow(false)
+    val directLaunchEnabled: StateFlow<Boolean> = _directLaunchEnabled.asStateFlow()
+
+    init {
+        appScope.launch {
+            settingsStore.observeBoolean(
+                id,
+                IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED
+            ).collect { _directLaunchEnabled.value = it }
+        }
+    }
 
     override val provider: McpServerProvider = OutreachMcpProvider(
         context = context,
@@ -40,10 +62,7 @@ class OutreachIntegration(
                 true
             } else {
                 OutreachMcpProvider.defaultCanLaunchDirectly(context) &&
-                    settingsStore.getBoolean(
-                        id,
-                        IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED
-                    )
+                    _directLaunchEnabled.value
             }
         },
         launchNotifier = launchNotifier

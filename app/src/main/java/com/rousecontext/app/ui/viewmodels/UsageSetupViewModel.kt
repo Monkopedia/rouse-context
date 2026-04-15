@@ -4,11 +4,13 @@ import android.app.AppOpsManager
 import android.content.Context
 import android.os.Process
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class UsageSetupState(val permissionGranted: Boolean = false)
 
@@ -35,7 +37,9 @@ class UsageSetupViewModel(
      */
     fun enable(): Boolean {
         if (!_state.value.permissionGranted) return false
-        stateStore.setUserEnabled(INTEGRATION_ID, true)
+        viewModelScope.launch {
+            stateStore.setUserEnabled(INTEGRATION_ID, true)
+        }
         return true
     }
 

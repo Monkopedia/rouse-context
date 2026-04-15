@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * Manages a specific integration's detail screen: status, recent activity,
@@ -131,7 +132,9 @@ class IntegrationManageViewModel(
     fun disable() {
         val id = integrationId.value
         if (id.isNotEmpty()) {
-            stateStore.setUserEnabled(id, false)
+            viewModelScope.launch {
+                stateStore.setUserEnabled(id, false)
+            }
         }
     }
 

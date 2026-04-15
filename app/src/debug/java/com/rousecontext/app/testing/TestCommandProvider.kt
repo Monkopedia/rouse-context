@@ -10,6 +10,7 @@ import android.os.Process
 import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession
+import kotlinx.coroutines.runBlocking
 import org.koin.core.context.GlobalContext
 import org.koin.java.KoinJavaComponent.getKoin
 
@@ -48,7 +49,7 @@ class TestCommandProvider : ContentProvider() {
                 val id = extras?.getString("id")
                     ?: return Bundle().apply { putString("error", "missing 'id' extra") }
                 val store = getKoin().get<IntegrationStateStore>()
-                store.setUserEnabled(id, true)
+                runBlocking { store.setUserEnabled(id, true) }
                 Log.i(TAG, "Enabled integration: $id")
                 Bundle().apply { putString("result", "enabled $id") }
             }
