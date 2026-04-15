@@ -29,8 +29,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.FloatingSaveBar
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.SwitchRow
@@ -88,11 +90,14 @@ fun OutreachSetupScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Outreach") },
+                title = { Text(stringResource(R.string.screen_outreach_setup_title)) },
                 colors = appBarColors(),
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.common_back)
+                        )
                     }
                 }
             )
@@ -138,15 +143,14 @@ private fun OutreachSetupBody(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Allow AI clients to take actions on your device: launch apps, " +
-                    "open links, copy to clipboard, and send you notifications.",
+                text = stringResource(R.string.screen_outreach_setup_description),
                 style = MaterialTheme.typography.bodyLarge
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "No special permissions are needed for basic tools.",
+                text = stringResource(R.string.screen_outreach_setup_no_permissions_note),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -154,7 +158,7 @@ private fun OutreachSetupBody(
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                text = "Every action is logged in the app's audit history.",
+                text = stringResource(R.string.screen_outreach_setup_audit_note),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -162,13 +166,14 @@ private fun OutreachSetupBody(
             Spacer(modifier = Modifier.height(24.dp))
 
             // DND section
-            SectionHeader("Do Not Disturb Control")
+            SectionHeader(stringResource(R.string.screen_outreach_setup_dnd_section))
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 SwitchRow(
-                    title = "Allow DND changes",
-                    subtitle = "This is a sensitive permission. When enabled, " +
-                        "AI clients can change your Do Not Disturb settings.",
+                    title = stringResource(R.string.screen_outreach_setup_dnd_toggle_title),
+                    subtitle = stringResource(
+                        R.string.screen_outreach_setup_dnd_toggle_subtitle
+                    ),
                     checked = state.dndToggled,
                     onCheckedChange = onDndToggled,
                     expandedContent = {
@@ -183,13 +188,16 @@ private fun OutreachSetupBody(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
                                         imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "Granted",
+                                        contentDescription =
+                                        stringResource(R.string.common_granted),
                                         modifier = Modifier.size(20.dp),
                                         tint = SuccessGreen
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "Permission granted",
+                                        text = stringResource(
+                                            R.string.common_permission_granted
+                                        ),
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 }
@@ -201,8 +209,9 @@ private fun OutreachSetupBody(
                                     )
                                 ) {
                                     Text(
-                                        text = "DND access requires a special permission. " +
-                                            "You'll be taken to system settings to grant it.",
+                                        text = stringResource(
+                                            R.string.screen_outreach_setup_dnd_explainer
+                                        ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         modifier = Modifier.padding(12.dp)
@@ -215,7 +224,11 @@ private fun OutreachSetupBody(
                                     onClick = onGrantDnd,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text("Grant DND Access")
+                                    Text(
+                                        stringResource(
+                                            R.string.screen_outreach_setup_grant_dnd
+                                        )
+                                    )
                                 }
                             }
                         }
@@ -226,14 +239,16 @@ private fun OutreachSetupBody(
             if (state.directLaunchApplicable) {
                 Spacer(modifier = Modifier.height(24.dp))
 
-                SectionHeader("Background Launch")
+                SectionHeader(stringResource(R.string.screen_outreach_setup_background_section))
 
                 Card(modifier = Modifier.fillMaxWidth()) {
                     SwitchRow(
-                        title = "Directly open apps and links on your phone",
-                        subtitle = "Without this, AI requests to open apps or URLs " +
-                            "while your phone is locked or backgrounded will arrive " +
-                            "as a tappable notification.",
+                        title = stringResource(
+                            R.string.screen_outreach_setup_background_toggle_title
+                        ),
+                        subtitle = stringResource(
+                            R.string.screen_outreach_setup_background_toggle_subtitle
+                        ),
                         checked = state.directLaunchEnabled,
                         onCheckedChange = onDirectLaunchToggled,
                         expandedContent = {
@@ -248,13 +263,16 @@ private fun OutreachSetupBody(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
                                             imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = "Granted",
+                                            contentDescription =
+                                            stringResource(R.string.common_granted),
                                             modifier = Modifier.size(20.dp),
                                             tint = SuccessGreen
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Permission granted",
+                                            text = stringResource(
+                                                R.string.common_permission_granted
+                                            ),
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                     }
@@ -266,11 +284,9 @@ private fun OutreachSetupBody(
                                         )
                                     ) {
                                         Text(
-                                            text = "Android 14 restricts apps from " +
-                                                "launching activities in the background. " +
-                                                "Granting \"display over other apps\" lets " +
-                                                "Rouse open apps and links directly; " +
-                                                "otherwise you'll see a notification to tap.",
+                                            text = stringResource(
+                                                R.string.screen_outreach_setup_background_explainer
+                                            ),
                                             style = MaterialTheme.typography.bodySmall,
                                             color =
                                             MaterialTheme.colorScheme.onSecondaryContainer,
@@ -284,7 +300,11 @@ private fun OutreachSetupBody(
                                         onClick = onGrantOverlay,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text("Grant Background Launch")
+                                        Text(
+                                            stringResource(
+                                                R.string.screen_outreach_setup_grant_background
+                                            )
+                                        )
                                     }
                                 }
                             }
@@ -303,7 +323,7 @@ private fun OutreachSetupBody(
                     onClick = onEnable,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Enable")
+                    Text(stringResource(R.string.common_enable))
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -312,7 +332,7 @@ private fun OutreachSetupBody(
                     onClick = onCancel,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
 
