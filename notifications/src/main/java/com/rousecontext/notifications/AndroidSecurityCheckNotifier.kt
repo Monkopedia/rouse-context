@@ -15,8 +15,14 @@ class AndroidSecurityCheckNotifier(private val context: Context) : SecurityCheck
     override fun postAlert(check: SecurityCheck, reason: String) {
         val notification = NotificationCompat
             .Builder(context, NotificationChannels.ALERT_CHANNEL_ID)
-            .setContentTitle("Security Alert")
-            .setContentText("${titleFor(check)}: $reason")
+            .setContentTitle(context.getString(ApiR.string.notification_security_alert_title))
+            .setContentText(
+                context.getString(
+                    ApiR.string.notification_security_check_body,
+                    titleFor(check),
+                    reason
+                )
+            )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
@@ -28,8 +34,14 @@ class AndroidSecurityCheckNotifier(private val context: Context) : SecurityCheck
     override fun postInfo(check: SecurityCheck, reason: String) {
         val notification = NotificationCompat
             .Builder(context, NotificationChannels.SESSION_CHANNEL_ID)
-            .setContentTitle("Security Check")
-            .setContentText("${titleFor(check)}: $reason")
+            .setContentTitle(context.getString(ApiR.string.notification_security_info_title))
+            .setContentText(
+                context.getString(
+                    ApiR.string.notification_security_check_body,
+                    titleFor(check),
+                    reason
+                )
+            )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
@@ -41,10 +53,12 @@ class AndroidSecurityCheckNotifier(private val context: Context) : SecurityCheck
     private fun notificationManager(): NotificationManager =
         context.getSystemService(NotificationManager::class.java)
 
-    private fun titleFor(check: SecurityCheck): String = when (check) {
-        SecurityCheck.SELF_CERT -> "Self-cert verification"
-        SecurityCheck.CT_LOG -> "CT log check"
-    }
+    private fun titleFor(check: SecurityCheck): String = context.getString(
+        when (check) {
+            SecurityCheck.SELF_CERT -> ApiR.string.notification_security_check_self_cert
+            SecurityCheck.CT_LOG -> ApiR.string.notification_security_check_ct_log
+        }
+    )
 
     private fun alertIdFor(check: SecurityCheck): Int = when (check) {
         SecurityCheck.SELF_CERT -> SecurityCheckNotifier.NOTIFICATION_ID_SELF_CERT_ALERT

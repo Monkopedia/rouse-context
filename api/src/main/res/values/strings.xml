@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Shared user-facing strings for modules that cannot depend on :app
+    (:notifications, :work, etc.).
+
+    See issue #114 for the consolidation plan. Keep this file limited to
+    strings actually referenced from multiple modules or from non-Compose
+    Android code (notifier builders). App-only Compose strings belong in
+    :app/src/main/res/values/strings.xml instead.
+-->
+<resources>
+    <!-- Foreground service notification (ForegroundNotifier). -->
+    <string name="notification_foreground_title">Rouse Context</string>
+    <string name="notification_foreground_default_text">Connected</string>
+
+    <!-- Foreground service 6-hour daily time-limit exhaustion (FgsLimitNotifier). -->
+    <string name="notification_fgs_limit_title">Rouse Context paused</string>
+    <string name="notification_fgs_limit_text">Rouse Context hit Android\'s 6-hour daily service limit. Wake requests won\'t be served until the limit resets. This usually means something is waking the app too often.</string>
+
+    <!-- Authorization-request notification (AuthRequestNotifier). -->
+    <string name="notification_auth_title">Approval Required</string>
+    <string name="notification_auth_text">Code: %1$s - Tap to approve or deny</string>
+    <string name="notification_auth_action_approve">Approve</string>
+    <string name="notification_auth_action_deny">Deny</string>
+
+    <!-- Outreach launch-request notifications (LaunchRequestNotifier). -->
+    <string name="notification_launch_app_title">AI client wants to open %1$s</string>
+    <string name="notification_open_link_title">AI client wants to open a webpage</string>
+    <string name="notification_launch_action_open">Open</string>
+
+    <!-- Per-tool-call notification (PerToolCallNotifier). -->
+    <string name="notification_tool_call_title">Tool call: %1$s</string>
+    <string name="notification_tool_call_text">%1$s \u00B7 %2$s</string>
+
+    <!-- Session summary notification (SessionSummaryNotifier). -->
+    <string name="notification_session_summary_single_integration">%1$d tool %2$s</string>
+    <string name="notification_session_summary_multi_integration">%1$d tool %2$s across %3$d %4$s</string>
+    <string name="notification_session_summary_calls_one">call</string>
+    <string name="notification_session_summary_calls_many">calls</string>
+    <string name="notification_session_summary_integrations_one">integration</string>
+    <string name="notification_session_summary_integrations_many">integrations</string>
+
+    <!-- Security-check notifications (AndroidSecurityCheckNotifier). -->
+    <string name="notification_security_alert_title">Security Alert</string>
+    <string name="notification_security_info_title">Security Check</string>
+    <string name="notification_security_check_self_cert">Self-cert verification</string>
+    <string name="notification_security_check_ct_log">CT log check</string>
+    <string name="notification_security_check_body">%1$s: %2$s</string>
+</resources>

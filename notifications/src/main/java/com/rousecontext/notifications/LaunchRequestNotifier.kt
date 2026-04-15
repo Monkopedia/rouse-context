@@ -37,7 +37,7 @@ class LaunchRequestNotifier(private val context: Context) : LaunchRequestNotifie
     override fun postLaunchApp(launchIntent: Intent, packageName: String): Int {
         val appName = resolveAppName(packageName)
         return post(
-            title = "AI client wants to open $appName",
+            title = context.getString(ApiR.string.notification_launch_app_title, appName),
             body = appName,
             intent = launchIntent
         )
@@ -52,7 +52,7 @@ class LaunchRequestNotifier(private val context: Context) : LaunchRequestNotifie
      * @return The posted notification id.
      */
     override fun postOpenLink(viewIntent: Intent, url: String): Int = post(
-        title = "AI client wants to open a webpage",
+        title = context.getString(ApiR.string.notification_open_link_title),
         body = url,
         intent = viewIntent
     )
@@ -81,7 +81,11 @@ class LaunchRequestNotifier(private val context: Context) : LaunchRequestNotifie
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
-            .addAction(0, "Open", pendingIntent)
+            .addAction(
+                0,
+                context.getString(ApiR.string.notification_launch_action_open),
+                pendingIntent
+            )
             .build()
 
         val manager = context.getSystemService(NotificationManager::class.java)

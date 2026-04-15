@@ -80,14 +80,22 @@ class AuthRequestNotifier(
         )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setColor(ContextCompat.getColor(context, ApiR.color.rouse_notification_auth_accent))
-            .setContentTitle("Approval Required")
-            .setContentText("Code: $displayCode - Tap to approve or deny")
+            .setContentTitle(context.getString(ApiR.string.notification_auth_title))
+            .setContentText(context.getString(ApiR.string.notification_auth_text, displayCode))
             .setSubText(integration)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(contentIntent)
-            .addAction(0, "Approve", approveIntent)
-            .addAction(0, "Deny", denyPendingIntent)
+            .addAction(
+                0,
+                context.getString(ApiR.string.notification_auth_action_approve),
+                approveIntent
+            )
+            .addAction(
+                0,
+                context.getString(ApiR.string.notification_auth_action_deny),
+                denyPendingIntent
+            )
             .build()
 
         val manager = context.getSystemService(NotificationManager::class.java)

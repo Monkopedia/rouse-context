@@ -19,9 +19,12 @@ import com.rousecontext.api.R as ApiR
  * build and post in a single call; see issue #125 for the convention.
  */
 object ForegroundNotifier {
-    fun build(context: Context, message: String = "Connected"): Notification =
+    fun build(
+        context: Context,
+        message: String = context.getString(ApiR.string.notification_foreground_default_text)
+    ): Notification =
         NotificationCompat.Builder(context, NotificationChannels.FOREGROUND_CHANNEL_ID)
-            .setContentTitle("Rouse Context")
+            .setContentTitle(context.getString(ApiR.string.notification_foreground_title))
             .setContentText(message)
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setColor(ContextCompat.getColor(context, ApiR.color.rouse_navy_dark))
