@@ -7,7 +7,7 @@ kotlin {
     jvm()
 
     sourceSets {
-        val commonMain by getting {
+        val jvmMain by getting {
             dependencies {
                 api(project(":core:tunnel"))
                 api(project(":core:mcp"))
@@ -16,12 +16,6 @@ kotlin {
                 implementation(libs.ktor.server.cio)
                 implementation(libs.ktor.server.content.negotiation)
                 implementation(libs.ktor.serialization.json)
-            }
-        }
-        val commonTest by getting {
-            dependencies {
-                implementation(kotlin("test"))
-                implementation(libs.kotlinx.coroutines.test)
             }
         }
         val jvmTest by getting {
