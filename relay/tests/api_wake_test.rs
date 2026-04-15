@@ -21,6 +21,7 @@ fn make_device_record() -> DeviceRecord {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     }
 }
 

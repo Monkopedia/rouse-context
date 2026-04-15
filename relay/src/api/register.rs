@@ -54,11 +54,14 @@ pub(crate) fn generate_integration_secrets(integrations: &[String]) -> HashMap<S
     let mut rng = rand::thread_rng();
     integrations
         .iter()
-        .map(|id| {
-            let adjective = adjectives::pick_random(&mut rng);
-            (id.clone(), format!("{adjective}-{id}"))
-        })
+        .map(|id| (id.clone(), generate_one_secret(id, &mut rng)))
         .collect()
+}
+
+/// Generate a single `{adjective}-{integrationId}` secret.
+pub(crate) fn generate_one_secret(integration_id: &str, rng: &mut impl rand::Rng) -> String {
+    let adjective = adjectives::pick_random(rng);
+    format!("{adjective}-{integration_id}")
 }
 
 /// Round 2: Submit CSR to receive certificates.
@@ -194,6 +197,8 @@ pub async fn handle_register(
 
     // 4. Generate one secret per requested integration id. The relay is the
     //    sole source of truth for the adjective list and generated values.
+    //    Persist both the integration-keyed map (authoritative for merge-missing
+    //    rotation) and the flat list used by the SNI fast path.
     let secrets_map = generate_integration_secrets(&req.integrations);
     let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
 
@@ -212,6 +217,7 @@ pub async fn handle_register(
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: valid_secrets.clone(),
+        integration_secrets: secrets_map.clone(),
     };
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {

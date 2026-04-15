@@ -57,6 +57,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     (signing_key, record)
 }

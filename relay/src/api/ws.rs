@@ -114,6 +114,7 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
             renewal_nudge_sent: None,
             secret_prefix: None,
             valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
         };
         if let Err(e) = firestore.put_device(&subdomain, &placeholder).await {
             warn!(subdomain = %subdomain, error = %e, "Failed to auto-create Firestore record");
@@ -404,6 +405,7 @@ mod tests {
                     renewal_nudge_sent: None,
                     secret_prefix: None,
                     valid_secrets: Vec::new(),
+                    integration_secrets: std::collections::HashMap::new(),
                 })
             } else {
                 Err(crate::firestore::FirestoreError::NotFound(

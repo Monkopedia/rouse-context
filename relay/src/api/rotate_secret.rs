@@ -1,10 +1,28 @@
-//! POST /rotate-secret -- Rotate the per-integration secrets for a device.
+//! POST /rotate-secret -- Merge-missing rotation of per-integration secrets.
 //!
 //! Authenticated via mTLS (the subdomain is extracted from the client cert).
-//! Generates one `{adjective}-{integrationId}` secret per requested
-//! integration id, replaces Firestore's `valid_secrets` with the full list,
-//! refreshes the in-memory SNI cache, and returns the new mapping. The old
-//! secrets become invalid as soon as Firestore is updated.
+//!
+//! Behavior:
+//! * For each integration id in the request that already has a secret in
+//!   `DeviceRecord::integration_secrets`, the existing secret is preserved.
+//! * For each integration id not yet in the map, a fresh
+//!   `{adjective}-{integrationId}` secret is generated.
+//! * `valid_secrets` is rebuilt from the resulting map so the SNI fast path
+//!   stays in sync.
+//! * The response returns the FULL integration→secret mapping; the client
+//!   treats its local store as a server-delivered mirror and replaces it
+//!   wholesale.
+//!
+//! Transitional behavior: a legacy device registered before the
+//! `integration_secrets` field existed will hit this handler with an empty
+//! map. Every integration in the request will look "missing" and get a new
+//! secret — equivalent to the pre-#148 wholesale rotation, one time. After
+//! this call the map is populated and subsequent rotations preserve
+//! unchanged entries.
+//!
+//! Note: this handler does NOT drop integrations that disappear from the
+//! request. Removing a secret is not a supported operation here — the client
+//! calls this endpoint to add-or-refresh, not to trim.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -16,7 +34,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::api::register::generate_integration_secrets;
+use crate::api::register::generate_one_secret;
 use crate::api::ws::DeviceIdentity;
 use crate::api::{ApiError, AppState};
 
@@ -25,16 +43,18 @@ pub struct RotateSecretRequest {
     /// Subdomain to rotate. In production this is verified against the mTLS
     /// client cert identity; in tests it may be provided directly.
     pub subdomain: String,
-    /// Integration IDs to generate fresh secrets for (e.g. `outreach`,
-    /// `health`). The relay generates one `{adjective}-{integrationId}` secret
-    /// per entry and returns the mapping in [`RotateSecretResponse::secrets`].
+    /// Integration IDs the client wants to have secrets for. The relay
+    /// generates fresh `{adjective}-{integrationId}` secrets only for IDs
+    /// not already present in the stored mapping.
     pub integrations: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct RotateSecretResponse {
     pub success: bool,
-    /// Map of integration id → newly generated secret.
+    /// Full integration id → secret mapping after merge-missing. Includes
+    /// both preserved existing secrets and newly generated ones so the
+    /// client can mirror server-owned state without a local merge step.
     pub secrets: HashMap<String, String>,
 }
 
@@ -65,12 +85,29 @@ pub async fn handle_rotate_secret(
         }
     };
 
-    // Generate fresh secrets on the relay — the relay is the sole source of
-    // truth for the adjective list and the generated values.
-    let secrets_map = generate_integration_secrets(&req.integrations);
-    let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
+    // Merge-missing: keep existing secrets, generate fresh ones only for
+    // integration ids not yet present in the stored mapping.
+    //
+    // Scope the ThreadRng to this block so it is dropped before the next
+    // `.await`; ThreadRng is `!Send`, so the future would otherwise not be
+    // `Send` and couldn't be used with axum's Handler trait.
+    let mut merged = record.integration_secrets.clone();
+    let mut newly_generated: Vec<String> = Vec::new();
+    {
+        let mut rng = rand::thread_rng();
+        for integration_id in &req.integrations {
+            if !merged.contains_key(integration_id) {
+                let secret = generate_one_secret(integration_id, &mut rng);
+                merged.insert(integration_id.clone(), secret);
+                newly_generated.push(integration_id.clone());
+            }
+        }
+    }
 
-    // Replace Firestore's valid_secrets list with the newly generated values.
+    // Persist both shapes: the mapping is authoritative; valid_secrets is
+    // derived so the SNI fast path keeps a flat membership list.
+    let valid_secrets: Vec<String> = merged.values().cloned().collect();
+    record.integration_secrets = merged.clone();
     record.valid_secrets = valid_secrets.clone();
 
     // Update Firestore
@@ -79,23 +116,23 @@ pub async fn handle_rotate_secret(
     }
 
     // Update the in-memory valid_secrets cache so the next SNI connection for
-    // this device does not have to wait for Firestore eventual consistency
-    // to learn about the newly-generated secrets.
+    // this device does not have to wait for Firestore eventual consistency.
     state
         .relay_state
         .set_valid_secrets_cache(&subdomain, valid_secrets);
 
     info!(
         subdomain = %subdomain,
-        integrations = ?req.integrations,
-        "Secrets rotated"
+        requested = ?req.integrations,
+        newly_generated = ?newly_generated,
+        "Secrets merged (merge-missing)"
     );
 
     (
         StatusCode::OK,
         Json(RotateSecretResponse {
             success: true,
-            secrets: secrets_map,
+            secrets: merged,
         }),
     )
         .into_response()

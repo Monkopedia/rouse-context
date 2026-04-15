@@ -241,6 +241,7 @@ async fn fcm_sent_when_device_offline() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
 
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", device_record));
@@ -286,6 +287,7 @@ async fn fcm_timeout_returns_error() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("test-sub", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -338,6 +340,7 @@ async fn cold_client_fcm_then_device_connects() {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("cold-dev", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -658,6 +661,7 @@ fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
         renewal_nudge_sent: None,
         secret_prefix: None,
         valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
     }
 }
 

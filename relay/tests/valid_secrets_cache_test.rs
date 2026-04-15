@@ -36,6 +36,7 @@ fn make_device(secret: &str) -> DeviceRecord {
         renewal_nudge_sent: None,
         secret_prefix: Some(secret.to_string()),
         valid_secrets: vec!["old-health".to_string()],
+        integration_secrets: std::collections::HashMap::new(),
     }
 }
 
@@ -269,6 +270,7 @@ async fn passthrough_cache_miss_falls_back_to_firestore() {
             renewal_nudge_sent: None,
             secret_prefix: None,
             valid_secrets: vec!["brave-health".to_string()],
+            integration_secrets: std::collections::HashMap::new(),
         },
     ));
 

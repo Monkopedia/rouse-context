@@ -236,6 +236,35 @@ fn read_string_array(
         .unwrap_or_default()
 }
 
+fn string_map_val(map: &std::collections::HashMap<String, String>) -> serde_json::Value {
+    let mut entries = serde_json::Map::new();
+    for (k, v) in map {
+        entries.insert(k.clone(), serde_json::json!({ "stringValue": v }));
+    }
+    serde_json::json!({ "mapValue": { "fields": entries } })
+}
+
+fn read_string_map(
+    fields: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> std::collections::HashMap<String, String> {
+    fields
+        .get(key)
+        .and_then(|v| v.get("mapValue"))
+        .and_then(|v| v.get("fields"))
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| {
+                    v.get("stringValue")
+                        .and_then(|s| s.as_str())
+                        .map(|s| (k.clone(), s.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn read_opt_string(
     fields: &serde_json::Map<String, serde_json::Value>,
     key: &str,
@@ -354,6 +383,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
         "valid_secrets".to_string(),
         string_array_val(&record.valid_secrets),
     );
+    fields.insert(
+        "integration_secrets".to_string(),
+        string_map_val(&record.integration_secrets),
+    );
     fields
 }
 
@@ -370,6 +403,7 @@ fn device_record_from_fields(
         renewal_nudge_sent: read_opt_timestamp(fields, "renewal_nudge_sent")?,
         secret_prefix: read_opt_string(fields, "secret_prefix"),
         valid_secrets: read_string_array(fields, "valid_secrets"),
+        integration_secrets: read_string_map(fields, "integration_secrets"),
     })
 }
 
@@ -841,6 +875,10 @@ mod tests {
             renewal_nudge_sent: None,
             secret_prefix: Some("brave-falcon".to_string()),
             valid_secrets: vec!["brave-health".to_string(), "swift-outreach".to_string()],
+            integration_secrets: std::collections::HashMap::from([
+                ("health".to_string(), "brave-health".to_string()),
+                ("outreach".to_string(), "swift-outreach".to_string()),
+            ]),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -953,6 +991,7 @@ mod tests {
             renewal_nudge_sent: None,
             secret_prefix: None,
             valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -960,6 +999,83 @@ mod tests {
         assert!(back.renewal_nudge_sent.is_none());
         assert!(back.secret_prefix.is_none());
         assert!(back.valid_secrets.is_empty());
+        assert!(back.integration_secrets.is_empty());
+    }
+
+    #[test]
+    fn integration_secrets_roundtrip_preserves_mapping() {
+        let record = DeviceRecord {
+            fcm_token: "t".to_string(),
+            firebase_uid: "u".to_string(),
+            public_key: "k".to_string(),
+            cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            valid_secrets: vec!["brave-health".to_string(), "swift-outreach".to_string()],
+            integration_secrets: std::collections::HashMap::from([
+                ("health".to_string(), "brave-health".to_string()),
+                ("outreach".to_string(), "swift-outreach".to_string()),
+            ]),
+        };
+        let fields = device_record_to_fields(&record);
+        let back = device_record_from_fields(&fields).unwrap();
+        assert_eq!(back.integration_secrets.len(), 2);
+        assert_eq!(
+            back.integration_secrets.get("health").map(String::as_str),
+            Some("brave-health")
+        );
+        assert_eq!(
+            back.integration_secrets.get("outreach").map(String::as_str),
+            Some("swift-outreach")
+        );
+    }
+
+    #[test]
+    fn device_record_serde_defaults_integration_secrets_when_missing() {
+        // Guards the `#[serde(default)]` annotation: direct serde_json
+        // deserialization of a legacy JSON payload (no integration_secrets
+        // field) must succeed with an empty map.
+        let legacy = serde_json::json!({
+            "fcm_token": "t",
+            "firebase_uid": "u",
+            "public_key": "k",
+            "cert_expires": {"secs_since_epoch": 1_000_000, "nanos_since_epoch": 0},
+            "registered_at": {"secs_since_epoch": 1_000_000, "nanos_since_epoch": 0},
+            "last_rotation": null,
+            "renewal_nudge_sent": null,
+            "secret_prefix": null,
+            "valid_secrets": ["brave-health"]
+        });
+        let back: DeviceRecord = serde_json::from_value(legacy).unwrap();
+        assert!(back.integration_secrets.is_empty());
+        assert_eq!(back.valid_secrets, vec!["brave-health".to_string()]);
+    }
+
+    #[test]
+    fn legacy_doc_without_integration_secrets_deserializes_as_empty_map() {
+        // A Firestore document written before #148 has no integration_secrets
+        // field at all. The reader must tolerate the missing field and
+        // default to an empty map.
+        let mut fields = device_record_to_fields(&DeviceRecord {
+            fcm_token: "t".to_string(),
+            firebase_uid: "u".to_string(),
+            public_key: "k".to_string(),
+            cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            valid_secrets: vec!["brave-health".to_string()],
+            integration_secrets: std::collections::HashMap::new(),
+        });
+        // Simulate the legacy shape by removing the field entirely.
+        fields.remove("integration_secrets");
+        let back = device_record_from_fields(&fields).unwrap();
+        assert!(back.integration_secrets.is_empty());
+        // The SNI path still sees the flat list intact.
+        assert_eq!(back.valid_secrets, vec!["brave-health".to_string()]);
     }
 
     #[test]
