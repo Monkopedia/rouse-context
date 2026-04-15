@@ -31,7 +31,9 @@ Here is what the common ones mean.
 
 ### Self-cert verification failed
 
-Notification: **Security Alert — Self-cert verification: Verification failed**
+![Security Alert notification — self-cert](assets/security-alert-self-cert.png)
+
+Matching trust status in Settings:
 
 ![Trust status — self-check failed](assets/trust-card-self-check-alert.png)
 
@@ -41,7 +43,9 @@ Notification: **Security Alert — Self-cert verification: Verification failed**
 
 ### CT log check failed
 
-Notification: **Security Alert — CT log check: Verification failed**
+![Security Alert notification — CT log](assets/security-alert-ct-log.png)
+
+Matching trust status in Settings:
 
 ![Trust status — CT log alert](assets/trust-card-ct-log-alert.png)
 
@@ -50,8 +54,6 @@ Notification: **Security Alert — CT log check: Verification failed**
 **What to do:** This is the one to take seriously. A fraudulent cert in the CT log could mean a CA was tricked into issuing a cert for your hostname. Email `security@rousecontext.com` (or open a GitHub issue if it isn't sensitive) so we can help you rotate and investigate.
 
 ### Foreground service limit reached
-
-Notification: **Rouse Context paused — Rouse Context hit Android's 6-hour daily service limit...**
 
 ![Foreground service limit notification](assets/fgs-limit-notification.png)
 

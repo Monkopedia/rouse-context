@@ -24,6 +24,18 @@
                 <action android:name="com.rousecontext.debug.FIRE_FGS_LIMIT" />
             </intent-filter>
         </receiver>
+        <!--
+          Debug-only: fires the production "Security Alert" notification on
+          demand so maintainers can screenshot it for the user-facing docs.
+          See DebugSecurityAlertReceiver for the adb command.
+        -->
+        <receiver
+            android:name=".debug.DebugSecurityAlertReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.rousecontext.debug.FIRE_SECURITY_ALERT" />
+            </intent-filter>
+        </receiver>
         <provider
             android:name=".testing.TestCommandProvider"
             android:authorities="com.rousecontext.debug.test"
