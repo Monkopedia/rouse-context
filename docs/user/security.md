@@ -25,17 +25,23 @@ The relay server cannot decrypt the client-to-phone stream. It sees that a conne
 
 The app runs background checks every few hours. If something looks wrong, you will see a notification titled **Security Alert** whose body names the specific check that failed. The Settings screen also surfaces the current status as a card — an amber **Warning** for temporarily inconclusive checks, or a red **Alert** for active failures (which block integration requests until you press **Acknowledge**).
 
-![Trust status — warning state](assets/trust-card-warning.png)
+<p align="center">
+  <img src="assets/trust-card-warning.png" alt="Trust status — warning state" width="400">
+</p>
 
 Here is what the common ones mean.
 
 ### Self-cert verification failed
 
-![Security Alert notification — self-cert](assets/security-alert-self-cert.png)
+<p align="center">
+  <img src="assets/security-alert-self-cert.png" alt="Security Alert notification — self-cert" width="420">
+</p>
 
 Matching trust status in Settings:
 
-![Trust status — self-check failed](assets/trust-card-self-check-alert.png)
+<p align="center">
+  <img src="assets/trust-card-self-check-alert.png" alt="Trust status — self-check failed" width="400">
+</p>
 
 **What it means:** The app connected to its own address and got back a TLS certificate that is not the one your phone provisioned. This could be a relay server compromise, a network-level attacker trying to impersonate your device, or — more often — a stale cache during the 90-day cert renewal window.
 
@@ -43,11 +49,15 @@ Matching trust status in Settings:
 
 ### CT log check failed
 
-![Security Alert notification — CT log](assets/security-alert-ct-log.png)
+<p align="center">
+  <img src="assets/security-alert-ct-log.png" alt="Security Alert notification — CT log" width="420">
+</p>
 
 Matching trust status in Settings:
 
-![Trust status — CT log alert](assets/trust-card-ct-log-alert.png)
+<p align="center">
+  <img src="assets/trust-card-ct-log-alert.png" alt="Trust status — CT log alert" width="400">
+</p>
 
 **What it means:** Every certificate issued by a publicly trusted certificate authority is recorded in a public ledger called Certificate Transparency. The app checks that ledger for your subdomain and will alert if a certificate appears that the app did not request itself.
 
@@ -55,7 +65,9 @@ Matching trust status in Settings:
 
 ### Foreground service limit reached
 
-![Foreground service limit notification](assets/fgs-limit-notification.png)
+<p align="center">
+  <img src="assets/fgs-limit-notification.png" alt="Foreground service limit notification" width="420">
+</p>
 
 **What it means:** Android restricts how long an app can run a foreground service. Every few hours the wake-up cycle needs a short foreground service, and occasionally Android refuses to start it. Usually transient.
 
