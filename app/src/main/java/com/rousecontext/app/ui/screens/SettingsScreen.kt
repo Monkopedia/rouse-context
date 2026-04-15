@@ -49,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -144,15 +145,15 @@ fun SettingsContent(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
             .verticalScroll(rememberScrollState())
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
 
         // Appearance section
         SectionHeader(stringResource(R.string.screen_settings_section_appearance))
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                 SettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_theme),
                     selected = state.themeMode,
@@ -162,12 +163,18 @@ fun SettingsContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         // Connection section
         SectionHeader(stringResource(R.string.screen_settings_section_connection))
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
+            Column(
+                modifier = Modifier.padding(
+                    start = dimensionResource(R.dimen.spacing_lg),
+                    end = dimensionResource(R.dimen.spacing_lg),
+                    top = dimensionResource(R.dimen.spacing_lg)
+                )
+            ) {
                 SettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_idle_timeout),
                     selected = stringResource(
@@ -196,18 +203,18 @@ fun SettingsContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         // Audit notifications section
         SectionHeader(stringResource(R.string.screen_settings_section_audit_notifications))
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                 Text(
                     text = stringResource(R.string.screen_settings_audit_tool_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 SettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_after_session),
                     selected = state.postSessionMode,
@@ -223,19 +230,19 @@ fun SettingsContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         // Security section
         SectionHeader(stringResource(R.string.screen_settings_section_security))
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                 SettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_check_interval),
                     selected = state.securityCheckInterval,
                     options = listOf("6 hours", "12 hours", "24 hours"),
                     onSelected = onSecurityCheckIntervalChanged
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -269,7 +276,7 @@ fun SettingsContent(
 
         // Battery warning
         if (state.showBatteryWarning) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             val ext = LocalExtendedColors.current
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -278,7 +285,7 @@ fun SettingsContent(
                 )
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -286,7 +293,7 @@ fun SettingsContent(
                         contentDescription = null,
                         tint = ext.warningAccent
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             stringResource(R.string.screen_settings_battery_optimization_title),
@@ -317,10 +324,10 @@ fun SettingsContent(
         // Diagnostics section — only shown once at least one spurious wake has
         // been observed. Read-only, purely informational.
         if (state.spuriousWakesLast24h > 0) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             SectionHeader(stringResource(R.string.screen_settings_section_diagnostics))
             SettingsSectionCard {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                     Text(
                         stringResource(
                             R.string.screen_settings_spurious_wakes,
@@ -329,7 +336,7 @@ fun SettingsContent(
                         ),
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
                     Text(
                         stringResource(R.string.screen_settings_spurious_wakes_note),
                         style = MaterialTheme.typography.bodySmall,
@@ -341,7 +348,7 @@ fun SettingsContent(
 
         // Trust Status section
         if (state.trustStatus != null) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             SectionHeader(stringResource(R.string.screen_settings_section_trust_status))
             TrustStatusSection(
                 trustStatus = state.trustStatus,
@@ -349,18 +356,18 @@ fun SettingsContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         // About section
         SectionHeader(stringResource(R.string.screen_settings_section_about))
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                 Text(
                     stringResource(R.string.screen_settings_version, state.versionName),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
+                    modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_sm)),
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
                 Text(
@@ -370,18 +377,18 @@ fun SettingsContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         // Support section
         SectionHeader(stringResource(R.string.screen_settings_section_support))
         SettingsSectionCard {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
                 Text(
                     text = stringResource(R.string.screen_settings_support_privacy_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -408,7 +415,7 @@ fun SettingsContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
     }
 }
 
@@ -538,7 +545,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
             CardDefaults.cardColors()
         }
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
             // Overall status row
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -548,9 +555,9 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
                     statusIcon,
                     contentDescription = statusLabel,
                     tint = statusColor,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(dimensionResource(R.dimen.spacing_xl))
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
                 Text(
                     text = statusLabel,
                     style = MaterialTheme.typography.titleMedium,
@@ -558,9 +565,9 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
             // Self-check row
             TrustCheckRow(
@@ -569,7 +576,7 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
                 timeAgo = timeAgo
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
 
             // CT log row
             TrustCheckRow(
@@ -580,23 +587,23 @@ private fun TrustStatusSection(trustStatus: TrustStatusState, onAcknowledgeAlert
 
             // Cert fingerprint
             if (trustStatus.certFingerprint.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 CertFingerprintRow(trustStatus.certFingerprint)
             }
 
             // Acknowledge button when alert is active
             if (trustStatus.overallStatus == TrustOverallStatus.ALERT) {
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
                 Text(
                     text = stringResource(R.string.screen_settings_trust_alert_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = statusColor
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
                 OutlinedButton(
                     onClick = onAcknowledgeAlert,
                     modifier = Modifier.fillMaxWidth(),
@@ -646,9 +653,9 @@ private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
             icon,
             contentDescription = null,
             tint = color,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(dimensionResource(R.dimen.spacing_lg))
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
         Text(
             text = stringResource(R.string.screen_settings_trust_row, label, displayResult),
             style = MaterialTheme.typography.bodyMedium,

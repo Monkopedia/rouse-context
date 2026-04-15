@@ -32,9 +32,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.R
 import com.rousecontext.app.ui.theme.AmberAccent
 import com.rousecontext.app.ui.theme.LocalExtendedColors
 
@@ -65,7 +67,10 @@ fun SectionHeader(text: String) {
         text = text,
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+        modifier = Modifier.padding(
+            top = dimensionResource(R.dimen.spacing_xs),
+            bottom = dimensionResource(R.dimen.spacing_sm)
+        )
     )
 }
 
@@ -81,7 +86,7 @@ fun ListRow(
             .fillMaxWidth()
             .then(clickMod)
             .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         content()
@@ -102,16 +107,16 @@ fun ListRowWithIcon(
             .fillMaxWidth()
             .then(clickMod)
             .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
             tint = iconTint
         )
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
         content()
     }
 }
@@ -129,7 +134,7 @@ fun ListRowWithTrailing(
             .fillMaxWidth()
             .then(clickMod)
             .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg)),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -144,7 +149,7 @@ fun ListRowWithTrailing(
 }
 
 @Composable
-fun ListDivider(padding: Dp = 16.dp) {
+fun ListDivider(padding: Dp = dimensionResource(R.dimen.spacing_lg)) {
     HorizontalDivider(
         modifier = Modifier.padding(start = padding, end = padding),
         color = MaterialTheme.colorScheme.outlineVariant
@@ -171,13 +176,16 @@ fun SwitchRow(
                     onValueChange = onCheckedChange
                 )
                 .defaultMinSize(minHeight = 56.dp)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(
+                    horizontal = dimensionResource(R.dimen.spacing_lg),
+                    vertical = dimensionResource(R.dimen.spacing_md)
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = title, style = MaterialTheme.typography.bodyLarge)
                 if (subtitle != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
@@ -185,7 +193,7 @@ fun SwitchRow(
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Switch(
                 checked = checked,
                 onCheckedChange = null,
@@ -207,16 +215,16 @@ fun PrivacyWarningCard(text: String, modifier: Modifier = Modifier) {
         )
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
             verticalAlignment = Alignment.Top
         ) {
             Icon(
                 imageVector = Icons.Default.Warning,
                 contentDescription = "Privacy warning",
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(dimensionResource(R.dimen.spacing_xl)),
                 tint = MaterialTheme.colorScheme.onErrorContainer
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Text(
                 text = text,
                 style = MaterialTheme.typography.bodyMedium,

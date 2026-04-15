@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.R
@@ -55,7 +56,7 @@ fun FloatingSaveBar(
     ) {
         Surface(
             tonalElevation = 3.dp,
-            shadowElevation = 8.dp,
+            shadowElevation = dimensionResource(R.dimen.spacing_sm),
             color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -65,7 +66,10 @@ fun FloatingSaveBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(
+                        horizontal = dimensionResource(R.dimen.spacing_lg),
+                        vertical = dimensionResource(R.dimen.spacing_md)
+                    )
             ) {
                 Text(text)
             }

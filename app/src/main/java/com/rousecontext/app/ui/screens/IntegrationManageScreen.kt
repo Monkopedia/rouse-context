@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -176,9 +177,9 @@ private fun IntegrationManageBody(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
         // -- Authorized Clients (top) --
         SectionHeader(stringResource(R.string.screen_integration_manage_authorized_clients))
@@ -188,16 +189,16 @@ private fun IntegrationManageBody(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(24.dp),
+                        .padding(dimensionResource(R.dimen.spacing_xl)),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(
                         imageVector = Icons.Default.People,
                         contentDescription = null,
-                        modifier = Modifier.size(32.dp),
+                        modifier = Modifier.size(dimensionResource(R.dimen.spacing_xxl)),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
                     Text(
                         text = stringResource(
                             R.string.screen_integration_manage_waiting_title
@@ -206,7 +207,7 @@ private fun IntegrationManageBody(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xs)))
                     Text(
                         text = stringResource(
                             R.string.screen_integration_manage_waiting_subtitle
@@ -278,14 +279,14 @@ private fun IntegrationManageBody(
                 Icon(
                     imageVector = Icons.Default.PersonAdd,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(dimensionResource(R.dimen.spacing_lg))
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(stringResource(R.string.screen_integration_manage_add_client))
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
 
         // -- Recent Activity --
         if (state.status != IntegrationStatus.PENDING) {
@@ -296,16 +297,16 @@ private fun IntegrationManageBody(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
+                            .padding(dimensionResource(R.dimen.spacing_xl)),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Icon(
                             imageVector = Icons.Default.History,
                             contentDescription = null,
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(dimensionResource(R.dimen.spacing_xxl)),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
                         Text(
                             text = stringResource(
                                 R.string.screen_integration_manage_no_recent_activity
@@ -335,7 +336,9 @@ private fun IntegrationManageBody(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(
+                                    modifier = Modifier.width(dimensionResource(R.dimen.spacing_md))
+                                )
                                 DurationText(entry.durationMs)
                             }
                             if (index < visibleActivity.lastIndex) {
@@ -374,7 +377,7 @@ private fun IntegrationManageBody(
                 }
             )
         }
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
     }
 }
 

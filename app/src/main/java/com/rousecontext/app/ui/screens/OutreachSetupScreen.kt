@@ -29,9 +29,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.FloatingSaveBar
 import com.rousecontext.app.ui.components.SectionHeader
@@ -137,17 +137,17 @@ private fun OutreachSetupBody(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
                 .verticalScroll(rememberScrollState())
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             Text(
                 text = stringResource(R.string.screen_outreach_setup_description),
                 style = MaterialTheme.typography.bodyLarge
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             Text(
                 text = stringResource(R.string.screen_outreach_setup_no_permissions_note),
@@ -155,7 +155,7 @@ private fun OutreachSetupBody(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
             Text(
                 text = stringResource(R.string.screen_outreach_setup_audit_note),
@@ -163,7 +163,7 @@ private fun OutreachSetupBody(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             // DND section
             SectionHeader(stringResource(R.string.screen_outreach_setup_dnd_section))
@@ -179,9 +179,9 @@ private fun OutreachSetupBody(
                     expandedContent = {
                         Column(
                             modifier = Modifier.padding(
-                                start = 16.dp,
-                                end = 16.dp,
-                                bottom = 16.dp
+                                start = dimensionResource(R.dimen.spacing_lg),
+                                end = dimensionResource(R.dimen.spacing_lg),
+                                bottom = dimensionResource(R.dimen.spacing_lg)
                             )
                         ) {
                             if (state.dndPermissionGranted) {
@@ -190,10 +190,16 @@ private fun OutreachSetupBody(
                                         imageVector = Icons.Default.CheckCircle,
                                         contentDescription =
                                         stringResource(R.string.common_granted),
-                                        modifier = Modifier.size(20.dp),
+                                        modifier = Modifier.size(
+                                            dimensionResource(R.dimen.icon_size_sm)
+                                        ),
                                         tint = SuccessGreen
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(
+                                        modifier = Modifier.width(
+                                            dimensionResource(R.dimen.spacing_sm)
+                                        )
+                                    )
                                     Text(
                                         text = stringResource(
                                             R.string.common_permission_granted
@@ -214,11 +220,17 @@ private fun OutreachSetupBody(
                                         ),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        modifier = Modifier.padding(12.dp)
+                                        modifier = Modifier.padding(
+                                            dimensionResource(R.dimen.spacing_md)
+                                        )
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(
+                                    modifier = Modifier.height(
+                                        dimensionResource(R.dimen.spacing_sm)
+                                    )
+                                )
 
                                 OutlinedButton(
                                     onClick = onGrantDnd,
@@ -237,7 +249,7 @@ private fun OutreachSetupBody(
             }
 
             if (state.directLaunchApplicable) {
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
                 SectionHeader(stringResource(R.string.screen_outreach_setup_background_section))
 
@@ -254,9 +266,9 @@ private fun OutreachSetupBody(
                         expandedContent = {
                             Column(
                                 modifier = Modifier.padding(
-                                    start = 16.dp,
-                                    end = 16.dp,
-                                    bottom = 16.dp
+                                    start = dimensionResource(R.dimen.spacing_lg),
+                                    end = dimensionResource(R.dimen.spacing_lg),
+                                    bottom = dimensionResource(R.dimen.spacing_lg)
                                 )
                             ) {
                                 if (state.overlayPermissionGranted) {
@@ -265,10 +277,16 @@ private fun OutreachSetupBody(
                                             imageVector = Icons.Default.CheckCircle,
                                             contentDescription =
                                             stringResource(R.string.common_granted),
-                                            modifier = Modifier.size(20.dp),
+                                            modifier = Modifier.size(
+                                                dimensionResource(R.dimen.icon_size_sm)
+                                            ),
                                             tint = SuccessGreen
                                         )
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(
+                                            modifier = Modifier.width(
+                                                dimensionResource(R.dimen.spacing_sm)
+                                            )
+                                        )
                                         Text(
                                             text = stringResource(
                                                 R.string.common_permission_granted
@@ -290,11 +308,17 @@ private fun OutreachSetupBody(
                                             style = MaterialTheme.typography.bodySmall,
                                             color =
                                             MaterialTheme.colorScheme.onSecondaryContainer,
-                                            modifier = Modifier.padding(12.dp)
+                                            modifier = Modifier.padding(
+                                                dimensionResource(R.dimen.spacing_md)
+                                            )
                                         )
                                     }
 
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Spacer(
+                                        modifier = Modifier.height(
+                                            dimensionResource(R.dimen.spacing_sm)
+                                        )
+                                    )
 
                                     OutlinedButton(
                                         onClick = onGrantOverlay,
@@ -326,7 +350,7 @@ private fun OutreachSetupBody(
                     Text(stringResource(R.string.common_enable))
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
 
                 OutlinedButton(
                     onClick = onCancel,
@@ -336,7 +360,7 @@ private fun OutreachSetupBody(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
         }
         if (mode == SetupMode.SETTINGS) {
             FloatingSaveBar(

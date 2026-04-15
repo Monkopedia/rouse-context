@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -122,24 +123,24 @@ private fun HealthConnectSetupBody(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
             .verticalScroll(rememberScrollState())
     ) {
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
         Text(
             text = stringResource(R.string.screen_health_connect_setup_description),
             style = MaterialTheme.typography.bodyLarge
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
         Text(
             text = stringResource(R.string.screen_health_connect_setup_request_list_heading),
             style = MaterialTheme.typography.titleSmall
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
         // Per-category expanded state. Default: all collapsed, so the full
         // permission list does not overwhelm the user on first view (#60).
@@ -171,7 +172,10 @@ private fun HealthConnectSetupBody(
                     types.forEach { recordType ->
                         val isGranted = recordType.name in grantedRecordTypes
                         Row(
-                            modifier = Modifier.padding(start = 8.dp, bottom = 4.dp),
+                            modifier = Modifier.padding(
+                                start = dimensionResource(R.dimen.spacing_sm),
+                                bottom = dimensionResource(R.dimen.spacing_xs)
+                            ),
                             verticalAlignment = Alignment.Top
                         ) {
                             if (showGrantedIndicators) {
@@ -207,7 +211,7 @@ private fun HealthConnectSetupBody(
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
                             Column {
                                 Text(
                                     text = recordType.displayName,
@@ -225,7 +229,7 @@ private fun HealthConnectSetupBody(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
         Text(
             text = stringResource(
@@ -235,7 +239,7 @@ private fun HealthConnectSetupBody(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
 
         Text(
             text = stringResource(R.string.common_audit_log_note),
@@ -251,7 +255,7 @@ private fun HealthConnectSetupBody(
         )
 
         Spacer(modifier = Modifier.weight(1f))
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xxl)))
 
         val buttonText = if (mode == SetupMode.SETTINGS) {
             stringResource(R.string.screen_health_connect_setup_manage)
@@ -271,7 +275,7 @@ private fun HealthConnectSetupBody(
         // Health Access" action is a system-permission launch, not an
         // in-app save — there is no dirty state to discard). See #59.
         if (mode == SetupMode.SETUP) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
 
             OutlinedButton(
                 onClick = onCancel,
@@ -281,7 +285,7 @@ private fun HealthConnectSetupBody(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
     }
 }
 
@@ -304,7 +308,7 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSecondaryContainer
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Column {
                 Text(
                     text = stringResource(
@@ -339,7 +343,7 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
                 Text(
                     text = stringResource(
                         R.string.screen_health_connect_setup_historical_disabled_title
@@ -355,7 +359,7 @@ private fun HistoricalAccessSection(granted: Boolean, onRequestHistoricalAccess:
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
             OutlinedButton(
                 onClick = onRequestHistoricalAccess,
                 modifier = Modifier.fillMaxWidth()
@@ -401,7 +405,7 @@ private fun CategoryHeader(
             .fillMaxWidth()
             .clickable(onClick = onToggle)
             .defaultMinSize(minHeight = 48.dp)
-            .padding(vertical = 4.dp),
+            .padding(vertical = dimensionResource(R.dimen.spacing_xs)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -415,7 +419,7 @@ private fun CategoryHeader(
             style = MaterialTheme.typography.bodyMedium,
             color = countColor
         )
-        Spacer(modifier = Modifier.width(8.dp))
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
         Icon(
             imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
             contentDescription = if (expanded) {

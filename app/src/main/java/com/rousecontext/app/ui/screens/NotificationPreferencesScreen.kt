@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.tooling.preview.Preview
@@ -84,9 +85,9 @@ fun NotificationPreferencesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = dimensionResource(R.dimen.spacing_lg))
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             Icon(
                 imageVector = Icons.Outlined.Notifications,
@@ -95,14 +96,14 @@ fun NotificationPreferencesScreen(
                 tint = AmberAccent
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
 
             Text(
                 text = stringResource(R.string.screen_notification_preferences_prompt),
                 style = MaterialTheme.typography.bodyLarge
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
             Column(modifier = Modifier.selectableGroup()) {
                 NotificationOption(
@@ -118,7 +119,7 @@ fun NotificationPreferencesScreen(
                         onModeSelected(NotificationMode.SUMMARY)
                     }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
                 NotificationOption(
                     title = stringResource(
                         R.string.screen_notification_preferences_each_title
@@ -132,7 +133,7 @@ fun NotificationPreferencesScreen(
                         onModeSelected(NotificationMode.EACH_USAGE)
                     }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
                 NotificationOption(
                     title = stringResource(
                         R.string.screen_notification_preferences_suppress_title
@@ -162,7 +163,7 @@ fun NotificationPreferencesScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp)
+                    .padding(bottom = dimensionResource(R.dimen.spacing_xl))
             ) {
                 Text(stringResource(R.string.common_continue))
             }
@@ -185,13 +186,13 @@ private fun NotificationOption(
                 onClick = onClick,
                 role = Role.RadioButton
             )
-            .padding(vertical = 8.dp)
+            .padding(vertical = dimensionResource(R.dimen.spacing_sm))
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
             RadioButton(selected = selected, onClick = null)
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
             Column {
                 Text(title, style = MaterialTheme.typography.bodyLarge)
                 Text(
