@@ -71,6 +71,55 @@ enum class TrustOverallStatus {
     ALERT
 }
 
+/**
+ * Post-session audit notification mode. The ViewModel emits one of these
+ * variants; the UI resolves a user-facing label via [labelRes]. Stored in
+ * DataStore by `name` (see [com.rousecontext.api.PostSessionMode]).
+ */
+enum class PostSessionModeOption {
+    SUMMARY,
+    EACH_USAGE,
+    SUPPRESS;
+
+    fun labelRes(): Int = when (this) {
+        SUMMARY -> R.string.screen_settings_post_session_summary
+        EACH_USAGE -> R.string.screen_settings_post_session_each_usage
+        SUPPRESS -> R.string.screen_settings_post_session_suppress
+    }
+}
+
+/**
+ * Theme selector option. The ViewModel emits one of these variants; the UI
+ * resolves a user-facing label via [labelRes].
+ */
+enum class ThemeModeOption {
+    LIGHT,
+    DARK,
+    AUTO;
+
+    fun labelRes(): Int = when (this) {
+        LIGHT -> R.string.screen_settings_theme_light
+        DARK -> R.string.screen_settings_theme_dark
+        AUTO -> R.string.screen_settings_theme_auto
+    }
+}
+
+/**
+ * Discrete options for the security self-check cadence. Persisted as the
+ * underlying [hours] value via [com.rousecontext.app.state.AppStatePreferences].
+ */
+enum class SecurityCheckIntervalOption(val hours: Int) {
+    HOURS_6(6),
+    HOURS_12(12),
+    HOURS_24(24);
+
+    companion object {
+        /** Snap an arbitrary hour count to the nearest supported option. */
+        fun forHours(hours: Int): SecurityCheckIntervalOption =
+            entries.firstOrNull { it.hours == hours } ?: HOURS_12
+    }
+}
+
 @Immutable
 data class TrustStatusState(
     val lastCheckTime: Long = 0L,
@@ -85,9 +134,9 @@ data class SettingsState(
     val idleTimeoutMinutes: Int = 5,
     val idleTimeoutDisabled: Boolean = false,
     val batteryOptimizationExempt: Boolean = false,
-    val postSessionMode: String = "Summary",
-    val themeMode: String = "Auto",
-    val securityCheckInterval: String = "12 hours",
+    val postSessionMode: PostSessionModeOption = PostSessionModeOption.SUMMARY,
+    val themeMode: ThemeModeOption = ThemeModeOption.AUTO,
+    val securityCheckInterval: SecurityCheckIntervalOption = SecurityCheckIntervalOption.HOURS_12,
     val canRotateAddress: Boolean = true,
     val rotationCooldownMessage: String? = null,
     val showBatteryWarning: Boolean = true,
@@ -119,10 +168,10 @@ fun SettingsContent(
     state: SettingsState = SettingsState(),
     onIdleTimeoutChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
-    onPostSessionModeChanged: (String) -> Unit = {},
+    onPostSessionModeChanged: (PostSessionModeOption) -> Unit = {},
     onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
-    onThemeModeChanged: (String) -> Unit = {},
-    onSecurityCheckIntervalChanged: (String) -> Unit = {},
+    onThemeModeChanged: (ThemeModeOption) -> Unit = {},
+    onSecurityCheckIntervalChanged: (SecurityCheckIntervalOption) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
@@ -154,10 +203,11 @@ fun SettingsContent(
         SectionHeader(stringResource(R.string.screen_settings_section_appearance))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
-                SettingsDropdown(
+                EnumSettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_theme),
                     selected = state.themeMode,
-                    options = listOf("Light", "Dark", "Auto"),
+                    options = ThemeModeOption.entries,
+                    labelFor = { stringResource(it.labelRes()) },
                     onSelected = onThemeModeChanged
                 )
             }
@@ -215,10 +265,11 @@ fun SettingsContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
-                SettingsDropdown(
+                EnumSettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_after_session),
                     selected = state.postSessionMode,
-                    options = listOf("Summary", "Each usage", "Suppress"),
+                    options = PostSessionModeOption.entries,
+                    labelFor = { stringResource(it.labelRes()) },
                     onSelected = onPostSessionModeChanged
                 )
             }
@@ -236,10 +287,13 @@ fun SettingsContent(
         SectionHeader(stringResource(R.string.screen_settings_section_security))
         SettingsSectionCard {
             Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
-                SettingsDropdown(
+                EnumSettingsDropdown(
                     label = stringResource(R.string.screen_settings_label_check_interval),
                     selected = state.securityCheckInterval,
-                    options = listOf("6 hours", "12 hours", "24 hours"),
+                    options = SecurityCheckIntervalOption.entries,
+                    labelFor = {
+                        stringResource(R.string.screen_settings_check_interval_value, it.hours)
+                    },
                     onSelected = onSecurityCheckIntervalChanged
                 )
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
@@ -428,10 +482,10 @@ fun SettingsScreen(
     state: SettingsState = SettingsState(),
     onIdleTimeoutChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
-    onPostSessionModeChanged: (String) -> Unit = {},
+    onPostSessionModeChanged: (PostSessionModeOption) -> Unit = {},
     onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
-    onThemeModeChanged: (String) -> Unit = {},
-    onSecurityCheckIntervalChanged: (String) -> Unit = {},
+    onThemeModeChanged: (ThemeModeOption) -> Unit = {},
+    onSecurityCheckIntervalChanged: (SecurityCheckIntervalOption) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
@@ -730,6 +784,65 @@ private fun SettingsSectionCard(content: @Composable () -> Unit) {
         )
     ) {
         content()
+    }
+}
+
+/**
+ * Typed dropdown: each option is an arbitrary value of type [T] and the
+ * display label is resolved via [labelFor]. Keeps the selected state typed
+ * so the caller never has to string-match on the result. Used for the
+ * theme/post-session/check-interval dropdowns whose options are enums.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> EnumSettingsDropdown(
+    label: String,
+    selected: T,
+    options: List<T>,
+    labelFor: @Composable (T) -> String,
+    onSelected: (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f)
+        )
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedTextField(
+                value = labelFor(selected),
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                modifier = Modifier
+                    .width(150.dp)
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                options.forEach { option ->
+                    val optionLabel = labelFor(option)
+                    DropdownMenuItem(
+                        text = { Text(optionLabel) },
+                        onClick = {
+                            onSelected(option)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 

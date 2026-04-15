@@ -8,6 +8,7 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.ui.screens.PostSessionModeOption
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.work.SecurityCheckPreferences
 import io.mockk.coEvery
@@ -57,7 +58,7 @@ class SettingsViewModelTest {
         vm.state.test {
             val state = awaitItem()
             assertEquals(5, state.idleTimeoutMinutes)
-            assertEquals("Summary", state.postSessionMode)
+            assertEquals(PostSessionModeOption.SUMMARY, state.postSessionMode)
         }
     }
 
@@ -79,7 +80,7 @@ class SettingsViewModelTest {
         vm.state.test {
             awaitItem() // initial default
             val state = awaitItem()
-            assertEquals("Each usage", state.postSessionMode)
+            assertEquals(PostSessionModeOption.EACH_USAGE, state.postSessionMode)
         }
     }
 
@@ -89,7 +90,7 @@ class SettingsViewModelTest {
         vm.state.test {
             awaitItem()
             val state = awaitItem()
-            assertEquals("Suppress", state.postSessionMode)
+            assertEquals(PostSessionModeOption.SUPPRESS, state.postSessionMode)
         }
     }
 
@@ -178,7 +179,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `setPostSessionMode persists parsed enum value`() = runTest(testDispatcher) {
+    fun `setPostSessionMode maps each UI option to the domain value`() = runTest(testDispatcher) {
         val provider = mockk<NotificationSettingsProvider> {
             val s = NotificationSettings(
                 postSessionMode = PostSessionMode.SUMMARY,
@@ -194,39 +195,17 @@ class SettingsViewModelTest {
             securityPrefs = null,
             provider = provider
         )
-        vm.setPostSessionMode("Each usage")
+        vm.setPostSessionMode(PostSessionModeOption.EACH_USAGE)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { provider.setPostSessionMode(PostSessionMode.EACH_USAGE) }
 
-        vm.setPostSessionMode("Suppress")
+        vm.setPostSessionMode(PostSessionModeOption.SUPPRESS)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { provider.setPostSessionMode(PostSessionMode.SUPPRESS) }
 
-        vm.setPostSessionMode("Summary")
+        vm.setPostSessionMode(PostSessionModeOption.SUMMARY)
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { provider.setPostSessionMode(PostSessionMode.SUMMARY) }
-    }
-
-    @Test
-    fun `setPostSessionMode ignores unknown display string`() = runTest(testDispatcher) {
-        val provider = mockk<NotificationSettingsProvider> {
-            val s = NotificationSettings(
-                postSessionMode = PostSessionMode.SUMMARY,
-                notificationPermissionGranted = true
-            )
-            coEvery { settings() } returns s
-            every { observeSettings() } returns flowOf(s)
-            coEvery { setPostSessionMode(any()) } returns Unit
-            coEvery { setShowAllMcpMessages(any()) } returns Unit
-        }
-        val vm = createViewModel(
-            PostSessionMode.SUMMARY,
-            securityPrefs = null,
-            provider = provider
-        )
-        vm.setPostSessionMode("Nonsense")
-        testDispatcher.scheduler.advanceUntilIdle()
-        io.mockk.coVerify(exactly = 0) { provider.setPostSessionMode(any()) }
     }
 
     @Test
