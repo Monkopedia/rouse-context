@@ -1,7 +1,5 @@
 package com.rousecontext.tunnel
 
-import java.io.InputStream
-import java.io.OutputStream
 import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
@@ -12,25 +10,49 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 
 /**
  * Performs TLS server-side accept over a [MuxStream].
  *
  * The device acts as the TLS server (it holds the certificate for its subdomain).
  * The MCP client connecting through the relay is the TLS client.
- * After the handshake completes, plaintext bytes flow through the returned streams.
+ * After the handshake completes, plaintext bytes flow through the returned [TlsSession]
+ * via suspend-native read/write calls -- no Java [java.io.InputStream]/[java.io.OutputStream]
+ * is exposed, so no `runBlocking` bridge is required.
  */
 class TlsAcceptor(private val sslContext: SSLContext) {
     /**
-     * Result of a successful TLS accept: plaintext I/O streams.
+     * Result of a successful TLS accept: suspend-native plaintext I/O.
+     *
+     * Implementations are thread-safe for independent concurrent read and write,
+     * but concurrent reads (or concurrent writes) are serialized internally.
      */
-    data class TlsSession(val input: InputStream, val output: OutputStream)
+    interface TlsSession {
+        /**
+         * Reads plaintext bytes into [buf] starting at [off] for up to [len] bytes.
+         *
+         * @return number of bytes read, or -1 on EOF
+         */
+        suspend fun read(buf: ByteArray, off: Int = 0, len: Int = buf.size - off): Int
+
+        /**
+         * Writes [len] plaintext bytes from [buf] starting at [off], encrypting them
+         * to the underlying mux stream.
+         */
+        suspend fun write(buf: ByteArray, off: Int = 0, len: Int = buf.size - off)
+
+        /**
+         * Closes the TLS session and the underlying mux stream.
+         */
+        suspend fun close()
+    }
 
     /**
      * Perform TLS server-side handshake over the given [MuxStream].
-     * Returns plaintext I/O streams on success.
+     * Returns a suspend-native [TlsSession] on success.
      *
      * @throws TunnelError.TlsHandshakeFailed if handshake fails
      */
@@ -43,7 +65,7 @@ class TlsAcceptor(private val sslContext: SSLContext) {
             val appBufferSize = session.applicationBufferSize
             val netBufferSize = session.packetBufferSize
 
-            var appIn = java.nio.ByteBuffer.allocate(appBufferSize)
+            val appIn = java.nio.ByteBuffer.allocate(appBufferSize)
             val appOut = java.nio.ByteBuffer.allocate(0) // empty: no app data during handshake
             var netIn = java.nio.ByteBuffer.allocate(netBufferSize)
             var netOut = java.nio.ByteBuffer.allocate(netBufferSize)
@@ -93,10 +115,7 @@ class TlsAcceptor(private val sslContext: SSLContext) {
                 }
             }
 
-            TlsSession(
-                input = TlsInputStream(engine, stream, netIn),
-                output = TlsOutputStream(engine, stream)
-            )
+            SuspendTlsSession(engine, stream, netIn)
         } catch (e: TunnelError) {
             throw e
         } catch (e: Exception) {
@@ -216,135 +235,132 @@ private fun ensureCapacity(buffer: java.nio.ByteBuffer, additionalBytes: Int): j
 }
 
 /**
- * An [InputStream] that decrypts TLS data read from a [MuxStream].
+ * A suspend-native [TlsAcceptor.TlsSession] that encrypts/decrypts plaintext against
+ * an underlying [MuxStream]. Reads and writes are serialized with separate mutexes
+ * so one direction may proceed while the other is suspended.
  */
-internal class TlsInputStream(
+@Suppress("TooManyFunctions")
+private class SuspendTlsSession(
     private val engine: SSLEngine,
     private val stream: MuxStream,
-    private var netIn: java.nio.ByteBuffer
-) : InputStream() {
-    private var appIn = java.nio.ByteBuffer.allocate(engine.session.applicationBufferSize)
-    private val readLock = java.util.concurrent.locks.ReentrantLock()
+    initialNetIn: java.nio.ByteBuffer
+) : TlsAcceptor.TlsSession {
 
-    init {
-        appIn.flip() // start empty
-    }
+    private val readMutex = Mutex()
+    private val writeMutex = Mutex()
 
-    override fun read(): Int {
-        val buf = ByteArray(1)
-        val n = read(buf, 0, 1)
-        return if (n == -1) -1 else buf[0].toInt() and 0xFF
-    }
+    // Encrypted bytes received from the mux stream but not yet unwrapped.
+    // Kept in "compact" mode (position = write pointer).
+    private var netIn: java.nio.ByteBuffer = initialNetIn
+
+    // Decrypted plaintext ready to hand back to the caller. Kept in "read" mode
+    // (flipped -- position..limit is the readable region).
+    private var appIn: java.nio.ByteBuffer =
+        java.nio.ByteBuffer.allocate(engine.session.applicationBufferSize).also { it.flip() }
+
+    private val netOut: java.nio.ByteBuffer =
+        java.nio.ByteBuffer.allocate(engine.session.packetBufferSize)
+
+    @Volatile
+    private var eof: Boolean = false
 
     @Suppress("LoopWithTooManyJumpStatements")
-    override fun read(b: ByteArray, off: Int, len: Int): Int {
-        readLock.lock()
-        try {
-            if (appIn.hasRemaining()) {
-                val toRead = minOf(len, appIn.remaining())
-                appIn.get(b, off, toRead)
-                return toRead
-            }
+    override suspend fun read(buf: ByteArray, off: Int, len: Int): Int = readMutex.withLock {
+        if (eof) return@withLock -1
+        if (appIn.hasRemaining()) {
+            val toRead = minOf(len, appIn.remaining())
+            appIn.get(buf, off, toRead)
+            return@withLock toRead
+        }
 
-            // Need to decrypt more data
-            appIn.clear()
-            while (true) {
-                // Only read from the stream if netIn has no leftover data.
-                // Multiple TLS records may arrive in a single mux DATA frame,
-                // so netIn may still have data from a previous unwrap.
-                if (netIn.position() == 0) {
-                    val tlsData =
-                        try {
-                            kotlinx.coroutines.runBlocking {
-                                withTimeout(READ_TIMEOUT_MS) {
-                                    stream.read()
-                                }
-                            }
-                        } catch (_: Exception) {
-                            return -1
-                        }
-                    netIn = ensureCapacity(netIn, tlsData.size)
-                    netIn.put(tlsData)
+        appIn.clear()
+        while (true) {
+            // Only read from the stream if netIn has no leftover data.
+            // Multiple TLS records may arrive in a single mux DATA frame.
+            if (netIn.position() == 0) {
+                val tlsData = try {
+                    stream.read()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    eof = true
+                    return@withLock -1
                 }
-                netIn.flip()
+                netIn = ensureCapacity(netIn, tlsData.size)
+                netIn.put(tlsData)
+            }
+            netIn.flip()
 
-                val result = engine.unwrap(netIn, appIn)
-                netIn.compact()
+            val result = engine.unwrap(netIn, appIn)
+            netIn.compact()
 
-                when (result.status) {
-                    SSLEngineResult.Status.OK -> {
-                        appIn.flip()
-                        if (appIn.hasRemaining()) {
-                            val toRead = minOf(len, appIn.remaining())
-                            appIn.get(b, off, toRead)
-                            return toRead
-                        }
-                        appIn.clear()
-                        // May need more data, loop
+            when (result.status) {
+                SSLEngineResult.Status.OK -> {
+                    appIn.flip()
+                    if (appIn.hasRemaining()) {
+                        val toRead = minOf(len, appIn.remaining())
+                        appIn.get(buf, off, toRead)
+                        return@withLock toRead
                     }
-                    SSLEngineResult.Status.CLOSED -> return -1
-                    SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
-                        // Need more network data, loop
-                        appIn.clear()
-                    }
-                    SSLEngineResult.Status.BUFFER_OVERFLOW -> {
-                        // Grow the app buffer and retry unwrap immediately
-                        // (netIn still has the data that caused overflow)
-                        val newBuf = java.nio.ByteBuffer.allocate(appIn.capacity() * 2)
-                        appIn.flip()
-                        newBuf.put(appIn)
-                        appIn = newBuf
-                        continue
-                    }
-                    else -> return -1
+                    appIn.clear()
+                    // May need more data, loop
+                }
+                SSLEngineResult.Status.CLOSED -> {
+                    eof = true
+                    return@withLock -1
+                }
+                SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+                    // Need more network data, loop
+                    appIn.clear()
+                }
+                SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+                    // Grow the app buffer and retry unwrap immediately
+                    // (netIn still has the data that caused overflow)
+                    val newBuf = java.nio.ByteBuffer.allocate(appIn.capacity() * 2)
+                    appIn.flip()
+                    newBuf.put(appIn)
+                    appIn = newBuf
+                    continue
+                }
+                else -> {
+                    eof = true
+                    return@withLock -1
                 }
             }
-        } finally {
-            readLock.unlock()
+        }
+        @Suppress("UNREACHABLE_CODE")
+        -1
+    }
+
+    override suspend fun write(buf: ByteArray, off: Int, len: Int) = writeMutex.withLock {
+        val appOut = java.nio.ByteBuffer.wrap(buf, off, len)
+        while (appOut.hasRemaining()) {
+            netOut.clear()
+            val result = engine.wrap(appOut, netOut)
+            netOut.flip()
+            if (netOut.hasRemaining()) {
+                val data = ByteArray(netOut.remaining())
+                netOut.get(data)
+                try {
+                    stream.write(data)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw java.io.IOException("TLS write failed: stream closed", e)
+                }
+            }
+            if (result.status != SSLEngineResult.Status.OK) {
+                throw java.io.IOException("TLS wrap failed: ${result.status}")
+            }
         }
     }
 
-    companion object {
-        /** Timeout for reading from the underlying mux stream (30 seconds). */
-        const val READ_TIMEOUT_MS = 30_000L
-    }
-}
-
-/**
- * An [OutputStream] that encrypts plaintext and writes TLS data to a [MuxStream].
- */
-internal class TlsOutputStream(private val engine: SSLEngine, private val stream: MuxStream) :
-    OutputStream() {
-    private val netOut = java.nio.ByteBuffer.allocate(engine.session.packetBufferSize)
-    private val writeLock = java.util.concurrent.locks.ReentrantLock()
-
-    override fun write(b: Int) {
-        write(byteArrayOf(b.toByte()), 0, 1)
-    }
-
-    override fun write(b: ByteArray, off: Int, len: Int) {
-        writeLock.lock()
+    override suspend fun close() {
+        eof = true
         try {
-            val appOut = java.nio.ByteBuffer.wrap(b, off, len)
-            while (appOut.hasRemaining()) {
-                netOut.clear()
-                val result = engine.wrap(appOut, netOut)
-                netOut.flip()
-                if (netOut.hasRemaining()) {
-                    val data = ByteArray(netOut.remaining())
-                    netOut.get(data)
-                    try {
-                        kotlinx.coroutines.runBlocking { stream.write(data) }
-                    } catch (e: Exception) {
-                        throw java.io.IOException("TLS write failed: stream closed", e)
-                    }
-                }
-                if (result.status != SSLEngineResult.Status.OK) {
-                    throw java.io.IOException("TLS wrap failed: ${result.status}")
-                }
-            }
-        } finally {
-            writeLock.unlock()
+            stream.close()
+        } catch (_: Exception) {
+            // Best effort
         }
     }
 }

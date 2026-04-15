@@ -127,13 +127,12 @@ class TlsAcceptTest {
         clientOut.flush()
 
         val buf = ByteArray(1024)
-        val n = serverSession.input.read(buf, 0, buf.size)
+        val n = serverSession.read(buf, 0, buf.size)
         assertTrue(n > 0)
         assertEquals("hello from client", String(buf, 0, n))
 
         // Server writes plaintext, client reads it
-        serverSession.output.write("hello from server".toByteArray())
-        serverSession.output.flush()
+        serverSession.write("hello from server".toByteArray())
 
         val buf2 = ByteArray(1024)
         val n2 = clientIn.read(buf2, 0, buf2.size)

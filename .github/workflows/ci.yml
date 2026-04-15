@@ -42,9 +42,10 @@ jobs:
           set -e
           # Fail if runBlocking appears in any production source tree. Test
           # sources (**/src/**Test/**) are excluded. KDoc lines beginning with
-          # "* " and the known synchronous-API bridge in TlsAcceptor.kt (which
-          # implements java.io.InputStream#read / OutputStream#write, both
-          # non-suspending by contract) are explicitly permitted.
+          # "* " are also permitted. After issue #152 collapsed TlsAcceptor's
+          # java.io bridge to suspend-native channels, the tunnel module no
+          # longer needs an exclusion -- production code should be runBlocking
+          # free.
           matches=$(grep -rn '\brunBlocking\b' --include='*.kt' \
             app/src/main \
             work/src/main \
@@ -58,7 +59,6 @@ jobs:
             core/*/src/jvmMain \
             2>/dev/null \
             | grep -v ':[[:space:]]*\*' \
-            | grep -v 'core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/TlsAcceptor.kt' \
             || true)
           if [ -n "$matches" ]; then
             echo "Found production runBlocking (issue #136 regression):"

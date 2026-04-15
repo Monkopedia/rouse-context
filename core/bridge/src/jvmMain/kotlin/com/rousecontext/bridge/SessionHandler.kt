@@ -7,6 +7,8 @@ import java.io.OutputStream
 import java.net.Socket
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -19,7 +21,7 @@ import kotlinx.coroutines.withContext
  * 1. TLS accept over the mux stream (device is the TLS server)
  * 2. Start a local MCP HTTP session
  * 3. Bridge plaintext bytes between the TLS stream and the MCP session
- * 4. Clean up on disconnect — whichever direction finishes first, the other is
+ * 4. Clean up on disconnect -- whichever direction finishes first, the other is
  *    unblocked by closing the local TCP socket in `finally` so the still-running
  *    side's blocking `read()` throws and terminates promptly.
  */
@@ -46,8 +48,7 @@ class SessionHandler(
         val mcpHandle = mcpSessionFactory.create()
         try {
             bridgeToMcpServer(
-                plaintextIn = tlsSession.input,
-                plaintextOut = tlsSession.output,
+                tlsSession = tlsSession,
                 mcpPort = mcpHandle.port
             )
         } finally {
@@ -56,87 +57,99 @@ class SessionHandler(
     }
 
     /**
-     * Bridges TLS plaintext I/O streams to a local MCP server via TCP.
+     * Bridges a suspend-native [TlsAcceptor.TlsSession] to a local MCP server via TCP.
      *
-     * Two daemon threads run the byte-copy loops because JVM blocking I/O
-     * (`InputStream.read`) cannot be cooperatively cancelled — the only reliable
-     * way to unstick a blocked read is to close the underlying socket. When
-     * either side signals completion via the shared [CompletableDeferred], the
-     * `finally` block closes the TCP socket, which makes the still-running
-     * thread's `read` throw and terminate.
+     * Both directions now run as structured coroutines on [Dispatchers.IO]:
      *
-     * Wrapped in [Dispatchers.IO] so the blocking [Socket] constructor and
-     * close do not fire coroutine blocking-call warnings.
+     *  - TLS -> socket uses suspend [TlsAcceptor.TlsSession.read], so cancellation
+     *    propagates cleanly.
+     *  - Socket -> TLS still calls blocking `Socket.InputStream.read`, which cannot
+     *    be cooperatively cancelled. We park that read on [Dispatchers.IO] and rely
+     *    on closing the socket in `finally` to unblock it, the same teardown
+     *    strategy the previous `Thread {}` implementation used.
+     *
+     * When either direction finishes it signals [done]; the surviving coroutine is
+     * cancelled, then the socket is closed to unstick any still-blocked read.
      */
-    private suspend fun bridgeToMcpServer(
-        plaintextIn: InputStream,
-        plaintextOut: OutputStream,
-        mcpPort: Int
-    ) = withContext(Dispatchers.IO) {
-        val socket = Socket("127.0.0.1", mcpPort)
-        val done = CompletableDeferred<Unit>()
-        try {
-            val socketIn = socket.getInputStream()
-            val socketOut = socket.getOutputStream()
-
-            // plaintext -> socket (client request bytes forwarded to MCP server)
-            Thread {
-                try {
-                    copyLoop(plaintextIn, socketOut)
-                } finally {
-                    done.complete(Unit)
-                }
-            }.apply {
-                isDaemon = true
-                name = "bridge-plaintext-to-mcp"
-                start()
+    private suspend fun bridgeToMcpServer(tlsSession: TlsAcceptor.TlsSession, mcpPort: Int) =
+        coroutineScope {
+            val socket = withContext(Dispatchers.IO) {
+                Socket("127.0.0.1", mcpPort)
             }
-
-            // socket -> plaintext (MCP server response bytes forwarded back through TLS)
-            Thread {
-                try {
-                    copyLoop(socketIn, plaintextOut)
-                } finally {
-                    done.complete(Unit)
-                }
-            }.apply {
-                isDaemon = true
-                name = "bridge-mcp-to-plaintext"
-                start()
-            }
-
-            // Suspend until EITHER direction finishes. This is the key fix for #128:
-            // the old :app.McpSessionBridge did `clientToServer.join(); serverToClient.cancel()`
-            // which hung when the server side finished first.
-            done.await()
-        } finally {
+            val done = CompletableDeferred<Unit>()
             try {
-                socket.close()
-            } catch (_: Exception) {
-                // Best effort cleanup — the surviving copy thread will see the close
-                // as an exception on its next read and exit.
+                val socketIn = socket.getInputStream()
+                val socketOut = socket.getOutputStream()
+
+                // TLS -> socket (client request bytes forwarded to MCP server).
+                val tlsToSocket = launch(Dispatchers.IO) {
+                    try {
+                        copyTlsToStream(tlsSession, socketOut)
+                    } finally {
+                        done.complete(Unit)
+                    }
+                }
+
+                // Socket -> TLS (MCP server response bytes forwarded back through TLS).
+                // The blocking Socket.InputStream.read cannot be cancelled cooperatively;
+                // we rely on closing the socket in `finally` to unstick it.
+                val socketToTls = launch(Dispatchers.IO) {
+                    try {
+                        copyStreamToTls(socketIn, tlsSession)
+                    } finally {
+                        done.complete(Unit)
+                    }
+                }
+
+                // Suspend until EITHER direction finishes.
+                done.await()
+                tlsToSocket.cancel()
+                socketToTls.cancel()
+            } finally {
+                try {
+                    withContext(Dispatchers.IO) { socket.close() }
+                } catch (_: Exception) {
+                    // Best effort cleanup.
+                }
             }
+        }
+
+    /**
+     * Copies plaintext bytes out of [tlsSession] and into [to] until EOF or error.
+     * Must run under [Dispatchers.IO].
+     */
+    private suspend fun copyTlsToStream(tlsSession: TlsAcceptor.TlsSession, to: OutputStream) {
+        try {
+            val buf = ByteArray(BUFFER_SIZE)
+            while (true) {
+                val n = tlsSession.read(buf)
+                if (n == -1) break
+                to.write(buf, 0, n)
+                to.flush()
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Stream closed or peer errored -- treat as EOF.
         }
     }
 
     /**
-     * Copies bytes from [from] to [to] until EOF or the stream errors.
-     *
-     * Swallows read/write exceptions so the caller treats "stream closed" and
-     * "stream errored" the same way. Must be called on a thread that permits
-     * blocking I/O.
+     * Copies bytes from [from] into [tlsSession] until EOF or error.
+     * Must run under [Dispatchers.IO] -- the underlying [InputStream.read] call is blocking.
      */
-    private fun copyLoop(from: InputStream, to: OutputStream) {
+    private suspend fun copyStreamToTls(from: InputStream, tlsSession: TlsAcceptor.TlsSession) {
         try {
             val buf = ByteArray(BUFFER_SIZE)
             while (true) {
                 val n = from.read(buf)
                 if (n == -1) break
-                to.write(buf, 0, n)
-                to.flush()
+                tlsSession.write(buf, 0, n)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (_: Exception) {
-            // Stream closed or peer errored — treat as EOF.
+            // Stream closed or peer errored -- treat as EOF.
         }
     }
 

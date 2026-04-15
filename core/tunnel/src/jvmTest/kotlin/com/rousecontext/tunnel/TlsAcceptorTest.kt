@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -219,12 +220,11 @@ class TlsAcceptorTest {
             clientOut.flush()
 
             val buf = ByteArray(1024)
-            val n = serverSession.input.read(buf, 0, buf.size)
+            val n = serverSession.read(buf, 0, buf.size)
             assertTrue(n > 0, "Expected to read data from server input")
             assertEquals("hello from batched client", String(buf, 0, n))
 
-            serverSession.output.write("hello from server".toByteArray())
-            serverSession.output.flush()
+            serverSession.write("hello from server".toByteArray())
 
             val buf2 = ByteArray(1024)
             val n2 = clientIn.read(buf2, 0, buf2.size)
@@ -288,11 +288,147 @@ class TlsAcceptorTest {
         clientOut.flush()
 
         val buf = ByteArray(1024)
-        val n = serverSession.input.read(buf, 0, buf.size)
+        val n = serverSession.read(buf, 0, buf.size)
         assertTrue(n > 0)
         assertEquals("control test", String(buf, 0, n))
 
         coroutineContext.cancelChildren()
+    }
+
+    /**
+     * Verifies that a suspended [TlsAcceptor.TlsSession.read] is cancellable:
+     * when the caller's coroutine is cancelled while waiting for bytes, the
+     * read returns promptly with a [kotlinx.coroutines.CancellationException]
+     * rather than blocking a thread as the old `runBlocking` bridge would have.
+     */
+    @Test
+    fun `suspend read is cooperatively cancellable`() = runBlocking {
+        val certStore = TestCertificateStore()
+        val acceptor = TlsAcceptor.create(certStore.sslContext)
+
+        val serverToClient = Channel<ByteArray>(Channel.BUFFERED)
+        val clientToServer = Channel<ByteArray>(Channel.BUFFERED)
+
+        val serverStream = ChannelMuxStream(
+            streamIdValue = 1u,
+            readChannel = clientToServer,
+            writeChannel = serverToClient
+        )
+        val clientStream = ChannelMuxStream(
+            streamIdValue = 1u,
+            readChannel = serverToClient,
+            writeChannel = clientToServer
+        )
+
+        val tlsSessionDeferred = CompletableDeferred<TlsAcceptor.TlsSession>()
+        launch(Dispatchers.IO) {
+            try {
+                tlsSessionDeferred.complete(acceptor.accept(serverStream))
+            } catch (e: Exception) {
+                tlsSessionDeferred.completeExceptionally(e)
+            }
+        }
+
+        val clientTlsResult = CompletableDeferred<Pair<InputStream, OutputStream>>()
+        launch(Dispatchers.IO) {
+            try {
+                clientTlsResult.complete(
+                    tlsClientHandshakeForCancelTest(clientStream, certStore.trustingSslContext)
+                )
+            } catch (e: Exception) {
+                clientTlsResult.completeExceptionally(e)
+            }
+        }
+
+        val serverSession = withTimeout(10_000) { tlsSessionDeferred.await() }
+        withTimeout(10_000) { clientTlsResult.await() }
+
+        // Start a coroutine that suspends forever inside tlsSession.read and
+        // assert it cancels promptly when the scope is cancelled.
+        val readException = CompletableDeferred<Throwable>()
+        val readJob = launch(Dispatchers.IO) {
+            try {
+                val buf = ByteArray(128)
+                val n = serverSession.read(buf, 0, buf.size)
+                readException.complete(IllegalStateException("read returned normally with n=$n"))
+            } catch (t: Throwable) {
+                readException.complete(t)
+                throw t
+            }
+        }
+
+        // Give the coroutine time to enter the suspending read().
+        kotlinx.coroutines.delay(200)
+        readJob.cancelAndJoin()
+
+        val thrown = withTimeout(5_000) { readException.await() }
+        assertTrue(
+            thrown is kotlinx.coroutines.CancellationException,
+            "Expected CancellationException but got ${thrown.javaClass.name}: ${thrown.message}"
+        )
+
+        coroutineContext.cancelChildren()
+    }
+
+    /**
+     * Helper that runs just the TLS client-side handshake (no data exchange)
+     * so the cancellation test can get past the accept() handshake pump.
+     */
+    private suspend fun tlsClientHandshakeForCancelTest(
+        clientStream: ChannelMuxStream,
+        trustingSslContext: javax.net.ssl.SSLContext
+    ): Pair<InputStream, OutputStream> {
+        val sslEngine = trustingSslContext.createSSLEngine("test.rousecontext.com", 443)
+        sslEngine.useClientMode = true
+
+        val session = sslEngine.session
+        var netIn = java.nio.ByteBuffer.allocate(session.packetBufferSize)
+        var netOut = java.nio.ByteBuffer.allocate(session.packetBufferSize)
+        val appIn = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
+        val appOut = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
+
+        sslEngine.beginHandshake()
+        var hsStatus = sslEngine.handshakeStatus
+        while (hsStatus != javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED &&
+            hsStatus != javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
+        ) {
+            when (hsStatus) {
+                javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
+                    netOut.clear()
+                    val result = sslEngine.wrap(appOut, netOut)
+                    hsStatus = result.handshakeStatus
+                    netOut.flip()
+                    if (netOut.hasRemaining()) {
+                        val data = ByteArray(netOut.remaining())
+                        netOut.get(data)
+                        clientStream.send(data)
+                    }
+                }
+                javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+                    val tlsData = clientStream.read()
+                    netIn = ensureCapacity(netIn, tlsData.size)
+                    netIn.put(tlsData)
+                    netIn.flip()
+                    val result = sslEngine.unwrap(netIn, appIn)
+                    hsStatus = result.handshakeStatus
+                    netIn.compact()
+                }
+                javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_TASK -> {
+                    var task = sslEngine.delegatedTask
+                    while (task != null) {
+                        task.run()
+                        task = sslEngine.delegatedTask
+                    }
+                    hsStatus = sslEngine.handshakeStatus
+                }
+                else -> break
+            }
+        }
+
+        return Pair(
+            TlsClientInputStream(sslEngine, clientStream, netIn),
+            TlsClientOutputStream(sslEngine, clientStream)
+        )
     }
 }
 
