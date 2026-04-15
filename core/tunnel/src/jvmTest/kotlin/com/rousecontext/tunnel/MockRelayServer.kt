@@ -48,7 +48,11 @@ class MockRelayServer {
     var renewHandler: (suspend (RenewRequest) -> MockRenewResponse) = { _ ->
         MockRenewResponse(
             status = 200,
-            body = RenewResponse(certificatePem = MOCK_CERT_PEM)
+            body = RenewResponse(
+                serverCert = MOCK_CERT_PEM,
+                clientCert = MOCK_CLIENT_CERT_PEM,
+                relayCaCert = MOCK_RELAY_CA_PEM
+            )
         )
     }
 

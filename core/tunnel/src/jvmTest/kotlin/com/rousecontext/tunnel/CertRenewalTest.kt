@@ -4,8 +4,13 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class CertRenewalTest {
 
@@ -49,47 +54,68 @@ class CertRenewalTest {
     }
 
     @Test
-    fun `mTLS renewal succeeds with valid cert`(): Unit = runBlocking {
+    fun `mTLS renewal succeeds with valid cert and signature`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
-        store.storeSubdomain("test123.rousecontext.com")
+        store.storeSubdomain("test123")
         store.storePrivateKey("fake-key")
         val flow = createFlow()
 
+        var receivedRequest: RenewRequest? = null
         mockServer.renewHandler = { request ->
-            assertEquals("mtls", request.authMethod)
+            receivedRequest = request
             MockRenewResponse(
                 status = 200,
-                body = RenewResponse(certificatePem = MockRelayServer.MOCK_CERT_PEM)
+                body = RenewResponse(
+                    serverCert = MockRelayServer.MOCK_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM
+                )
             )
         }
 
-        val result = flow.renewWithMtls()
-        assertTrue(result is RenewalResult.Success)
+        val result = flow.renewWithMtls(signature = "mtls-signature-b64")
+        assertTrue(result is RenewalResult.Success, "expected Success, got $result")
+
+        // Wire contract: request body carries csr, subdomain, signature, and
+        // NO firebase_token on the mTLS path.
+        val req = assertNotNull(receivedRequest)
+        assertTrue(req.csr.isNotBlank(), "csr must be sent")
+        assertEquals("test123", req.subdomain)
+        assertEquals("mtls-signature-b64", req.signature)
+        assertNull(req.firebaseToken, "mTLS path must not send a firebase token")
+
+        // All three cert bundle fields must be stored from the response.
+        assertEquals(MockRelayServer.MOCK_CERT_PEM, store.getCertificate())
+        assertEquals(MockRelayServer.MOCK_CLIENT_CERT_PEM, store.getClientCertificate())
+        assertEquals(MockRelayServer.MOCK_RELAY_CA_PEM, store.getRelayCaCert())
     }
 
     @Test
     fun `expired cert returns CertExpired for mTLS path`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
-        store.storeSubdomain("test123.rousecontext.com")
+        store.storeSubdomain("test123")
         val flow = createFlow(inspector = expiredInspector)
 
-        val result = flow.renewWithMtls()
+        val result = flow.renewWithMtls(signature = "unused")
         assertTrue(result is RenewalResult.CertExpired)
     }
 
     @Test
     fun `Firebase renewal succeeds with expired cert`(): Unit = runBlocking {
-        store.storeSubdomain("test123.rousecontext.com")
+        store.storeSubdomain("test123")
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         val flow = createFlow(inspector = expiredInspector)
 
+        var receivedRequest: RenewRequest? = null
         mockServer.renewHandler = { request ->
-            assertEquals("firebase", request.authMethod)
-            assertEquals("fake-token", request.firebaseToken)
-            assertEquals("fake-sig", request.signature)
+            receivedRequest = request
             MockRenewResponse(
                 status = 200,
-                body = RenewResponse(certificatePem = MockRelayServer.MOCK_CERT_PEM)
+                body = RenewResponse(
+                    serverCert = MockRelayServer.MOCK_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM
+                )
             )
         }
 
@@ -97,23 +123,37 @@ class CertRenewalTest {
             firebaseToken = "fake-token",
             signature = "fake-sig"
         )
-        assertTrue(result is RenewalResult.Success)
+        assertTrue(result is RenewalResult.Success, "expected Success, got $result")
+
+        val req = assertNotNull(receivedRequest)
+        assertEquals("test123", req.subdomain)
+        assertEquals("fake-token", req.firebaseToken)
+        assertEquals("fake-sig", req.signature)
+        assertTrue(req.csr.isNotBlank())
+
+        assertEquals(MockRelayServer.MOCK_CERT_PEM, store.getCertificate())
+        assertEquals(MockRelayServer.MOCK_CLIENT_CERT_PEM, store.getClientCertificate())
+        assertEquals(MockRelayServer.MOCK_RELAY_CA_PEM, store.getRelayCaCert())
     }
 
     @Test
     fun `CN mismatch rejected`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
-        store.storeSubdomain("test123.rousecontext.com")
+        store.storeSubdomain("test123")
         val flow = createFlow()
 
         mockServer.renewHandler = { _ ->
             MockRenewResponse(
                 status = 200,
-                body = RenewResponse(certificatePem = MockRelayServer.MOCK_MISMATCHED_CERT_PEM)
+                body = RenewResponse(
+                    serverCert = MockRelayServer.MOCK_MISMATCHED_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM
+                )
             )
         }
 
-        val result = flow.renewWithMtls()
+        val result = flow.renewWithMtls(signature = "sig")
         assertTrue(result is RenewalResult.CnMismatch)
         assertEquals("test123.rousecontext.com", result.expected)
         assertEquals("other-cn", result.actual)
@@ -122,14 +162,14 @@ class CertRenewalTest {
     @Test
     fun `rate limited schedules retry`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
-        store.storeSubdomain("test123.rousecontext.com")
+        store.storeSubdomain("test123")
         val flow = createFlow()
 
         mockServer.renewHandler = { _ ->
             MockRenewResponse(status = 429, retryAfter = 120)
         }
 
-        val result = flow.renewWithMtls()
+        val result = flow.renewWithMtls(signature = "sig")
         assertTrue(result is RenewalResult.RateLimited)
         assertEquals(120L, result.retryAfterSeconds)
     }
@@ -137,7 +177,7 @@ class CertRenewalTest {
     @Test
     fun `network failure retries with backoff`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
-        store.storeSubdomain("test123.rousecontext.com")
+        store.storeSubdomain("test123")
 
         val client = RelayApiClient(baseUrl = "http://127.0.0.1:1")
         val flow = CertRenewalFlow(
@@ -149,7 +189,7 @@ class CertRenewalTest {
             baseRetryDelayMs = 10L
         )
 
-        val result = flow.renewWithMtls()
+        val result = flow.renewWithMtls(signature = "sig")
         assertTrue(result is RenewalResult.NetworkError)
     }
 
@@ -157,7 +197,58 @@ class CertRenewalTest {
     fun `no certificate returns NoCertificate`(): Unit = runBlocking {
         val flow = createFlow()
 
-        val result = flow.renewWithMtls()
+        val result = flow.renewWithMtls(signature = "sig")
         assertTrue(result is RenewalResult.NoCertificate)
+    }
+
+    /**
+     * Wire-contract test: serializes a [RenewRequest] and asserts the JSON
+     * field names match what the relay's `RenewRequest` struct deserializes.
+     * This is the surgical guard against a future field rename drifting
+     * silently as happened with issue #170.
+     */
+    @Test
+    fun `RenewRequest serializes using relay-side snake_case field names`() {
+        val req = RenewRequest(
+            csr = "dummy-csr-b64",
+            subdomain = "brave-falcon",
+            firebaseToken = "token",
+            signature = "sig"
+        )
+        val json = Json.encodeToString(RenewRequest.serializer(), req)
+        val parsed = Json.parseToJsonElement(json) as JsonObject
+        assertEquals("dummy-csr-b64", parsed["csr"]?.jsonPrimitive?.content)
+        assertEquals("brave-falcon", parsed["subdomain"]?.jsonPrimitive?.content)
+        assertEquals("token", parsed["firebase_token"]?.jsonPrimitive?.content)
+        assertEquals("sig", parsed["signature"]?.jsonPrimitive?.content)
+        // Client must NOT serialize camelCase fallbacks that the relay rejects.
+        assertTrue(!parsed.containsKey("firebaseToken"))
+        assertTrue(!parsed.containsKey("csrPem"))
+        assertTrue(!parsed.containsKey("authMethod"))
+        assertTrue(!parsed.containsKey("currentCertPem"))
+    }
+
+    /**
+     * Wire-contract test: parses a response body shaped like the relay's
+     * actual output (server_cert / client_cert / relay_ca_cert) and asserts
+     * the client deserializes every field.
+     */
+    @Test
+    fun `RenewResponse deserializes from relay-side snake_case body`() {
+        val body = """
+            {
+              "server_cert": "SERVER-PEM",
+              "client_cert": "CLIENT-PEM",
+              "relay_ca_cert": "CA-PEM"
+            }
+        """.trimIndent()
+        val resp = lenientJson.decodeFromString(RenewResponse.serializer(), body)
+        assertEquals("SERVER-PEM", resp.serverCert)
+        assertEquals("CLIENT-PEM", resp.clientCert)
+        assertEquals("CA-PEM", resp.relayCaCert)
+    }
+
+    private companion object {
+        val lenientJson = Json { ignoreUnknownKeys = true }
     }
 }

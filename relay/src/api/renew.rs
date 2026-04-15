@@ -1,8 +1,15 @@
 //! POST /renew -- Certificate renewal.
 //!
-//! Two auth paths:
-//! - Path A (mTLS): valid client cert extracts subdomain, only CSR needed.
-//! - Path B (Firebase): expired cert, needs firebase_token + subdomain + signature.
+//! Two auth paths, both body-driven:
+//! - Path A (signature, "mTLS-equivalent"): valid cert still held by device.
+//!   Device signs the CSR DER bytes with its registered private key and sends
+//!   `{ csr, subdomain, signature }`. No Firebase token needed.
+//! - Path B (Firebase + signature, expired cert): `{ csr, subdomain,
+//!   firebase_token, signature }`. Firebase re-authenticates the user; the
+//!   signature still proves control of the registered private key.
+//!
+//! In both paths the subdomain is taken from the request body. `signature`
+//! is verified against the public key stored at registration time.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -21,17 +28,15 @@ use crate::api::{ApiError, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct RenewRequest {
+    /// Base64-encoded DER PKCS#10 CSR.
     pub csr: String,
-    /// Required for Path B (expired cert).
-    pub subdomain: Option<String>,
-    /// Required for Path B.
+    /// The device's assigned subdomain.
+    pub subdomain: String,
+    /// Firebase ID token. Required for Path B (expired cert).
     pub firebase_token: Option<String>,
-    /// Required for Path B.
+    /// Base64-encoded DER ECDSA signature over the raw CSR DER bytes, using
+    /// the device's registered private key. Always required.
     pub signature: Option<String>,
-    /// Optional: set by middleware if a valid mTLS client cert was presented.
-    /// This is extracted from the cert CN/SAN, not from the request body.
-    #[serde(skip)]
-    pub mtls_subdomain: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -48,9 +53,12 @@ pub async fn handle_renew(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RenewRequest>,
 ) -> Response {
-    // Validate CSR
+    // Validate required fields
     if req.csr.is_empty() {
         return ApiError::bad_request("Missing required field: csr").into_response();
+    }
+    if req.subdomain.is_empty() {
+        return ApiError::bad_request("Missing required field: subdomain").into_response();
     }
 
     let csr_der = match BASE64.decode(&req.csr) {
@@ -58,22 +66,24 @@ pub async fn handle_renew(
         Err(_) => return ApiError::bad_request("Invalid Base64 in csr field").into_response(),
     };
 
-    // Determine auth path.
-    // In a real deployment, mtls_subdomain would be set by TLS middleware.
-    // For now, we use Path B (Firebase + signature) when subdomain + firebase_token are present.
-    let subdomain = if let Some(ref mtls_sub) = req.mtls_subdomain {
-        // Path A: mTLS
-        mtls_sub.clone()
-    } else if let (Some(ref sub), Some(ref token)) = (&req.subdomain, &req.firebase_token) {
-        // Path B: Firebase + signature
-        if sub.is_empty() {
-            return ApiError::bad_request("Missing required field: subdomain").into_response();
-        }
+    // Signature is always required -- it proves control of the registered
+    // private key, independent of which auth path we're on.
+    let sig_b64 =
+        match req.signature.as_deref() {
+            Some(s) if !s.is_empty() => s,
+            _ => return ApiError::bad_request(
+                "Missing required field: signature (or firebase_token for expired-cert renewals)",
+            )
+            .into_response(),
+        };
+
+    // If a Firebase token is present, verify it first so we can reject
+    // renewal attempts that pretend to be an expired-cert path but hand us
+    // garbage credentials. An absent token means Path A: signature alone.
+    if let Some(token) = req.firebase_token.as_deref() {
         if token.is_empty() {
             return ApiError::bad_request("Missing required field: firebase_token").into_response();
         }
-
-        // Verify Firebase token
         let claims = match state.firebase_auth.verify_id_token(token).await {
             Ok(c) => c,
             Err(e) => {
@@ -82,8 +92,7 @@ pub async fn handle_renew(
             }
         };
 
-        // Look up device record
-        let record = match state.firestore.get_device(sub).await {
+        let record = match state.firestore.get_device(&req.subdomain).await {
             Ok(r) => r,
             Err(crate::firestore::FirestoreError::NotFound(_)) => {
                 return ApiError::not_found("Device not found").into_response()
@@ -93,44 +102,29 @@ pub async fn handle_renew(
             }
         };
 
-        // Verify Firebase UID matches
         if record.firebase_uid != claims.uid {
             return ApiError::forbidden("Firebase UID does not match device record")
                 .into_response();
         }
+    }
 
-        // Verify signature
-        let sig_b64 = match &req.signature {
-            Some(s) if !s.is_empty() => s,
-            _ => return ApiError::bad_request("Missing required field: signature").into_response(),
-        };
-
-        if let Err(e) = verify_signature(&record.public_key, &csr_der, sig_b64) {
-            return ApiError::forbidden(format!("Signature verification failed: {e}"))
-                .into_response();
+    // Load device record (again for Path A; redundant but cheap for Path B)
+    let record = match state.firestore.get_device(&req.subdomain).await {
+        Ok(r) => r,
+        Err(crate::firestore::FirestoreError::NotFound(_)) => {
+            return ApiError::not_found("Device not found").into_response()
         }
-
-        sub.clone()
-    } else {
-        // No mTLS and no Firebase path fields
-        return ApiError::unauthorized(
-            "Valid client certificate required or provide firebase_token + subdomain + signature",
-        )
-        .into_response();
+        Err(e) => {
+            return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
+        }
     };
 
-    // Verify device exists (for Path A, we haven't checked yet)
-    if req.mtls_subdomain.is_some() {
-        match state.firestore.get_device(&subdomain).await {
-            Ok(_) => {}
-            Err(crate::firestore::FirestoreError::NotFound(_)) => {
-                return ApiError::not_found("Device not found").into_response()
-            }
-            Err(e) => {
-                return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
-            }
-        }
+    // Verify signature over CSR DER using the registered public key.
+    if let Err(e) = verify_signature(&record.public_key, &csr_der, sig_b64) {
+        return ApiError::forbidden(format!("Signature verification failed: {e}")).into_response();
     }
+
+    let subdomain = req.subdomain.clone();
 
     // Extract public key from CSR for client cert issuance
     let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {

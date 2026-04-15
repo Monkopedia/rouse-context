@@ -23,6 +23,16 @@ fun interface FirebaseRenewalCredentialsProvider {
 }
 
 /**
+ * Signs the renewal CSR DER bytes with the device's registered private key for the
+ * valid-cert (mTLS-equivalent) renewal path. Invoked by [CertRenewalFlow.renewWithMtls]
+ * after the CSR is generated. Returns `null` when signing fails (e.g. Keystore locked or
+ * key unavailable); callers treat that as a transient condition and retry later.
+ */
+fun interface CsrSigner {
+    suspend fun signCsr(csrDer: ByteArray): String?
+}
+
+/**
  * Orchestrates certificate renewal. Two authentication paths:
  * - Valid (non-expired) cert: mTLS /renew
  * - Expired cert: Firebase token + signature /renew
@@ -40,18 +50,37 @@ class CertRenewalFlow(
 ) {
 
     /**
-     * Renew the device certificate using mTLS authentication (cert still valid).
+     * Renew the device certificate while the current cert is still valid ("mTLS-equivalent").
+     *
+     * Retained for backwards-compatibility with callers that already have a CSR signature in
+     * hand. Production callers should prefer the [CsrSigner] overload below so the signature
+     * is computed over the exact CSR DER bytes the relay will receive.
      */
-    suspend fun renewWithMtls(baseDomain: String = defaultBaseDomain): RenewalResult {
-        val currentCert = certificateStore.getCertificate()
-            ?: return RenewalResult.NoCertificate
-        val subdomain = certificateStore.getSubdomain()
-            ?: return RenewalResult.NoCertificate
+    suspend fun renewWithMtls(
+        signature: String,
+        baseDomain: String = defaultBaseDomain
+    ): RenewalResult = renewWithMtls(
+        csrSigner = { signature },
+        baseDomain = baseDomain
+    )
 
-        val inspection = certInspector.inspect(currentCert)
-        if (inspection.isExpired) {
-            return RenewalResult.CertExpired
-        }
+    /**
+     * Renew the device certificate while the current cert is still valid ("mTLS-equivalent").
+     * The [csrSigner] receives the raw DER bytes of the freshly-generated renewal CSR and
+     * returns a Base64 SHA256withECDSA signature over those bytes produced with the device's
+     * registered private key. If the signer returns `null`, the renewal is reported as
+     * [RenewalResult.FirebaseAuthUnavailable] (transient Keystore-signing failure) so the
+     * caller retries later.
+     */
+    suspend fun renewWithMtls(
+        csrSigner: CsrSigner,
+        baseDomain: String = defaultBaseDomain
+    ): RenewalResult {
+        val currentCert = certificateStore.getCertificate()
+        val subdomain = certificateStore.getSubdomain()
+        if (currentCert == null || subdomain == null) return RenewalResult.NoCertificate
+
+        if (certInspector.inspect(currentCert).isExpired) return RenewalResult.CertExpired
 
         val csrResult = try {
             csrGenerator.generate("*.$subdomain.$baseDomain")
@@ -59,10 +88,14 @@ class CertRenewalFlow(
             return RenewalResult.KeyGenerationFailed(e)
         }
 
+        val signature = csrSigner.signCsr(csrResult.csrDer)
+            ?: return RenewalResult.FirebaseAuthUnavailable
+
         return executeWithRetry {
             val result = relayApiClient.renewWithMtls(
                 csrPem = csrResult.csrPem,
-                currentCertPem = currentCert
+                subdomain = subdomain,
+                signature = signature
             )
             handleRenewResponse(result, csrResult, currentCert)
         }
@@ -110,6 +143,7 @@ class CertRenewalFlow(
         return executeWithRetry {
             val result = relayApiClient.renewWithFirebase(
                 csrPem = csrResult.csrPem,
+                subdomain = subdomain,
                 firebaseToken = credentials.token,
                 signature = credentials.signature
             )
@@ -124,7 +158,7 @@ class CertRenewalFlow(
     ): RetryableResult {
         if (result is RelayApiResult.Success && currentCertForValidation != null) {
             val oldInspection = certInspector.inspect(currentCertForValidation)
-            val newInspection = certInspector.inspect(result.data.certificatePem)
+            val newInspection = certInspector.inspect(result.data.serverCert)
             if (oldInspection.commonName != newInspection.commonName) {
                 return RetryableResult.Terminal(
                     RenewalResult.CnMismatch(
@@ -137,7 +171,9 @@ class CertRenewalFlow(
         return when (result) {
             is RelayApiResult.Success -> {
                 certificateStore.storePrivateKey(csrResult.privateKeyPem)
-                certificateStore.storeCertificate(result.data.certificatePem)
+                certificateStore.storeCertificate(result.data.serverCert)
+                certificateStore.storeClientCertificate(result.data.clientCert)
+                certificateStore.storeRelayCaCert(result.data.relayCaCert)
                 RetryableResult.Terminal(RenewalResult.Success)
             }
             is RelayApiResult.RateLimited -> {

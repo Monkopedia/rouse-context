@@ -129,7 +129,10 @@ private class StubSource(private val result: SecurityCheckResult) : SecurityChec
 }
 
 private class StubRenewer : CertRenewer {
-    override suspend fun renewWithMtls(baseDomain: String): RenewalResult = RenewalResult.Success
+    override suspend fun renewWithMtls(
+        authProvider: RenewalAuthProvider,
+        baseDomain: String
+    ): RenewalResult = RenewalResult.Success
     override suspend fun renewWithFirebase(
         authProvider: RenewalAuthProvider,
         baseDomain: String
@@ -137,6 +140,7 @@ private class StubRenewer : CertRenewer {
 }
 
 private class StubAuthProvider : RenewalAuthProvider {
+    override suspend fun signCsr(csrDer: ByteArray): String? = null
     override suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials? = null
 }
 

@@ -303,6 +303,8 @@ private class FakeRenewer(
         private set
     var mtlsDomain: String? = null
         private set
+    var mtlsSignature: String? = null
+        private set
     var firebaseAttempted = false
         private set
     var firebaseToken: String? = null
@@ -312,9 +314,17 @@ private class FakeRenewer(
     var firebaseDomain: String? = null
         private set
 
-    override suspend fun renewWithMtls(baseDomain: String): RenewalResult {
+    override suspend fun renewWithMtls(
+        authProvider: RenewalAuthProvider,
+        baseDomain: String
+    ): RenewalResult {
         mtlsAttempted = true
         mtlsDomain = baseDomain
+        val sig = authProvider.signCsr(FAKE_CSR_DER)
+        if (sig == null) {
+            return RenewalResult.FirebaseAuthUnavailable
+        }
+        mtlsSignature = sig
         return mtlsResult
     }
 
@@ -338,8 +348,11 @@ private class FakeRenewer(
     }
 }
 
-private class RecordingAuthProvider(private val credentials: FirebaseCredentials?) :
-    RenewalAuthProvider {
+private class RecordingAuthProvider(
+    private val credentials: FirebaseCredentials?,
+    private val mtlsSignature: String? = "mtls-sig"
+) : RenewalAuthProvider {
+    override suspend fun signCsr(csrDer: ByteArray): String? = mtlsSignature
     override suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials? =
         credentials
 }

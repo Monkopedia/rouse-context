@@ -25,6 +25,13 @@ class FirebaseRenewalAuthProvider(
     private val tokenSource: FirebaseIdTokenSource = DefaultFirebaseIdTokenSource
 ) : RenewalAuthProvider {
 
+    override suspend fun signCsr(csrDer: ByteArray): String? = try {
+        signer.sign(csrDer)
+    } catch (e: Exception) {
+        Log.e(TAG, "Keystore signing failed; deferring renewal", e)
+        null
+    }
+
     override suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials? {
         val token = try {
             tokenSource.fetch()
@@ -36,12 +43,7 @@ class FirebaseRenewalAuthProvider(
             Log.w(TAG, "No Firebase user / ID token available; deferring renewal")
             return null
         }
-        val signature = try {
-            signer.sign(csrDer)
-        } catch (e: Exception) {
-            Log.e(TAG, "Keystore signing failed; deferring renewal", e)
-            return null
-        }
+        val signature = signCsr(csrDer) ?: return null
         return FirebaseCredentials(token = token, signature = signature)
     }
 

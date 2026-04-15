@@ -240,7 +240,7 @@ async fn renew_missing_csr_returns_400() {
 }
 
 #[tokio::test]
-async fn renew_no_auth_returns_401() {
+async fn renew_missing_signature_returns_400() {
     let firestore = Arc::new(MockFirestore::new());
     let acme = MockAcme::new("cert");
     let auth = MockFirebaseAuth::new();
@@ -253,6 +253,7 @@ async fn renew_no_auth_returns_401() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
+                "subdomain": "brave-falcon",
                 "csr": BASE64.encode(b"some-csr")
             })
             .to_string(),
@@ -260,7 +261,97 @@ async fn renew_no_auth_returns_401() {
         .unwrap();
 
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
-    assert_eq!(resp.status(), 401);
+    assert_eq!(resp.status(), 400);
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(json["message"]
+        .as_str()
+        .unwrap()
+        .to_lowercase()
+        .contains("signature"));
+}
+
+/// Path A ("mTLS-equivalent"): valid signature over CSR, no Firebase token.
+/// The device still holds a valid registered key and re-proves control by
+/// signing the new CSR.
+#[tokio::test]
+async fn renew_signature_only_path_a_returns_certs() {
+    let (signing_key, record) = setup_device();
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
+    let acme = MockAcme::new("renewed-cert");
+    let auth = MockFirebaseAuth::new(); // not used
+
+    let app = make_app(firestore, acme, auth);
+
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let signature: Signature = signing_key.sign(&csr_der);
+    let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/renew")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "subdomain": "brave-falcon",
+                "csr": csr_b64,
+                "signature": sig_b64
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["server_cert"].as_str().unwrap(), "renewed-cert");
+    assert!(json["client_cert"]
+        .as_str()
+        .unwrap()
+        .contains("BEGIN CERTIFICATE"));
+    assert!(json["relay_ca_cert"]
+        .as_str()
+        .unwrap()
+        .contains("BEGIN CERTIFICATE"));
+}
+
+/// Path A with a bad signature -- no Firebase token to fall back on, so the
+/// signature failure surfaces as a 403.
+#[tokio::test]
+async fn renew_signature_only_with_bad_signature_returns_403() {
+    let (_signing_key, record) = setup_device();
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
+    let acme = MockAcme::new("cert");
+    let auth = MockFirebaseAuth::new();
+
+    let app = make_app(firestore, acme, auth);
+
+    let csr_b64 = generate_real_csr();
+    let bad_sig = BASE64.encode(b"not-a-real-signature");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/renew")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "subdomain": "brave-falcon",
+                "csr": csr_b64,
+                "signature": bad_sig
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 403);
 }
 
 #[tokio::test]

@@ -213,31 +213,13 @@ Renews the TLS certificate for a registered device. Supports two authentication 
 
 #### Authentication
 
-**Path A -- mTLS (valid cert):** Device presents its still-valid client certificate. No Firebase token needed. Subdomain is extracted from the certificate.
+**Path A -- Signature only (valid cert, "mTLS-equivalent"):** Device signs the raw DER bytes of the renewal CSR with its registered private key and sends `{ csr, subdomain, signature }`. The relay verifies the signature against the public key stored at registration time.
 
-**Path B -- Firebase + Signature (expired cert):** Device provides Firebase ID token, subdomain, and a signature over the CSR to prove key ownership.
+**Path B -- Firebase + Signature (expired cert):** Device provides a Firebase ID token in addition to the signature: `{ csr, subdomain, firebase_token, signature }`. Firebase re-authenticates the user while the signature still proves control of the registered private key.
 
-The relay determines which path to use based on whether a valid client certificate was presented in the TLS handshake.
+The relay detects Path B by the presence of `firebase_token`; otherwise it takes Path A. Both paths are driven entirely by the JSON body -- the relay does not inspect the TLS client certificate of the HTTP connection.
 
-#### Request -- Path A (mTLS)
-
-```
-POST /renew HTTP/1.1
-Host: relay.rousecontext.com
-Content-Type: application/json
-```
-
-```json
-{
-  "csr": "MIIBIjANBgkqhki..."
-}
-```
-
-| Field | Type | Required | Constraints | Description |
-|---|---|---|---|---|
-| `csr` | string | always | Base64-encoded DER PKCS#10 CSR, ECDSA P-256 | New Certificate Signing Request |
-
-#### Request -- Path B (Firebase + Signature)
+#### Request
 
 ```
 POST /renew HTTP/1.1
@@ -248,67 +230,76 @@ Content-Type: application/json
 ```json
 {
   "subdomain": "brave-falcon",
-  "firebase_token": "eyJhbGciOiJSUzI1NiIs...",
   "csr": "MIIBIjANBgkqhki...",
-  "signature": "MEUCIQD..."
+  "signature": "MEUCIQD...",
+  "firebase_token": "eyJhbGciOiJSUzI1NiIs..."
 }
 ```
 
 | Field | Type | Required | Constraints | Description |
 |---|---|---|---|---|
-| `subdomain` | string | Path B only | Must match an existing `devices/` document | The device's assigned subdomain |
-| `firebase_token` | string | Path B only | Valid Firebase ID token JWT | Firebase anonymous auth ID token |
+| `subdomain` | string | always | Must match an existing `devices/` document | The device's assigned subdomain |
 | `csr` | string | always | Base64-encoded DER PKCS#10 CSR, ECDSA P-256 | New Certificate Signing Request |
-| `signature` | string | Path B only | Base64-encoded DER ECDSA signature over raw CSR DER bytes using SHA256withECDSA | Proves control of the registered private key |
+| `signature` | string | always | Base64-encoded DER ECDSA signature over raw CSR DER bytes using SHA256withECDSA | Proves control of the registered private key |
+| `firebase_token` | string | Path B only | Valid Firebase ID token JWT | Firebase anonymous auth ID token (required when the cert has expired) |
 
 #### Success Response -- 200 OK
 
 ```json
 {
-  "cert": "MIICpDCCAYwCCQD..."
+  "server_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "client_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "relay_ca_cert": "-----BEGIN CERTIFICATE-----\n..."
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `cert` | string | Base64-encoded DER certificate chain (leaf + intermediates), PEM-concatenated then Base64-encoded |
+| `server_cert` | string | PEM-encoded ACME server certificate (Let's Encrypt, serverAuth) |
+| `client_cert` | string | PEM-encoded relay CA client certificate (clientAuth) |
+| `relay_ca_cert` | string | PEM-encoded relay CA root certificate |
+
+The response shape mirrors `/register/certs` so devices reuse the same cert-storage code path for first-time issuance and renewal.
 
 #### Error Responses
 
 | Status | Condition | Error Code | Example Message |
 |---|---|---|---|
-| 400 | Missing required fields for the detected auth path, malformed CSR | `bad_request` | `"Missing required field: csr"` |
-| 401 | Path A: no client cert or cert invalid/untrusted | `unauthorized` | `"Valid client certificate required"` |
+| 400 | Missing required fields (`csr`, `subdomain`, `signature`), malformed CSR | `bad_request` | `"Missing required field: csr"` |
 | 401 | Path B: Firebase token invalid or expired | `unauthorized` | `"Invalid Firebase ID token"` |
 | 403 | Path B: Firebase UID does not match the `devices/{subdomain}` record | `forbidden` | `"Firebase UID does not match device record"` |
-| 403 | Path B: signature does not verify against stored public key | `forbidden` | `"Signature verification failed"` |
-| 404 | Path B: subdomain not found in Firestore | `not_found` | `"Device not found"` |
+| 403 | Signature does not verify against stored public key | `forbidden` | `"Signature verification failed"` |
+| 404 | Subdomain not found in Firestore | `not_found` | `"Device not found"` |
 | 429 | ACME CA rate limit reached | `acme_rate_limited` | `"Certificate issuance rate limited"` |
 | 502 | ACME challenge failed | `acme_failure` | `"ACME DNS-01 challenge failed"` |
 | 500 | Internal error | `internal` | `"Internal server error"` |
 
 #### Behavior Details
 
-1. **Detect auth path:** If a valid TLS client certificate was presented and verified, use Path A. Otherwise, use Path B.
-2. **Path A:** Extract subdomain from certificate CN/SAN. Look up `devices/{subdomain}` in Firestore to confirm it exists.
-3. **Path B:** Verify Firebase token. Extract UID. Look up `devices/{subdomain}`. Verify `firebase_uid` matches. Verify `signature` against stored `public_key` (the signature is over the raw DER bytes of the CSR, not the Base64 encoding).
-4. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com`.
+1. **Validate body:** `csr`, `subdomain`, and `signature` must be present and non-empty.
+2. **If `firebase_token` is present (Path B):** verify the token, extract UID, match `claims.uid` against `firebase_uid` on `devices/{subdomain}`. 401 on invalid token, 403 on UID mismatch.
+3. **Verify signature:** decode the Base64 signature, decode the Base64 CSR to DER, verify SHA256withECDSA against `devices/{subdomain}.public_key` (the signature is over the raw DER bytes of the CSR, not the Base64 encoding). 403 on mismatch.
+4. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com`. Issue a fresh relay CA client cert from the device's CSR public key.
 5. Update `cert_expires` in `devices/{subdomain}`. Clear `renewal_nudge_sent` to `null`.
-6. Return new certificate chain.
+6. Return the server cert, client cert, and relay CA cert.
 
-#### Example -- Path A (mTLS)
+#### Example -- Path A (valid cert, signature only)
 
-Request (with valid client cert in TLS handshake):
+Request:
 ```json
 {
-  "csr": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3..."
+  "subdomain": "brave-falcon",
+  "csr": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3...",
+  "signature": "MEUCIQDrZ3K4q..."
 }
 ```
 
 Response (200):
 ```json
 {
-  "cert": "LS0tLS1CRUdJTi..."
+  "server_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "client_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "relay_ca_cert": "-----BEGIN CERTIFICATE-----\n..."
 }
 ```
 
@@ -324,12 +315,7 @@ Request:
 }
 ```
 
-Response (200):
-```json
-{
-  "cert": "LS0tLS1CRUdJTi..."
-}
-```
+Response (200): same as Path A.
 
 ---
 

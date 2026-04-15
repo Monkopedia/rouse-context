@@ -22,17 +22,28 @@ import org.koin.core.qualifier.named
 typealias FirebaseCredentials = FirebaseRenewalCredentials
 
 /**
- * Acquires credentials for the expired-cert renewal path.
+ * Acquires credentials for certificate renewal.
  *
  * The [csrDer] argument is the raw DER-encoded bytes of the renewal CSR that the tunnel
  * layer will submit to the relay; the provider must compute its signature over *those*
  * bytes (not a freshly-generated CSR) so the relay's signature verification succeeds.
  *
  * Production implementation must bridge FirebaseAuth (for [FirebaseCredentials.token]) and
- * Android Keystore signing (for [FirebaseCredentials.signature]). If either is unavailable
- * the implementation returns `null`, and the worker will defer to the next scheduled run.
+ * Android Keystore signing (for CSR signatures). If either is unavailable the
+ * implementation returns `null`, and the worker will defer to the next scheduled run.
  */
 interface RenewalAuthProvider {
+    /**
+     * Sign the renewal CSR with the device's registered private key for the mTLS-equivalent
+     * renewal path (cert still valid). Returns the Base64 SHA256withECDSA signature over
+     * [csrDer], or `null` if the Keystore signing operation fails transiently.
+     */
+    suspend fun signCsr(csrDer: ByteArray): String?
+
+    /**
+     * Supply a Firebase ID token plus a CSR signature for the expired-cert renewal path.
+     * Both are required; returns `null` if either is unavailable.
+     */
     suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials?
 }
 
@@ -42,7 +53,11 @@ interface RenewalAuthProvider {
  * independent of the mock-relay infrastructure in `core/tunnel`'s test source set.
  */
 interface CertRenewer {
-    suspend fun renewWithMtls(baseDomain: String): RenewalResult
+    /**
+     * Renew with the mTLS-equivalent path. Internally the renewer generates the CSR, then
+     * calls [authProvider] with the CSR DER to sign the bytes with the registered key.
+     */
+    suspend fun renewWithMtls(authProvider: RenewalAuthProvider, baseDomain: String): RenewalResult
 
     /**
      * Renew with the Firebase-signature path. Internally the renewer generates the CSR, then
@@ -56,8 +71,13 @@ interface CertRenewer {
 
 /** Adapter that exposes [CertRenewalFlow] as a [CertRenewer]. */
 class CertRenewalFlowRenewer(private val flow: CertRenewalFlow) : CertRenewer {
-    override suspend fun renewWithMtls(baseDomain: String): RenewalResult =
-        flow.renewWithMtls(baseDomain)
+    override suspend fun renewWithMtls(
+        authProvider: RenewalAuthProvider,
+        baseDomain: String
+    ): RenewalResult = flow.renewWithMtls(
+        csrSigner = { csrDer -> authProvider.signCsr(csrDer) },
+        baseDomain = baseDomain
+    )
 
     override suspend fun renewWithFirebase(
         authProvider: RenewalAuthProvider,
@@ -134,13 +154,13 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
         val activeRenewer = renewer ?: injectedRenewer
         val domain = baseDomain ?: injectedBaseDomain
 
+        val auth = authProvider ?: injectedAuthProvider
         val result = if (expired) {
             Log.i(TAG, "Cert expired (by ${-daysUntilExpiry} days), attempting Firebase renewal")
-            val auth = authProvider ?: injectedAuthProvider
             activeRenewer.renewWithFirebase(auth, domain)
         } else {
             Log.i(TAG, "Cert expires in $daysUntilExpiry days, attempting mTLS renewal")
-            activeRenewer.renewWithMtls(domain)
+            activeRenewer.renewWithMtls(auth, domain)
         }
 
         return handleResult(result)

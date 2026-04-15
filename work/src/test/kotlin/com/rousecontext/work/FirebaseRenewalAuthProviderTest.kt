@@ -79,6 +79,26 @@ class FirebaseRenewalAuthProviderTest {
     }
 
     @Test
+    fun `signCsr returns base64 signature on success`() = runBlocking {
+        val provider = FirebaseRenewalAuthProvider(
+            signer = FakeSigner { "mtls-sig-b64" },
+            tokenSource = { error("token source must not be consulted for signCsr") }
+        )
+
+        assertEquals("mtls-sig-b64", provider.signCsr(CSR_DER))
+    }
+
+    @Test
+    fun `signCsr returns null when Keystore signing throws`() = runBlocking {
+        val provider = FirebaseRenewalAuthProvider(
+            signer = FakeSigner { throw IllegalStateException("keystore boom") },
+            tokenSource = { error("token source must not be consulted for signCsr") }
+        )
+
+        assertNull(provider.signCsr(CSR_DER))
+    }
+
+    @Test
     fun `passes CSR DER bytes to the signer unchanged`() = runBlocking {
         var observed: ByteArray? = null
         val provider = FirebaseRenewalAuthProvider(

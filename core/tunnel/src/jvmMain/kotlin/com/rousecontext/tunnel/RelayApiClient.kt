@@ -55,18 +55,10 @@ class RelayApiClient(
         executeRequest {
             httpClient.post("$baseUrl/register/certs") {
                 contentType(ContentType.Application.Json)
-                val csrBase64 = csrPem
-                    .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
-                    .replace("-----END CERTIFICATE REQUEST-----", "")
-                    .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
-                    .replace("-----END NEW CERTIFICATE REQUEST-----", "")
-                    .replace("\n", "")
-                    .replace("\r", "")
-                    .trim()
                 setBody(
                     CertRequest(
                         firebaseToken = firebaseToken,
-                        csr = csrBase64
+                        csr = csrToBase64(csrPem)
                     )
                 )
             }
@@ -89,19 +81,23 @@ class RelayApiClient(
     }
 
     /**
-     * Renew a device certificate using mTLS (valid cert) authentication.
+     * Renew a device certificate while the current cert is still valid ("mTLS-equivalent"
+     * path): the device signs the CSR DER bytes with its registered private key. The
+     * relay verifies that signature against the public key it already has on file.
+     * No Firebase token is required on this path.
      */
     suspend fun renewWithMtls(
         csrPem: String,
-        currentCertPem: String
+        subdomain: String,
+        signature: String
     ): RelayApiResult<RenewResponse> = executeRequest {
         httpClient.post("$baseUrl/renew") {
             contentType(ContentType.Application.Json)
             setBody(
                 RenewRequest(
-                    csrPem = csrPem,
-                    authMethod = "mtls",
-                    currentCertPem = currentCertPem
+                    csr = csrToBase64(csrPem),
+                    subdomain = subdomain,
+                    signature = signature
                 )
             )
         }
@@ -109,9 +105,12 @@ class RelayApiClient(
 
     /**
      * Renew a device certificate using Firebase token + signature (for expired certs).
+     * Firebase re-authenticates the user; the signature still proves control of the
+     * registered private key.
      */
     suspend fun renewWithFirebase(
         csrPem: String,
+        subdomain: String,
         firebaseToken: String,
         signature: String
     ): RelayApiResult<RenewResponse> = executeRequest {
@@ -119,14 +118,23 @@ class RelayApiClient(
             contentType(ContentType.Application.Json)
             setBody(
                 RenewRequest(
-                    csrPem = csrPem,
-                    authMethod = "firebase",
+                    csr = csrToBase64(csrPem),
+                    subdomain = subdomain,
                     firebaseToken = firebaseToken,
                     signature = signature
                 )
             )
         }
     }
+
+    private fun csrToBase64(csrPem: String): String = csrPem
+        .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
+        .replace("-----END CERTIFICATE REQUEST-----", "")
+        .replace("-----BEGIN NEW CERTIFICATE REQUEST-----", "")
+        .replace("-----END NEW CERTIFICATE REQUEST-----", "")
+        .replace("\n", "")
+        .replace("\r", "")
+        .trim()
 
     private suspend inline fun <reified T> executeRequest(
         crossinline block: suspend () -> HttpResponse
@@ -226,12 +234,15 @@ data class CertResponse(
 
 @Serializable
 data class RenewRequest(
-    val csrPem: String,
-    val authMethod: String,
-    val currentCertPem: String? = null,
-    val firebaseToken: String? = null,
-    val signature: String? = null
+    @SerialName("csr") val csr: String,
+    @SerialName("subdomain") val subdomain: String,
+    @SerialName("firebase_token") val firebaseToken: String? = null,
+    @SerialName("signature") val signature: String? = null
 )
 
 @Serializable
-data class RenewResponse(val certificatePem: String)
+data class RenewResponse(
+    @SerialName("server_cert") val serverCert: String,
+    @SerialName("client_cert") val clientCert: String,
+    @SerialName("relay_ca_cert") val relayCaCert: String
+)
