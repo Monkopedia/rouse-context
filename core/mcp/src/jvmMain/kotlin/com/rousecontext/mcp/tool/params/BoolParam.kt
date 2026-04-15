@@ -19,6 +19,7 @@ class BoolParam(name: String, description: String) : ParamDef<Boolean>(name, des
         defaultValue?.let { put("default", JsonPrimitive(it)) }
     }
 
+    @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<Boolean> {
         val raw = rawValue(args, name) ?: run {
             if (required) return ParamExtract.Error("Missing required parameter '$name'")

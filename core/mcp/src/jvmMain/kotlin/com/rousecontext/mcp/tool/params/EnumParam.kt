@@ -26,6 +26,7 @@ class EnumParam<T : Enum<T>>(name: String, description: String, private val kCla
         defaultValue?.let { put("default", JsonPrimitive(it.name.lowercase())) }
     }
 
+    @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<T> {
         val raw = rawValue(args, name) ?: run {
             if (required) return ParamExtract.Error("Missing required parameter '$name'")

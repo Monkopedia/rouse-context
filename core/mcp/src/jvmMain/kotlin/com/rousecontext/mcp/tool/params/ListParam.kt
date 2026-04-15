@@ -28,6 +28,7 @@ class ListParam(name: String, description: String) : ParamDef<List<String>>(name
         )
     }
 
+    @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<List<String>> {
         val raw = rawValue(args, name) ?: run {
             if (required) return ParamExtract.Error("Missing required parameter '$name'")

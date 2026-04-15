@@ -30,6 +30,7 @@ class MapParam(name: String, description: String) :
         )
     }
 
+    @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<Map<String, String>> {
         val raw = rawValue(args, name) ?: run {
             if (required) return ParamExtract.Error("Missing required parameter '$name'")
