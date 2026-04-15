@@ -1,4 +1,4 @@
-package com.rousecontext.usage
+package com.rousecontext.integrations.usage
 
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStats
