@@ -175,6 +175,93 @@ class FileCertificateStoreTest {
         assertEquals("second", store.getSubdomain())
     }
 
+    @Test
+    fun `atomicWrite leaves no tmp sibling on success`() = runBlocking {
+        // Issue #166: a successful write must not leave a .tmp sibling behind.
+        // This covers the happy path; the next test covers failure accumulation.
+        store.storeSubdomain("abc123")
+
+        val tmpSiblings = context.filesDir.listFiles { f ->
+            f.name.startsWith("rouse_subdomain.txt.tmp")
+        }.orEmpty()
+        assertTrue(
+            "Expected no .tmp siblings after successful write, got ${tmpSiblings.map { it.name }}",
+            tmpSiblings.isEmpty()
+        )
+    }
+
+    @Test
+    fun `atomicWrite reaps stale tmp siblings from prior failed writes`() = runBlocking {
+        // Issue #166: plant stale .tmp files simulating multiple prior aborted
+        // writes. The next successful write must reap them -- otherwise a
+        // partially-failing device accumulates clutter indefinitely.
+        val parent = context.filesDir
+        File(parent, "rouse_subdomain.txt.tmp").writeText("stale-1")
+        File(parent, "rouse_subdomain.txt.tmp.1").writeText("stale-2")
+        File(parent, "rouse_subdomain.txt.tmp.old").writeText("stale-3")
+        // An unrelated .tmp for a different target must NOT be touched.
+        File(parent, "rouse_unrelated.txt.tmp").writeText("keep-me")
+
+        store.storeSubdomain("abc123")
+
+        val subdomainTmps = parent.listFiles { f ->
+            f.name.startsWith("rouse_subdomain.txt.tmp")
+        }.orEmpty()
+        assertTrue(
+            "Expected stale rouse_subdomain.txt.tmp* siblings to be reaped, " +
+                "got ${subdomainTmps.map { it.name }}",
+            subdomainTmps.isEmpty()
+        )
+        assertTrue(
+            "Unrelated .tmp files must not be reaped",
+            File(parent, "rouse_unrelated.txt.tmp").exists()
+        )
+        assertEquals("abc123", store.getSubdomain())
+    }
+
+    @Test
+    fun `atomicWrite produces a complete readable file`() = runBlocking {
+        // Issue #165: we cannot easily crash-inject a kernel panic in a unit
+        // test, but we can at least prove the new FileOutputStream + fd.sync()
+        // + Files.move path yields a correctly-populated target with no tmp
+        // residue. This guards against regressions that swap the write path
+        // back to a torso-prone implementation.
+        val payload = "subdomain-value-$\u00e9\u4e2d"
+
+        store.storeSubdomain(payload)
+
+        val target = File(context.filesDir, "rouse_subdomain.txt")
+        assertTrue("target file must exist after atomic write", target.exists())
+        assertEquals(payload, target.readText())
+        val tmps = context.filesDir.listFiles { f ->
+            f.name.startsWith("rouse_subdomain.txt.tmp")
+        }.orEmpty()
+        assertTrue(
+            "No .tmp siblings expected after successful write, got ${tmps.map { it.name }}",
+            tmps.isEmpty()
+        )
+    }
+
+    @Test
+    fun `atomicWrite on integrationSecrets also reaps stale tmps`() = runBlocking {
+        // Both callers of atomicWrite (subdomain + integration secrets) must
+        // reap stale siblings targeted at their own filename.
+        val parent = context.filesDir
+        File(parent, "rouse_integration_secrets.json.tmp").writeText("stale")
+        File(parent, "rouse_integration_secrets.json.tmp.42").writeText("stale2")
+
+        store.storeIntegrationSecrets(mapOf("foo" to "bar"))
+
+        val tmps = parent.listFiles { f ->
+            f.name.startsWith("rouse_integration_secrets.json.tmp")
+        }.orEmpty()
+        assertTrue(
+            "Expected stale integration-secrets tmps to be reaped, got ${tmps.map { it.name }}",
+            tmps.isEmpty()
+        )
+        assertEquals(mapOf("foo" to "bar"), store.getIntegrationSecrets())
+    }
+
     private fun derToPem(der: ByteArray): String {
         val base64 = java.util.Base64.getMimeEncoder(64, "\n".toByteArray())
             .encodeToString(der)

@@ -3,8 +3,15 @@ package com.rousecontext.app.cert
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import com.rousecontext.tunnel.CertificateStore
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.nio.channels.FileChannel
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
@@ -235,19 +242,106 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
      * the new complete value (rename succeeded) -- never a zero-byte torso.
      * This is what the "device bounced to onboarding" bug in issue #163 looks
      * like in the wild.
+     *
+     * Device-crash durability (issue #165): the temp file's bytes are fsynced
+     * before the rename, and the parent directory is fsynced after the rename.
+     * Without these, a kernel panic / battery pull between rename and writeback
+     * can surface a zero-length or partial file under [target] on next boot --
+     * catastrophic for the cert and subdomain files since the device would need
+     * to re-register via ACME, burning cert quota.
+     *
+     * Stale `.tmp` cleanup (issue #166): prior failed writes can leave
+     * `<name>.tmp` siblings. We sweep them at the start of every write so
+     * repeated partial failures do not accumulate orphan tmps over time.
      */
     private fun atomicWrite(target: File, content: String) {
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(content)
-        if (!tmp.renameTo(target)) {
-            // Rename can fail on some filesystems if the target already exists.
-            // Fall back to delete-then-rename, accepting a slightly wider window
-            // (rare in practice on ext4 / f2fs used by Android).
-            target.delete()
-            if (!tmp.renameTo(target)) {
-                // Last-resort copy: still better than leaving nothing.
-                target.writeText(content)
-                tmp.delete()
+        val parent = target.parentFile ?: error("target has no parent: $target")
+        val tmp = File(parent, "${target.name}.tmp")
+        reapStaleTmpSiblings(parent, target, tmp)
+
+        // Write + fsync the tmp file BEFORE renaming, so the rename promotes
+        // durable bytes rather than page-cache bytes that could still vanish.
+        FileOutputStream(tmp).use { fos ->
+            fos.write(content.toByteArray(Charsets.UTF_8))
+            fos.flush()
+            fos.fd.sync()
+        }
+
+        val renamed = try {
+            Files.move(
+                tmp.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+            true
+        } catch (_: IOException) {
+            false
+        } catch (_: UnsupportedOperationException) {
+            false
+        }
+
+        if (!renamed) {
+            fallbackRename(tmp, target, content)
+        }
+
+        fsyncDirectory(parent)
+    }
+
+    /**
+     * Fallback rename path when ATOMIC_MOVE isn't available or fails. Rename
+     * can also fail on some filesystems if the target already exists. We accept
+     * a slightly wider window here -- rare in practice on ext4 / f2fs used by
+     * Android -- but still fsync the last-resort write so we honor durability.
+     */
+    private fun fallbackRename(tmp: File, target: File, content: String) {
+        target.delete()
+        if (tmp.renameTo(target)) return
+
+        // Last-resort copy: still better than leaving nothing.
+        target.writeText(content)
+        try {
+            FileOutputStream(target, true).use { it.fd.sync() }
+        } catch (e: IOException) {
+            Log.w(TAG, "fsync of last-resort write failed for $target", e)
+        }
+        tmp.delete()
+    }
+
+    /**
+     * fsync the parent directory so the rename itself is durable. On POSIX
+     * ext4 / f2fs this is what makes the new dirent survive a crash. Some
+     * JVM/filesystem combos do not support opening a directory via
+     * FileChannel -- log WARN and continue rather than failing the write.
+     */
+    private fun fsyncDirectory(dir: File) {
+        try {
+            FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { ch ->
+                ch.force(true)
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "parent dir fsync not supported for $dir", e)
+        } catch (e: UnsupportedOperationException) {
+            Log.w(TAG, "parent dir fsync not supported for $dir", e)
+        }
+    }
+
+    /**
+     * Delete any `<target-name>.tmp*` files that are not the temp file we are
+     * about to write. A stale `.tmp` means a prior write aborted without
+     * cleanup; it contains nothing we want to keep (the real value is in
+     * [target], or was never successfully written). Per-write cleanup is
+     * simpler than startup cleanup because it lives on the already-hot write
+     * path and guarantees forward progress without wiring into init (#166).
+     */
+    private fun reapStaleTmpSiblings(parent: File, target: File, inFlightTmp: File) {
+        val prefix = "${target.name}.tmp"
+        val stale = parent.listFiles { f ->
+            f.name.startsWith(prefix) && f.absolutePath != inFlightTmp.absolutePath
+        } ?: return
+        for (f in stale) {
+            if (!f.delete()) {
+                Log.w(TAG, "failed to delete stale tmp sibling ${f.absolutePath}")
             }
         }
     }
@@ -317,6 +411,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     }
 
     companion object {
+        private const val TAG = "FileCertificateStore"
         private const val CERT_PEM_FILE = "rouse_cert.pem"
         private const val CLIENT_CERT_PEM_FILE = "rouse_client_cert.pem"
         private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
