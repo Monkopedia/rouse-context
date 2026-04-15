@@ -778,22 +778,32 @@ class ScreenScreenshotTest {
 
     @Test
     fun trustCardWarningLight() = captureLight("50a_trust_card_warning") {
-        TrustCardDocsFrame(TrustOverallStatus.WARNING, ctResult = "warning")
+        TrustCardDocsFrame(TrustOverallStatus.WARNING, selfCheckResult = "verified", ctResult = "warning")
     }
 
     @Test
     fun trustCardWarningDark() = captureDark("50a_trust_card_warning") {
-        TrustCardDocsFrame(TrustOverallStatus.WARNING, ctResult = "warning")
+        TrustCardDocsFrame(TrustOverallStatus.WARNING, selfCheckResult = "verified", ctResult = "warning")
     }
 
     @Test
-    fun trustCardAlertLight() = captureLight("50b_trust_card_alert") {
-        TrustCardDocsFrame(TrustOverallStatus.ALERT, ctResult = "alert")
+    fun trustCardCtLogAlertLight() = captureLight("50b_trust_card_ct_log_alert") {
+        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "verified", ctResult = "alert")
     }
 
     @Test
-    fun trustCardAlertDark() = captureDark("50b_trust_card_alert") {
-        TrustCardDocsFrame(TrustOverallStatus.ALERT, ctResult = "alert")
+    fun trustCardCtLogAlertDark() = captureDark("50b_trust_card_ct_log_alert") {
+        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "verified", ctResult = "alert")
+    }
+
+    @Test
+    fun trustCardSelfCheckAlertLight() = captureLight("50c_trust_card_self_check_alert") {
+        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "alert", ctResult = "verified")
+    }
+
+    @Test
+    fun trustCardSelfCheckAlertDark() = captureDark("50c_trust_card_self_check_alert") {
+        TrustCardDocsFrame(TrustOverallStatus.ALERT, selfCheckResult = "alert", ctResult = "verified")
     }
 
     // =========================================================================
@@ -1062,7 +1072,11 @@ class ScreenScreenshotTest {
     )
 
     @Composable
-    private fun TrustCardDocsFrame(overall: TrustOverallStatus, ctResult: String) {
+    private fun TrustCardDocsFrame(
+        overall: TrustOverallStatus,
+        selfCheckResult: String,
+        ctResult: String
+    ) {
         Box(
             modifier = Modifier
                 .background(MaterialTheme.colorScheme.background)
@@ -1072,7 +1086,7 @@ class ScreenScreenshotTest {
             TrustStatusSection(
                 trustStatus = TrustStatusState(
                     lastCheckTime = System.currentTimeMillis() - 7_200_000,
-                    selfCheckResult = "verified",
+                    selfCheckResult = selfCheckResult,
                     ctCheckResult = ctResult,
                     certFingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
                     overallStatus = overall

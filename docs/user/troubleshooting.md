@@ -16,9 +16,9 @@ Common problems and how to fix them.
 2. If the banner says "connected" but the AI client still times out, double-check the URL. Each integration has its own hostname; pasting the health URL into a client that expects the notifications URL will fail.
 3. If the phone dashboard never reaches "connected", check your network — the phone needs outbound HTTPS to `*.rousecontext.com` on port 443. Corporate or school networks sometimes block it.
 
-## "Foreground service limit reached" notification
+## "Rouse Context paused" notification
 
-**What it is:** Android 15+ restricts how long an app can run a foreground service in a given window. On busy days — many AI connections in a short period — the app may hit the limit.
+**What it is:** Android 15+ restricts how long an app can run a foreground service in a given window. On busy days — many AI connections in a short period — the app may hit the limit. The notification reads _Rouse Context paused — Rouse Context hit Android's 6-hour daily service limit…_.
 
 **What to do:**
 

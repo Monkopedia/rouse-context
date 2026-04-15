@@ -23,31 +23,35 @@ The relay server cannot decrypt the client-to-phone stream. It sees that a conne
 
 ## Security alerts in the app
 
-The app runs background checks every few hours. If something looks wrong, you will see a **Security Alert** notification. The Settings screen also surfaces the current status as a card:
+The app runs background checks every few hours. If something looks wrong, you will see a notification titled **Security Alert** whose body names the specific check that failed. The Settings screen also surfaces the current status as a card — an amber **Warning** for temporarily inconclusive checks, or a red **Alert** for active failures (which block integration requests until you press **Acknowledge**).
 
 ![Trust status — warning state](assets/trust-card-warning.png)
 
-An amber **Warning** means a check is temporarily inconclusive (e.g. the CT log lookup timed out). It usually clears on the next cycle.
-
-![Trust status — alert state](assets/trust-card-alert.png)
-
-A red **Alert** means a check actively failed. Integration requests are blocked until you investigate and press **Acknowledge**.
-
 Here is what the common ones mean.
 
-### "Certificate mismatch detected"
+### Self-cert verification failed
+
+Notification: **Security Alert — Self-cert verification: Verification failed**
+
+![Trust status — self-check failed](assets/trust-card-self-check-alert.png)
 
 **What it means:** The app connected to its own address and got back a TLS certificate that is not the one your phone provisioned. This could be a relay server compromise, a network-level attacker trying to impersonate your device, or — more often — a stale cache during the 90-day cert renewal window.
 
 **What to do:** Open the app, check the Settings screen. If the alert persists for more than a few hours, rotate your subdomain (Settings → Rotate address). Email `security@rousecontext.com` if it keeps happening.
 
-### "Unexpected certificate in public logs"
+### CT log check failed
+
+Notification: **Security Alert — CT log check: Verification failed**
+
+![Trust status — CT log alert](assets/trust-card-ct-log-alert.png)
 
 **What it means:** Every certificate issued by a publicly trusted certificate authority is recorded in a public ledger called Certificate Transparency. The app checks that ledger for your subdomain and will alert if a certificate appears that the app did not request itself.
 
 **What to do:** This is the one to take seriously. A fraudulent cert in the CT log could mean a CA was tricked into issuing a cert for your hostname. Email `security@rousecontext.com` (or open a GitHub issue if it isn't sensitive) so we can help you rotate and investigate.
 
-### "Foreground service limit reached"
+### Foreground service limit reached
+
+Notification: **Rouse Context paused — Rouse Context hit Android's 6-hour daily service limit...**
 
 ![Foreground service limit notification](assets/fgs-limit-notification.png)
 
