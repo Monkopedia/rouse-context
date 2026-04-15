@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.rousecontext.api.R as ApiR
 
 /**
@@ -78,7 +79,7 @@ class AuthRequestNotifier(
             NotificationChannels.AUTH_REQUEST_CHANNEL_ID
         )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setColor(0xFFea4335.toInt())
+            .setColor(ContextCompat.getColor(context, ApiR.color.rouse_notification_auth_accent))
             .setContentTitle("Approval Required")
             .setContentText("Code: $displayCode - Tap to approve or deny")
             .setSubText(integration)

@@ -3,6 +3,7 @@ package com.rousecontext.notifications
 import android.app.Notification
 import android.content.Context
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.rousecontext.api.R as ApiR
 
 /**
@@ -23,7 +24,7 @@ object ForegroundNotifier {
             .setContentTitle("Rouse Context")
             .setContentText(message)
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setColor(0xFF0a1628.toInt())
+            .setColor(ContextCompat.getColor(context, ApiR.color.rouse_navy_dark))
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
