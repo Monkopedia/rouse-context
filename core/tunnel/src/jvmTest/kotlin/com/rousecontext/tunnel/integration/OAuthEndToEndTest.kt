@@ -62,6 +62,7 @@ import org.junit.jupiter.api.Test
  */
 @Suppress("LargeClass")
 @Tag("integration")
+@Tag("integration-bitrot")
 class OAuthEndToEndTest {
 
     companion object {

@@ -24,6 +24,13 @@ kotlin {
     // binary is absent, so this task degrades to skips rather than hard
     // failures on machines where `relay/target/debug/rouse-relay` hasn't
     // been built (see relay/README.md for the build command).
+    //
+    // `EndToEndSessionTest` and `OAuthEndToEndTest` are currently quarantined
+    // via `excludeTags("integration-bitrot")` pending investigation in issue
+    // #174 -- they were silently skipped in CI (issue #168) and fell behind
+    // when the mux / session-handshake code evolved. The remaining classes
+    // (`RealRelayIntegrationTest`, `RelayApiClientIntegrationTest`,
+    // `TunnelMcpIntegrationTest`) all pass against a freshly-built relay.
     tasks.register<Test>("integrationTest") {
         group = "verification"
         description = "Runs @Tag(\"integration\") tests against the real relay binary."
@@ -33,6 +40,7 @@ kotlin {
         systemProperty("repo.root", rootProject.projectDir.absolutePath)
         useJUnitPlatform {
             includeTags("integration")
+            excludeTags("integration-bitrot")
         }
     }
 

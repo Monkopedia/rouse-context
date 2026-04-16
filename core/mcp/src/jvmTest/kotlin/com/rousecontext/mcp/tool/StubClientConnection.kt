@@ -7,6 +7,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.CreateMessageResult
 import io.modelcontextprotocol.kotlin.sdk.types.ElicitRequest
 import io.modelcontextprotocol.kotlin.sdk.types.ElicitRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.ElicitResult
+import io.modelcontextprotocol.kotlin.sdk.types.ElicitationCompleteNotification
 import io.modelcontextprotocol.kotlin.sdk.types.EmptyResult
 import io.modelcontextprotocol.kotlin.sdk.types.ListRootsRequest
 import io.modelcontextprotocol.kotlin.sdk.types.ListRootsResult
@@ -47,9 +48,17 @@ internal object StubClientConnection : ClientConnection {
         request: ElicitRequest,
         options: RequestOptions?
     ): ElicitResult = error("stub")
+    override suspend fun createElicitation(
+        message: String,
+        elicitationId: String,
+        url: String,
+        options: RequestOptions?
+    ): ElicitResult = error("stub")
     override suspend fun sendLoggingMessage(notification: LoggingMessageNotification) = Unit
     override suspend fun sendResourceUpdated(notification: ResourceUpdatedNotification) = Unit
     override suspend fun sendResourceListChanged() = Unit
     override suspend fun sendToolListChanged() = Unit
     override suspend fun sendPromptListChanged() = Unit
+    override suspend fun sendElicitationComplete(notification: ElicitationCompleteNotification) =
+        Unit
 }
