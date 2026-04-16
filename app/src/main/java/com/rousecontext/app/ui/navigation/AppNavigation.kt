@@ -1,5 +1,10 @@
 package com.rousecontext.app.ui.navigation
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -96,14 +101,27 @@ fun AppNavigation(
                 }
             },
             bottomBar = {
-                // Only populate the bottomBar slot when the navigation bar is
-                // actually shown. A populated-but-zero-height bottomBar (e.g.
-                // an AnimatedVisibility that is hidden) causes Material3
-                // Scaffold to ignore the system bottom inset when computing
-                // content padding, which clipped bottom-anchored buttons
-                // behind the gesture bar on gesture-nav devices.
-                if (!isOnboarding && controller.showBottomBar) {
-                    AppBottomBar(navController, selectedTab)
+                // Animate the bar's height change so the scaffold's content
+                // bottom padding transitions smoothly in sync with NavHost's
+                // route crossfade. Without the animation, populating or
+                // depopulating the slot shrinks or grows the content area
+                // instantly mid-crossfade, snapping any bottom-anchored
+                // content (e.g. the Disable button on integration-detail
+                // screens) by the bar's height. See issue #143.
+                //
+                // [contentWindowInsets] above already includes the gesture
+                // navigation inset via `WindowInsets.safeDrawing`, so even
+                // when the animated slot is hidden (zero height) the content
+                // padding still reserves the gesture area. That decouples
+                // this animation from the gesture-bar clipping fix in #57.
+                if (!isOnboarding) {
+                    AnimatedVisibility(
+                        visible = controller.showBottomBar,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        AppBottomBar(navController, selectedTab)
+                    }
                 }
             }
         ) { padding ->
