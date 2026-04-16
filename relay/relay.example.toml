@@ -31,5 +31,5 @@ dns_poll_interval_secs = 5         # how often to check DNS during propagation
 require_existing_account = false
 
 [limits]
-max_streams_per_device = 8
+max_streams_per_device = 32
 wake_rate_limit = 6  # per minute per subdomain

@@ -257,7 +257,7 @@ impl Default for CloudflareConfig {
 impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
-            max_streams_per_device: 8,
+            max_streams_per_device: 32,
             wake_rate_limit: 6,
             subdomain_rotation_cooldown_days: Some(30),
             fcm_wakeup_timeout_secs: Some(30),

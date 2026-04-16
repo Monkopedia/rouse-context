@@ -26,7 +26,7 @@ zone_id = "test-zone-id"
 api_token_env = "CF_API_TOKEN"
 
 [limits]
-max_streams_per_device = 8
+max_streams_per_device = 16
 wake_rate_limit = 6
 "#;
 
@@ -41,7 +41,7 @@ fn parse_valid_toml() {
     assert_eq!(cfg.firebase.project_id, "rouse-context");
     assert_eq!(cfg.cloudflare.zone_id, "test-zone-id");
     assert_eq!(cfg.cloudflare.api_token_env, "CF_API_TOKEN");
-    assert_eq!(cfg.limits.max_streams_per_device, 8);
+    assert_eq!(cfg.limits.max_streams_per_device, 16);
     assert_eq!(cfg.limits.wake_rate_limit, 6);
 }
 
@@ -49,7 +49,7 @@ fn parse_valid_toml() {
 fn missing_file_uses_defaults() {
     let cfg = RelayConfig::default();
     assert_eq!(cfg.server.bind_addr, "0.0.0.0:443");
-    assert_eq!(cfg.limits.max_streams_per_device, 8);
+    assert_eq!(cfg.limits.max_streams_per_device, 32);
     assert_eq!(cfg.limits.wake_rate_limit, 6);
 }
 
@@ -111,6 +111,6 @@ relay_hostname = "custom.example.com"
     // bind_addr should be default
     assert_eq!(cfg.server.bind_addr, "0.0.0.0:443");
     // limits should be defaults
-    assert_eq!(cfg.limits.max_streams_per_device, 8);
+    assert_eq!(cfg.limits.max_streams_per_device, 32);
     assert_eq!(cfg.limits.wake_rate_limit, 6);
 }
