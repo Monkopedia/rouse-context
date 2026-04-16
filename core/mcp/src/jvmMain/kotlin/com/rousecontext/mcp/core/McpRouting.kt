@@ -33,6 +33,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -568,14 +569,11 @@ internal class McpRoutes(
             return
         }
 
-        // Get or create MCP server + transport for this integration
-        val integrationServer = serversMutex.withLock {
-            integrationServers.getOrPut(ri) {
-                createIntegrationServer(provider, serverName, serverVersion)
-            }
-        }
-
-        // Parse and dispatch JSON-RPC request through SDK transport
+        // Parse and dispatch JSON-RPC request through SDK transport.
+        // We parse the body *before* resolving the Server so we can detect
+        // `initialize` and evict the cached per-integration Server — the SDK
+        // rejects a second initialize with "Server already initialized". See
+        // issue #189 for the proper Mcp-Session-Id-aware fix.
         val requestBody = try {
             withTimeout(MCP_REQUEST_TIMEOUT_MS) {
                 receiveText()
@@ -604,6 +602,21 @@ internal class McpRoutes(
             null
         }
         val isNotification = parsed != null && !parsed.containsKey("id")
+        val method = parsed?.get("method")?.jsonPrimitive?.contentOrNull
+
+        // Get or create MCP server + transport for this integration.
+        // On `initialize`, evict the cached Server and build a fresh one so the
+        // SDK does not refuse re-initialization across client sessions. Not
+        // safe for concurrent multi-client scenarios (blows away another
+        // client's mid-session Server); tracked in #189.
+        val integrationServer = serversMutex.withLock {
+            if (method == "initialize") {
+                integrationServers.remove(ri)
+            }
+            integrationServers.getOrPut(ri) {
+                createIntegrationServer(provider, serverName, serverVersion)
+            }
+        }
 
         if (isNotification) {
             // Fire-and-forget: dispatch to SDK but return 202 immediately
