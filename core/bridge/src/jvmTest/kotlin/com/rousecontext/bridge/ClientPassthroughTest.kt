@@ -319,6 +319,8 @@ class ClientPassthroughTest {
             // no-op for tests
         }
 
+        override suspend fun healthCheck(timeout: kotlin.time.Duration): Boolean = true
+
         suspend fun emitSession(stream: MuxStream) {
             _incomingSessions.emit(stream)
         }

@@ -162,6 +162,8 @@ class TunnelSessionManagerTest {
             // no-op for tests
         }
 
+        override suspend fun healthCheck(timeout: kotlin.time.Duration): Boolean = true
+
         /**
          * Emits a session to the collector. Suspends until a collector is ready,
          * ensuring no race between manager.start() and emitSession().
