@@ -102,6 +102,7 @@ class ClaudeFullFlowEndToEndTest {
     private val mcpJson = Json { ignoreUnknownKeys = true }
 
     private lateinit var authorizationCodeManager: AuthorizationCodeManager
+    private var mcpSessionId: String? = null
     private lateinit var tokenStore: InMemoryTokenStore
     private lateinit var tunnelClient: TunnelClientImpl
     private lateinit var aiSocket: SSLSocket
@@ -383,6 +384,8 @@ class ClaudeFullFlowEndToEndTest {
             bearerToken = accessToken
         )
         assertEquals(200, response.statusCode, "Authenticated initialize should succeed")
+        mcpSessionId = response.headers["mcp-session-id"]
+        assertNotNull(mcpSessionId, "Initialize must return Mcp-Session-Id header (#189)")
         val json = mcpJson.parseToJsonElement(response.body).jsonObject
         assertEquals("2.0", json["jsonrpc"]?.jsonPrimitive?.content)
         val result = json["result"]?.jsonObject
@@ -693,6 +696,9 @@ class ClaudeFullFlowEndToEndTest {
         sb.append("Connection: keep-alive\r\n")
         if (bearerToken != null) {
             sb.append("Authorization: Bearer $bearerToken\r\n")
+        }
+        if (mcpSessionId != null && path == "/mcp") {
+            sb.append("Mcp-Session-Id: $mcpSessionId\r\n")
         }
         sb.append("\r\n")
 
