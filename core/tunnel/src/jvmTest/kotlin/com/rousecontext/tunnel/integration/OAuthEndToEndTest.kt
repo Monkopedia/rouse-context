@@ -10,6 +10,7 @@ import com.rousecontext.mcp.core.InMemoryProviderRegistry
 import com.rousecontext.mcp.core.InMemoryTokenStore
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.configureMcpRouting
+import com.rousecontext.mcp.core.generateInternalToken
 import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TunnelClientImpl
 import io.ktor.server.cio.CIO
@@ -466,6 +467,9 @@ class OAuthEndToEndTest {
         val factory = object : McpSessionFactory {
             override suspend fun create(): McpSessionHandle {
                 val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+                // Per-session token enforced by the Ktor guard; the bridge
+                // injects the same value on every forwarded request. See #177.
+                val token = generateInternalToken()
                 val server = embeddedServer(CIO, port = 0) {
                     configureMcpRouting(
                         registry = registry,
@@ -473,12 +477,17 @@ class OAuthEndToEndTest {
                         deviceCodeManager = deviceCodeManager,
                         authorizationCodeManager = authorizationCodeManager,
                         hostname = INTEGRATION_HOST,
-                        integration = INTEGRATION
+                        integration = INTEGRATION,
+                        internalToken = token
                     )
                 }
                 server.start(wait = false)
                 val port = server.engine.resolvedConnectors().first().port
-                return McpSessionHandle(port = port, stop = { server.stop() })
+                return McpSessionHandle(
+                    port = port,
+                    internalToken = token,
+                    stop = { server.stop() }
+                )
             }
         }
         val handler = SessionHandler(certProvider = certProvider, mcpSessionFactory = factory)

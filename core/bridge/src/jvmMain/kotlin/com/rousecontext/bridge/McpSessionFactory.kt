@@ -25,6 +25,12 @@ interface McpSessionFactory {
 data class McpSessionHandle(
     /** Local port the MCP HTTP server is listening on. */
     val port: Int,
+    /**
+     * Shared secret the bridge must inject as `X-Internal-Token` on every
+     * request forwarded into the local Ktor server. Generated per-session
+     * and never persisted; see issue #177.
+     */
+    val internalToken: String,
     /** Stops the MCP HTTP server and cleans up resources. */
     val stop: () -> Unit
 )

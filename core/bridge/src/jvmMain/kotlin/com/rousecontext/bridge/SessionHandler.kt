@@ -1,5 +1,6 @@
 package com.rousecontext.bridge
 
+import com.rousecontext.mcp.core.INTERNAL_TOKEN_HEADER
 import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TlsAcceptor
 import java.io.InputStream
@@ -50,7 +51,8 @@ class SessionHandler(
         try {
             bridgeToMcpServer(
                 tlsSession = tlsSession,
-                mcpPort = mcpHandle.port
+                mcpPort = mcpHandle.port,
+                internalToken = mcpHandle.internalToken
             )
         } finally {
             // Stop the MCP HTTP server even on cancellation so its worker threads
@@ -82,67 +84,84 @@ class SessionHandler(
      * leaving `socketToTls` blocked on `InputStream.read` for up to 45 s (Ktor CIO's
      * `connectionIdleTimeoutSeconds` default) and stalling teardown. See issue #175.
      */
-    private suspend fun bridgeToMcpServer(tlsSession: TlsAcceptor.TlsSession, mcpPort: Int) =
-        coroutineScope {
-            val socket = withContext(Dispatchers.IO) {
-                Socket("127.0.0.1", mcpPort)
-            }
-            val done = CompletableDeferred<Unit>()
-            try {
-                val socketIn = socket.getInputStream()
-                val socketOut = socket.getOutputStream()
+    private suspend fun bridgeToMcpServer(
+        tlsSession: TlsAcceptor.TlsSession,
+        mcpPort: Int,
+        internalToken: String
+    ) = coroutineScope {
+        val socket = withContext(Dispatchers.IO) {
+            Socket("127.0.0.1", mcpPort)
+        }
+        val done = CompletableDeferred<Unit>()
+        try {
+            val socketIn = socket.getInputStream()
+            val socketOut = socket.getOutputStream()
+            val injector = HttpHeaderInjector(
+                "$INTERNAL_TOKEN_HEADER: $internalToken"
+            )
 
-                // TLS -> socket (client request bytes forwarded to MCP server).
-                val tlsToSocket = launch(Dispatchers.IO) {
-                    try {
-                        copyTlsToStream(tlsSession, socketOut)
-                    } finally {
-                        done.complete(Unit)
-                    }
-                }
-
-                // Socket -> TLS (MCP server response bytes forwarded back through TLS).
-                // The blocking Socket.InputStream.read cannot be cancelled cooperatively;
-                // we rely on closing the socket in `finally` to unstick it.
-                val socketToTls = launch(Dispatchers.IO) {
-                    try {
-                        copyStreamToTls(socketIn, tlsSession)
-                    } finally {
-                        done.complete(Unit)
-                    }
-                }
-
-                // Suspend until EITHER direction finishes (or we are cancelled).
+            // TLS -> socket (client request bytes forwarded to MCP server).
+            // The injector rewrites each request's header block to include
+            // the shared secret that the local Ktor guard expects. See #177.
+            val tlsToSocket = launch(Dispatchers.IO) {
                 try {
-                    done.await()
+                    copyTlsToStream(tlsSession, socketOut, injector)
                 } finally {
-                    tlsToSocket.cancel()
-                    socketToTls.cancel()
+                    done.complete(Unit)
                 }
+            }
+
+            // Socket -> TLS (MCP server response bytes forwarded back through TLS).
+            // The blocking Socket.InputStream.read cannot be cancelled cooperatively;
+            // we rely on closing the socket in `finally` to unstick it.
+            val socketToTls = launch(Dispatchers.IO) {
+                try {
+                    copyStreamToTls(socketIn, tlsSession)
+                } finally {
+                    done.complete(Unit)
+                }
+            }
+
+            // Suspend until EITHER direction finishes (or we are cancelled).
+            try {
+                done.await()
             } finally {
-                // Close the socket even when the surrounding scope is being cancelled.
-                // Must be NonCancellable -- see kdoc on [bridgeToMcpServer].
-                withContext(NonCancellable + Dispatchers.IO) {
-                    try {
-                        socket.close()
-                    } catch (_: Exception) {
-                        // Best effort cleanup.
-                    }
+                tlsToSocket.cancel()
+                socketToTls.cancel()
+            }
+        } finally {
+            // Close the socket even when the surrounding scope is being cancelled.
+            // Must be NonCancellable -- see kdoc on [bridgeToMcpServer].
+            withContext(NonCancellable + Dispatchers.IO) {
+                try {
+                    socket.close()
+                } catch (_: Exception) {
+                    // Best effort cleanup.
                 }
             }
         }
+    }
 
     /**
-     * Copies plaintext bytes out of [tlsSession] and into [to] until EOF or error.
+     * Copies plaintext bytes out of [tlsSession] and into [to] until EOF or error,
+     * running every byte through [injector] so that each request's header block
+     * is rewritten to include the `X-Internal-Token` shared secret.
+     *
      * Must run under [Dispatchers.IO].
      */
-    private suspend fun copyTlsToStream(tlsSession: TlsAcceptor.TlsSession, to: OutputStream) {
+    private suspend fun copyTlsToStream(
+        tlsSession: TlsAcceptor.TlsSession,
+        to: OutputStream,
+        injector: HttpHeaderInjector
+    ) {
         try {
             val buf = ByteArray(BUFFER_SIZE)
             while (true) {
                 val n = tlsSession.read(buf)
                 if (n == -1) break
-                to.write(buf, 0, n)
+                injector.feed(buf, 0, n) { out, off, len ->
+                    to.write(out, off, len)
+                }
                 to.flush()
             }
         } catch (e: kotlinx.coroutines.CancellationException) {

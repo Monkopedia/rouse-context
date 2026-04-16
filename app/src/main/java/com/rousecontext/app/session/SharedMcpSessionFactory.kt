@@ -21,6 +21,7 @@ class SharedMcpSessionFactory(private val session: McpSession) : McpSessionFacto
         check(port > 0) { "McpSession not started; port unresolved" }
         return McpSessionHandle(
             port = port,
+            internalToken = session.internalToken,
             stop = { /* shared session survives individual streams */ }
         )
     }

@@ -9,6 +9,7 @@ import com.rousecontext.mcp.core.InMemoryProviderRegistry
 import com.rousecontext.mcp.core.InMemoryTokenStore
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.configureMcpRouting
+import com.rousecontext.mcp.core.generateInternalToken
 import com.rousecontext.tunnel.ChannelMuxStream
 import com.rousecontext.tunnel.TestCertificateStore
 import com.rousecontext.tunnel.TlsClientInputStream
@@ -102,18 +103,27 @@ class TunnelMcpIntegrationTest {
     ) : McpSessionFactory {
         override suspend fun create(): McpSessionHandle {
             val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+            // Generate a per-session internal token so the Ktor guard accepts
+            // bridge-forwarded requests; external-client bytes arrive via the
+            // bridge, which injects this exact value. See issue #177.
+            val token = generateInternalToken()
             val server = embeddedServer(CIO, port = 0) {
                 configureMcpRouting(
                     registry = registry,
                     tokenStore = tokenStore,
                     deviceCodeManager = deviceCodeManager,
                     hostname = "test.rousecontext.com",
-                    integration = "test"
+                    integration = "test",
+                    internalToken = token
                 )
             }
             server.start(wait = false)
             val port = server.engine.resolvedConnectors().first().port
-            return McpSessionHandle(port = port, stop = { server.stop() })
+            return McpSessionHandle(
+                port = port,
+                internalToken = token,
+                stop = { server.stop() }
+            )
         }
     }
 

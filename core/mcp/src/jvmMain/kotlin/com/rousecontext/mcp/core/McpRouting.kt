@@ -77,8 +77,17 @@ fun Application.configureMcpRouting(
     securityAlertCheck: (() -> Boolean)? = null,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0",
+    internalToken: String? = null,
     log: (LogLevel, String) -> Unit = { _, _ -> }
 ) {
+    // Installed BEFORE ContentNegotiation so it intercepts well-known and
+    // OAuth endpoints before any downstream plugin has a chance to parse
+    // bodies. Only active when the caller supplies a token; tests that
+    // don't care leave it null. See issue #177.
+    if (internalToken != null) {
+        installInternalTokenGuard(internalToken)
+    }
+
     install(ContentNegotiation) {
         json(mcpJson)
     }

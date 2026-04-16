@@ -46,7 +46,7 @@ class McpSession(
     private val log: (LogLevel, String) -> Unit = { _, _ -> }
 ) {
 
-    private val done = CompletableDeferred<Unit>()
+    private var done = CompletableDeferred<Unit>()
     private var engine: EmbeddedServer<*, *>? = null
 
     /**
@@ -58,12 +58,37 @@ class McpSession(
         private set
 
     /**
+     * Shared secret the bridge injects as `X-Internal-Token` on every
+     * plaintext HTTP request forwarded into the local Ktor server. Rotates
+     * on every call to [start]; never persisted. See issue #177.
+     *
+     * Throws if read before [start]. Callers in the same process (the
+     * `McpSessionBridge` / `SessionHandler`) must retrieve this after the
+     * server has been started.
+     */
+    @Volatile
+    private var _internalToken: String? = null
+    val internalToken: String
+        get() = _internalToken
+            ?: error("McpSession not started; internalToken unavailable")
+
+    /**
      * Starts the embedded HTTP server on the given port.
      * Use port 0 for an OS-assigned ephemeral port.
      *
      * Call [resolvePort] after starting to determine the actual listening port.
      */
     fun start(port: Int = 0) {
+        // Rotate the internal token on each start so cross-session replay
+        // (e.g. a snooping app caching a leaked token between restarts) is
+        // neutralised. See issue #177.
+        val token = generateInternalToken()
+        _internalToken = token
+        // Allow restarts after stop(): reset the done deferred if it was
+        // completed by a previous stop().
+        if (done.isCompleted) {
+            done = CompletableDeferred()
+        }
         val server = embeddedServer(CIO, port = port, host = LOOPBACK_HOST) {
             configureMcpRouting(
                 registry = registry,
@@ -78,6 +103,7 @@ class McpSession(
                 securityAlertCheck = securityAlertCheck,
                 serverName = serverName,
                 serverVersion = serverVersion,
+                internalToken = token,
                 log = log
             )
         }
