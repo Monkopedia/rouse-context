@@ -23,6 +23,26 @@ class RelayApiClient(
 ) {
 
     /**
+     * Reserve a subdomain (single-word-preferred, per issue #92) before
+     * registering. The relay persists a short-TTL reservation keyed by the
+     * Firebase UID extracted from [firebaseToken]. A subsequent call to
+     * [register] by the same UID consumes that reservation and adopts the
+     * reserved subdomain.
+     *
+     * The client should call this immediately before [register] during
+     * onboarding. The reservation TTL is short (minutes) because the
+     * relay guarantees single-use semantics: [register] deletes the
+     * reservation as soon as it consumes it.
+     */
+    suspend fun requestSubdomain(firebaseToken: String): RelayApiResult<RequestSubdomainResponse> =
+        executeRequest {
+            httpClient.post("$baseUrl/request-subdomain") {
+                contentType(ContentType.Application.Json)
+                setBody(RequestSubdomainRequest(firebaseToken = firebaseToken))
+            }
+        }
+
+    /**
      * Round 1: Register a new device with the relay server.
      * Sends Firebase auth token, FCM token, and the list of integration IDs
      * the device wants secrets provisioned for. The relay generates one
@@ -190,6 +210,17 @@ sealed class RelayApiResult<out T> {
 
     data class NetworkError(val cause: Exception) : RelayApiResult<Nothing>()
 }
+
+@Serializable
+data class RequestSubdomainRequest(@SerialName("firebase_token") val firebaseToken: String)
+
+@Serializable
+data class RequestSubdomainResponse(
+    @SerialName("subdomain") val subdomain: String,
+    @SerialName("base_domain") val baseDomain: String,
+    @SerialName("fqdn") val fqdn: String,
+    @SerialName("reservation_ttl_seconds") val reservationTtlSeconds: Long
+)
 
 @Serializable
 data class RegisterRequest(

@@ -150,6 +150,50 @@ class RelayApiClientIntegrationTest {
     }
 
     @Test
+    fun `requestSubdomain returns fqdn and reservation ttl`(): Unit = runBlocking {
+        val result = api.requestSubdomain(
+            firebaseToken = DUMMY_FIREBASE_TOKEN + "-req-sub"
+        )
+
+        val body = assertSuccess(result)
+        assertTrue(body.subdomain.isNotBlank(), "subdomain must be non-blank")
+        assertEquals(
+            BASE_DOMAIN,
+            body.baseDomain,
+            "base_domain must echo server.base_domain"
+        )
+        assertEquals(
+            "${body.subdomain}.${body.baseDomain}",
+            body.fqdn,
+            "fqdn must be '{subdomain}.{base_domain}'"
+        )
+        assertTrue(
+            body.reservationTtlSeconds in 30L..3600L,
+            "reservation TTL must be sensible, got ${body.reservationTtlSeconds}"
+        )
+    }
+
+    @Test
+    fun `register consumes active reservation from requestSubdomain`(): Unit = runBlocking {
+        val firebaseToken = DUMMY_FIREBASE_TOKEN + "-reservation-consume"
+        val reserved = assertSuccess(api.requestSubdomain(firebaseToken = firebaseToken))
+
+        val reg = assertSuccess(
+            api.register(
+                firebaseToken = firebaseToken,
+                fcmToken = DUMMY_FCM_TOKEN,
+                integrationIds = emptyList()
+            )
+        )
+
+        assertEquals(
+            reserved.subdomain,
+            reg.subdomain,
+            "register must adopt the reserved subdomain instead of generating a new one"
+        )
+    }
+
+    @Test
     fun `register returns subdomain relay host and per-integration secrets`(): Unit = runBlocking {
         val integrations = listOf("health", "notifications")
         val result = api.register(

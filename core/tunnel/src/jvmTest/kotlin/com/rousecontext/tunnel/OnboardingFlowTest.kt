@@ -38,6 +38,17 @@ class OnboardingFlowTest {
 
     @Test
     fun `onboarding registers subdomain without requesting certs`(): Unit = runBlocking {
+        mockServer.requestSubdomainHandler = { _ ->
+            MockRequestSubdomainResponse(
+                status = 200,
+                body = RequestSubdomainResponse(
+                    subdomain = "abc123",
+                    baseDomain = "rousecontext.com",
+                    fqdn = "abc123.rousecontext.com",
+                    reservationTtlSeconds = 600
+                )
+            )
+        }
         mockServer.registerHandler = { _ ->
             MockRegisterResponse(
                 status = 201,
@@ -62,6 +73,73 @@ class OnboardingFlowTest {
         assertNull(store.getClientCertificate())
         assertNull(store.getRelayCaCert())
         assertNull(store.getPrivateKey())
+    }
+
+    @Test
+    fun `onboarding calls requestSubdomain before register`(): Unit = runBlocking {
+        val callOrder = mutableListOf<String>()
+        mockServer.requestSubdomainHandler = { _ ->
+            callOrder += "request-subdomain"
+            MockRequestSubdomainResponse(
+                status = 200,
+                body = RequestSubdomainResponse(
+                    subdomain = "zephyr",
+                    baseDomain = "rousecontext.com",
+                    fqdn = "zephyr.rousecontext.com",
+                    reservationTtlSeconds = 600
+                )
+            )
+        }
+        mockServer.registerHandler = { _ ->
+            callOrder += "register"
+            MockRegisterResponse(
+                status = 201,
+                body = RegisterResponse(
+                    subdomain = "zephyr",
+                    relayHost = "relay.rousecontext.com",
+                    secrets = emptyMap()
+                )
+            )
+        }
+
+        val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.Success)
+        assertEquals(listOf("request-subdomain", "register"), callOrder)
+        assertEquals("zephyr", store.getSubdomain())
+    }
+
+    @Test
+    fun `onboarding rate limited on requestSubdomain returns rate limited result`(): Unit =
+        runBlocking {
+            mockServer.requestSubdomainHandler = { _ ->
+                MockRequestSubdomainResponse(status = 429, retryAfter = 20)
+            }
+            mockServer.registerHandler = { _ ->
+                error("register must not be called when requestSubdomain fails")
+            }
+
+            val result = flow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+            assertTrue(result is OnboardingResult.RateLimited)
+            assertEquals(20L, result.retryAfterSeconds)
+            assertNull(store.getSubdomain())
+        }
+
+    @Test
+    fun `onboarding network error on requestSubdomain returns network error`(): Unit = runBlocking {
+        mockServer.stop()
+
+        val client = RelayApiClient(baseUrl = "http://127.0.0.1:1")
+        val offlineFlow = OnboardingFlow(
+            relayApiClient = client,
+            certificateStore = store
+        )
+
+        val result = offlineFlow.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(result is OnboardingResult.NetworkError)
+        assertNull(store.getSubdomain())
     }
 
     @Test

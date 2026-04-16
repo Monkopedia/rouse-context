@@ -22,6 +22,19 @@ import kotlinx.serialization.json.Json
  */
 class MockRelayServer {
 
+    var requestSubdomainHandler:
+        (suspend (RequestSubdomainRequest) -> MockRequestSubdomainResponse) = { _ ->
+            MockRequestSubdomainResponse(
+                status = 200,
+                body = RequestSubdomainResponse(
+                    subdomain = "test123",
+                    baseDomain = "rousecontext.com",
+                    fqdn = "test123.rousecontext.com",
+                    reservationTtlSeconds = 600
+                )
+            )
+        }
+
     var registerHandler: (suspend (RegisterRequest) -> MockRegisterResponse) = { _ ->
         MockRegisterResponse(
             status = 201,
@@ -80,61 +93,48 @@ class MockRelayServer {
                 )
             }
             routing {
+                post("/request-subdomain") {
+                    val request = call.receive<RequestSubdomainRequest>()
+                    val response = requestSubdomainHandler(request)
+                    respondMock(response.status, response.retryAfter, response.body)
+                }
                 post("/register") {
                     val request = call.receive<RegisterRequest>()
                     val response = registerHandler(request)
-                    if (response.retryAfter != null) {
-                        call.response.header("Retry-After", response.retryAfter.toString())
-                    }
-                    when (val body = response.body) {
-                        is RegisterResponse -> call.respond(
-                            HttpStatusCode.fromValue(response.status),
-                            body
-                        )
-                        else -> call.respond(HttpStatusCode.fromValue(response.status), "")
-                    }
+                    respondMock(response.status, response.retryAfter, response.body)
                 }
                 post("/register/certs") {
                     val request = call.receive<CertRequest>()
                     val response = certHandler(request)
-                    if (response.retryAfter != null) {
-                        call.response.header("Retry-After", response.retryAfter.toString())
-                    }
-                    when (val body = response.body) {
-                        is CertResponse -> call.respond(
-                            HttpStatusCode.fromValue(response.status),
-                            body
-                        )
-                        else -> call.respond(HttpStatusCode.fromValue(response.status), "")
-                    }
+                    respondMock(response.status, response.retryAfter, response.body)
                 }
                 post("/renew") {
                     val request = call.receive<RenewRequest>()
                     val response = renewHandler(request)
-                    if (response.retryAfter != null) {
-                        call.response.header("Retry-After", response.retryAfter.toString())
-                    }
-                    when (val body = response.body) {
-                        is RenewResponse -> call.respond(
-                            HttpStatusCode.fromValue(response.status),
-                            body
-                        )
-                        else -> call.respond(HttpStatusCode.fromValue(response.status), "")
-                    }
+                    respondMock(response.status, response.retryAfter, response.body)
                 }
                 post("/rotate-secret") {
                     val request = call.receive<UpdateSecretsRequest>()
                     val response = updateSecretsHandler(request)
-                    when (val body = response.body) {
-                        is UpdateSecretsResponse -> call.respond(
-                            HttpStatusCode.fromValue(response.status),
-                            body
-                        )
-                        else -> call.respond(HttpStatusCode.fromValue(response.status), "")
-                    }
+                    respondMock(response.status, retryAfter = null, response.body)
                 }
             }
         }.start(wait = false)
+    }
+
+    private suspend fun io.ktor.server.routing.RoutingContext.respondMock(
+        status: Int,
+        retryAfter: Long?,
+        body: Any?
+    ) {
+        if (retryAfter != null) {
+            call.response.header("Retry-After", retryAfter.toString())
+        }
+        if (body != null) {
+            call.respond(HttpStatusCode.fromValue(status), body)
+        } else {
+            call.respond(HttpStatusCode.fromValue(status), "")
+        }
     }
 
     fun stop() {
@@ -210,3 +210,9 @@ data class MockRenewResponse(
 )
 
 data class MockUpdateSecretsResponse(val status: Int = 200, val body: UpdateSecretsResponse? = null)
+
+data class MockRequestSubdomainResponse(
+    val status: Int = 200,
+    val body: RequestSubdomainResponse? = null,
+    val retryAfter: Long? = null
+)

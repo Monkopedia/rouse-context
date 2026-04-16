@@ -5,7 +5,7 @@ mod test_helpers;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use rouse_relay::api::build_router;
-use rouse_relay::firestore::DeviceRecord;
+use rouse_relay::firestore::{DeviceRecord, SubdomainReservation};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use test_helpers::*;
@@ -672,4 +672,176 @@ async fn register_certs_without_prior_registration_returns_404() {
 
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
     assert_eq!(resp.status(), 404);
+}
+
+// --- /register consumes active reservation created by /request-subdomain ---
+
+#[tokio::test]
+async fn register_consumes_active_reservation_for_uid() {
+    // Seed a fresh reservation for uid-res-1. The reservation was created by
+    // a prior /request-subdomain call and is still within the TTL window.
+    // /register must use the reserved subdomain instead of generating a new
+    // one, and must delete the reservation (single-use).
+    let now = SystemTime::now();
+    let reservation = SubdomainReservation {
+        fqdn: "zephyr.rousecontext.com".to_string(),
+        firebase_uid: "uid-res-1".to_string(),
+        expires_at: now + Duration::from_secs(600),
+        base_domain: "rousecontext.com".to_string(),
+        created_at: now,
+    };
+    let firestore = Arc::new(MockFirestore::new().with_reservation("zephyr", reservation));
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-res-1");
+
+    let state = build_test_state(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "fcm_token": "device-fcm-token"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Response must use the reserved subdomain, not a freshly generated one.
+    assert_eq!(json["subdomain"].as_str().unwrap(), "zephyr");
+
+    // Device record stored under the reserved subdomain.
+    assert!(firestore.devices.lock().unwrap().contains_key("zephyr"));
+
+    // Reservation consumed (deleted) — it is single-use.
+    assert!(
+        firestore
+            .reservations
+            .lock()
+            .unwrap()
+            .get("zephyr")
+            .is_none(),
+        "active reservation should be deleted after /register consumes it"
+    );
+}
+
+#[tokio::test]
+async fn register_generates_new_subdomain_when_no_reservation_exists() {
+    // No reservation exists for uid-no-res. /register falls through to the
+    // normal generator path and produces an adjective-noun subdomain.
+    let firestore = Arc::new(MockFirestore::new());
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-no-res");
+
+    let state = build_test_state(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "fcm_token": "device-fcm-token"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Falls through to generator path: adjective-noun format.
+    let subdomain = json["subdomain"].as_str().unwrap();
+    assert!(
+        subdomain.contains('-'),
+        "fallback subdomain should be adjective-noun, got {subdomain}"
+    );
+}
+
+#[tokio::test]
+async fn register_with_expired_reservation_generates_new_subdomain() {
+    // Reservation exists but expired ten minutes ago. /register must not
+    // adopt it — it should fall through to the generator path.
+    let now = SystemTime::now();
+    let reservation = SubdomainReservation {
+        fqdn: "aurora.rousecontext.com".to_string(),
+        firebase_uid: "uid-expired".to_string(),
+        expires_at: now - Duration::from_secs(600),
+        base_domain: "rousecontext.com".to_string(),
+        created_at: now - Duration::from_secs(1200),
+    };
+    let firestore = Arc::new(MockFirestore::new().with_reservation("aurora", reservation));
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-expired");
+
+    let state = build_test_state(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "fcm_token": "device-fcm-token"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    // Must NOT use the expired reservation.
+    let subdomain = json["subdomain"].as_str().unwrap();
+    assert_ne!(
+        subdomain, "aurora",
+        "expired reservation must not be adopted"
+    );
+    assert!(
+        subdomain.contains('-'),
+        "fallback subdomain should be adjective-noun, got {subdomain}"
+    );
+
+    // Device stored under the generated subdomain.
+    assert!(firestore.devices.lock().unwrap().contains_key(subdomain));
 }

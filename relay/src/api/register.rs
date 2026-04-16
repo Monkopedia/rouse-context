@@ -191,8 +191,51 @@ pub async fn handle_register(
             existing_subdomain
         }
     } else {
-        // New registration: generate subdomain
-        state.subdomain_generator.generate()
+        // New registration. If this UID holds an active (non-expired)
+        // reservation created via POST /request-subdomain, consume it: adopt
+        // the reserved subdomain and delete the reservation (single-use).
+        // Otherwise, fall through to the generator path.
+        //
+        // Errors looking up or deleting reservations are non-fatal: we log
+        // and fall back to generation so /register never fails just because
+        // the reservation bookkeeping had a hiccup.
+        match state.firestore.find_reservation_by_uid(&uid).await {
+            Ok(Some((reserved_subdomain, reservation)))
+                if reservation.expires_at > SystemTime::now() =>
+            {
+                if let Err(e) = state
+                    .firestore
+                    .delete_reservation(&reserved_subdomain)
+                    .await
+                {
+                    tracing::warn!(
+                        subdomain = %reserved_subdomain,
+                        error = %e,
+                        "Failed to delete consumed reservation (non-fatal)"
+                    );
+                }
+                reserved_subdomain
+            }
+            Ok(Some((expired_subdomain, _))) => {
+                // Expired reservation: best-effort cleanup, then generate.
+                if let Err(e) = state.firestore.delete_reservation(&expired_subdomain).await {
+                    tracing::warn!(
+                        subdomain = %expired_subdomain,
+                        error = %e,
+                        "Failed to delete expired reservation (non-fatal)"
+                    );
+                }
+                state.subdomain_generator.generate()
+            }
+            Ok(None) => state.subdomain_generator.generate(),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Reservation lookup failed; falling back to generator"
+                );
+                state.subdomain_generator.generate()
+            }
+        }
     };
 
     // 4. Generate one secret per requested integration id. The relay is the
