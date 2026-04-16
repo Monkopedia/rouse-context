@@ -1,5 +1,6 @@
 package com.rousecontext.app.ui.viewmodels
 
+import androidx.lifecycle.ViewModelStore
 import com.rousecontext.app.auth.AnonymousAuthClient
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
@@ -12,11 +13,15 @@ import io.mockk.mockk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -155,6 +160,72 @@ class OnboardingViewModelTest {
         assertTrue(status.complete.value)
 
         coroutineContext.cancelChildren()
+    }
+
+    /**
+     * Regression test for the bug fixed in f9234a06: startOnboarding() sets state to
+     * Onboarded which triggers navigation away, destroying the ViewModel and cancelling
+     * viewModelScope. If performRegistration() ran on viewModelScope it would be killed
+     * mid-flight. The fix launches on appScope instead.
+     *
+     * This test proves registration completes even after the VM is cleared mid-flight.
+     * If the fix regresses (work moves back to viewModelScope), the awaitComplete()
+     * call will timeout because viewModelScope cancellation kills the registration coroutine.
+     */
+    @Test
+    fun `registration completes on appScope even after VM is cleared`() = runBlocking {
+        // Use real concurrency (not the StandardTestDispatcher) so delay() actually waits
+        // and ViewModelStore.clear() races with the in-flight registration.
+        val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+        val authClient = object : AnonymousAuthClient {
+            override suspend fun signInAnonymouslyAndGetIdToken(): String? {
+                delay(200) // simulate network latency
+                return "fake-firebase-token"
+            }
+        }
+        val fcmProvider = object : FcmTokenProvider {
+            override suspend fun currentToken(): String = "fake-fcm-token"
+        }
+
+        coEvery { certStore.getSubdomain() } returns null
+        coEvery {
+            onboardingFlow.execute("fake-firebase-token", "fake-fcm-token")
+        } returns OnboardingResult.Success("test-subdomain")
+
+        val status = DeviceRegistrationStatus(initiallyRegistered = false)
+
+        val vm = OnboardingViewModel(
+            certificateStore = certStore,
+            onboardingFlow = onboardingFlow,
+            registrationStatus = status,
+            authClient = authClient,
+            fcmTokenProvider = fcmProvider,
+            appScope = appScope
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        vm.startOnboarding()
+
+        // Give the coroutine just enough time to launch but not finish auth
+        delay(50)
+
+        // Clear the ViewModel — this cancels viewModelScope but NOT appScope.
+        // ViewModel.clear() is internal in Kotlin, so we use ViewModelStore.clear()
+        // which is the same mechanism Android uses when navigation destroys the VM.
+        val store = ViewModelStore()
+        store.put("test-key", vm)
+        store.clear()
+
+        // Registration must still complete on appScope despite VM being cleared.
+        // If this were using viewModelScope, the coroutine would have been cancelled
+        // by clear() above and awaitComplete() would time out.
+        withTimeout(5000) {
+            status.awaitComplete()
+        }
+
+        assertTrue(status.complete.value)
+        appScope.cancel()
     }
 
     /**
