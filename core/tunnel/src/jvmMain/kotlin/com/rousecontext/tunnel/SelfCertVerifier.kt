@@ -12,6 +12,16 @@ import java.security.MessageDigest
  *
  * If the store is unreachable (I/O error), the result is a [SecurityCheckResult.Warning]
  * rather than an [SecurityCheckResult.Alert], since the check could not be completed.
+ *
+ * Upgrade path (issue #180): devices provisioned before fingerprint recording
+ * (pre-#111) have a valid leaf cert on disk but an empty known-fingerprints set.
+ * Without self-healing, the very first periodic check would trip an Alert,
+ * lock every HTTPS route into 503, and "Acknowledge" in the UI would not stick
+ * because the next worker run re-alerts. On a completely empty set we treat the
+ * presented leaf as trusted-on-first-sight and backfill the store; subsequent
+ * runs then take the normal matching path. This is a property of the verifier
+ * only -- the cert-provisioning flow is unchanged. If TLS itself was compromised
+ * before the very first verify, the fingerprint file was never the weak link.
  */
 class SelfCertVerifier(private val certificateStore: CertificateStore) {
 
@@ -33,16 +43,29 @@ class SelfCertVerifier(private val certificateStore: CertificateStore) {
             )
         }
 
-        val leafDer = certChainDer.first()
-        val leafFingerprint = sha256Fingerprint(leafDer)
+        val leafFingerprint = sha256Fingerprint(certChainDer.first())
 
-        return if (knownFingerprints.contains(leafFingerprint)) {
-            SecurityCheckResult.Verified
-        } else {
-            SecurityCheckResult.Alert(
-                "Leaf certificate fingerprint $leafFingerprint does not match any known fingerprint"
+        return when {
+            knownFingerprints.contains(leafFingerprint) -> SecurityCheckResult.Verified
+            // Trust-on-first-sight backfill for pre-#111 installs whose fingerprints
+            // file never got written. Only applies when the set is truly empty --
+            // any non-empty set (including corrupt/garbage entries) must still
+            // Alert so a real tamper signal is preserved.
+            knownFingerprints.isEmpty() -> backfillAndVerify(leafFingerprint)
+            else -> SecurityCheckResult.Alert(
+                "Leaf certificate fingerprint $leafFingerprint " +
+                    "does not match any known fingerprint"
             )
         }
+    }
+
+    private suspend fun backfillAndVerify(leafFingerprint: String): SecurityCheckResult = try {
+        certificateStore.storeFingerprint(leafFingerprint)
+        SecurityCheckResult.Verified
+    } catch (e: Exception) {
+        SecurityCheckResult.Warning(
+            "Could not backfill missing fingerprint: ${e.message}"
+        )
     }
 
     companion object {

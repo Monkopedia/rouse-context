@@ -3,6 +3,7 @@ package com.rousecontext.tunnel
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlinx.coroutines.runBlocking
 
@@ -122,6 +123,65 @@ class SelfCertVerifierTest {
 
         assertIs<SecurityCheckResult.Verified>(result)
     }
+
+    @Test
+    fun `empty known fingerprints with valid cert - backfills and verifies (issue 180)`(): Unit =
+        runBlocking {
+            // Simulates the upgrade path from a pre-#111 build: a provisioned leaf
+            // cert is on disk but rouse_fingerprints.txt is missing/empty. Without
+            // self-healing this would be permanent Alert -> 503 lockout.
+            val cert = generateSelfSignedCert()
+            val backing = mutableSetOf<String>()
+            val store = SecurityCertificateStore(
+                certChain = listOf(cert.encoded),
+                knownFingerprints = backing
+            )
+            val verifier = SelfCertVerifier(store)
+
+            val result = verifier.verify(listOf(cert.encoded))
+
+            assertIs<SecurityCheckResult.Verified>(result)
+            val expectedFingerprint = sha256Hex(cert.encoded)
+            assertEquals(setOf(expectedFingerprint), backing)
+            // Second call must also be Verified using the backfilled fingerprint,
+            // confirming persistence not just in-memory evaluation.
+            assertIs<SecurityCheckResult.Verified>(verifier.verify(listOf(cert.encoded)))
+        }
+
+    @Test
+    fun `empty known fingerprints does not backfill when chain is empty`(): Unit = runBlocking {
+        val backing = mutableSetOf<String>()
+        val store = SecurityCertificateStore(
+            certChain = null,
+            knownFingerprints = backing
+        )
+        val verifier = SelfCertVerifier(store)
+
+        val result = verifier.verify(emptyList())
+
+        assertIs<SecurityCheckResult.Alert>(result)
+        assertEquals(emptySet<String>(), backing)
+    }
+
+    @Test
+    fun `garbage fingerprints content - still alerts on mismatch (no backfill)`(): Unit =
+        runBlocking {
+            // Non-empty but corrupt/garbage fingerprints must NOT silently pass.
+            // Only a truly empty set triggers trust-on-first-sight backfill.
+            val cert = generateSelfSignedCert()
+            val backing = mutableSetOf("not-a-real-fingerprint", "###garbage###")
+            val store = SecurityCertificateStore(
+                certChain = listOf(cert.encoded),
+                knownFingerprints = backing
+            )
+            val verifier = SelfCertVerifier(store)
+
+            val result = verifier.verify(listOf(cert.encoded))
+
+            assertIs<SecurityCheckResult.Alert>(result)
+            // The garbage entries must remain; we must not overwrite existing state.
+            assertEquals(setOf("not-a-real-fingerprint", "###garbage###"), backing)
+        }
 }
 
 /**
