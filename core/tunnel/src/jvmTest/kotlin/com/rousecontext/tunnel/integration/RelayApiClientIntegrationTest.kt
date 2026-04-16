@@ -1,6 +1,7 @@
 package com.rousecontext.tunnel.integration
 
 import com.rousecontext.tunnel.CsrGenerator
+import com.rousecontext.tunnel.CsrResult
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import io.ktor.client.HttpClient
@@ -10,8 +11,12 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import java.io.File
 import java.net.InetAddress
+import java.security.KeyFactory
 import java.security.KeyStore
+import java.security.Signature
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
+import java.util.Base64
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 import kotlin.test.AfterTest
@@ -330,113 +335,107 @@ class RelayApiClientIntegrationTest {
     }
 
     /**
-     * /renew wire-contract check for the mTLS-equivalent (signature-only) path.
+     * Full success-shape /renew over the mTLS-equivalent (signature-only) path.
      *
-     * The request must now deserialize cleanly on the relay side (no 422 from
-     * a schema mismatch as in the pre-#170 state) and reach the
-     * signature-verification layer. We don't have access to the registered
-     * device's private key from this HTTP-level test -- the key pair used by
-     * `CsrGenerator` for the *renewal* CSR is a fresh one -- so the relay
-     * returns 403 at signature verification. That's deliberate: it proves
-     * the body shape is correct and the relay got as far as crypto without
-     * tripping on field names.
-     *
-     * A full success-shape renewal is covered by `CertRenewalFlowTest` and
-     * the Rust-side `api_renew_test.rs` where the test code can hold onto
-     * the signing key that matches the registered public key.
+     * Holds onto the private key generated for the registration CSR so it can sign the
+     * renewal CSR DER bytes with SHA256withECDSA -- which is what the relay verifies
+     * against the public key stored at registration time. Both CSR generations go through
+     * the production [CsrGenerator], so any drift on key type / signature algorithm
+     * (issue #173) would surface here as a 403 rather than a success.
      */
     @Test
-    fun `renewWithMtls request body deserializes and reaches signature verification`(): Unit =
-        runBlocking {
-            val firebaseToken = DUMMY_FIREBASE_TOKEN + "-renew-mtls"
-            val reg = assertSuccess(
-                api.register(
-                    firebaseToken = firebaseToken,
-                    fcmToken = DUMMY_FCM_TOKEN,
-                    integrationIds = emptyList()
-                )
+    fun `renewWithMtls returns full cert bundle on success`(): Unit = runBlocking {
+        val firebaseToken = DUMMY_FIREBASE_TOKEN + "-renew-mtls"
+        val reg = assertSuccess(
+            api.register(
+                firebaseToken = firebaseToken,
+                fcmToken = DUMMY_FCM_TOKEN,
+                integrationIds = emptyList()
             )
-            // Round 2: registerCerts populates `public_key` on the device
-            // record; without it the relay's signature verification has
-            // nothing to check against and returns a different error.
-            val regCsr = CsrGenerator().generate(
-                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
-            )
-            assertSuccess(
-                api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
-            )
-            val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
+        )
+        // Round 2: registerCerts populates `public_key` on the device
+        // record. We must keep the matching private key so we can produce
+        // a signature the relay will accept at renewal time.
+        val regCsr = CsrGenerator().generate(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+        )
+        assertSuccess(
+            api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
+        )
+        val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
+        val signature = signCsrDer(regCsr, renewCsr.csrDer)
 
-            val result = api.renewWithMtls(
-                csrPem = renewCsr.csrPem,
-                subdomain = reg.subdomain,
-                // The test harness does not carry forward the registration
-                // key, so any signature here will fail verification -- but
-                // only *after* the body has deserialized, which is the
-                // invariant we're locking in.
-                signature = "MEUCIQDdummysignaturebase64padding="
-            )
+        val result = api.renewWithMtls(
+            csrPem = renewCsr.csrPem,
+            subdomain = reg.subdomain,
+            signature = signature
+        )
 
-            assertTrue(
-                result is RelayApiResult.Error,
-                "expected an Error result (post-#170 signature verification fails), got $result"
-            )
-            val err = result as RelayApiResult.Error
-            assertTrue(
-                err.statusCode == 403,
-                "relay must reach signature verification (403), not schema failure " +
-                    "(422). Got status=${err.statusCode} message='${err.message}'"
-            )
-        }
+        val body = assertSuccess(result)
+        assertPemOrAcmeStub(body.serverCert, "server_cert")
+        assertPem(body.clientCert, "CERTIFICATE", "client_cert")
+        assertPem(body.relayCaCert, "CERTIFICATE", "relay_ca_cert")
+    }
 
     /**
-     * /renew wire-contract check for the Firebase (expired-cert) path. See
-     * the mTLS variant above for why we assert 403 rather than a success
-     * shape.
+     * Full success-shape /renew over the Firebase (expired-cert) path. Same end-to-end
+     * crypto story as the mTLS variant: the renewal signature must verify against the
+     * public key the relay stored when the registration CSR came in.
      */
     @Test
-    fun `renewWithFirebase request body deserializes and reaches auth verification`(): Unit =
-        runBlocking {
-            val firebaseToken = DUMMY_FIREBASE_TOKEN + "-renew-firebase"
-            val reg = assertSuccess(
-                api.register(
-                    firebaseToken = firebaseToken,
-                    fcmToken = DUMMY_FCM_TOKEN,
-                    integrationIds = emptyList()
-                )
-            )
-            val regCsr = CsrGenerator().generate(
-                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
-            )
-            assertSuccess(
-                api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
-            )
-            val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
-
-            val result = api.renewWithFirebase(
-                csrPem = renewCsr.csrPem,
-                subdomain = reg.subdomain,
+    fun `renewWithFirebase returns full cert bundle on success`(): Unit = runBlocking {
+        val firebaseToken = DUMMY_FIREBASE_TOKEN + "-renew-firebase"
+        val reg = assertSuccess(
+            api.register(
                 firebaseToken = firebaseToken,
-                signature = "MEUCIQDdummysignaturebase64padding="
+                fcmToken = DUMMY_FCM_TOKEN,
+                integrationIds = emptyList()
             )
+        )
+        val regCsr = CsrGenerator().generate(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+        )
+        assertSuccess(
+            api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
+        )
+        val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
+        val signature = signCsrDer(regCsr, renewCsr.csrDer)
 
-            assertTrue(
-                result is RelayApiResult.Error,
-                "expected an Error result (post-#170 signature verification fails), got $result"
-            )
-            val err = result as RelayApiResult.Error
-            // 403 = Firebase UID mismatch or signature mismatch (both reached
-            // post-deserialize). 401 = Firebase token rejected. Anything in
-            // this band proves the body deserialized correctly; the pre-#170
-            // state would have been 422.
-            assertTrue(
-                err.statusCode in setOf(401, 403),
-                "relay must reach auth verification (401/403), not schema failure " +
-                    "(422). Got status=${err.statusCode} message='${err.message}'"
-            )
-        }
+        val result = api.renewWithFirebase(
+            csrPem = renewCsr.csrPem,
+            subdomain = reg.subdomain,
+            firebaseToken = firebaseToken,
+            signature = signature
+        )
+
+        val body = assertSuccess(result)
+        assertPemOrAcmeStub(body.serverCert, "server_cert")
+        assertPem(body.clientCert, "CERTIFICATE", "client_cert")
+        assertPem(body.relayCaCert, "CERTIFICATE", "relay_ca_cert")
+    }
 
     // --- helpers ---
+
+    /**
+     * Sign [renewCsrDer] under SHA256withECDSA using the private key generated for
+     * [registrationCsr]. That matches what the relay verifies on /renew: it pulled the
+     * public key out of the registration CSR at /register/certs time and expects a
+     * signature from the corresponding private half here.
+     */
+    private fun signCsrDer(registrationCsr: CsrResult, renewCsrDer: ByteArray): String {
+        val pem = registrationCsr.privateKeyPem
+        val header = "-----BEGIN PRIVATE KEY-----"
+        val footer = "-----END PRIVATE KEY-----"
+        val start = pem.indexOf(header) + header.length
+        val end = pem.indexOf(footer)
+        val base64 = pem.substring(start, end).replace("\\s".toRegex(), "")
+        val pkcs8 = Base64.getDecoder().decode(base64)
+        val privateKey = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+        val signer = Signature.getInstance("SHA256withECDSA")
+        signer.initSign(privateKey)
+        signer.update(renewCsrDer)
+        return Base64.getEncoder().encodeToString(signer.sign())
+    }
 
     private fun <T> assertSuccess(result: RelayApiResult<T>): T {
         when (result) {

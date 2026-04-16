@@ -2,10 +2,17 @@ package com.rousecontext.tunnel
 
 import java.security.KeyPairGenerator
 import java.security.Signature
+import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 
 /**
- * Generates a PKCS#10 Certificate Signing Request.
+ * Generates a PKCS#10 Certificate Signing Request backed by an ECDSA P-256 keypair.
+ *
+ * The key algorithm must match what the relay expects on the renewal signature path
+ * (`SHA256withECDSA`) because the relay verifies the renewal signature with the public key
+ * extracted from the original CSR at registration time. See `relay/src/api/renew.rs` for the
+ * server-side verification, which uses `p256::ecdsa::VerifyingKey::from_public_key_der` and
+ * will reject anything that isn't a P-256 SubjectPublicKeyInfo.
  */
 class CsrGenerator {
 
@@ -14,8 +21,8 @@ class CsrGenerator {
      * Returns a [CsrResult] containing the CSR PEM and the private key PEM.
      */
     fun generate(commonName: String): CsrResult {
-        val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
-        keyPairGenerator.initialize(2048)
+        val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+        keyPairGenerator.initialize(ECGenParameterSpec(EC_CURVE))
         val keyPair = keyPairGenerator.generateKeyPair()
 
         // Build a minimal PKCS#10 CSR using raw ASN.1
@@ -49,19 +56,18 @@ class CsrGenerator {
         val certRequestInfo = derSequence(version + subject + publicKeyInfo + attributes)
 
         // Sign the CertificationRequestInfo
-        val signer = Signature.getInstance("SHA256withRSA")
+        val signer = Signature.getInstance("SHA256withECDSA")
         signer.initSign(keyPair.private)
         signer.update(certRequestInfo)
         val signatureBytes = signer.sign()
 
-        // Build the full CSR
+        // Build the full CSR. Per RFC 5758, the ecdsa-with-SHA256 AlgorithmIdentifier MUST
+        // omit the parameters field entirely (no NULL, unlike RSA PKCS#1).
         val signatureAlgorithm = derSequence(
-            // OID 1.2.840.113549.1.1.11 (sha256WithRSAEncryption)
+            // OID 1.2.840.10045.4.3.2 (ecdsa-with-SHA256)
             byteArrayOf(
-                0x06, 0x09, 0x2A.toByte(), 0x86.toByte(), 0x48, 0x86.toByte(),
-                0xF7.toByte(), 0x0D, 0x01, 0x01, 0x0B,
-                // NULL parameters
-                0x05, 0x00
+                0x06, 0x08, 0x2A.toByte(), 0x86.toByte(), 0x48, 0xCE.toByte(),
+                0x3D, 0x04, 0x03, 0x02
             )
         )
         val signatureBitString = derBitString(signatureBytes)
@@ -101,6 +107,10 @@ class CsrGenerator {
     private fun derToPem(der: ByteArray, label: String): String {
         val base64 = Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(der)
         return "-----BEGIN $label-----\n$base64\n-----END $label-----\n"
+    }
+
+    private companion object {
+        const val EC_CURVE = "secp256r1"
     }
 }
 
