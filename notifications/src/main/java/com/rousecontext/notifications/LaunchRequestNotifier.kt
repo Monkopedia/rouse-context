@@ -34,10 +34,16 @@ class LaunchRequestNotifier(private val context: Context) : LaunchRequestNotifie
      * @param packageName Target app package, used to resolve a human-readable name.
      * @return The posted notification id.
      */
-    override fun postLaunchApp(launchIntent: Intent, packageName: String): Int {
+    override fun postLaunchApp(
+        launchIntent: Intent,
+        packageName: String,
+        clientName: String?
+    ): Int {
         val appName = resolveAppName(packageName)
+        val caller =
+            clientName ?: context.getString(ApiR.string.notification_launch_fallback_caller)
         return post(
-            title = context.getString(ApiR.string.notification_launch_app_title, appName),
+            title = context.getString(ApiR.string.notification_launch_app_title, caller, appName),
             body = appName,
             intent = launchIntent
         )
@@ -51,11 +57,15 @@ class LaunchRequestNotifier(private val context: Context) : LaunchRequestNotifie
      *   truncated by the system).
      * @return The posted notification id.
      */
-    override fun postOpenLink(viewIntent: Intent, url: String): Int = post(
-        title = context.getString(ApiR.string.notification_open_link_title),
-        body = url,
-        intent = viewIntent
-    )
+    override fun postOpenLink(viewIntent: Intent, url: String, clientName: String?): Int {
+        val caller =
+            clientName ?: context.getString(ApiR.string.notification_launch_fallback_caller)
+        return post(
+            title = context.getString(ApiR.string.notification_open_link_title, caller),
+            body = url,
+            intent = viewIntent
+        )
+    }
 
     private fun post(title: String, body: String, intent: Intent): Int {
         val id = BASE_ID + counter.getAndIncrement()

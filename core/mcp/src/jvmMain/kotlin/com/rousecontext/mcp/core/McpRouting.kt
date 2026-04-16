@@ -26,6 +26,7 @@ import java.net.URI
 import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -569,6 +570,10 @@ internal class McpRoutes(
             return
         }
 
+        // Client name (from DCR) for user-facing labels in tools that prompt
+        // the user -- e.g. outreach's "X wants to open Y" notification.
+        val clientName = tokenStore.resolveClientName(ri, token)
+
         // Parse and dispatch JSON-RPC request through SDK transport.
         // We parse the body *before* resolving the Server so we can detect
         // `initialize` and evict the cached per-integration Server — the SDK
@@ -620,11 +625,15 @@ internal class McpRoutes(
 
         if (isNotification) {
             // Fire-and-forget: dispatch to SDK but return 202 immediately
-            dispatchNotification(integrationServer.transport, requestBody)
+            withContext(McpClientContext(clientName)) {
+                dispatchNotification(integrationServer.transport, requestBody)
+            }
             respond(HttpStatusCode.Accepted)
         } else {
             val startMs = clock.currentTimeMillis()
-            val responseJson = dispatchJsonRpc(integrationServer.transport, requestBody)
+            val responseJson = withContext(McpClientContext(clientName)) {
+                dispatchJsonRpc(integrationServer.transport, requestBody)
+            }
 
             if (auditListener != null && parsed != null) {
                 emitAuditEvent(

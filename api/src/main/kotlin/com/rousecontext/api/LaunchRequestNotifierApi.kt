@@ -13,9 +13,21 @@ import android.content.Intent
  * See GitHub issue #102.
  */
 interface LaunchRequestNotifierApi {
-    /** Post a tap-to-launch notification for an app launch request. */
-    fun postLaunchApp(launchIntent: Intent, packageName: String): Int
+    /**
+     * Post a tap-to-launch notification for an app launch request.
+     *
+     * @param clientName Human-readable name of the AI client making the
+     *   request (from OAuth DCR). When null, the notification uses a
+     *   generic "AI client" label.
+     */
+    fun postLaunchApp(launchIntent: Intent, packageName: String, clientName: String? = null): Int
 
-    /** Post a tap-to-open notification for a URL open request. */
-    fun postOpenLink(viewIntent: Intent, url: String): Int
+    /**
+     * Post a tap-to-open notification for a URL open request.
+     *
+     * @param clientName Human-readable name of the AI client making the
+     *   request (from OAuth DCR). When null, the notification uses a
+     *   generic "AI client" label.
+     */
+    fun postOpenLink(viewIntent: Intent, url: String, clientName: String? = null): Int
 }

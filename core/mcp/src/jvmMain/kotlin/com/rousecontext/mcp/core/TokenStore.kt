@@ -19,6 +19,14 @@ interface TokenStore {
     fun validateToken(integrationId: String, token: String): Boolean
 
     /**
+     * Resolves the human-readable client name associated with [token] within
+     * [integrationId], or null if the token is invalid / unknown / the client
+     * did not supply a name during Dynamic Client Registration. Used to label
+     * user-facing prompts (e.g. the "X wants to open Y" launch notification).
+     */
+    fun resolveClientName(integrationId: String, token: String): String?
+
+    /**
      * Creates a new access token + refresh token pair for [integrationId], associated
      * with the given [clientId]. The optional [clientName] is a human-readable label
      * for display in the authorized clients UI.

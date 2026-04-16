@@ -23,10 +23,13 @@
     <string name="notification_auth_action_approve">Approve</string>
     <string name="notification_auth_action_deny">Deny</string>
 
-    <!-- Outreach launch-request notifications (LaunchRequestNotifier). -->
-    <string name="notification_launch_app_title">AI client wants to open %1$s</string>
-    <string name="notification_open_link_title">AI client wants to open a webpage</string>
+    <!-- Outreach launch-request notifications (LaunchRequestNotifier).
+         %1$s is the AI client's name (from OAuth DCR), or a fallback
+         "AI client" when the DCR client_name was not supplied. -->
+    <string name="notification_launch_app_title">%1$s wants to open %2$s</string>
+    <string name="notification_open_link_title">%1$s wants to open a webpage</string>
     <string name="notification_launch_action_open">Open</string>
+    <string name="notification_launch_fallback_caller">AI client</string>
 
     <!-- Per-tool-call notification (PerToolCallNotifier). -->
     <string name="notification_tool_call_title">Tool call: %1$s</string>

@@ -16,6 +16,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.mcp.core.Clock
+import com.rousecontext.mcp.core.McpClientContext
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.RateLimiter
 import com.rousecontext.mcp.core.SystemClock
@@ -24,6 +25,7 @@ import com.rousecontext.mcp.tool.ToolResult
 import com.rousecontext.mcp.tool.registerTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonArray
@@ -139,13 +141,15 @@ internal class LaunchAppTool(
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         extras?.forEach { (k, v) -> intent.putExtra(k, v) }
 
+        val clientName = coroutineContext[McpClientContext]?.clientName
+
         return launchActivitySafely(
             context = context,
             canLaunchDirectly = canLaunchDirectly,
             launchNotifier = launchNotifier,
             intent = intent,
             description = "launch $pkg",
-            fallback = { launchNotifier?.postLaunchApp(intent, pkg) }
+            fallback = { launchNotifier?.postLaunchApp(intent, pkg, clientName) }
         )
     }
 }
@@ -170,13 +174,14 @@ internal class OpenLinkTool(
         val intent = Intent(Intent.ACTION_VIEW, uri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
+        val clientName = coroutineContext[McpClientContext]?.clientName
         return launchActivitySafely(
             context = context,
             canLaunchDirectly = canLaunchDirectly,
             launchNotifier = launchNotifier,
             intent = intent,
             description = "open $u",
-            fallback = { launchNotifier?.postOpenLink(intent, u) }
+            fallback = { launchNotifier?.postOpenLink(intent, u, clientName) }
         )
     }
 }

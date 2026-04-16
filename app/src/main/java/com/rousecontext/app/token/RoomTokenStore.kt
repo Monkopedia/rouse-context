@@ -29,6 +29,15 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         return true
     }
 
+    override fun resolveClientName(integrationId: String, token: String): String? {
+        val hash = hashToken(token)
+        val entity = dao.findByHash(integrationId, hash) ?: return null
+        // label is clientName fallback to clientId at insert time; return
+        // null when it would equal clientId so callers get a "not set" signal
+        // rather than showing a raw UUID/id as a friendly name.
+        return entity.label.takeIf { it != entity.clientId }
+    }
+
     override fun createTokenPair(
         integrationId: String,
         clientId: String,
