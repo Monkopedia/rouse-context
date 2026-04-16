@@ -5,6 +5,5 @@ import kotlinx.coroutines.tasks.await
 
 /** Production implementation backed by [FirebaseMessaging]. */
 class FirebaseFcmTokenProvider : FcmTokenProvider {
-    override suspend fun currentToken(): String =
-        FirebaseMessaging.getInstance().token.await()
+    override suspend fun currentToken(): String = FirebaseMessaging.getInstance().token.await()
 }
