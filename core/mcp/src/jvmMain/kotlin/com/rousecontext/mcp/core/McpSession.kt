@@ -97,6 +97,15 @@ class McpSession(
     }
 
     /**
+     * Resolves the interface this server is bound to. Exposed for regression tests
+     * guarding the loopback-only bind in [LOOPBACK_HOST]; see issue #127.
+     *
+     * Must be called after [start]. Returns null if the engine has no connectors.
+     */
+    internal suspend fun resolveHost(): String? =
+        engine?.engine?.resolvedConnectors()?.firstOrNull()?.host
+
+    /**
      * Suspends until [stop] is called.
      */
     suspend fun awaitClose() {
