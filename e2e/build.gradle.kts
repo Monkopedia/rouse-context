@@ -31,4 +31,5 @@ tasks.register<Test>("e2eTest") {
     systemProperty("mcp.url", System.getProperty("mcp.url", ""))
     systemProperty("mcp.integration", System.getProperty("mcp.integration", "test"))
     systemProperty("adb.host", System.getProperty("adb.host", "adolin.lan"))
+    systemProperty("adb.serial", System.getProperty("adb.serial", ""))
 }

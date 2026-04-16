@@ -17,6 +17,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.MethodOrderer
@@ -379,10 +380,18 @@ class McpEndToEndTest {
             val bodyText = response.body?.string() ?: ""
             assertEquals(200, response.code, "MCP initialize failed: $bodyText")
             val body = json.parseToJsonElement(bodyText).jsonObject
+            // Before #181 was fixed, a second initialize against a cached
+            // per-integration Server produced an error response (HTTP 200 with
+            // {jsonrpc, id, error} and no `result`). Surface that explicitly.
+            val errorObj = body["error"]?.jsonObject
+            assertNull(
+                errorObj,
+                "initialize returned JSON-RPC error instead of result: $bodyText"
+            )
             val result = body["result"]?.jsonObject
-            assertNotNull(result, "Missing result in initialize response")
+            assertNotNull(result, "Missing result in initialize response; body=$bodyText")
             val serverInfo = result!!["serverInfo"]?.jsonObject
-            assertNotNull(serverInfo, "Missing serverInfo")
+            assertNotNull(serverInfo, "Missing serverInfo; body=$bodyText")
             println(
                 "Server: ${serverInfo!!["name"]?.jsonPrimitive?.content} " +
                     serverInfo["version"]?.jsonPrimitive?.content
@@ -664,7 +673,14 @@ class McpEndToEndTest {
     // --- ADB helpers ---
 
     private fun adb(vararg args: String): String {
-        val cmd = listOf("ssh", adbHost, "/opt/android-sdk/platform-tools/adb") + args.toList()
+        val serial = System.getProperty("adb.serial", "")
+        val remoteAdb = if (serial.isNotEmpty()) {
+            "ANDROID_SERIAL=$serial /opt/android-sdk/platform-tools/adb"
+        } else {
+            "/opt/android-sdk/platform-tools/adb"
+        }
+        // Pass as a single shell-quoted string so the env var applies.
+        val cmd = listOf("ssh", adbHost, remoteAdb) + args.toList()
         val process = ProcessBuilder(cmd)
             .redirectErrorStream(true)
             .start()

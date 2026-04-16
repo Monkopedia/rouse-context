@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -235,5 +236,67 @@ class McpResponseFormatTest {
         // Verify the response is still valid JSON-RPC
         val jsonObj = json.jsonObject
         assertNotNull("Should have result", jsonObj["result"])
+    }
+
+    /**
+     * Regression test for #181: a second `initialize` against the same
+     * integration must produce a JSON-RPC success response (`result`), not a
+     * JSON-RPC error. Prior to #189's quick-fix, the cached SDK `Server` kept
+     * its "already initialized" state across client sessions and rejected
+     * reinitialization, causing the server to reply with `{jsonrpc, id, error}`
+     * and no `result` — exactly what the e2e test saw.
+     */
+    @Test
+    fun `second initialize against same integration still returns result`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        registry.register("health", SimpleProvider())
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val token = tokenStore.createTokenPair("health", "test-client").accessToken
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com",
+                integration = "health"
+            )
+        }
+
+        val initRequest = mcpJsonRpc(
+            "initialize",
+            """{"protocolVersion":"2025-03-26","capabilities":{}""" +
+                ""","clientInfo":{"name":"test","version":"1.0"}}"""
+        )
+
+        // First initialize
+        val firstResponse = client.post("/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(initRequest)
+        }
+        assertEquals(HttpStatusCode.OK, firstResponse.status)
+        val firstBody = Json.parseToJsonElement(firstResponse.bodyAsText()).jsonObject
+        assertNotNull("First initialize should have result", firstBody["result"])
+
+        // Second initialize: must NOT return a JSON-RPC error, must have result
+        val secondResponse = client.post("/mcp") {
+            header("Authorization", "Bearer $token")
+            contentType(ContentType.Application.Json)
+            setBody(initRequest)
+        }
+        assertEquals(HttpStatusCode.OK, secondResponse.status)
+        val secondBodyText = secondResponse.bodyAsText()
+        val secondBody = Json.parseToJsonElement(secondBodyText).jsonObject
+        assertNull(
+            "Second initialize should not return JSON-RPC error: $secondBodyText",
+            secondBody["error"]
+        )
+        assertNotNull(
+            "Second initialize should have result: $secondBodyText",
+            secondBody["result"]
+        )
     }
 }
