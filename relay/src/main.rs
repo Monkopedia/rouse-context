@@ -607,9 +607,11 @@ fn build_service_clients(
         auth_manager,
     ));
 
-    let firebase_auth: Arc<dyn rouse_relay::firebase_auth::FirebaseAuth> =
-        firebase_auth_override.unwrap_or_else(|| {
-            Arc::new(rouse_relay::firebase_auth::RealFirebaseAuth::new(project_id))
+    let firebase_auth: Arc<dyn rouse_relay::firebase_auth::FirebaseAuth> = firebase_auth_override
+        .unwrap_or_else(|| {
+            Arc::new(rouse_relay::firebase_auth::RealFirebaseAuth::new(
+                project_id,
+            ))
         });
 
     (fcm, firebase_auth)

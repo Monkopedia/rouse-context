@@ -34,6 +34,14 @@ object MuxCodec {
                     msgBytes.copyInto(buf, destinationOffset = 4)
                 }
             }
+            is MuxFrame.Ping -> {
+                type = MuxFrameType.PING
+                payload = ByteArray(MUX_PING_NONCE_SIZE).also { putUInt64BE(it, 0, frame.nonce) }
+            }
+            is MuxFrame.Pong -> {
+                type = MuxFrameType.PONG
+                payload = ByteArray(MUX_PING_NONCE_SIZE).also { putUInt64BE(it, 0, frame.nonce) }
+            }
         }
 
         val result = ByteArray(MUX_HEADER_SIZE + payload.size)
@@ -79,6 +87,22 @@ object MuxCodec {
                 }
                 MuxFrame.Error(streamId, errorCode, message)
             }
+            MuxFrameType.PING -> {
+                if (payload.size != MUX_PING_NONCE_SIZE) {
+                    throw MuxProtocolException(
+                        "PING payload wrong size: ${payload.size}, expected $MUX_PING_NONCE_SIZE"
+                    )
+                }
+                MuxFrame.Ping(getUInt64BE(payload, 0))
+            }
+            MuxFrameType.PONG -> {
+                if (payload.size != MUX_PING_NONCE_SIZE) {
+                    throw MuxProtocolException(
+                        "PONG payload wrong size: ${payload.size}, expected $MUX_PING_NONCE_SIZE"
+                    )
+                }
+                MuxFrame.Pong(getUInt64BE(payload, 0))
+            }
             else -> throw MuxProtocolException(
                 "Unknown frame type: 0x${type.toUByte().toString(16)}"
             )
@@ -97,6 +121,30 @@ object MuxCodec {
             (buf[offset + 1].toUByte().toUInt() shl 16) or
             (buf[offset + 2].toUByte().toUInt() shl 8) or
             buf[offset + 3].toUByte().toUInt()
+        )
+
+    @Suppress("MagicNumber")
+    private fun putUInt64BE(buf: ByteArray, offset: Int, value: ULong) {
+        buf[offset] = (value shr 56).toByte()
+        buf[offset + 1] = (value shr 48).toByte()
+        buf[offset + 2] = (value shr 40).toByte()
+        buf[offset + 3] = (value shr 32).toByte()
+        buf[offset + 4] = (value shr 24).toByte()
+        buf[offset + 5] = (value shr 16).toByte()
+        buf[offset + 6] = (value shr 8).toByte()
+        buf[offset + 7] = value.toByte()
+    }
+
+    @Suppress("MagicNumber")
+    private fun getUInt64BE(buf: ByteArray, offset: Int): ULong = (
+        (buf[offset].toUByte().toULong() shl 56) or
+            (buf[offset + 1].toUByte().toULong() shl 48) or
+            (buf[offset + 2].toUByte().toULong() shl 40) or
+            (buf[offset + 3].toUByte().toULong() shl 32) or
+            (buf[offset + 4].toUByte().toULong() shl 24) or
+            (buf[offset + 5].toUByte().toULong() shl 16) or
+            (buf[offset + 6].toUByte().toULong() shl 8) or
+            buf[offset + 7].toUByte().toULong()
         )
 }
 

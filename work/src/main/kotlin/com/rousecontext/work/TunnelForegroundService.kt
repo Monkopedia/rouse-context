@@ -24,6 +24,7 @@ import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -146,24 +147,33 @@ class TunnelForegroundService : LifecycleService() {
     }
 
     private suspend fun connectToRelay() {
-        val currentState = tunnelClient.state.value
-        if (currentState == TunnelState.CONNECTING) {
-            Log.i(TAG, "Already connecting, skipping")
-            return
-        }
-        if (currentState == TunnelState.ACTIVE) {
-            Log.i(TAG, "Tunnel is active with live streams, skipping reconnect")
-            return
-        }
-        if (currentState == TunnelState.CONNECTED) {
-            Log.i(TAG, "Already connected, disconnecting first to refresh")
-            // Mark intentional so the state observer doesn't trigger reconnect
-            // during the brief DISCONNECTED window before we call connect() below.
-            intentionalDisconnect = true
-            try {
-                tunnelClient.disconnect()
-            } catch (_: Exception) {
-                // Best-effort
+        when (val action = WakeReconnectDecider.decide(tunnelClient, HEALTH_CHECK_TIMEOUT)) {
+            WakeAction.AlreadyConnecting -> {
+                Log.i(TAG, "Already connecting, skipping")
+                return
+            }
+            WakeAction.Skip -> {
+                Log.i(TAG, "Tunnel is active and responsive, skipping reconnect")
+                return
+            }
+            is WakeAction.Reconnect -> {
+                val currentState = tunnelClient.state.value
+                if (action.wasStale) {
+                    Log.w(TAG, "Tunnel reports ACTIVE but failed health check, reconnecting")
+                }
+                if (currentState == TunnelState.ACTIVE || currentState == TunnelState.CONNECTED) {
+                    if (!action.wasStale) {
+                        Log.i(TAG, "Already connected, disconnecting first to refresh")
+                    }
+                    // Mark intentional so the state observer doesn't trigger reconnect
+                    // during the brief DISCONNECTED window before we call connect() below.
+                    intentionalDisconnect = true
+                    try {
+                        tunnelClient.disconnect()
+                    } catch (_: Exception) {
+                        // Best-effort
+                    }
+                }
             }
         }
         // Clear the flag before connecting so future unexpected disconnects
@@ -314,6 +324,13 @@ class TunnelForegroundService : LifecycleService() {
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
         private const val RECONNECT_GIVE_UP_MS = 5 * 60 * 1000L
         private const val STALE_CHECK_THRESHOLD_MS = 6 * 60 * 60 * 1000L
+
+        /**
+         * How long to wait for a mux-level Pong before declaring the tunnel
+         * dead on an FCM wake. Kept short because the user-facing Claude
+         * request is already stalled; we'd rather reconnect than wait.
+         */
+        private val HEALTH_CHECK_TIMEOUT = 2.seconds
 
         fun createWakeLock(service: TunnelForegroundService): WakeLockHandle {
             val pm = service.getSystemService(PowerManager::class.java)

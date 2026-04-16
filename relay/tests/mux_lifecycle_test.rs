@@ -265,6 +265,61 @@ async fn send_stream_refused_sends_error_frame() {
 }
 
 #[tokio::test]
+async fn ping_frame_is_echoed_as_pong_without_opening_stream() {
+    // The relay must reply to a device Ping with Pong carrying the same nonce,
+    // and MUST NOT treat the Ping as a stream-open request.
+    let relay_state = Arc::new(RelayState::new());
+    relay_state.register_mux_connection("dev");
+
+    let mut session = MuxSession::new("dev".to_string(), 8);
+    let mut frame_rx = session.take_frame_rx().unwrap();
+
+    assert_eq!(session.active_stream_count(), 0);
+
+    let nonce: u64 = 0xAAAA_BBBB_CCCC_DDDD;
+    let ping = Frame {
+        frame_type: FrameType::Ping,
+        stream_id: 0,
+        payload: nonce.to_be_bytes().to_vec(),
+    };
+    session.dispatch_incoming(ping, &relay_state).await;
+
+    // A Pong should have been queued for sending back over the WebSocket.
+    let pong = tokio::time::timeout(std::time::Duration::from_millis(500), frame_rx.recv())
+        .await
+        .expect("Pong not sent within 500ms")
+        .expect("frame_rx closed");
+
+    assert_eq!(pong.frame_type, FrameType::Pong);
+    assert_eq!(pong.stream_id, 0);
+    assert_eq!(pong.payload.len(), 8);
+    let recovered = u64::from_be_bytes(pong.payload.try_into().unwrap());
+    assert_eq!(recovered, nonce, "Pong must echo the Ping nonce");
+
+    // Critically: Ping must NOT have been interpreted as an Open.
+    assert_eq!(session.active_stream_count(), 0);
+}
+
+#[tokio::test]
+async fn pong_frame_is_noop_on_relay() {
+    // Relay currently only receives Pongs in response to client-initiated Pings.
+    // It should accept them without opening streams or erroring out.
+    let relay_state = Arc::new(RelayState::new());
+    relay_state.register_mux_connection("dev");
+
+    let mut session = MuxSession::new("dev".to_string(), 8);
+    let _frame_rx = session.take_frame_rx().unwrap();
+
+    let pong = Frame {
+        frame_type: FrameType::Pong,
+        stream_id: 0,
+        payload: 42u64.to_be_bytes().to_vec(),
+    };
+    session.dispatch_incoming(pong, &relay_state).await;
+    assert_eq!(session.active_stream_count(), 0);
+}
+
+#[tokio::test]
 async fn full_lifecycle_open_data_close() {
     let relay_state = Arc::new(RelayState::new());
     relay_state.register_mux_connection("dev");

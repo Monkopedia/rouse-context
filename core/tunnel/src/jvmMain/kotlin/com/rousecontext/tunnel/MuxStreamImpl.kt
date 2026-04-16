@@ -6,9 +6,17 @@ import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
  * Concrete implementation of [MuxStream] backed by the [MuxDemux].
+ *
+ * [onLocalClose] is invoked by [close] (the locally-initiated close path) so
+ * the demux can decrement its active-stream counter. Peer-initiated closes go
+ * through [receiveClose] / [receiveError], which the demux dispatches directly
+ * and accounts for there.
  */
-class MuxStreamImpl(override val id: UInt, private val sendFrame: suspend (MuxFrame) -> Unit) :
-    MuxStream {
+class MuxStreamImpl(
+    override val id: UInt,
+    private val onLocalClose: suspend () -> Unit = {},
+    private val sendFrame: suspend (MuxFrame) -> Unit
+) : MuxStream {
 
     private val dataChannel = Channel<ByteArray>(Channel.BUFFERED)
 
@@ -32,6 +40,11 @@ class MuxStreamImpl(override val id: UInt, private val sendFrame: suspend (MuxFr
             // Best-effort: connection may already be broken
         }
         dataChannel.close()
+        try {
+            onLocalClose()
+        } catch (_: Exception) {
+            // Best-effort cleanup; do not propagate failures from the demux.
+        }
     }
 
     /**

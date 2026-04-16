@@ -144,6 +144,29 @@ impl MuxSession {
                     "Unexpected OPEN frame from device"
                 );
             }
+            FrameType::Ping => {
+                // Echo the nonce back in a Pong frame. stream_id and payload
+                // are copied verbatim so the client can match the response to
+                // its request. See issue #179 for the wire-format rationale.
+                let pong = Frame {
+                    frame_type: FrameType::Pong,
+                    stream_id: frame.stream_id,
+                    payload: frame.payload,
+                };
+                if let Err(e) = self.frame_tx.send(pong).await {
+                    debug!(
+                        subdomain = %self.subdomain,
+                        error = %e,
+                        "Failed to send Pong reply"
+                    );
+                }
+            }
+            FrameType::Pong => {
+                // Relay does not currently initiate Pings, so Pongs arriving
+                // here are stray. Accept silently; future keepalive telemetry
+                // could track them.
+                debug!(subdomain = %self.subdomain, "Received unsolicited Pong, ignoring");
+            }
         }
     }
 

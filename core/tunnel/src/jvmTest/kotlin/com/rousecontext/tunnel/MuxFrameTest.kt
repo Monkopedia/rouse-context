@@ -261,6 +261,70 @@ class MuxFrameTest {
     }
 
     @Test
+    fun encodePingFrame() {
+        val nonce = 0xDEADBEEFCAFEBABEUL
+        val frame = MuxFrame.Ping(nonce)
+        val encoded = MuxCodec.encode(frame)
+
+        assertEquals(MUX_HEADER_SIZE + 8, encoded.size)
+        assertEquals(MuxFrameType.PING, encoded[0])
+        // stream_id = 0 (reserved for Ping/Pong)
+        assertEquals(0x00.toByte(), encoded[1])
+        assertEquals(0x00.toByte(), encoded[2])
+        assertEquals(0x00.toByte(), encoded[3])
+        assertEquals(0x00.toByte(), encoded[4])
+        // nonce as u64 BE
+        assertEquals(0xDE.toByte(), encoded[5])
+        assertEquals(0xAD.toByte(), encoded[6])
+        assertEquals(0xBE.toByte(), encoded[7])
+        assertEquals(0xEF.toByte(), encoded[8])
+        assertEquals(0xCA.toByte(), encoded[9])
+        assertEquals(0xFE.toByte(), encoded[10])
+        assertEquals(0xBA.toByte(), encoded[11])
+        assertEquals(0xBE.toByte(), encoded[12])
+    }
+
+    @Test
+    fun encodePongFrame() {
+        val nonce = 0x0123456789ABCDEFUL
+        val frame = MuxFrame.Pong(nonce)
+        val encoded = MuxCodec.encode(frame)
+
+        assertEquals(MUX_HEADER_SIZE + 8, encoded.size)
+        assertEquals(MuxFrameType.PONG, encoded[0])
+    }
+
+    @Test
+    fun roundTripPingFrame() {
+        val original = MuxFrame.Ping(nonce = 0xFFFFFFFFFFFFFFFFUL)
+        val decoded = MuxCodec.decode(MuxCodec.encode(original))
+        assertEquals(original, decoded)
+        assertEquals(0u, decoded.streamId) // Ping/Pong always use stream 0
+    }
+
+    @Test
+    fun roundTripPongFrame() {
+        val original = MuxFrame.Pong(nonce = 0x1234567812345678UL)
+        val decoded = MuxCodec.decode(MuxCodec.encode(original))
+        assertEquals(original, decoded)
+    }
+
+    @Test
+    fun decodePingWithShortPayloadThrows() {
+        // PING frame needs exactly 8 payload bytes for the nonce
+        val bytes = byteArrayOf(
+            MuxFrameType.PING,
+            0x00, 0x00, 0x00, 0x00,
+            // only 4 bytes of nonce, need 8
+            0x00, 0x00, 0x00, 0x00
+        )
+
+        assertFailsWith<MuxProtocolException> {
+            MuxCodec.decode(bytes)
+        }
+    }
+
+    @Test
     fun largeStreamId() {
         val frame = MuxFrame.Open(streamId = 0xFFFFFFFFu)
         val encoded = MuxCodec.encode(frame)

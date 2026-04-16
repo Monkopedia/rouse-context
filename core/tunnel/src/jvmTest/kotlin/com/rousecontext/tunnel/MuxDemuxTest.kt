@@ -182,6 +182,188 @@ class MuxDemuxTest {
     }
 
     @Test
+    fun openIncrementsActiveStreamCount() = runBlocking {
+        val demux = MuxDemux()
+        assertEquals(0, demux.activeStreamCount.value)
+
+        launch { demux.incomingStreams.first() }
+
+        demux.handleFrame(MuxFrame.Open(streamId = 1u))
+
+        // Wait until the counter reflects the Open
+        kotlinx.coroutines.withTimeout(1000) {
+            while (demux.activeStreamCount.value != 1) {
+                kotlinx.coroutines.delay(5)
+            }
+        }
+        assertEquals(1, demux.activeStreamCount.value)
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun peerCloseDecrementsActiveStreamCount() = runBlocking {
+        val demux = MuxDemux()
+        launch { demux.incomingStreams.first() }
+
+        demux.handleFrame(MuxFrame.Open(streamId = 1u))
+        kotlinx.coroutines.withTimeout(1000) {
+            while (demux.activeStreamCount.value != 1) kotlinx.coroutines.delay(5)
+        }
+        assertEquals(1, demux.activeStreamCount.value)
+
+        // Peer-initiated Close must decrement the counter via the demux path,
+        // not just via the StreamCloseTracker wrapper (which previously missed this).
+        demux.handleFrame(MuxFrame.Close(streamId = 1u))
+        assertEquals(0, demux.activeStreamCount.value)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun peerErrorDecrementsActiveStreamCount() = runBlocking {
+        val demux = MuxDemux()
+        launch { demux.incomingStreams.first() }
+
+        demux.handleFrame(MuxFrame.Open(streamId = 1u))
+        kotlinx.coroutines.withTimeout(1000) {
+            while (demux.activeStreamCount.value != 1) kotlinx.coroutines.delay(5)
+        }
+
+        demux.handleFrame(
+            MuxFrame.Error(
+                streamId = 1u,
+                errorCode = MuxErrorCode.STREAM_RESET,
+                message = "boom"
+            )
+        )
+
+        assertEquals(0, demux.activeStreamCount.value)
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun localCloseDecrementsActiveStreamCount() = runBlocking {
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { /* swallow */ }
+
+        val streamReady = CompletableDeferred<MuxStreamImpl>()
+        launch { streamReady.complete(demux.incomingStreams.first()) }
+
+        demux.handleFrame(MuxFrame.Open(streamId = 7u))
+        val stream = streamReady.await()
+        kotlinx.coroutines.withTimeout(1000) {
+            while (demux.activeStreamCount.value != 1) kotlinx.coroutines.delay(5)
+        }
+
+        // Close locally -- should also decrement the counter.
+        stream.close()
+
+        kotlinx.coroutines.withTimeout(1000) {
+            while (demux.activeStreamCount.value != 0) kotlinx.coroutines.delay(5)
+        }
+        assertEquals(0, demux.activeStreamCount.value)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun pingTriggersPongEcho() = runBlocking {
+        val sentFrames = mutableListOf<MuxFrame>()
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { f -> synchronized(sentFrames) { sentFrames.add(f) } }
+
+        demux.handleFrame(MuxFrame.Ping(nonce = 0x1122334455667788UL))
+
+        kotlinx.coroutines.withTimeout(1000) {
+            while (synchronized(sentFrames) { sentFrames.isEmpty() }) {
+                kotlinx.coroutines.delay(5)
+            }
+        }
+
+        val pong = synchronized(sentFrames) { sentFrames.single() }
+        assertTrue(pong is MuxFrame.Pong, "Expected Pong, got $pong")
+        assertEquals(0x1122334455667788UL, (pong as MuxFrame.Pong).nonce)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun pingDoesNotOpenStream() = runBlocking {
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { }
+
+        val streamSeen = CompletableDeferred<MuxStreamImpl>()
+        launch {
+            try {
+                streamSeen.complete(demux.incomingStreams.first())
+            } catch (_: Exception) {
+                // channel may close, that's fine
+            }
+        }
+
+        demux.handleFrame(MuxFrame.Ping(nonce = 1u))
+        kotlinx.coroutines.delay(100)
+
+        // No stream should have been emitted
+        assertTrue(!streamSeen.isCompleted, "Ping must not open a stream")
+        assertEquals(0, demux.activeStreamCount.value)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun awaitPongCompletesWhenMatchingPongArrives() = runBlocking {
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { /* swallow */ }
+
+        // Send a ping and race a Pong reply back through handleFrame.
+        val result = CompletableDeferred<Boolean>()
+        launch {
+            result.complete(
+                demux.sendPingAwaitPong(timeoutMillis = 1_000L, nonce = 0xABCDu.toULong())
+            )
+        }
+
+        // Simulate the relay sending back a Pong.
+        kotlinx.coroutines.delay(50)
+        demux.handleFrame(MuxFrame.Pong(nonce = 0xABCDu.toULong()))
+
+        assertTrue(result.await(), "Matching Pong should complete the wait")
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun awaitPongReturnsFalseOnTimeout() = runBlocking {
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { /* swallow */ }
+
+        val result = demux.sendPingAwaitPong(timeoutMillis = 100L, nonce = 1u.toULong())
+        assertEquals(false, result, "No Pong -> should time out")
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun awaitPongIgnoresMismatchedNonce() = runBlocking {
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { /* swallow */ }
+
+        val result = CompletableDeferred<Boolean>()
+        launch {
+            result.complete(
+                demux.sendPingAwaitPong(timeoutMillis = 300L, nonce = 100u.toULong())
+            )
+        }
+
+        // Inject a Pong with a DIFFERENT nonce -- should not unblock.
+        kotlinx.coroutines.delay(50)
+        demux.handleFrame(MuxFrame.Pong(nonce = 999u.toULong()))
+
+        assertEquals(false, result.await(), "Mismatched nonce must not satisfy the wait")
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
     fun rejectedOpenInvokesLogLambda() = runBlocking {
         val captured = mutableListOf<Pair<LogLevel, String>>()
         val demux = MuxDemux(log = { level, msg -> captured.add(level to msg) })

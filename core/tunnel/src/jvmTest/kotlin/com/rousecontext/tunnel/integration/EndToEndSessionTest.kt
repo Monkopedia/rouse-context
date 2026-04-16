@@ -887,6 +887,67 @@ class EndToEndSessionTest {
         coroutineContext.cancelChildren()
     }
 
+    // =========================================================================
+    // Scenario: healthCheck against the real relay
+    // =========================================================================
+
+    /**
+     * Real-relay integration of [TunnelClient.healthCheck]. The relay's
+     * production `dispatch_incoming` implementation must answer a Ping with a
+     * matching Pong without opening a stream. See issue #179.
+     */
+    @Test
+    fun `healthCheck succeeds against live relay`() = runBlocking {
+        val tunnelClient = connectTunnelClient()
+        try {
+            val live = tunnelClient.healthCheck(kotlin.time.Duration.parse("2s"))
+            assertTrue(live, "Live relay must answer Ping with matching Pong")
+        } finally {
+            tunnelClient.disconnect()
+            coroutineContext.cancelChildren()
+        }
+    }
+
+    /**
+     * When the relay process is killed mid-session, healthCheck should return
+     * false within the timeout and the TunnelClient must transition out of
+     * ACTIVE/CONNECTED. This is the load-bearing guarantee for
+     * [TunnelForegroundService]'s wake-path decision: on a dead socket, the
+     * service must fall through to reconnect instead of skipping.
+     */
+    @Test
+    fun `healthCheck fails and state flips when relay is killed`() = runBlocking {
+        val tunnelClient = connectTunnelClient()
+        try {
+            // Baseline: relay is up, healthCheck must succeed.
+            assertTrue(
+                tunnelClient.healthCheck(kotlin.time.Duration.parse("2s")),
+                "Prereq: live relay should answer Ping"
+            )
+
+            // Kill the relay process. The TCP reset may take a moment to
+            // propagate back; healthCheck with a bounded deadline must still
+            // return false, and the state must eventually flip out of
+            // CONNECTED/ACTIVE.
+            relayManager.stop()
+
+            val live = tunnelClient.healthCheck(kotlin.time.Duration.parse("2s"))
+            assertTrue(!live, "healthCheck must return false after relay killed")
+
+            withTimeout(30_000) {
+                while (tunnelClient.state.value == TunnelState.CONNECTED ||
+                    tunnelClient.state.value == TunnelState.ACTIVE
+                ) {
+                    delay(100)
+                }
+            }
+            assertEquals(TunnelState.DISCONNECTED, tunnelClient.state.value)
+        } finally {
+            runCatching { tunnelClient.disconnect() }
+            coroutineContext.cancelChildren()
+        }
+    }
+
     // Note: scenario 21 (multiple simultaneous TunnelClientImpl connections
     // with the same device cert) is intentionally omitted. The relay's behavior
     // when two connections present the same device cert is undefined -- it may

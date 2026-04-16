@@ -16,6 +16,13 @@ pub enum FrameError {
 }
 
 /// Mux frame types matching the Kotlin client.
+///
+/// `Ping` (0x04) and `Pong` (0x05) provide an application-layer keepalive on
+/// top of the WebSocket. The receiver of a Ping must immediately reply with a
+/// Pong carrying the identical payload (a u64 nonce encoded big-endian). Both
+/// frame types reserve `stream_id = 0` and MUST NOT be interpreted as
+/// stream-open requests. See issue #179 for the motivating half-open-socket
+/// bug.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FrameType {
@@ -23,6 +30,8 @@ pub enum FrameType {
     Open = 0x01,
     Close = 0x02,
     Error = 0x03,
+    Ping = 0x04,
+    Pong = 0x05,
 }
 
 impl FrameType {
@@ -32,6 +41,8 @@ impl FrameType {
             0x01 => Ok(FrameType::Open),
             0x02 => Ok(FrameType::Close),
             0x03 => Ok(FrameType::Error),
+            0x04 => Ok(FrameType::Ping),
+            0x05 => Ok(FrameType::Pong),
             other => Err(FrameError::UnknownType(other)),
         }
     }

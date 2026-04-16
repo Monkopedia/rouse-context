@@ -171,6 +171,49 @@ fn error_code_values_match_spec() {
 }
 
 #[test]
+fn encode_decode_ping_frame() {
+    // Ping frames carry an 8-byte nonce (u64 BE) as payload and use stream_id 0.
+    let nonce: u64 = 0xDEAD_BEEF_CAFE_BABE;
+    let frame = Frame {
+        frame_type: FrameType::Ping,
+        stream_id: 0,
+        payload: nonce.to_be_bytes().to_vec(),
+    };
+    let encoded = frame.encode();
+    assert_eq!(encoded[0], 0x04);
+    let decoded = Frame::decode(&encoded).unwrap();
+    assert_eq!(decoded.frame_type, FrameType::Ping);
+    assert_eq!(decoded.stream_id, 0);
+    assert_eq!(decoded.payload.len(), 8);
+    let recovered = u64::from_be_bytes(decoded.payload.try_into().unwrap());
+    assert_eq!(recovered, nonce);
+}
+
+#[test]
+fn encode_decode_pong_frame() {
+    let nonce: u64 = 0x0123_4567_89AB_CDEF;
+    let frame = Frame {
+        frame_type: FrameType::Pong,
+        stream_id: 0,
+        payload: nonce.to_be_bytes().to_vec(),
+    };
+    let encoded = frame.encode();
+    assert_eq!(encoded[0], 0x05);
+    let decoded = Frame::decode(&encoded).unwrap();
+    assert_eq!(decoded.frame_type, FrameType::Pong);
+    assert_eq!(decoded.stream_id, 0);
+    assert_eq!(decoded.payload.len(), 8);
+    let recovered = u64::from_be_bytes(decoded.payload.try_into().unwrap());
+    assert_eq!(recovered, nonce);
+}
+
+#[test]
+fn ping_frame_type_numeric_value() {
+    assert_eq!(FrameType::Ping as u8, 0x04);
+    assert_eq!(FrameType::Pong as u8, 0x05);
+}
+
+#[test]
 fn unknown_error_code_returns_error() {
     let mut payload = 999u32.to_be_bytes().to_vec();
     payload.extend_from_slice(b"unknown");

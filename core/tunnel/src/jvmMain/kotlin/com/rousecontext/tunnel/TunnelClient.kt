@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+import kotlin.time.Duration
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +31,25 @@ interface TunnelClient {
      * Safe to call multiple times (e.g. when the FCM token refreshes).
      */
     suspend fun sendFcmToken(token: String)
+
+    /**
+     * Actively probe whether the tunnel is alive.
+     *
+     * Sends an application-layer Ping on the mux channel and waits up to
+     * [timeout] for the matching Pong. Returns true iff a Pong arrived before
+     * the deadline.
+     *
+     * Callers should prefer this over reading [state] when they need a
+     * ground-truth check (e.g. on FCM wake, before deciding to skip reconnect).
+     * A half-open TCP socket will happily sit in [TunnelState.ACTIVE] while
+     * silently eating packets; a Ping with a bounded deadline is the only
+     * reliable way to catch that.
+     *
+     * Returns false if the tunnel is not currently connected, if the write
+     * fails, or if no Pong arrives within [timeout]. After a false result the
+     * caller should tear down and reconnect the tunnel.
+     */
+    suspend fun healthCheck(timeout: Duration): Boolean
 
     /**
      * Flow of incoming mux sessions.
