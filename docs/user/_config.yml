@@ -1,6 +1,7 @@
 title: Rouse Context
 description: Your phone as an on-demand MCP server for AI assistants.
 url: https://rousecontext.com
+baseurl: ""
 
 remote_theme: just-the-docs/just-the-docs
 
