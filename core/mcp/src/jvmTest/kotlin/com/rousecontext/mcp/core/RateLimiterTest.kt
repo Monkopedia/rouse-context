@@ -176,7 +176,9 @@ class RateLimiterTest {
     }
 
     @Test
-    fun `token endpoint returns 429 when rate limited`() = testApplication {
+    fun `token endpoint is not rate limited`() = testApplication {
+        // Token exchange is legitimately polled many times during device-code flow,
+        // so the rate limiter must NOT apply to /token even when one is configured.
         val registry = InMemoryProviderRegistry()
         registry.register("health", stubProvider())
         registry.setEnabled("health", true)
@@ -197,18 +199,103 @@ class RateLimiterTest {
             )
         }
 
-        // First request
-        val first = client.post("/token") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"grant_type":"authorization_code","code":"x","code_verifier":"y"}""")
+        // Hit the device-code poll endpoint well beyond the rate limit.
+        // Each returns an OAuth error (invalid_grant / authorization_pending),
+        // but NONE should ever return 429.
+        repeat(POLL_REQUEST_COUNT) { i ->
+            val response = client.post("/token") {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    """{"grant_type":"urn:ietf:params:oauth:grant-type:device_code",""" +
+                        """"device_code":"nonexistent"}"""
+                )
+            }
+            assertTrue(
+                "Poll request ${i + 1} should not be 429, was ${response.status}",
+                response.status != HttpStatusCode.TooManyRequests
+            )
         }
-        assertTrue(first.status != HttpStatusCode.TooManyRequests)
+    }
 
-        // Second should be rate limited
-        val second = client.post("/token") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"grant_type":"authorization_code","code":"x","code_verifier":"y"}""")
+    @Test
+    fun `authorize rate limit window resets after elapsed time`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        registry.register("health", stubProvider())
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+        val clock = FakeClock()
+        val rateLimiter = RateLimiter(maxRequests = 5, windowMs = 60_000L, clock = clock)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com",
+                integration = "health",
+                clock = clock,
+                rateLimiter = rateLimiter
+            )
         }
-        assertEquals(HttpStatusCode.TooManyRequests, second.status)
+
+        // Exhaust the window.
+        repeat(5) {
+            val response = client.get("/authorize")
+            assertTrue(
+                "Request ${it + 1} should not be 429, was ${response.status}",
+                response.status != HttpStatusCode.TooManyRequests
+            )
+        }
+        val blocked = client.get("/authorize")
+        assertEquals(HttpStatusCode.TooManyRequests, blocked.status)
+
+        // Advance past the window and confirm requests are allowed again.
+        clock.advanceSeconds(61)
+        val afterReset = client.get("/authorize")
+        assertTrue(
+            "After window reset the request should not be 429, was ${afterReset.status}",
+            afterReset.status != HttpStatusCode.TooManyRequests
+        )
+    }
+
+    @Test
+    fun `default McpSession rate limiter blocks authorize after threshold`() = testApplication {
+        // Verifies the McpSession-level default is applied when no explicit limiter
+        // is configured, matching production wiring from AppModule.
+        val registry = InMemoryProviderRegistry()
+        registry.register("health", stubProvider())
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+
+        application {
+            configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = deviceCodeManager,
+                hostname = "test.rousecontext.com",
+                integration = "health",
+                // Use the defaults McpSession supplies in production.
+                rateLimiter = McpSession.defaultOAuthInitRateLimiter()
+            )
+        }
+
+        // 5 requests within the default window are allowed.
+        repeat(OAUTH_INIT_DEFAULT_LIMIT) {
+            val response = client.get("/authorize")
+            assertTrue(
+                "Request ${it + 1} should not be 429, was ${response.status}",
+                response.status != HttpStatusCode.TooManyRequests
+            )
+        }
+        // The 6th is blocked.
+        val blocked = client.get("/authorize")
+        assertEquals(HttpStatusCode.TooManyRequests, blocked.status)
+    }
+
+    companion object {
+        private const val POLL_REQUEST_COUNT = 12
+        private const val OAUTH_INIT_DEFAULT_LIMIT = 5
     }
 }

@@ -436,17 +436,19 @@ internal class McpRoutes(
         )
     }
 
-    // Token exchange -- handles both authorization_code and device_code
+    // Token exchange -- handles both authorization_code and device_code.
+    //
+    // Intentionally NOT rate-limited: device-code clients poll this endpoint
+    // at `interval` seconds (RFC 8628) until the user approves or denies, so
+    // legitimate usage may produce many requests per client. Misuse is bounded
+    // by `/authorize` and `/device/authorize` rate limits above, which gate
+    // the codes that `/token` can redeem.
     @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod")
     suspend fun RoutingCall.handleToken() {
         if (rejectIfSecurityAlert()) return
         val ri = resolveIntegration()
         if (registry.providerForPath(ri) == null) {
             respond(HttpStatusCode.NotFound)
-            return
-        }
-        if (rateLimiter != null && !rateLimiter.tryAcquire("$ri/token")) {
-            respond(HttpStatusCode.TooManyRequests)
             return
         }
 

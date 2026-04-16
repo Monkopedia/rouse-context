@@ -38,7 +38,7 @@ class McpSession(
     private val auditListener: AuditListener? = null,
     private val hostname: String = "localhost",
     private val integration: String = "health",
-    private val rateLimiter: RateLimiter? = null,
+    private val rateLimiter: RateLimiter? = defaultOAuthInitRateLimiter(),
     private val mcpRateLimiter: RateLimiter? = null,
     private val securityAlertCheck: (() -> Boolean)? = null,
     private val serverName: String = "rouse-context",
@@ -129,5 +129,27 @@ class McpSession(
          * LAN. See issue #127.
          */
         private const val LOOPBACK_HOST = "127.0.0.1"
+
+        /**
+         * Default per-integration limit for the OAuth initiation endpoints
+         * (`/authorize`, `/device/authorize`, and `/register`): five requests
+         * every sixty seconds.
+         *
+         * The bind host is `127.0.0.1` (see #127) so all callers share the
+         * loopback address, which makes the sliding window effectively
+         * per-device. This is intentional: the threat being mitigated is a
+         * hostile same-device app spamming the user's approval UI through
+         * these endpoints. The token-exchange endpoint is deliberately
+         * excluded — device-code polling legitimately hits it many times.
+         * See issue #176.
+         */
+        const val OAUTH_INIT_MAX_REQUESTS: Int = 5
+        const val OAUTH_INIT_WINDOW_MS: Long = 60_000L
+
+        fun defaultOAuthInitRateLimiter(clock: Clock = SystemClock): RateLimiter = RateLimiter(
+            maxRequests = OAUTH_INIT_MAX_REQUESTS,
+            windowMs = OAUTH_INIT_WINDOW_MS,
+            clock = clock
+        )
     }
 }
