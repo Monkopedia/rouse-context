@@ -193,9 +193,14 @@ async fn main() {
     // Throttle must be shorter than fcm_wakeup_timeout so a failed wake
     // allows a retry on the next client connection.
     let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(10)));
-    // OAuth flow needs ~8+ connections (discovery, register, authorize, token, mcp).
-    // 5 was too low and caused token exchange failures.
-    let conn_rate_limiter = Arc::new(ConnectionRateLimiter::new(20, Duration::from_secs(60)));
+    // All AI-client requests for a given user come from a single backend IP
+    // (e.g. Anthropic's MCP gateway), so this limit is effectively per-user,
+    // not per-attacker. Claude's integration discovery/setup can fire 10+
+    // connections within a second; 20/min got tripped repeatedly in prod
+    // logs (ivory subdomain, 2026-04-16). 200/min is comfortably above
+    // realistic bursts while still blocking naive scanners. Follow-up #NN
+    // to make this configurable.
+    let conn_rate_limiter = Arc::new(ConnectionRateLimiter::new(200, Duration::from_secs(60)));
 
     // Accept loop
     info!("Accept loop running");
