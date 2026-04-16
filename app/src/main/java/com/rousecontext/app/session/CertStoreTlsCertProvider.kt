@@ -68,7 +68,13 @@ class CertStoreTlsCertProvider(private val certStore: CertificateStore) : TlsCer
             .replace("-----END PRIVATE KEY-----", "")
             .replace("\\s".toRegex(), "")
         val der = Base64.getDecoder().decode(body)
-        val keyFactory = KeyFactory.getInstance("RSA")
-        return keyFactory.generatePrivate(PKCS8EncodedKeySpec(der))
+        val spec = PKCS8EncodedKeySpec(der)
+        // Try EC first — post-#173 CsrGenerator emits ECDSA P-256. RSA kept for
+        // devices that still have pre-#173 keys stored.
+        return try {
+            KeyFactory.getInstance("EC").generatePrivate(spec)
+        } catch (_: Exception) {
+            KeyFactory.getInstance("RSA").generatePrivate(spec)
+        }
     }
 }
