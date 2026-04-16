@@ -81,9 +81,10 @@ class WorkManagerFactoryIntegrationTest {
 
         wm.enqueue(request).result.get()
 
-        val info = requireNotNull(wm.getWorkInfoById(request.id).get()) {
-            "WorkInfo must be present after enqueue"
-        }
+        // After the DataStore migration (#116) SecurityCheckPreferences is suspend-backed,
+        // so SynchronousExecutor no longer drains the worker's structured-concurrency work
+        // by the time enqueue().result.get() returns. Poll for a terminal state instead.
+        val info = pollWorkInfoUntilFinished(wm, request.id, timeoutMs = 5_000)
         assertEquals(
             "Worker should have succeeded (injection + check + prefs update)",
             WorkInfo.State.SUCCEEDED,
@@ -97,6 +98,28 @@ class WorkManagerFactoryIntegrationTest {
             assertEquals("verified", prefs.selfCertResult())
             assertEquals("verified", prefs.ctLogResult())
         }
+    }
+
+    private fun pollWorkInfoUntilFinished(
+        wm: WorkManager,
+        id: java.util.UUID,
+        timeoutMs: Long,
+        pollIntervalMs: Long = 50
+    ): WorkInfo {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var last: WorkInfo? = null
+        while (System.currentTimeMillis() < deadline) {
+            val info = wm.getWorkInfoById(id).get()
+            if (info != null) {
+                last = info
+                if (info.state.isFinished) return info
+            }
+            Thread.sleep(pollIntervalMs)
+        }
+        throw AssertionError(
+            "WorkInfo did not reach a terminal state within ${timeoutMs}ms " +
+                "(last state=${last?.state})"
+        )
     }
 }
 
