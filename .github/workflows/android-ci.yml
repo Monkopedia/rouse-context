@@ -54,11 +54,11 @@ jobs:
         run: bash scripts/check-zombie-screens.sh
       - name: Build
         run: ./gradlew assembleDebug
-      - name: Test
+      - name: Unit tests
+        timeout-minutes: 20
         run: |
           ./gradlew \
             :core:tunnel:jvmTest \
-            :core:tunnel:integrationTest \
             :core:mcp:jvmTest \
             :core:bridge:jvmTest \
             :api:testDebugUnitTest \
@@ -66,6 +66,9 @@ jobs:
             :work:testDebugUnitTest \
             :integrations:testDebugUnitTest \
             :app:testDebugUnitTest
+      - name: Integration tests (relay)
+        timeout-minutes: 10
+        run: ./gradlew :core:tunnel:integrationTest
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
