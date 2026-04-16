@@ -113,11 +113,15 @@ class McpProtocolTest {
         return Triple(registry, tokenStore, token)
     }
 
+    /** Session id holder, set by [initialize] and used by [mcpPost]. */
+    private var currentSessionId: String? = null
+
     private suspend fun io.ktor.client.HttpClient.mcpPost(
         token: String,
         body: String
     ): io.ktor.client.statement.HttpResponse = post("/mcp") {
         header("Authorization", "Bearer $token")
+        currentSessionId?.let { header("Mcp-Session-Id", it) }
         contentType(ContentType.Application.Json)
         setBody(body)
     }
@@ -128,7 +132,11 @@ class McpProtocolTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
+        // Don't send Mcp-Session-Id on initialize (creates a new session)
+        val prevSessionId = currentSessionId
+        currentSessionId = null
         val response = mcpPost(token, initRequest)
+        currentSessionId = response.headers["Mcp-Session-Id"] ?: prevSessionId
         return response.bodyAsText()
     }
 
@@ -575,12 +583,13 @@ class McpProtocolTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        client.post("/mcp") {
+        val initResp = client.post("/mcp") {
             header("Authorization", "Bearer $notifToken")
             header("Host", "brave-notifications.abc123.rousecontext.com")
             contentType(ContentType.Application.Json)
             setBody(initRequest)
         }
+        val sessionId = initResp.headers["Mcp-Session-Id"]!!
 
         // Tool call with notifications Host header
         val callRequest = mcpJsonRpc(
@@ -591,6 +600,7 @@ class McpProtocolTest {
         val response = client.post("/mcp") {
             header("Authorization", "Bearer $notifToken")
             header("Host", "brave-notifications.abc123.rousecontext.com")
+            header("Mcp-Session-Id", sessionId)
             contentType(ContentType.Application.Json)
             setBody(callRequest)
         }

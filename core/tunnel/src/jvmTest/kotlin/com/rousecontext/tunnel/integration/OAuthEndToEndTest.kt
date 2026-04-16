@@ -356,6 +356,7 @@ class OAuthEndToEndTest {
                 initResult!!.containsKey("protocolVersion"),
                 "Result should contain protocolVersion"
             )
+            val mcpSessionId = initResponse.headers["mcp-session-id"]
 
             // Send initialized notification (required by MCP protocol)
             httpRequest(
@@ -364,7 +365,8 @@ class OAuthEndToEndTest {
                 method = "POST",
                 path = "/mcp",
                 body = """{"jsonrpc":"2.0","method":"notifications/initialized"}""",
-                bearerToken = accessToken
+                bearerToken = accessToken,
+                sessionId = mcpSessionId
             )
 
             // --- Step 11: tools/list ---
@@ -374,7 +376,8 @@ class OAuthEndToEndTest {
                 method = "POST",
                 path = "/mcp",
                 body = mcpJsonRpc("tools/list", id = 2),
-                bearerToken = accessToken
+                bearerToken = accessToken,
+                sessionId = mcpSessionId
             )
             assertEquals(200, listResponse.statusCode)
             val listJson = mcpJson.parseToJsonElement(listResponse.body).jsonObject
@@ -397,7 +400,8 @@ class OAuthEndToEndTest {
                     """{"name":"echo","arguments":{"message":"hello through OAuth relay"}}""",
                     id = 3
                 ),
-                bearerToken = accessToken
+                bearerToken = accessToken,
+                sessionId = mcpSessionId
             )
             assertEquals(200, callResponse.statusCode)
             val callJson = mcpJson.parseToJsonElement(callResponse.body).jsonObject
@@ -558,7 +562,8 @@ class OAuthEndToEndTest {
         path: String,
         body: String? = null,
         bearerToken: String? = null,
-        contentType: String = "application/json"
+        contentType: String = "application/json",
+        sessionId: String? = null
     ): HttpResponse {
         val sb = StringBuilder()
         sb.append("$method $path HTTP/1.1\r\n")
@@ -572,6 +577,9 @@ class OAuthEndToEndTest {
         sb.append("Connection: keep-alive\r\n")
         if (bearerToken != null) {
             sb.append("Authorization: Bearer $bearerToken\r\n")
+        }
+        if (sessionId != null) {
+            sb.append("Mcp-Session-Id: $sessionId\r\n")
         }
         sb.append("\r\n")
 

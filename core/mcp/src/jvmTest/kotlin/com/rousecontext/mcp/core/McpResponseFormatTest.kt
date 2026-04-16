@@ -119,11 +119,12 @@ class McpResponseFormatTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        client.post("/mcp") {
+        val initResp = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(initRequest)
         }
+        val sessionId = initResp.headers["Mcp-Session-Id"]!!
 
         // Call tool
         val callRequest = mcpJsonRpc(
@@ -133,6 +134,7 @@ class McpResponseFormatTest {
         )
         val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
+            header("Mcp-Session-Id", sessionId)
             contentType(ContentType.Application.Json)
             setBody(callRequest)
         }
@@ -176,16 +178,18 @@ class McpResponseFormatTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        client.post("/mcp") {
+        val initResp = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)
             setBody(initRequest)
         }
+        val sessionId = initResp.headers["Mcp-Session-Id"]!!
 
         // List tools
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val response = client.post("/mcp") {
             header("Authorization", "Bearer $token")
+            header("Mcp-Session-Id", sessionId)
             contentType(ContentType.Application.Json)
             setBody(listRequest)
         }

@@ -57,20 +57,25 @@ class ErrorResponseTest {
         return Triple(registry, tokenStore, token)
     }
 
+    private var currentSessionId: String? = null
+
     private suspend fun io.ktor.client.HttpClient.mcpPost(
         token: String,
         body: String
     ): io.ktor.client.statement.HttpResponse = post("/mcp") {
         header("Authorization", "Bearer $token")
+        currentSessionId?.let { header("Mcp-Session-Id", it) }
         contentType(ContentType.Application.Json)
         setBody(body)
     }
 
     private suspend fun io.ktor.client.HttpClient.initialize(token: String) {
+        currentSessionId = null
         val initRequest = """{"jsonrpc":"2.0","method":"initialize",""" +
             """"params":{"protocolVersion":"2025-03-26","capabilities":{},""" +
             """"clientInfo":{"name":"test","version":"1.0"}},"id":1}"""
-        mcpPost(token, initRequest)
+        val resp = mcpPost(token, initRequest)
+        currentSessionId = resp.headers["Mcp-Session-Id"]
     }
 
     @Test

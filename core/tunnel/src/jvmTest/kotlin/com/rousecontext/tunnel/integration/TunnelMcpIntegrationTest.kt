@@ -221,13 +221,30 @@ class TunnelMcpIntegrationTest {
         )
     }
 
+    /**
+     * Result of a raw HTTP POST, carrying the response body and any
+     * `Mcp-Session-Id` header returned by the server.
+     */
+    private data class HttpResult(val body: String, val sessionId: String? = null)
+
     private fun httpPost(
         input: InputStream,
         output: OutputStream,
         path: String,
         body: String,
-        bearerToken: String? = null
-    ): String {
+        bearerToken: String? = null,
+        sessionId: String? = null
+    ): String = httpPostFull(input, output, path, body, bearerToken, sessionId).body
+
+    @Suppress("LongParameterList")
+    private fun httpPostFull(
+        input: InputStream,
+        output: OutputStream,
+        path: String,
+        body: String,
+        bearerToken: String? = null,
+        sessionId: String? = null
+    ): HttpResult {
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         val sb = StringBuilder()
         sb.append("POST $path HTTP/1.1\r\n")
@@ -237,6 +254,9 @@ class TunnelMcpIntegrationTest {
         sb.append("Connection: keep-alive\r\n")
         if (bearerToken != null) {
             sb.append("Authorization: Bearer $bearerToken\r\n")
+        }
+        if (sessionId != null) {
+            sb.append("Mcp-Session-Id: $sessionId\r\n")
         }
         sb.append("\r\n")
 
@@ -250,6 +270,7 @@ class TunnelMcpIntegrationTest {
 
         var contentLength = -1
         var chunked = false
+        var mcpSessionId: String? = null
         while (true) {
             val line = reader.readLine() ?: break
             if (line.isEmpty()) break
@@ -260,9 +281,12 @@ class TunnelMcpIntegrationTest {
             if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
                 chunked = true
             }
+            if (lower.startsWith("mcp-session-id:")) {
+                mcpSessionId = line.substringAfter(":").trim()
+            }
         }
 
-        return if (contentLength > 0) {
+        val responseBody = if (contentLength > 0) {
             val buf = CharArray(contentLength)
             var read = 0
             while (read < contentLength) {
@@ -276,6 +300,7 @@ class TunnelMcpIntegrationTest {
         } else {
             ""
         }
+        return HttpResult(responseBody, mcpSessionId)
     }
 
     private fun readChunkedBody(reader: BufferedReader): String {
@@ -398,19 +423,20 @@ class TunnelMcpIntegrationTest {
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"integration-test","version":"1.0"}}"""
         )
-        val initResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
+        val initResult = withTimeout(10_000) {
+            httpPostFull(clientIn, clientOut, "/mcp", initRequest, token)
         }
-        val initJson = mcpJson.parseToJsonElement(initResponse).jsonObject
+        val initJson = mcpJson.parseToJsonElement(initResult.body).jsonObject
         assertTrue(
             initJson["result"]?.jsonObject?.containsKey("protocolVersion") == true,
             "Initialize should succeed"
         )
+        val sessionId = initResult.sessionId
 
         // Step 2: tools/list
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val listResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", listRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", listRequest, token, sessionId)
         }
         val listJson = mcpJson.parseToJsonElement(listResponse).jsonObject
         val tools = listJson["result"]?.jsonObject?.get("tools")?.jsonArray
@@ -427,7 +453,7 @@ class TunnelMcpIntegrationTest {
             id = 3
         )
         val callResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", callRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", callRequest, token, sessionId)
         }
         val callJson = mcpJson.parseToJsonElement(callResponse).jsonObject
         val content = callJson["result"]?.jsonObject?.get("content")?.jsonArray
@@ -488,21 +514,24 @@ class TunnelMcpIntegrationTest {
                 ""","clientInfo":{"name":"integration-test","version":"1.0"}}"""
         )
 
-        val init1 = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", initRequest, token)
+        val initResult1 = withTimeout(10_000) {
+            httpPostFull(clientIn1, clientOut1, "/mcp", initRequest, token)
         }
-        val init2 = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", initRequest, token)
+        val initResult2 = withTimeout(10_000) {
+            httpPostFull(clientIn2, clientOut2, "/mcp", initRequest, token)
         }
 
         assertTrue(
-            mcpJson.parseToJsonElement(init1).jsonObject["result"] != null,
+            mcpJson.parseToJsonElement(initResult1.body).jsonObject["result"] != null,
             "Stream 1 initialize should succeed"
         )
         assertTrue(
-            mcpJson.parseToJsonElement(init2).jsonObject["result"] != null,
+            mcpJson.parseToJsonElement(initResult2.body).jsonObject["result"] != null,
             "Stream 2 initialize should succeed"
         )
+
+        val sessionId1 = initResult1.sessionId
+        val sessionId2 = initResult2.sessionId
 
         // Send different tool calls on each stream
         val call1Request = mcpJsonRpc(
@@ -517,10 +546,10 @@ class TunnelMcpIntegrationTest {
         )
 
         val call1Response = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", call1Request, token)
+            httpPost(clientIn1, clientOut1, "/mcp", call1Request, token, sessionId1)
         }
         val call2Response = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", call2Request, token)
+            httpPost(clientIn2, clientOut2, "/mcp", call2Request, token, sessionId2)
         }
 
         val text1 = mcpJson.parseToJsonElement(call1Response).jsonObject["result"]

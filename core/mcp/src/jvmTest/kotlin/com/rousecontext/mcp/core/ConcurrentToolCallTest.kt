@@ -88,20 +88,23 @@ class ConcurrentToolCallTest {
 
     private suspend fun io.ktor.client.HttpClient.mcpPost(
         token: String,
-        body: String
+        body: String,
+        sessionId: String? = null
     ): io.ktor.client.statement.HttpResponse = post("/mcp") {
         header("Authorization", "Bearer $token")
+        if (sessionId != null) header("Mcp-Session-Id", sessionId)
         contentType(ContentType.Application.Json)
         setBody(body)
     }
 
-    private suspend fun io.ktor.client.HttpClient.initialize(token: String) {
+    private suspend fun io.ktor.client.HttpClient.initialize(token: String): String {
         val initRequest = mcpJsonRpc(
             "initialize",
             """{"protocolVersion":"2025-03-26","capabilities":{}""" +
                 ""","clientInfo":{"name":"test","version":"1.0"}}"""
         )
-        mcpPost(token, initRequest)
+        val resp = mcpPost(token, initRequest)
+        return resp.headers["Mcp-Session-Id"]!!
     }
 
     @Test
@@ -123,7 +126,7 @@ class ConcurrentToolCallTest {
             )
         }
 
-        client.initialize(token)
+        val sessionId = client.initialize(token)
 
         // Fire 10 rapid requests for the same tool with different dates
         val dates = (1..10).map { "2024-01-%02d".format(it) }
@@ -133,7 +136,7 @@ class ConcurrentToolCallTest {
                 """{"name":"get_steps","arguments":{"date":"$date"}}""",
                 id = index + 2
             )
-            val response = client.mcpPost(token, callRequest)
+            val response = client.mcpPost(token, callRequest, sessionId)
 
             assertEquals(
                 "Request for $date should succeed",
@@ -177,7 +180,7 @@ class ConcurrentToolCallTest {
             )
         }
 
-        client.initialize(token)
+        val sessionId = client.initialize(token)
 
         // Alternate between two different tools
         val tools = listOf(
@@ -196,7 +199,7 @@ class ConcurrentToolCallTest {
                 """{"name":"$toolName","arguments":{"date":"$date"}}""",
                 id = index + 2
             )
-            val response = client.mcpPost(token, callRequest)
+            val response = client.mcpPost(token, callRequest, sessionId)
 
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
@@ -239,8 +242,8 @@ class ConcurrentToolCallTest {
         val token1 = tokenStore.createTokenPair("health", "client-1").accessToken
         val token2 = tokenStore.createTokenPair("health", "client-2").accessToken
 
-        client.initialize(token1)
-        client.initialize(token2)
+        val sessionId1 = client.initialize(token1)
+        val sessionId2 = client.initialize(token2)
 
         // Alternate requests from two clients
         for (i in 1..5) {
@@ -253,7 +256,8 @@ class ConcurrentToolCallTest {
                     "tools/call",
                     """{"name":"get_steps","arguments":{"date":"$date1"}}""",
                     id = i + 1
-                )
+                ),
+                sessionId1
             )
             val r2 = client.mcpPost(
                 token2,
@@ -261,7 +265,8 @@ class ConcurrentToolCallTest {
                     "tools/call",
                     """{"name":"get_steps","arguments":{"date":"$date2"}}""",
                     id = i + 1
-                )
+                ),
+                sessionId2
             )
 
             assertEquals(HttpStatusCode.OK, r1.status)

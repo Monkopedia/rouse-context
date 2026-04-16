@@ -47,9 +47,21 @@ private val mcpJson = Json {
 }
 
 /**
- * Per-integration server state: the SDK Server and its HTTP transport.
+ * Per-session MCP server state: the SDK Server, its HTTP transport, the
+ * integration name, and a timestamp used for idle-timeout eviction.
  */
-private data class IntegrationServer(val server: Server, val transport: HttpTransport)
+private data class SessionEntry(
+    val server: Server,
+    val transport: HttpTransport,
+    val integration: String,
+    @Volatile var lastAccessedAt: Long
+)
+
+/** Maximum concurrent sessions per integration before oldest is evicted. */
+internal const val MAX_SESSIONS_PER_INTEGRATION = 16
+
+/** Idle timeout in milliseconds (30 minutes). Sessions untouched for longer are evicted. */
+internal const val SESSION_IDLE_TIMEOUT_MS = 30L * 60 * 1000
 
 /**
  * Configures Ktor routing for MCP Streamable HTTP with per-integration OAuth.
@@ -153,9 +165,9 @@ internal class McpRoutes(
     private val serverVersion: String,
     private val log: (LogLevel, String) -> Unit
 ) {
-    // Per-integration MCP servers, created lazily and cached
-    private val integrationServers = mutableMapOf<String, IntegrationServer>()
-    private val serversMutex = Mutex()
+    // Per-session MCP servers, keyed by "$integration:$sessionId"
+    private val sessions = mutableMapOf<String, SessionEntry>()
+    private val sessionsMutex = Mutex()
 
     // Resolve the public hostname from the request's Host header, falling back
     // to the configured hostname. This allows a single MCP session to serve
@@ -188,6 +200,46 @@ internal class McpRoutes(
             return true
         }
         return false
+    }
+
+    /**
+     * Sweeps sessions that have been idle longer than [SESSION_IDLE_TIMEOUT_MS].
+     * Called inline before session lookup so tests with a [FakeClock] can observe
+     * eviction without a background coroutine.
+     */
+    internal suspend fun sweepExpiredSessions() {
+        val now = clock.currentTimeMillis()
+        sessionsMutex.withLock {
+            val expired = sessions.entries
+                .filter { now - it.value.lastAccessedAt > SESSION_IDLE_TIMEOUT_MS }
+                .map { it.key }
+            for (key in expired) {
+                val entry = sessions.remove(key)
+                try {
+                    entry?.transport?.close()
+                } catch (_: Exception) {
+                    // best-effort cleanup
+                }
+            }
+        }
+    }
+
+    /**
+     * Enforces [MAX_SESSIONS_PER_INTEGRATION] by evicting the oldest session
+     * for the given integration when the cap is reached. Called while holding
+     * [sessionsMutex]. Returns the evicted entry (if any) so the caller can
+     * close its transport outside the lock.
+     */
+    private fun evictOldestIfNeeded(integration: String): SessionEntry? {
+        val integrationEntries = sessions.entries
+            .filter { it.value.integration == integration }
+        if (integrationEntries.size >= MAX_SESSIONS_PER_INTEGRATION) {
+            val oldest = integrationEntries.minByOrNull { it.value.lastAccessedAt }
+            if (oldest != null) {
+                return sessions.remove(oldest.key)
+            }
+        }
+        return null
     }
 
     // RFC 9728: Protected Resource Metadata.
@@ -537,7 +589,7 @@ internal class McpRoutes(
         }
     }
 
-    // MCP Streamable HTTP -- Bearer auth required
+    // MCP Streamable HTTP -- Bearer auth required, session-routed via Mcp-Session-Id.
     @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod")
     suspend fun RoutingCall.handleMcp() {
         if (rejectIfSecurityAlert()) return
@@ -574,11 +626,7 @@ internal class McpRoutes(
         // the user -- e.g. outreach's "X wants to open Y" notification.
         val clientName = tokenStore.resolveClientName(ri, token)
 
-        // Parse and dispatch JSON-RPC request through SDK transport.
-        // We parse the body *before* resolving the Server so we can detect
-        // `initialize` and evict the cached per-integration Server — the SDK
-        // rejects a second initialize with "Server already initialized". See
-        // issue #189 for the proper Mcp-Session-Id-aware fix.
+        // Parse the request body to determine method and whether it's a notification.
         val requestBody = try {
             withTimeout(MCP_REQUEST_TIMEOUT_MS) {
                 receiveText()
@@ -600,42 +648,94 @@ internal class McpRoutes(
             return
         }
 
-        // JSON-RPC notifications have no "id" field and expect no response
         val parsed = try {
             mcpJson.parseToJsonElement(requestBody).jsonObject
         } catch (_: Exception) {
             null
         }
-        val isNotification = parsed != null && !parsed.containsKey("id")
-        val method = parsed?.get("method")?.jsonPrimitive?.contentOrNull
 
-        // Get or create MCP server + transport for this integration.
-        // On `initialize`, evict the cached Server and build a fresh one so the
-        // SDK does not refuse re-initialization across client sessions. Not
-        // safe for concurrent multi-client scenarios (blows away another
-        // client's mid-session Server); tracked in #189.
-        val integrationServer = serversMutex.withLock {
-            if (method == "initialize") {
-                integrationServers.remove(ri)
-            }
-            integrationServers.getOrPut(ri) {
-                createIntegrationServer(provider, serverName, serverVersion)
-            }
+        // If the body is not valid JSON, return a parse error before session
+        // routing so that malformed requests get a proper JSON-RPC error.
+        if (parsed == null) {
+            respondText(
+                mcpJson.encodeToString(
+                    JsonObject.serializer(),
+                    jsonRpcError(JsonNull, -32700, "Parse error")
+                ),
+                ContentType.Application.Json
+            )
+            return
         }
 
+        val isNotification = !parsed.containsKey("id")
+        val method = parsed["method"]?.jsonPrimitive?.contentOrNull
+        val incomingSessionId = request.headers["Mcp-Session-Id"]
+
+        // Sweep expired sessions on every request (cheap under mutex, and
+        // ensures tests with FakeClock see evictions without a background job).
+        sweepExpiredSessions()
+
+        // Route by Mcp-Session-Id:
+        // - initialize without session id -> create new session
+        // - any request with session id -> look up existing session
+        // - non-initialize without session id -> error
+        val sessionId: String
+        val session: SessionEntry
+
+        if (method == "initialize" && incomingSessionId == null) {
+            // Create a new session
+            val newSessionId = UUID.randomUUID().toString()
+            val (newServer, newTransport) =
+                createIntegrationServer(provider, serverName, serverVersion)
+            val entry = SessionEntry(
+                server = newServer,
+                transport = newTransport,
+                integration = ri,
+                lastAccessedAt = clock.currentTimeMillis()
+            )
+            val evicted = sessionsMutex.withLock {
+                val removed = evictOldestIfNeeded(ri)
+                sessions["$ri:$newSessionId"] = entry
+                removed
+            }
+            try {
+                evicted?.transport?.close()
+            } catch (_: Exception) {
+                // best-effort cleanup
+            }
+            sessionId = newSessionId
+            session = entry
+        } else if (incomingSessionId != null) {
+            val key = "$ri:$incomingSessionId"
+            val entry = sessionsMutex.withLock { sessions[key] }
+            if (entry == null) {
+                respond(HttpStatusCode.NotFound)
+                return
+            }
+            entry.lastAccessedAt = clock.currentTimeMillis()
+            sessionId = incomingSessionId
+            session = entry
+        } else {
+            // Non-initialize without Mcp-Session-Id
+            respond(HttpStatusCode.BadRequest)
+            return
+        }
+
+        // Set the Mcp-Session-Id response header
+        response.headers.append("Mcp-Session-Id", sessionId)
+
         if (isNotification) {
-            // Fire-and-forget: dispatch to SDK but return 202 immediately
             withContext(McpClientContext(clientName)) {
-                dispatchNotification(integrationServer.transport, requestBody)
+                dispatchNotification(session.transport, requestBody)
             }
             respond(HttpStatusCode.Accepted)
         } else {
             val startMs = clock.currentTimeMillis()
             val responseJson = withContext(McpClientContext(clientName)) {
-                dispatchJsonRpc(integrationServer.transport, requestBody)
+                dispatchJsonRpc(session.transport, requestBody)
             }
 
-            if (auditListener != null && parsed != null) {
+            if (auditListener != null) {
                 emitAuditEvent(
                     auditListener,
                     parsed,
@@ -696,11 +796,14 @@ private suspend fun respondToDeviceCodePoll(
     }
 }
 
+/**
+ * Creates a fresh SDK [Server] + [HttpTransport] pair for a single MCP session.
+ */
 private suspend fun createIntegrationServer(
     provider: McpServerProvider,
     serverName: String,
     serverVersion: String
-): IntegrationServer {
+): Pair<Server, HttpTransport> {
     val server = Server(
         Implementation(name = serverName, version = serverVersion),
         ServerOptions(
@@ -718,7 +821,7 @@ private suspend fun createIntegrationServer(
     val transport = HttpTransport()
     server.createSession(transport)
 
-    return IntegrationServer(server, transport)
+    return Pair(server, transport)
 }
 
 /**
