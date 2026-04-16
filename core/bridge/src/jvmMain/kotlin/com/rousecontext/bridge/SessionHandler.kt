@@ -7,6 +7,7 @@ import java.io.OutputStream
 import java.net.Socket
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,24 +53,34 @@ class SessionHandler(
                 mcpPort = mcpHandle.port
             )
         } finally {
-            mcpHandle.stop()
+            // Stop the MCP HTTP server even on cancellation so its worker threads
+            // do not linger. Runs under NonCancellable so that the shutdown itself
+            // is not short-circuited by the surrounding cancellation.
+            withContext(NonCancellable) {
+                mcpHandle.stop()
+            }
         }
     }
 
     /**
      * Bridges a suspend-native [TlsAcceptor.TlsSession] to a local MCP server via TCP.
      *
-     * Both directions now run as structured coroutines on [Dispatchers.IO]:
+     * Both directions run as structured coroutines on [Dispatchers.IO]:
      *
      *  - TLS -> socket uses suspend [TlsAcceptor.TlsSession.read], so cancellation
      *    propagates cleanly.
      *  - Socket -> TLS still calls blocking `Socket.InputStream.read`, which cannot
      *    be cooperatively cancelled. We park that read on [Dispatchers.IO] and rely
-     *    on closing the socket in `finally` to unblock it, the same teardown
-     *    strategy the previous `Thread {}` implementation used.
+     *    on closing the socket to unblock it.
      *
      * When either direction finishes it signals [done]; the surviving coroutine is
      * cancelled, then the socket is closed to unstick any still-blocked read.
+     *
+     * The socket close MUST run under [NonCancellable]: when the enclosing scope is
+     * cancelled, a bare `withContext(Dispatchers.IO) { socket.close() }` would itself
+     * throw [kotlinx.coroutines.CancellationException] before executing the close,
+     * leaving `socketToTls` blocked on `InputStream.read` for up to 45 s (Ktor CIO's
+     * `connectionIdleTimeoutSeconds` default) and stalling teardown. See issue #175.
      */
     private suspend fun bridgeToMcpServer(tlsSession: TlsAcceptor.TlsSession, mcpPort: Int) =
         coroutineScope {
@@ -101,15 +112,22 @@ class SessionHandler(
                     }
                 }
 
-                // Suspend until EITHER direction finishes.
-                done.await()
-                tlsToSocket.cancel()
-                socketToTls.cancel()
-            } finally {
+                // Suspend until EITHER direction finishes (or we are cancelled).
                 try {
-                    withContext(Dispatchers.IO) { socket.close() }
-                } catch (_: Exception) {
-                    // Best effort cleanup.
+                    done.await()
+                } finally {
+                    tlsToSocket.cancel()
+                    socketToTls.cancel()
+                }
+            } finally {
+                // Close the socket even when the surrounding scope is being cancelled.
+                // Must be NonCancellable -- see kdoc on [bridgeToMcpServer].
+                withContext(NonCancellable + Dispatchers.IO) {
+                    try {
+                        socket.close()
+                    } catch (_: Exception) {
+                        // Best effort cleanup.
+                    }
                 }
             }
         }
