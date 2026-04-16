@@ -62,7 +62,6 @@ import org.junit.jupiter.api.Test
  */
 @Suppress("LargeClass")
 @Tag("integration")
-@Tag("integration-bitrot")
 class OAuthEndToEndTest {
 
     companion object {
@@ -70,6 +69,16 @@ class OAuthEndToEndTest {
         private const val DEVICE_SUBDOMAIN = "test-device"
         private const val INTEGRATION = "test"
         private const val INTEGRATION_HOST = "exact-$INTEGRATION.$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
+
+        /**
+         * The relay's auto-created Firestore record has empty `valid_secrets`,
+         * which makes `resolve_device_stream` skip secret validation. Any
+         * non-empty first SNI label is therefore accepted; we use the same
+         * `exact-test` prefix that the Host header uses so the OAuth server
+         * receives a consistent integration hostname. See sibling
+         * EndToEndSessionTest for the SNI router semantics.
+         */
+        private const val SESSION_REGISTRATION_DELAY_MS = 500L
     }
 
     private lateinit var tempDir: File
@@ -493,6 +502,10 @@ class OAuthEndToEndTest {
             client.state.value,
             "TunnelClient should be CONNECTED"
         )
+        // Wait for the relay to finish auto-creating the Firestore record and
+        // inserting the mux session into its registry (both happen in the
+        // server-side `handle_mux_session` body after WS upgrade completes).
+        kotlinx.coroutines.delay(SESSION_REGISTRATION_DELAY_MS)
         return client
     }
 
@@ -508,9 +521,11 @@ class OAuthEndToEndTest {
         ) as SSLSocket
         socket.soTimeout = 30_000
         val params = socket.sslParameters
-        params.serverNames = listOf(
-            javax.net.ssl.SNIHostName("$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME")
-        )
+        // SNI must be `{secret}.{subdomain}.{base_domain}` for the relay's
+        // passthrough router to accept it (bare subdomains are rejected).
+        // We reuse INTEGRATION_HOST so the server-side Host header and the
+        // TLS SNI agree on the per-integration hostname.
+        params.serverNames = listOf(javax.net.ssl.SNIHostName(INTEGRATION_HOST))
         socket.sslParameters = params
         socket.startHandshake()
         return socket

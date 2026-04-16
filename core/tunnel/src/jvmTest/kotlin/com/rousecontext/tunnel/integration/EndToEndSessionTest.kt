@@ -46,18 +46,39 @@ import org.junit.jupiter.api.Test
  * max streams, error frames) using raw WebSocket where needed to inject
  * specific mux frames.
  *
+ * SNI format: the relay's SNI router (see `relay/src/sni.rs`) requires
+ * hostnames of the form `{integration_secret}.{subdomain}.{base_domain}`.
+ * Bare `{subdomain}.{base_domain}` SNI is rejected. We use [INTEGRATION_SECRET]
+ * as the first label; because the relay auto-creates a Firestore record with
+ * empty `valid_secrets` when the device WS upgrades, secret validation is
+ * skipped and any non-empty secret prefix is accepted.
+ *
  * These tests are skipped if the relay binary has not been built.
  * Build it with: cd relay && cargo build
  */
 @Suppress("LargeClass")
 @Tag("integration")
-@Tag("integration-bitrot")
 class EndToEndSessionTest {
 
     companion object {
         private const val RELAY_HOSTNAME = "localhost"
         private const val WS_TIMEOUT_SECS = 10L
         private const val DEVICE_SUBDOMAIN = "test-device"
+        private const val INTEGRATION_SECRET = "ai"
+
+        /** The SNI hostname AI clients connect with: `{secret}.{subdomain}.{hostname}`. */
+        private const val CLIENT_SNI =
+            "$INTEGRATION_SECRET.$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
+
+        /**
+         * Give the relay a moment after the WS upgrade completes to finish
+         * auto-creating the Firestore device record and inserting the mux
+         * session into its registry. Without this, an AI client that races
+         * in immediately after [connectTunnelClient] returns can hit
+         * `DeviceNotFound` before the server-side `handle_mux_session`
+         * body runs.
+         */
+        private const val SESSION_REGISTRATION_DELAY_MS = 500L
     }
 
     private lateinit var tempDir: File
@@ -417,8 +438,10 @@ class EndToEndSessionTest {
 
     /**
      * Client connects to a subdomain with no device registered.
-     * The relay tries FCM (stub returns error) and the client connection
-     * should time out / be refused.
+     * The relay looks the device up in Firestore, finds nothing, and closes
+     * the TCP connection. We use a secret-prefixed SNI so this exercises the
+     * `DeviceNotFound` branch rather than the SNI-router's bare-subdomain
+     * reject path (which scenario 14 is specifically meant to cover).
      */
     @Test
     fun `scenario 14 - no device registered causes client rejection`() = runBlocking {
@@ -434,7 +457,9 @@ class EndToEndSessionTest {
                 socket.soTimeout = 15_000
                 val params = socket.sslParameters
                 params.serverNames = listOf(
-                    javax.net.ssl.SNIHostName("unknown-device.$RELAY_HOSTNAME")
+                    javax.net.ssl.SNIHostName(
+                        "$INTEGRATION_SECRET.unknown-device.$RELAY_HOSTNAME"
+                    )
                 )
                 socket.sslParameters = params
                 socket.startHandshake()
@@ -889,6 +914,12 @@ class EndToEndSessionTest {
             client.state.value,
             "TunnelClient should be CONNECTED after connect()"
         )
+        // The Kotlin side sees CONNECTED as soon as the WebSocket handshake
+        // completes, but the relay's handle_mux_session body (which does
+        // Firestore auto-create + session_registry.insert) runs in a separate
+        // tokio task afterwards. Give it a moment so subsequent AI-client
+        // connections find the session registered.
+        delay(SESSION_REGISTRATION_DELAY_MS)
         return client
     }
 
@@ -959,7 +990,7 @@ class EndToEndSessionTest {
     // =========================================================================
 
     /**
-     * Connect an "AI client" to the relay with SNI set to the device subdomain.
+     * Connect an "AI client" to the relay with SNI routing to the device.
      * Returns an SSLSocket whose TLS handshake completes through the relay.
      */
     private fun connectAiClient(): SSLSocket {
@@ -971,9 +1002,7 @@ class EndToEndSessionTest {
 
         socket.soTimeout = 10_000
         val params = socket.sslParameters
-        params.serverNames = listOf(
-            javax.net.ssl.SNIHostName("$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME")
-        )
+        params.serverNames = listOf(javax.net.ssl.SNIHostName(CLIENT_SNI))
         socket.sslParameters = params
         socket.startHandshake()
         return socket
@@ -987,7 +1016,7 @@ class EndToEndSessionTest {
         val socket = java.net.Socket("127.0.0.1", relayPort)
         socket.soTimeout = 10_000
 
-        val sniHost = "$subdomain.$RELAY_HOSTNAME"
+        val sniHost = "$INTEGRATION_SECRET.$subdomain.$RELAY_HOSTNAME"
         val clientHello = buildSyntheticClientHello(sniHost)
         socket.outputStream.write(clientHello)
         socket.outputStream.flush()
