@@ -12,6 +12,7 @@ import com.rousecontext.tunnel.OnboardingResult
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,7 +39,8 @@ sealed interface OnboardingState {
 class OnboardingViewModel(
     private val certificateStore: CertificateStore,
     private val onboardingFlow: OnboardingFlow,
-    private val registrationStatus: DeviceRegistrationStatus
+    private val registrationStatus: DeviceRegistrationStatus,
+    private val appScope: CoroutineScope
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<OnboardingState>(OnboardingState.Checking)
@@ -67,7 +69,10 @@ class OnboardingViewModel(
         // Navigate to Home immediately
         _state.value = OnboardingState.Onboarded
 
-        viewModelScope.launch {
+        // Launch registration on the Application-scoped coroutine so it survives
+        // this ViewModel being cleared when the UI navigates away from the
+        // onboarding screen. viewModelScope would be cancelled mid-Firebase-call.
+        appScope.launch {
             performRegistration()
         }
     }
@@ -134,7 +139,7 @@ class OnboardingViewModel(
     }
 
     fun retry() {
-        viewModelScope.launch {
+        appScope.launch {
             performRegistration()
         }
     }

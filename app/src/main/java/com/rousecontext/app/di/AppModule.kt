@@ -544,6 +544,6 @@ val appModule = module {
             integrationIds = get<List<McpIntegration>>().map { it.id }
         )
     }
-    viewModel { OnboardingViewModel(get(), get(), get()) }
+    viewModel { OnboardingViewModel(get(), get(), get(), get(named("appScope"))) }
     viewModel { NotificationPreferencesViewModel(get()) }
 }
