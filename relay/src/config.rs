@@ -180,6 +180,17 @@ pub struct LimitsConfig {
     /// Refill interval (seconds) for the per-UID request-subdomain limiter.
     /// Default: 20 (one token every 20s, so 3/min sustained).
     pub request_subdomain_rate_refill_secs: u64,
+    /// Per-(source IP, subdomain) sliding-window connection cap for
+    /// passthrough connections. Default: 200. Note that legitimate AI-client
+    /// traffic for a given user typically arrives from a single backend IP
+    /// (e.g. Anthropic's MCP gateway), so this limit is effectively per-user
+    /// rather than per-attacker. Claude integration setup can fire 10+
+    /// connections within a second; 200/min is comfortably above realistic
+    /// bursts while still blocking naive scanners.
+    pub conn_rate_limit_max: u32,
+    /// Window size (seconds) for the per-(source IP, subdomain) connection
+    /// limiter. Default: 60.
+    pub conn_rate_limit_window_secs: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -267,6 +278,8 @@ impl Default for LimitsConfig {
             subdomain_reservation_ttl_secs: 600,
             request_subdomain_rate_burst: 3,
             request_subdomain_rate_refill_secs: 20,
+            conn_rate_limit_max: 200,
+            conn_rate_limit_window_secs: 60,
         }
     }
 }

@@ -33,3 +33,11 @@ require_existing_account = false
 [limits]
 max_streams_per_device = 32
 wake_rate_limit = 6  # per minute per subdomain
+# Per-(source IP, subdomain) sliding-window cap on passthrough connections.
+# Defaults: 200 connections per 60s window. All AI-client traffic for one user
+# typically arrives from a single backend IP (e.g. Anthropic's MCP gateway),
+# so this is effectively per-user, not per-attacker. Raise if legitimate
+# integration bursts are being rejected; lower only if you see scanner noise
+# getting through.
+# conn_rate_limit_max = 200
+# conn_rate_limit_window_secs = 60

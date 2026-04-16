@@ -51,6 +51,33 @@ fn missing_file_uses_defaults() {
     assert_eq!(cfg.server.bind_addr, "0.0.0.0:443");
     assert_eq!(cfg.limits.max_streams_per_device, 32);
     assert_eq!(cfg.limits.wake_rate_limit, 6);
+    assert_eq!(cfg.limits.conn_rate_limit_max, 200);
+    assert_eq!(cfg.limits.conn_rate_limit_window_secs, 60);
+}
+
+#[test]
+fn conn_rate_limit_defaults_when_omitted_from_toml() {
+    // VALID_TOML does not set conn_rate_limit_*, so defaults should apply.
+    let f = write_toml(VALID_TOML);
+    let cfg = RelayConfig::from_file(f.path()).unwrap();
+    assert_eq!(cfg.limits.conn_rate_limit_max, 200);
+    assert_eq!(cfg.limits.conn_rate_limit_window_secs, 60);
+}
+
+#[test]
+fn conn_rate_limit_overridable_via_toml() {
+    let toml = r#"
+[limits]
+conn_rate_limit_max = 42
+conn_rate_limit_window_secs = 15
+"#;
+    let f = write_toml(toml);
+    let cfg = RelayConfig::from_file(f.path()).unwrap();
+    assert_eq!(cfg.limits.conn_rate_limit_max, 42);
+    assert_eq!(cfg.limits.conn_rate_limit_window_secs, 15);
+    // Other limits should still carry their defaults.
+    assert_eq!(cfg.limits.max_streams_per_device, 32);
+    assert_eq!(cfg.limits.wake_rate_limit, 6);
 }
 
 #[test]
