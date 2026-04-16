@@ -91,20 +91,21 @@ class ClientPassthroughTest {
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
                 """"clientInfo":{"name":"passthrough-test","version":"1.0"}}"""
         )
-        val initResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
+        val initResult = withTimeout(10_000) {
+            httpPostFull(clientIn, clientOut, "/mcp", initRequest, token)
         }
-        val initJson = mcpJson.parseToJsonElement(initResponse).jsonObject
+        val initJson = mcpJson.parseToJsonElement(initResult.body).jsonObject
         assertEquals("2.0", initJson["jsonrpc"]?.jsonPrimitive?.content)
-        val initResult = initJson["result"]?.jsonObject
-        assertTrue(initResult != null, "Initialize should return a result")
-        assertTrue(initResult.containsKey("protocolVersion"))
-        assertTrue(initResult.containsKey("serverInfo"))
+        val initResultObj = initJson["result"]?.jsonObject
+        assertTrue(initResultObj != null, "Initialize should return a result")
+        assertTrue(initResultObj.containsKey("protocolVersion"))
+        assertTrue(initResultObj.containsKey("serverInfo"))
+        val sessionId = initResult.sessionId
 
         // Step 2: List tools
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val listResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", listRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", listRequest, token, sessionId)
         }
         val tools = mcpJson.parseToJsonElement(listResponse).jsonObject["result"]
             ?.jsonObject?.get("tools")?.jsonArray
@@ -118,7 +119,7 @@ class ClientPassthroughTest {
             id = 3
         )
         val callResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", callRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", callRequest, token, sessionId)
         }
         val content = mcpJson.parseToJsonElement(callResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -174,9 +175,10 @@ class ClientPassthroughTest {
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
                 """"clientInfo":{"name":"passthrough-test","version":"1.0"}}"""
         )
-        withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
+        val initResult = withTimeout(10_000) {
+            httpPostFull(clientIn, clientOut, "/mcp", initRequest, token)
         }
+        val sessionId = initResult.sessionId
 
         // Send 5 sequential tool calls on the same session
         val messages = listOf("first", "second", "third", "fourth", "fifth")
@@ -187,7 +189,7 @@ class ClientPassthroughTest {
                 id = index + 2
             )
             val callResponse = withTimeout(10_000) {
-                httpPost(clientIn, clientOut, "/mcp", callRequest, token)
+                httpPost(clientIn, clientOut, "/mcp", callRequest, token, sessionId)
             }
             val text = mcpJson.parseToJsonElement(callResponse).jsonObject["result"]
                 ?.jsonObject?.get("content")?.jsonArray
@@ -253,12 +255,14 @@ class ClientPassthroughTest {
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
                 """"clientInfo":{"name":"passthrough-test","version":"1.0"}}"""
         )
-        withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", initRequest, token)
+        val initResult1 = withTimeout(10_000) {
+            httpPostFull(clientIn1, clientOut1, "/mcp", initRequest, token)
         }
-        withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", initRequest, token)
+        val initResult2 = withTimeout(10_000) {
+            httpPostFull(clientIn2, clientOut2, "/mcp", initRequest, token)
         }
+        val sessionId1 = initResult1.sessionId
+        val sessionId2 = initResult2.sessionId
 
         // Call tools on both streams with different messages
         val call1 = mcpJsonRpc(
@@ -273,10 +277,10 @@ class ClientPassthroughTest {
         )
 
         val response1 = withTimeout(10_000) {
-            httpPost(clientIn1, clientOut1, "/mcp", call1, token)
+            httpPost(clientIn1, clientOut1, "/mcp", call1, token, sessionId1)
         }
         val response2 = withTimeout(10_000) {
-            httpPost(clientIn2, clientOut2, "/mcp", call2, token)
+            httpPost(clientIn2, clientOut2, "/mcp", call2, token, sessionId2)
         }
 
         val text1 = mcpJson.parseToJsonElement(response1).jsonObject["result"]
@@ -330,13 +334,30 @@ class ClientPassthroughTest {
 
     // -- HTTP helpers --
 
+    /**
+     * Result of a raw HTTP POST, carrying the response body and any
+     * `Mcp-Session-Id` header returned by the server.
+     */
+    private data class HttpResult(val body: String, val sessionId: String? = null)
+
     private fun httpPost(
         input: InputStream,
         output: OutputStream,
         path: String,
         body: String,
-        bearerToken: String? = null
-    ): String {
+        bearerToken: String? = null,
+        sessionId: String? = null
+    ): String = httpPostFull(input, output, path, body, bearerToken, sessionId).body
+
+    @Suppress("LongParameterList")
+    private fun httpPostFull(
+        input: InputStream,
+        output: OutputStream,
+        path: String,
+        body: String,
+        bearerToken: String? = null,
+        sessionId: String? = null
+    ): HttpResult {
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         val sb = StringBuilder()
         sb.append("POST $path HTTP/1.1\r\n")
@@ -346,6 +367,9 @@ class ClientPassthroughTest {
         sb.append("Connection: keep-alive\r\n")
         if (bearerToken != null) {
             sb.append("Authorization: Bearer $bearerToken\r\n")
+        }
+        if (sessionId != null) {
+            sb.append("Mcp-Session-Id: $sessionId\r\n")
         }
         sb.append("\r\n")
 
@@ -359,6 +383,7 @@ class ClientPassthroughTest {
 
         var contentLength = -1
         var chunked = false
+        var mcpSessionId: String? = null
         while (true) {
             val line = reader.readLine() ?: break
             if (line.isEmpty()) break
@@ -369,9 +394,12 @@ class ClientPassthroughTest {
             if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
                 chunked = true
             }
+            if (lower.startsWith("mcp-session-id:")) {
+                mcpSessionId = line.substringAfter(":").trim()
+            }
         }
 
-        return if (contentLength > 0) {
+        val responseBody = if (contentLength > 0) {
             val buf = CharArray(contentLength)
             var read = 0
             while (read < contentLength) {
@@ -385,6 +413,7 @@ class ClientPassthroughTest {
         } else {
             ""
         }
+        return HttpResult(responseBody, mcpSessionId)
     }
 
     private fun readChunkedBody(reader: BufferedReader): String {

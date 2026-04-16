@@ -112,14 +112,15 @@ class SessionHandlerTest {
             """{"protocolVersion":"2025-03-26","capabilities":{},""" +
                 """"clientInfo":{"name":"bridge-test","version":"1.0"}}"""
         )
-        withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", initRequest, token)
+        val initResult = withTimeout(10_000) {
+            httpPostFull(clientIn, clientOut, "/mcp", initRequest, token)
         }
+        val sessionId = initResult.sessionId
 
         // tools/list
         val listRequest = mcpJsonRpc("tools/list", id = 2)
         val listResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", listRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", listRequest, token, sessionId = sessionId)
         }
         val tools = mcpJson.parseToJsonElement(listResponse).jsonObject["result"]
             ?.jsonObject?.get("tools")?.jsonArray
@@ -133,7 +134,7 @@ class SessionHandlerTest {
             id = 3
         )
         val callResponse = withTimeout(10_000) {
-            httpPost(clientIn, clientOut, "/mcp", callRequest, token)
+            httpPost(clientIn, clientOut, "/mcp", callRequest, token, sessionId = sessionId)
         }
         val content = mcpJson.parseToJsonElement(callResponse).jsonObject["result"]
             ?.jsonObject?.get("content")?.jsonArray
@@ -185,8 +186,8 @@ class SessionHandlerTest {
         val healthHost = "brave-health.abc123.rousecontext.com"
         val testHost = "brave-test.abc123.rousecontext.com"
 
-        withTimeout(10_000) {
-            httpPost(
+        val healthInitResult = withTimeout(10_000) {
+            httpPostFull(
                 clientIn,
                 clientOut,
                 "/mcp",
@@ -195,6 +196,7 @@ class SessionHandlerTest {
                 host = healthHost
             )
         }
+        val healthSessionId = healthInitResult.sessionId
 
         // Call health tool
         val healthCall = mcpJsonRpc(
@@ -209,7 +211,8 @@ class SessionHandlerTest {
                 "/mcp",
                 healthCall,
                 healthToken,
-                host = healthHost
+                host = healthHost,
+                sessionId = healthSessionId
             )
         }
         val healthContent = mcpJson.parseToJsonElement(healthResponse).jsonObject["result"]
@@ -220,8 +223,8 @@ class SessionHandlerTest {
         )
 
         // Initialize test provider on the same stream (different Host)
-        withTimeout(10_000) {
-            httpPost(
+        val testInitResult = withTimeout(10_000) {
+            httpPostFull(
                 clientIn,
                 clientOut,
                 "/mcp",
@@ -230,6 +233,7 @@ class SessionHandlerTest {
                 host = testHost
             )
         }
+        val testSessionId = testInitResult.sessionId
 
         // Call echo tool
         val echoCall = mcpJsonRpc(
@@ -244,7 +248,8 @@ class SessionHandlerTest {
                 "/mcp",
                 echoCall,
                 testToken,
-                host = testHost
+                host = testHost,
+                sessionId = testSessionId
             )
         }
         val echoContent = mcpJson.parseToJsonElement(echoResponse).jsonObject["result"]
@@ -375,17 +380,25 @@ class SessionHandlerTest {
 
     // -- Test HTTP helpers (extracted from integration tests) --
 
+    /**
+     * Result of a raw HTTP POST, carrying status code, response body, and any
+     * `Mcp-Session-Id` header returned by the server.
+     */
+    private data class HttpResult(
+        val statusCode: Int,
+        val body: String,
+        val sessionId: String? = null
+    )
+
     private fun httpPost(
         input: InputStream,
         output: OutputStream,
         path: String,
         body: String,
         bearerToken: String? = null,
-        host: String = "test.rousecontext.com"
-    ): String {
-        val (_, responseBody) = httpPostRaw(input, output, path, body, bearerToken, host)
-        return responseBody
-    }
+        host: String = "test.rousecontext.com",
+        sessionId: String? = null
+    ): String = httpPostFull(input, output, path, body, bearerToken, host, sessionId).body
 
     private fun httpPostStatus(
         input: InputStream,
@@ -393,20 +406,20 @@ class SessionHandlerTest {
         path: String,
         body: String,
         bearerToken: String? = null,
-        host: String = "test.rousecontext.com"
-    ): Int {
-        val (statusCode, _) = httpPostRaw(input, output, path, body, bearerToken, host)
-        return statusCode
-    }
+        host: String = "test.rousecontext.com",
+        sessionId: String? = null
+    ): Int = httpPostFull(input, output, path, body, bearerToken, host, sessionId).statusCode
 
-    private fun httpPostRaw(
+    @Suppress("LongParameterList")
+    private fun httpPostFull(
         input: InputStream,
         output: OutputStream,
         path: String,
         body: String,
         bearerToken: String? = null,
-        host: String = "test.rousecontext.com"
-    ): Pair<Int, String> {
+        host: String = "test.rousecontext.com",
+        sessionId: String? = null
+    ): HttpResult {
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         val sb = StringBuilder()
         sb.append("POST $path HTTP/1.1\r\n")
@@ -416,6 +429,9 @@ class SessionHandlerTest {
         sb.append("Connection: keep-alive\r\n")
         if (bearerToken != null) {
             sb.append("Authorization: Bearer $bearerToken\r\n")
+        }
+        if (sessionId != null) {
+            sb.append("Mcp-Session-Id: $sessionId\r\n")
         }
         sb.append("\r\n")
 
@@ -430,6 +446,7 @@ class SessionHandlerTest {
 
         var contentLength = -1
         var chunked = false
+        var mcpSessionId: String? = null
         while (true) {
             val line = reader.readLine() ?: break
             if (line.isEmpty()) break
@@ -439,6 +456,9 @@ class SessionHandlerTest {
             }
             if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
                 chunked = true
+            }
+            if (lower.startsWith("mcp-session-id:")) {
+                mcpSessionId = line.substringAfter(":").trim()
             }
         }
 
@@ -457,7 +477,7 @@ class SessionHandlerTest {
             ""
         }
 
-        return statusCode to responseBody
+        return HttpResult(statusCode, responseBody, mcpSessionId)
     }
 
     private fun readChunkedBody(reader: BufferedReader): String {
