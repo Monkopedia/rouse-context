@@ -208,6 +208,7 @@
     <string name="screen_settings_trust_row">%1$s: %2$s</string>
     <string name="screen_settings_trust_alert_note">Integration requests are blocked while an alert is active.</string>
     <string name="screen_settings_trust_acknowledge">Acknowledge</string>
+    <string name="screen_settings_trust_learn_more">Learn what this means</string>
     <string name="screen_settings_cert_fingerprint_label">Certificate fingerprint</string>
     <string name="screen_settings_section_about">About</string>
     <string name="screen_settings_version">Version %1$s</string>
