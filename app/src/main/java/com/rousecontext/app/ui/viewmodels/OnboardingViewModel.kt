@@ -3,8 +3,8 @@ package com.rousecontext.app.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.messaging.FirebaseMessaging
+import com.rousecontext.app.auth.AnonymousAuthClient
+import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 sealed interface OnboardingState {
     data object Checking : OnboardingState
@@ -40,6 +39,8 @@ class OnboardingViewModel(
     private val certificateStore: CertificateStore,
     private val onboardingFlow: OnboardingFlow,
     private val registrationStatus: DeviceRegistrationStatus,
+    private val authClient: AnonymousAuthClient,
+    private val fcmTokenProvider: FcmTokenProvider,
     private val appScope: CoroutineScope
 ) : ViewModel() {
 
@@ -80,17 +81,15 @@ class OnboardingViewModel(
     private suspend fun performRegistration() {
         // Get Firebase anonymous auth token
         val firebaseToken = try {
-            val user = FirebaseAuth.getInstance().signInAnonymously().await().user
+            authClient.signInAnonymouslyAndGetIdToken()
                 ?: return logError("Firebase authentication failed.")
-            user.getIdToken(false).await().token
-                ?: return logError("Failed to obtain Firebase ID token.")
         } catch (e: Exception) {
             return logError("Firebase authentication failed: ${e.message}")
         }
 
         // Get FCM registration token
         val fcmToken = try {
-            FirebaseMessaging.getInstance().token.await()
+            fcmTokenProvider.currentToken()
         } catch (e: Exception) {
             return logError("Failed to obtain FCM token: ${e.message}")
         }

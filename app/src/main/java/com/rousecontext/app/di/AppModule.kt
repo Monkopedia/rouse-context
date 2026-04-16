@@ -10,6 +10,10 @@ import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.MainActivity
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.auth.AnonymousAuthClient
+import com.rousecontext.app.auth.FcmTokenProvider
+import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
+import com.rousecontext.app.auth.FirebaseFcmTokenProvider
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.receivers.AuthApprovalReceiver
@@ -175,6 +179,10 @@ val appModule = module {
         }
         status
     }
+
+    // --- Firebase auth / FCM abstractions ---
+    single<AnonymousAuthClient> { FirebaseAnonymousAuthClient() }
+    single<FcmTokenProvider> { FirebaseFcmTokenProvider() }
 
     // --- Onboarding ---
     single { CsrGenerator() }
@@ -544,6 +552,6 @@ val appModule = module {
             integrationIds = get<List<McpIntegration>>().map { it.id }
         )
     }
-    viewModel { OnboardingViewModel(get(), get(), get(), get(named("appScope"))) }
+    viewModel { OnboardingViewModel(get(), get(), get(), get(), get(), get(named("appScope"))) }
     viewModel { NotificationPreferencesViewModel(get()) }
 }
