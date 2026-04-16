@@ -18,6 +18,27 @@
          tappable notification. See GitHub issue #102. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- Android 11+ package-visibility: without these <queries> declarations,
+         getInstalledApplications() only returns our own package plus a few
+         system components, and getLaunchIntentForPackage() returns null for
+         third-party apps. We specifically want apps the user could launch
+         (MAIN + LAUNCHER) and apps that can handle common ACTION_VIEW URIs
+         for open_link. See OutreachMcpProvider.queryInstalledApps / launchApp. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+    </queries>
+
     <!-- === Usage === -->
 
     <uses-permission
