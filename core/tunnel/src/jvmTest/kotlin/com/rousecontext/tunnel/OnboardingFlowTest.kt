@@ -72,6 +72,10 @@ class OnboardingFlowTest {
         assertNull(store.getCertificate())
         assertNull(store.getClientCertificate())
         assertNull(store.getRelayCaCert())
+        // Issue #200: store.getPrivateKey() is always null (device key lives in
+        // DeviceKeyManager). Kept as a sanity check that onboarding doesn't try to
+        // write into the deprecated PEM slot.
+        @Suppress("DEPRECATION")
         assertNull(store.getPrivateKey())
     }
 

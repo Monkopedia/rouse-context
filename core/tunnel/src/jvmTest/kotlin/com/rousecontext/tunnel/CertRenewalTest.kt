@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
@@ -20,14 +21,14 @@ class CertRenewalTest {
     private val mockServer = MockRelayServer()
     private val store = InMemoryCertificateStore()
 
-    /** A real ECDSA P-256 private key PEM for the store, generated once per test class. */
-    private val testKeyPem: String by lazy {
+    /** A real ECDSA P-256 keypair for the device key manager, generated once per test class. */
+    private val testKeyPair: KeyPair by lazy {
         val kpg = KeyPairGenerator.getInstance("EC")
         kpg.initialize(ECGenParameterSpec("secp256r1"))
-        val kp = kpg.generateKeyPair()
-        val der = kp.private.encoded
-        val b64 = Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(der)
-        "-----BEGIN PRIVATE KEY-----\n$b64\n-----END PRIVATE KEY-----\n"
+        kpg.generateKeyPair()
+    }
+    private val keyManager: InMemoryDeviceKeyManager by lazy {
+        InMemoryDeviceKeyManager(seed = testKeyPair)
     }
 
     private val validInspector = object : CertInspector() {
@@ -60,6 +61,7 @@ class CertRenewalTest {
             csrGenerator = CsrGenerator(),
             relayApiClient = client,
             certificateStore = store,
+            deviceKeyManager = keyManager,
             certInspector = inspector,
             maxRetries = 2,
             baseRetryDelayMs = 10L
@@ -70,7 +72,6 @@ class CertRenewalTest {
     fun `mTLS renewal succeeds with valid cert and signature`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         store.storeSubdomain("test123")
-        store.storePrivateKey(testKeyPem)
         val flow = createFlow()
 
         var receivedRequest: RenewRequest? = null
@@ -104,20 +105,28 @@ class CertRenewalTest {
     }
 
     @Test
-    fun `renewal CSR carries the stored registration public key`(): Unit = runBlocking {
-        // Generate a known keypair and store it
+    fun `renewal CSR carries the device key manager public key`(): Unit = runBlocking {
+        // Seed the DeviceKeyManager with a known keypair so the test can assert the
+        // renewal CSR carries exactly that public key. Issue #199 + #200: renewals
+        // must reuse the registration keypair so the relay's stored public-key pin
+        // stays valid.
         val kpg = KeyPairGenerator.getInstance("EC")
         kpg.initialize(ECGenParameterSpec("secp256r1"))
         val registrationKp = kpg.generateKeyPair()
-        val privDer = registrationKp.private.encoded
-        val privPem = "-----BEGIN PRIVATE KEY-----\n" +
-            Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(privDer) +
-            "\n-----END PRIVATE KEY-----\n"
+        val seededKeyManager = InMemoryDeviceKeyManager(seed = registrationKp)
 
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         store.storeSubdomain("test123")
-        store.storePrivateKey(privPem)
-        val flow = createFlow()
+
+        val flow = CertRenewalFlow(
+            csrGenerator = CsrGenerator(),
+            relayApiClient = RelayApiClient(baseUrl = mockServer.baseUrl),
+            certificateStore = store,
+            deviceKeyManager = seededKeyManager,
+            certInspector = validInspector,
+            maxRetries = 2,
+            baseRetryDelayMs = 10L
+        )
 
         var capturedCsrPem: String? = null
         mockServer.renewHandler = { request ->
@@ -145,22 +154,71 @@ class CertRenewalTest {
         )
         val csrPublicKeyDer = extractSubjectPublicKeyInfo(csrDer)
 
-        // The CSR public key must match the registration keypair's public key
+        // The CSR public key must match the DeviceKeyManager-owned keypair's public key.
         val expectedPublicKeyDer = registrationKp.public.encoded
         assertTrue(
             csrPublicKeyDer.contentEquals(expectedPublicKeyDer),
-            "Renewal CSR must carry the stored registration public key, not a fresh one"
+            "Renewal CSR must carry the device key manager's public key, not a fresh one"
         )
 
-        // Private key in store must be unchanged (not overwritten)
-        assertEquals(privPem, store.getPrivateKey(), "Private key must not be overwritten")
+        // A second call to the key manager must return the same keypair (idempotency
+        // guard -- the whole point of DeviceKeyManager.getOrCreateKeyPair is that
+        // renewal reuses the registration key).
+        val secondCall = seededKeyManager.getOrCreateKeyPair()
+        assertTrue(
+            secondCall.public.encoded.contentEquals(registrationKp.public.encoded),
+            "DeviceKeyManager must return the same keypair across calls"
+        )
     }
+
+    @Test
+    fun `consecutive renewals reuse the same device key`(): Unit = runBlocking {
+        // Issue #200: the DeviceKeyManager contract is that getOrCreateKeyPair() is
+        // idempotent. This test asserts that two CertRenewalFlow.renewWithMtls calls
+        // in sequence build CSRs carrying identical public keys -- a regression here
+        // would invalidate the relay's registration-time public-key pin.
+        store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
+        store.storeSubdomain("test123")
+        val flow = createFlow()
+
+        val capturedCsrs = mutableListOf<String>()
+        mockServer.renewHandler = { request ->
+            capturedCsrs += request.csr
+            MockRenewResponse(
+                status = 200,
+                body = RenewResponse(
+                    serverCert = MockRelayServer.MOCK_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM
+                )
+            )
+        }
+
+        val first = flow.renewWithMtls(signature = "sig1")
+        val second = flow.renewWithMtls(signature = "sig2")
+        assertTrue(first is RenewalResult.Success, "first renewal should succeed")
+        assertTrue(second is RenewalResult.Success, "second renewal should succeed")
+
+        assertEquals(2, capturedCsrs.size)
+        val firstSpki = extractSubjectPublicKeyInfo(pemToDer(capturedCsrs[0]))
+        val secondSpki = extractSubjectPublicKeyInfo(pemToDer(capturedCsrs[1]))
+        assertTrue(
+            firstSpki.contentEquals(secondSpki),
+            "Consecutive renewal CSRs must carry the same public key"
+        )
+    }
+
+    private fun pemToDer(csrPem: String): ByteArray = Base64.getDecoder().decode(
+        csrPem
+            .substringAfter("-----BEGIN CERTIFICATE REQUEST-----")
+            .substringBefore("-----END CERTIFICATE REQUEST-----")
+            .replace("\\s".toRegex(), "")
+    )
 
     @Test
     fun `expired cert returns CertExpired for mTLS path`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         store.storeSubdomain("test123")
-        store.storePrivateKey(testKeyPem)
         val flow = createFlow(inspector = expiredInspector)
 
         val result = flow.renewWithMtls(signature = "unused")
@@ -171,7 +229,6 @@ class CertRenewalTest {
     fun `Firebase renewal succeeds with expired cert`(): Unit = runBlocking {
         store.storeSubdomain("test123")
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
-        store.storePrivateKey(testKeyPem)
         val flow = createFlow(inspector = expiredInspector)
 
         var receivedRequest: RenewRequest? = null
@@ -208,7 +265,6 @@ class CertRenewalTest {
     fun `CN mismatch rejected`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         store.storeSubdomain("test123")
-        store.storePrivateKey(testKeyPem)
         val flow = createFlow()
 
         mockServer.renewHandler = { _ ->
@@ -232,7 +288,6 @@ class CertRenewalTest {
     fun `rate limited schedules retry`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         store.storeSubdomain("test123")
-        store.storePrivateKey(testKeyPem)
         val flow = createFlow()
 
         mockServer.renewHandler = { _ ->
@@ -248,13 +303,13 @@ class CertRenewalTest {
     fun `network failure retries with backoff`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
         store.storeSubdomain("test123")
-        store.storePrivateKey(testKeyPem)
 
         val client = RelayApiClient(baseUrl = "http://127.0.0.1:1")
         val flow = CertRenewalFlow(
             csrGenerator = CsrGenerator(),
             relayApiClient = client,
             certificateStore = store,
+            deviceKeyManager = keyManager,
             certInspector = validInspector,
             maxRetries = 2,
             baseRetryDelayMs = 10L

@@ -43,6 +43,7 @@ class CertRenewalFlow(
     private val csrGenerator: CsrGenerator,
     private val relayApiClient: RelayApiClient,
     private val certificateStore: CertificateStore,
+    private val deviceKeyManager: DeviceKeyManager,
     private val certInspector: CertInspector = CertInspector(),
     private val maxRetries: Int = 3,
     private val baseRetryDelayMs: Long = 1000L,
@@ -83,11 +84,9 @@ class CertRenewalFlow(
 
         if (certInspector.inspect(currentCert).isExpired) return RenewalResult.CertExpired
 
-        val existingKey = certificateStore.getPrivateKey()
-            ?: return RenewalResult.NoCertificate
-
         val csrResult = try {
-            csrGenerator.generateWithExistingKey("*.$subdomain.$baseDomain", existingKey)
+            val keyPair = deviceKeyManager.getOrCreateKeyPair()
+            csrGenerator.generate("*.$subdomain.$baseDomain", keyPair)
         } catch (e: Exception) {
             return RenewalResult.KeyGenerationFailed(e)
         }
@@ -136,11 +135,9 @@ class CertRenewalFlow(
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate
 
-        val existingKey = certificateStore.getPrivateKey()
-            ?: return RenewalResult.NoCertificate
-
         val csrResult = try {
-            csrGenerator.generateWithExistingKey("*.$subdomain.$baseDomain", existingKey)
+            val keyPair = deviceKeyManager.getOrCreateKeyPair()
+            csrGenerator.generate("*.$subdomain.$baseDomain", keyPair)
         } catch (e: Exception) {
             return RenewalResult.KeyGenerationFailed(e)
         }

@@ -2,21 +2,17 @@ package com.rousecontext.app.cert
 
 import android.content.Context
 import android.util.Log
+import com.rousecontext.tunnel.DeviceKeyManager
 import com.rousecontext.tunnel.WebSocketFactory
 import com.rousecontext.tunnel.WebSocketHandle
 import com.rousecontext.tunnel.WebSocketListener
 import java.io.File
-import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 import java.util.concurrent.TimeUnit
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -34,6 +30,10 @@ import okio.ByteString.Companion.toByteString
  *
  * OkHttp uses JSSE (Java's TLS stack) which properly presents client certificates
  * during the TLS handshake, unlike Ktor CIO which silently drops them.
+ *
+ * Issue #200: the private key is obtained from [DeviceKeyManager] (hardware-backed
+ * Android Keystore). Its raw bytes never surface in app memory; JSSE routes signing
+ * through the Keystore provider at handshake time.
  */
 object MtlsWebSocketFactory {
 
@@ -44,23 +44,27 @@ object MtlsWebSocketFactory {
     // NOT the server cert (ACME, serverAuth) which is for AI clients.
     private const val CERT_PEM_FILE = "rouse_client_cert.pem"
     private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
-    private const val KEY_PEM_FILE = "rouse_key.pem"
 
     /**
      * Build a [WebSocketFactory] that presents the device client certificate during
      * TLS handshake.
      *
      * @param context Android context for accessing filesDir.
+     * @param deviceKeyManager Hardware-backed key manager that owns the device identity
+     *   private key. Must be the same instance the rest of the app uses.
      * @return A [WebSocketFactory] configured for mTLS, or a plain factory if no cert
      *         is available.
      */
-    fun create(context: Context): WebSocketFactory {
-        val okHttpClient = buildOkHttpClient(context)
+    fun create(context: Context, deviceKeyManager: DeviceKeyManager): WebSocketFactory {
+        val okHttpClient = buildOkHttpClient(context, deviceKeyManager)
         return OkHttpWebSocketFactory(okHttpClient)
     }
 
-    private fun buildOkHttpClient(context: Context): OkHttpClient {
-        val certAndKey = loadCertAndKey(context)
+    private fun buildOkHttpClient(
+        context: Context,
+        deviceKeyManager: DeviceKeyManager
+    ): OkHttpClient {
+        val certAndKey = loadCertAndKey(context, deviceKeyManager)
 
         return if (certAndKey != null) {
             Log.i(TAG, "Creating mTLS-configured OkHttpClient")
@@ -130,11 +134,22 @@ object MtlsWebSocketFactory {
     }
 
     private fun loadCertAndKey(
-        context: Context
+        context: Context,
+        deviceKeyManager: DeviceKeyManager
     ): Triple<List<X509Certificate>, PrivateKey, X509Certificate?>? {
-        val certs = loadCertChain(context)
-        val privateKey = loadPrivateKey(context)
-        if (certs == null || privateKey == null) return null
+        val certs = loadCertChain(context) ?: return null
+        // Synchronous bridge: WebSocketFactory.connect is not suspending (it is called
+        // from TunnelClient during connection establishment on an internal dispatcher).
+        // getOrCreateKeyPair is a single fast Keystore lookup; blocking here for tens of
+        // microseconds is fine and avoids forcing every WebSocketFactory call site to
+        // become suspending. If the Keystore is unavailable (Robolectric, wiped alias)
+        // we fall back to plain HTTP rather than crash the app at connection time.
+        val privateKey = try {
+            deviceKeyManager.getOrCreateKeyPair().private
+        } catch (e: Exception) {
+            Log.w(TAG, "DeviceKeyManager failed to produce a signing key; falling back", e)
+            return null
+        }
         val caCert = loadRelayCaCert(context)
         Log.i(
             TAG,
@@ -170,92 +185,6 @@ object MtlsWebSocketFactory {
             return null
         }
         return certs.first()
-    }
-
-    private fun loadPrivateKey(context: Context): PrivateKey? {
-        val keyFile = File(context.filesDir, KEY_PEM_FILE)
-        if (!keyFile.exists()) {
-            Log.w(TAG, "No private key file found at ${keyFile.absolutePath}")
-            return null
-        }
-        val pem = decryptKeyFile(keyFile)
-        if (pem == null) {
-            Log.w(TAG, "Failed to decrypt or read private key file")
-            return null
-        }
-        val key = parsePemPrivateKey(pem)
-        if (key == null) {
-            Log.w(TAG, "Failed to parse private key PEM")
-        }
-        return key
-    }
-
-    /**
-     * Attempts to decrypt the key file using the Keystore-derived AES key.
-     * Falls back to reading as plaintext PEM for backward compatibility.
-     */
-    private fun decryptKeyFile(keyFile: File): String? {
-        val data = keyFile.readBytes()
-        if (data.isEmpty()) return null
-        // Try encrypted format first: [ivLen(1 byte)][iv][ciphertext]
-        return try {
-            val ivLen = data[0].toInt() and 0xFF
-            if (ivLen > 0 && ivLen < data.size && data.size > 1 + ivLen) {
-                val iv = data.copyOfRange(1, 1 + ivLen)
-                val ciphertext = data.copyOfRange(1 + ivLen, data.size)
-                val encryptionKey = getEncryptionKey() ?: return readAsPlaintext(data)
-                val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
-                cipher.init(
-                    Cipher.DECRYPT_MODE,
-                    encryptionKey,
-                    GCMParameterSpec(GCM_TAG_LENGTH, iv)
-                )
-                String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-            } else {
-                readAsPlaintext(data)
-            }
-        } catch (_: Exception) {
-            readAsPlaintext(data)
-        }
-    }
-
-    private fun readAsPlaintext(data: ByteArray): String? {
-        val text = String(data, Charsets.UTF_8)
-        return if (text.contains("BEGIN") && text.contains("PRIVATE KEY")) text else null
-    }
-
-    private fun getEncryptionKey(): SecretKey? {
-        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE)
-        keyStore.load(null)
-        return keyStore.getKey(ENCRYPTION_KEY_ALIAS, null) as? SecretKey
-    }
-
-    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
-    private const val ENCRYPTION_KEY_ALIAS = "rouse_key_encryption_key"
-    private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
-    private const val GCM_TAG_LENGTH = 128
-
-    private fun parsePemPrivateKey(pem: String): PrivateKey? {
-        val base64 = pem
-            .replace("-----BEGIN PRIVATE KEY-----", "")
-            .replace("-----END PRIVATE KEY-----", "")
-            .replace("-----BEGIN RSA PRIVATE KEY-----", "")
-            .replace("-----END RSA PRIVATE KEY-----", "")
-            .replace("-----BEGIN EC PRIVATE KEY-----", "")
-            .replace("-----END EC PRIVATE KEY-----", "")
-            .replace("\\s".toRegex(), "")
-        return try {
-            val der = Base64.getDecoder().decode(base64)
-            val spec = PKCS8EncodedKeySpec(der)
-            try {
-                KeyFactory.getInstance("EC").generatePrivate(spec)
-            } catch (_: Exception) {
-                KeyFactory.getInstance("RSA").generatePrivate(spec)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse private key", e)
-            null
-        }
     }
 
     private fun parsePemCertificates(pem: String): List<X509Certificate> {

@@ -282,8 +282,8 @@ class SecurityCertificateStore(
     override suspend fun getSubdomain(): String? = subdomain
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {}
     override suspend fun getIntegrationSecrets(): Map<String, String>? = null
-    override suspend fun storePrivateKey(pemKey: String) {}
-    override suspend fun getPrivateKey(): String? = null
+
+    // storePrivateKey / getPrivateKey inherit the deprecated default no-op/null impls.
     override suspend fun clear() = Unit
     override suspend fun clearCertificates() = Unit
 }
@@ -312,8 +312,8 @@ class FailingCertificateStore : CertificateStore {
     override suspend fun getSubdomain(): String? = null
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {}
     override suspend fun getIntegrationSecrets(): Map<String, String>? = null
-    override suspend fun storePrivateKey(pemKey: String) {}
-    override suspend fun getPrivateKey(): String? = null
+
+    // storePrivateKey / getPrivateKey inherit the deprecated default no-op/null impls.
     override suspend fun clear() = Unit
     override suspend fun clearCertificates() = Unit
 }

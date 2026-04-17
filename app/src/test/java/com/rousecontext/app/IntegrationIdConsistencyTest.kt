@@ -124,8 +124,8 @@ private class RecordingCertStore(private val subdomain: String?) : CertificateSt
     override suspend fun storeRelayCaCert(pem: String) = Unit
     override suspend fun getRelayCaCert(): String? = null
     override suspend fun storeSubdomain(subdomain: String) = Unit
-    override suspend fun storePrivateKey(pemKey: String) = Unit
-    override suspend fun getPrivateKey(): String? = null
+
+    // storePrivateKey / getPrivateKey inherit the deprecated default no-op/null impls.
     override suspend fun clear() {
         secrets = emptyMap()
     }

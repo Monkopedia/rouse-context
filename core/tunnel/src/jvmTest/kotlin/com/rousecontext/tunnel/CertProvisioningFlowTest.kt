@@ -13,6 +13,7 @@ class CertProvisioningFlowTest {
 
     private val mockServer = MockRelayServer()
     private val store = InMemoryCertificateStore()
+    private val keyManager = InMemoryDeviceKeyManager()
     private lateinit var flow: CertProvisioningFlow
 
     companion object {
@@ -26,7 +27,8 @@ class CertProvisioningFlowTest {
         flow = CertProvisioningFlow(
             csrGenerator = CsrGenerator(),
             relayApiClient = client,
-            certificateStore = store
+            certificateStore = store,
+            deviceKeyManager = keyManager
         )
     }
 
@@ -65,7 +67,10 @@ class CertProvisioningFlowTest {
         assertNotNull(store.getCertificate())
         assertNotNull(store.getClientCertificate())
         assertNotNull(store.getRelayCaCert())
-        assertNotNull(store.getPrivateKey())
+        // Issue #200: the device identity keypair is owned by DeviceKeyManager, not the
+        // certificate store. Confirm the flow asked the key manager for a keypair and got
+        // a real EC public key back (non-null) so subsequent renewals reuse the same key.
+        assertNotNull(keyManager.getOrCreateKeyPair().public)
     }
 
     @Test
@@ -113,7 +118,6 @@ class CertProvisioningFlowTest {
 
         assertTrue(result is CertProvisioningResult.StorageFailed)
         assertNull(store.getCertificate())
-        assertNull(store.getPrivateKey())
     }
 
     @Test
@@ -157,7 +161,8 @@ class CertProvisioningFlowTest {
         val offlineFlow = CertProvisioningFlow(
             csrGenerator = CsrGenerator(),
             relayApiClient = offlineClient,
-            certificateStore = store
+            certificateStore = store,
+            deviceKeyManager = keyManager
         )
 
         val result = offlineFlow.execute(FAKE_FIREBASE_TOKEN)

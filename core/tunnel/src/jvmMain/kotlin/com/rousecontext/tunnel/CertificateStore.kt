@@ -86,11 +86,32 @@ interface CertificateStore {
     suspend fun getSecretForIntegration(integration: String): String? =
         getIntegrationSecrets()?.get(integration)
 
-    /** Store a PEM-encoded private key. On Android this is a no-op (key lives in HSM). */
-    suspend fun storePrivateKey(pemKey: String)
+    /**
+     * Historical PEM-key storage hook, retained only for the migration window.
+     *
+     * Issue #200: the device identity key is owned by `DeviceKeyManager` and lives in the
+     * hardware-backed Android Keystore; it is never serialised to PEM. Implementations
+     * should silently drop whatever PEM is handed in. Callers MUST NOT rely on read-back.
+     */
+    @Deprecated(
+        "Device private key is owned by DeviceKeyManager (Android Keystore, issue #200). " +
+            "Use DeviceKeyManager.getOrCreateKeyPair() to obtain the signing key.",
+        level = DeprecationLevel.WARNING
+    )
+    suspend fun storePrivateKey(pemKey: String) = Unit
 
-    /** Retrieve the PEM-encoded private key, or null. On Android, returns a reference. */
-    suspend fun getPrivateKey(): String?
+    /**
+     * Historical PEM-key read hook, retained only for the migration window.
+     *
+     * Issue #200: returns null — the device identity key lives in the Android Keystore
+     * and cannot be exported. Callers should use [DeviceKeyManager.getOrCreateKeyPair].
+     */
+    @Deprecated(
+        "Device private key is owned by DeviceKeyManager (Android Keystore, issue #200). " +
+            "Use DeviceKeyManager.getOrCreateKeyPair() to obtain the signing key.",
+        level = DeprecationLevel.WARNING
+    )
+    suspend fun getPrivateKey(): String? = null
 
     /** Remove all stored identity state (for rollback on partial failure). */
     suspend fun clear()

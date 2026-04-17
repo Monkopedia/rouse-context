@@ -14,6 +14,7 @@ import com.rousecontext.app.auth.AnonymousAuthClient
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
 import com.rousecontext.app.auth.FirebaseFcmTokenProvider
+import com.rousecontext.app.cert.AndroidKeystoreDeviceKeyManager
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.receivers.AuthApprovalReceiver
@@ -76,6 +77,7 @@ import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.CsrGenerator
 import com.rousecontext.tunnel.CtLogFetcher
 import com.rousecontext.tunnel.CtLogMonitor
+import com.rousecontext.tunnel.DeviceKeyManager
 import com.rousecontext.tunnel.HttpCtLogFetcher
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.RelayApiClient
@@ -162,7 +164,18 @@ val appModule = module {
     single { BugReportUriBuilder(androidContext()) }
 
     // --- Certificate store ---
-    single { FileCertificateStore(androidContext()) } bind CertificateStore::class
+    // Issue #200: run the legacy-PEM migration sweep once at startup so any lingering
+    // software-key PEM from pre-hardware-key builds is cleared before the first cert
+    // provisioning / renewal attempt. The sweep is idempotent.
+    single {
+        val store = FileCertificateStore(androidContext())
+        val appScope: CoroutineScope = get(named("appScope"))
+        appScope.launch { store.migrateLegacyPrivateKeyFileIfNeeded() }
+        store
+    } bind CertificateStore::class
+
+    // --- Device identity key (Android Keystore, StrongBox/TEE) ---
+    single<DeviceKeyManager> { AndroidKeystoreDeviceKeyManager() }
 
     // --- URL provider ---
     single { McpUrlProvider(get(), BuildConfig.BASE_DOMAIN) }
@@ -197,7 +210,15 @@ val appModule = module {
             integrationIds = get<List<McpIntegration>>().map { it.id }
         )
     }
-    single { CertProvisioningFlow(get(), get(), get(), BuildConfig.BASE_DOMAIN) }
+    single {
+        CertProvisioningFlow(
+            csrGenerator = get(),
+            relayApiClient = get(),
+            certificateStore = get(),
+            deviceKeyManager = get(),
+            defaultBaseDomain = BuildConfig.BASE_DOMAIN
+        )
+    }
 
     // --- Cert renewal (periodic worker) ---
     single<String>(named(CertRenewalWorker.KOIN_BASE_DOMAIN_NAME)) { BuildConfig.BASE_DOMAIN }
@@ -205,7 +226,8 @@ val appModule = module {
         CertRenewalFlow(
             csrGenerator = get(),
             relayApiClient = get(),
-            certificateStore = get()
+            certificateStore = get(),
+            deviceKeyManager = get()
         )
     }
     single<CertRenewer> { CertRenewalFlowRenewer(get()) }
@@ -422,7 +444,10 @@ val appModule = module {
     // the existing CertificateStore and McpSession singletons to the
     // TlsCertProvider / McpSessionFactory abstractions consumed by SessionHandler.
     single<TlsCertProvider> {
-        CertStoreTlsCertProvider(certStore = get<CertificateStore>())
+        CertStoreTlsCertProvider(
+            certStore = get<CertificateStore>(),
+            deviceKeyManager = get<DeviceKeyManager>()
+        )
     }
     single<McpSessionFactory> {
         SharedMcpSessionFactory(session = get<McpSession>())
@@ -442,7 +467,7 @@ val appModule = module {
         "${BuildConfig.RELAY_SCHEME}://${BuildConfig.RELAY_HOST}:${BuildConfig.RELAY_PORT}/ws"
     }
 
-    single { LazyWebSocketFactory(androidContext()) }
+    single { LazyWebSocketFactory(androidContext(), get<DeviceKeyManager>()) }
 
     single<TunnelClient> {
         TunnelClientImpl(

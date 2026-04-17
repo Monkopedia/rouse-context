@@ -1,6 +1,7 @@
 package com.rousecontext.app.cert
 
 import android.content.Context
+import com.rousecontext.tunnel.DeviceKeyManager
 import com.rousecontext.tunnel.WebSocketFactory
 import com.rousecontext.tunnel.WebSocketHandle
 import com.rousecontext.tunnel.WebSocketListener
@@ -13,13 +14,17 @@ import com.rousecontext.tunnel.WebSocketListener
  * Call [invalidate] after cert files change (onboarding, cert renewal) so the
  * next [connect] picks up the new credentials.
  */
-class LazyWebSocketFactory(private val context: Context) : WebSocketFactory {
+class LazyWebSocketFactory(
+    private val context: Context,
+    private val deviceKeyManager: DeviceKeyManager
+) : WebSocketFactory {
 
     @Volatile
     private var delegate: WebSocketFactory? = null
 
     override fun connect(url: String, listener: WebSocketListener): WebSocketHandle {
-        val factory = delegate ?: MtlsWebSocketFactory.create(context).also { delegate = it }
+        val factory = delegate ?: MtlsWebSocketFactory.create(context, deviceKeyManager)
+            .also { delegate = it }
         return factory.connect(url, listener)
     }
 

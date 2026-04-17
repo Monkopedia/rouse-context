@@ -1,7 +1,6 @@
 package com.rousecontext.tunnel.integration
 
 import com.rousecontext.tunnel.CsrGenerator
-import com.rousecontext.tunnel.CsrResult
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import com.rousecontext.tunnel.TunnelClientImpl
@@ -14,12 +13,13 @@ import io.ktor.serialization.kotlinx.json.json
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.net.InetAddress
-import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Signature
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
@@ -166,19 +166,17 @@ class CertRotationIntegrationTest {
             val subdomain = reg.subdomain
             val fqdn = "$subdomain.$RELAY_HOSTNAME"
 
-            val regCsr = CsrGenerator().generate(commonName = fqdn)
+            val regKey = newKeyPair()
+            val regCsr = CsrGenerator().generate(commonName = fqdn, keyPair = regKey)
             val initialCerts = assertSuccess(
                 api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = DUMMY_FIREBASE_TOKEN)
             )
 
             // --- Step 2: Generate renewal CSR reusing the registration keypair ---
-            val renewCsr = CsrGenerator().generateWithExistingKey(
-                commonName = fqdn,
-                privateKeyPem = regCsr.privateKeyPem
-            )
+            val renewCsr = CsrGenerator().generate(commonName = fqdn, keyPair = regKey)
 
             // --- Step 3: Sign renewal CSR DER with the registration private key ---
-            val signature = signCsrDer(regCsr, renewCsr.csrDer)
+            val signature = signCsrDer(regKey, renewCsr.csrDer)
 
             // --- Step 4: Call renewWithMtls against the real relay ---
             val renewedCerts = assertSuccess(
@@ -209,9 +207,9 @@ class CertRotationIntegrationTest {
             )
 
             // --- Step 6: Build an mTLS SSLContext from the renewed client cert ---
-            val renewedSslContext = buildMtlsSslContextFromPem(
+            val renewedSslContext = buildMtlsSslContextFromKey(
                 clientCertPem = renewedCerts.clientCert,
-                privateKeyPem = renewCsr.privateKeyPem,
+                privateKey = regKey,
                 caCertPem = renewedCerts.relayCaCert
             )
 
@@ -252,7 +250,8 @@ class CertRotationIntegrationTest {
             )
         )
         val fqdn = "${reg.subdomain}.$RELAY_HOSTNAME"
-        val regCsr = CsrGenerator().generate(commonName = fqdn)
+        val regKey = newKeyPair()
+        val regCsr = CsrGenerator().generate(commonName = fqdn, keyPair = regKey)
         assertSuccess(
             api.registerCerts(
                 csrPem = regCsr.csrPem,
@@ -261,11 +260,8 @@ class CertRotationIntegrationTest {
         )
 
         // First renewal -- reusing the original registration keypair
-        val renewCsr1 = CsrGenerator().generateWithExistingKey(
-            commonName = fqdn,
-            privateKeyPem = regCsr.privateKeyPem
-        )
-        val sig1 = signCsrDer(regCsr, renewCsr1.csrDer)
+        val renewCsr1 = CsrGenerator().generate(commonName = fqdn, keyPair = regKey)
+        val sig1 = signCsrDer(regKey, renewCsr1.csrDer)
         val renewed1 = assertSuccess(
             api.renewWithMtls(
                 csrPem = renewCsr1.csrPem,
@@ -275,11 +271,8 @@ class CertRotationIntegrationTest {
         )
 
         // Second renewal -- also reusing the original registration keypair
-        val renewCsr2 = CsrGenerator().generateWithExistingKey(
-            commonName = fqdn,
-            privateKeyPem = regCsr.privateKeyPem
-        )
-        val sig2 = signCsrDer(regCsr, renewCsr2.csrDer)
+        val renewCsr2 = CsrGenerator().generate(commonName = fqdn, keyPair = regKey)
+        val sig2 = signCsrDer(regKey, renewCsr2.csrDer)
         val renewed2 = assertSuccess(
             api.renewWithMtls(
                 csrPem = renewCsr2.csrPem,
@@ -300,9 +293,9 @@ class CertRotationIntegrationTest {
         )
 
         // Reconnect with second renewal certs
-        val sslContext = buildMtlsSslContextFromPem(
+        val sslContext = buildMtlsSslContextFromKey(
             clientCertPem = renewed2.clientCert,
-            privateKeyPem = renewCsr2.privateKeyPem,
+            privateKey = regKey,
             caCertPem = renewed2.relayCaCert
         )
         val wsFactory = Ipv4OnlyMtlsWebSocketFactory(sslContext)
@@ -325,33 +318,33 @@ class CertRotationIntegrationTest {
     // =========================================================================
 
     /**
-     * Sign [renewCsrDer] with SHA256withECDSA using the private key from [registrationCsr].
+     * Sign [renewCsrDer] with SHA256withECDSA using [registrationKey], which was the keypair
+     * the device presented at registration. The relay pins the public half at /register/certs
+     * time and verifies the signature against that pinned key on every subsequent /renew.
      */
-    private fun signCsrDer(registrationCsr: CsrResult, renewCsrDer: ByteArray): String {
-        val pem = registrationCsr.privateKeyPem
-        val header = "-----BEGIN PRIVATE KEY-----"
-        val footer = "-----END PRIVATE KEY-----"
-        val base64 = pem
-            .substringAfter(header)
-            .substringBefore(footer)
-            .replace("\\s".toRegex(), "")
-        val pkcs8 = Base64.getDecoder().decode(base64)
-        val privateKey = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+    private fun signCsrDer(registrationKey: KeyPair, renewCsrDer: ByteArray): String {
         val signer = Signature.getInstance("SHA256withECDSA")
-        signer.initSign(privateKey)
+        signer.initSign(registrationKey.private)
         signer.update(renewCsrDer)
         return Base64.getEncoder().encodeToString(signer.sign())
     }
 
+    /** Fresh P-256 keypair for test-owned registration/renewal flows. */
+    private fun newKeyPair(): KeyPair {
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(ECGenParameterSpec("secp256r1"))
+        return kpg.generateKeyPair()
+    }
+
     /**
-     * Build an mTLS [SSLContext] from PEM strings returned by the relay.
-     * The client cert + private key are loaded into a PKCS12 KeyStore;
-     * the relay CA cert and the test CA cert are loaded as trust anchors.
+     * Build an mTLS [SSLContext] from the relay-supplied client cert PEM and the
+     * caller-owned [privateKey] (which in production lives inside the Android Keystore).
+     * The relay CA cert and the test CA cert are loaded as trust anchors.
      */
     @Suppress("LongMethod")
-    private fun buildMtlsSslContextFromPem(
+    private fun buildMtlsSslContextFromKey(
         clientCertPem: String,
-        privateKeyPem: String,
+        privateKey: KeyPair,
         caCertPem: String
     ): SSLContext {
         val certFactory = CertificateFactory.getInstance("X.509")
@@ -366,23 +359,12 @@ class CertRotationIntegrationTest {
             ByteArrayInputStream(caCertPem.toByteArray())
         )
 
-        // Parse private key
-        val keyHeader = "-----BEGIN PRIVATE KEY-----"
-        val keyFooter = "-----END PRIVATE KEY-----"
-        val keyBase64 = privateKeyPem
-            .substringAfter(keyHeader)
-            .substringBefore(keyFooter)
-            .replace("\\s".toRegex(), "")
-        val keyBytes = Base64.getDecoder().decode(keyBase64)
-        val privateKey = KeyFactory.getInstance("EC")
-            .generatePrivate(PKCS8EncodedKeySpec(keyBytes))
-
         // Build PKCS12 KeyStore with the client cert chain + private key
         val keyStore = KeyStore.getInstance("PKCS12")
         keyStore.load(null, null)
         keyStore.setKeyEntry(
             "device",
-            privateKey,
+            privateKey.private,
             KEYSTORE_PASS.toCharArray(),
             arrayOf(clientCert, relayCaCert)
         )

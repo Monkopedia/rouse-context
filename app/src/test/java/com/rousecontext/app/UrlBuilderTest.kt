@@ -146,8 +146,8 @@ private class SubdomainAndSecretsStore(
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {
         this.secrets = secrets
     }
-    override suspend fun storePrivateKey(pemKey: String) = Unit
-    override suspend fun getPrivateKey(): String? = null
+
+    // storePrivateKey / getPrivateKey inherit the deprecated default no-op/null impls.
     override suspend fun clear() {
         secrets = emptyMap()
     }

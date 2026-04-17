@@ -8,11 +8,16 @@ package com.rousecontext.tunnel
  * onboarding -- to avoid burning ACME certs for devices that never serve anything.
  *
  * Idempotent: if certificates already exist, returns [CertProvisioningResult.AlreadyProvisioned].
+ *
+ * Issue #200: the device identity keypair is owned by [DeviceKeyManager] (hardware-backed
+ * on Android). The private key never leaves the keystore; `CertProvisioningFlow` only
+ * reads the public key (via [DeviceKeyManager.getOrCreateKeyPair]) to build the CSR.
  */
 class CertProvisioningFlow(
     private val csrGenerator: CsrGenerator,
     private val relayApiClient: RelayApiClient,
     private val certificateStore: CertificateStore,
+    private val deviceKeyManager: DeviceKeyManager,
     private val defaultBaseDomain: String = "rousecontext.com"
 ) {
 
@@ -39,10 +44,11 @@ class CertProvisioningFlow(
         val subdomain = certificateStore.getSubdomain()
             ?: return CertProvisioningResult.NotOnboarded
 
-        // Generate keypair and CSR with wildcard FQDN to match ACME order
+        // Obtain (or generate) the hardware-backed device keypair and build the CSR.
         val fqdn = "*.$subdomain.$baseDomain"
         val csrResult = try {
-            csrGenerator.generate(fqdn)
+            val keyPair = deviceKeyManager.getOrCreateKeyPair()
+            csrGenerator.generate(fqdn, keyPair)
         } catch (e: Exception) {
             return CertProvisioningResult.KeyGenerationFailed(e)
         }
@@ -56,7 +62,6 @@ class CertProvisioningFlow(
         ) {
             is RelayApiResult.Success -> {
                 try {
-                    certificateStore.storePrivateKey(csrResult.privateKeyPem)
                     certificateStore.storeCertificate(certResponse.data.serverCert)
                     certificateStore.storeClientCertificate(certResponse.data.clientCert)
                     certificateStore.storeRelayCaCert(certResponse.data.relayCaCert)

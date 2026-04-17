@@ -3,12 +3,12 @@ package com.rousecontext.tunnel
 /**
  * In-memory implementation of [CertificateStore] for testing onboarding/renewal flows.
  */
+@Suppress("DEPRECATION")
 class InMemoryCertificateStore : CertificateStore {
 
     private var certificate: String? = null
     private var subdomain: String? = null
     private var integrationSecrets: Map<String, String>? = null
-    private var privateKey: String? = null
     private var certChain: List<ByteArray>? = null
     private val knownFingerprints: MutableSet<String> = mutableSetOf()
     private var fingerprintBootstrapMarker: Boolean = false
@@ -63,13 +63,8 @@ class InMemoryCertificateStore : CertificateStore {
 
     override suspend fun getIntegrationSecrets(): Map<String, String>? = integrationSecrets
 
-    override suspend fun storePrivateKey(pemKey: String) {
-        throwOnStore?.let { throw it }
-        storeCallCount++
-        privateKey = pemKey
-    }
-
-    override suspend fun getPrivateKey(): String? = privateKey
+    // Issue #200: the historical PEM key hooks are silent no-ops / null — the device
+    // identity key lives in DeviceKeyManager (InMemoryDeviceKeyManager in tests).
 
     override suspend fun clear() {
         certificate = null
@@ -77,7 +72,6 @@ class InMemoryCertificateStore : CertificateStore {
         relayCaCert = null
         subdomain = null
         integrationSecrets = null
-        privateKey = null
         certChain = null
         knownFingerprints.clear()
         fingerprintBootstrapMarker = false
@@ -89,7 +83,6 @@ class InMemoryCertificateStore : CertificateStore {
         certificate = null
         clientCertificate = null
         relayCaCert = null
-        privateKey = null
         certChain = null
         knownFingerprints.clear()
         fingerprintBootstrapMarker = false

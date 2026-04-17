@@ -1,12 +1,13 @@
 package com.rousecontext.tunnel
 
 import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.Signature
 import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
-import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
-import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -16,24 +17,49 @@ import kotlin.test.assertTrue
  * `/renew` endpoint verifies the renewal signature with `p256::ecdsa::VerifyingKey`, so any
  * drift here (e.g. a future change back to RSA) would break every device at the first
  * renewal attempt -- see issue #173.
+ *
+ * Issue #200: `CsrGenerator` now takes a caller-owned [KeyPair] (production supplies a
+ * Keystore-backed one) rather than generating one internally. These tests pass in a
+ * software P-256 keypair to exercise the ASN.1 / signing path end-to-end.
  */
 class CsrGeneratorTest {
 
     private val generator = CsrGenerator()
 
-    @Test
-    fun `generated private key is EC P-256`() {
-        val result = generator.generate("test.rousecontext.com")
+    private fun newKeyPair(): KeyPair {
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(ECGenParameterSpec("secp256r1"))
+        return kpg.generateKeyPair()
+    }
 
-        val keyBytes = pemToDer(result.privateKeyPem, "PRIVATE KEY")
-        val keyFactory = KeyFactory.getInstance("EC")
-        val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(keyBytes))
+    @Test
+    fun `CSR public key matches the keypair provided by the caller`() {
+        val keyPair = newKeyPair()
+        val result = generator.generate("test.rousecontext.com", keyPair)
+
+        val spkiDer = extractSubjectPublicKeyInfo(result.csrDer)
+        val publicKey = KeyFactory.getInstance("EC")
+            .generatePublic(X509EncodedKeySpec(spkiDer))
 
         assertTrue(
-            privateKey is ECPrivateKey,
-            "private key must be EC, got ${privateKey.javaClass.name}"
+            publicKey is ECPublicKey,
+            "CSR public key must be EC, got ${publicKey.javaClass.name}"
         )
-        val ecPriv = privateKey as ECPrivateKey
+        // Byte-for-byte match: the CSR MUST carry the caller-supplied public key so the
+        // relay's registration-time pin stays valid across renewals (issue #199 / #200).
+        assertTrue(
+            spkiDer.contentEquals(keyPair.public.encoded),
+            "CSR SubjectPublicKeyInfo must equal the supplied keypair's public key DER"
+        )
+    }
+
+    @Test
+    fun `caller-supplied private key is P-256`() {
+        // Sanity check that the test helper itself produces the expected curve; drift here
+        // would mask real CSR regressions.
+        val keyPair = newKeyPair()
+        assertTrue(keyPair.private is ECPrivateKey)
+        val ecPriv = keyPair.private as ECPrivateKey
         assertEquals(
             P256_FIELD_SIZE_BITS,
             ecPriv.params.curve.field.fieldSize,
@@ -43,7 +69,7 @@ class CsrGeneratorTest {
 
     @Test
     fun `CSR public key is EC P-256`() {
-        val result = generator.generate("test.rousecontext.com")
+        val result = generator.generate("test.rousecontext.com", newKeyPair())
 
         val spkiDer = extractSubjectPublicKeyInfo(result.csrDer)
         val keyFactory = KeyFactory.getInstance("EC")
@@ -63,7 +89,7 @@ class CsrGeneratorTest {
 
     @Test
     fun `CSR carries ecdsa-with-SHA256 algorithm OID`() {
-        val result = generator.generate("test.rousecontext.com")
+        val result = generator.generate("test.rousecontext.com", newKeyPair())
 
         // OID 1.2.840.10045.4.3.2 (ecdsa-with-SHA256) DER-encoded: 06 08 2A 86 48 CE 3D 04 03 02
         val ecdsaSha256OidBytes = byteArrayOf(
@@ -89,7 +115,7 @@ class CsrGeneratorTest {
 
     @Test
     fun `CSR signature verifies with embedded public key`() {
-        val result = generator.generate("test.rousecontext.com")
+        val result = generator.generate("test.rousecontext.com", newKeyPair())
 
         val certRequestInfo = extractCertificationRequestInfo(result.csrDer)
         val signatureBytes = extractSignatureBitString(result.csrDer)
@@ -109,22 +135,13 @@ class CsrGeneratorTest {
 
     @Test
     fun `PEM encoding uses CERTIFICATE REQUEST label`() {
-        val result = generator.generate("test.rousecontext.com")
+        val result = generator.generate("test.rousecontext.com", newKeyPair())
 
         assertTrue(result.csrPem.contains("-----BEGIN CERTIFICATE REQUEST-----"))
         assertTrue(result.csrPem.contains("-----END CERTIFICATE REQUEST-----"))
     }
 
     // --- DER helpers ---
-
-    private fun pemToDer(pem: String, label: String): ByteArray {
-        val header = "-----BEGIN $label-----"
-        val footer = "-----END $label-----"
-        val start = pem.indexOf(header) + header.length
-        val end = pem.indexOf(footer)
-        val base64 = pem.substring(start, end).replace("\\s".toRegex(), "")
-        return Base64.getDecoder().decode(base64)
-    }
 
     /**
      * PKCS#10 CertificationRequest structure:

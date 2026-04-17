@@ -376,8 +376,8 @@ private class FakeCertificateStore(private val expiry: Long?) : CertificateStore
     override suspend fun getSubdomain(): String? = null
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) = Unit
     override suspend fun getIntegrationSecrets(): Map<String, String>? = null
-    override suspend fun storePrivateKey(pemKey: String) = Unit
-    override suspend fun getPrivateKey(): String? = null
+
+    // storePrivateKey / getPrivateKey inherit the deprecated default no-op/null impls.
     override suspend fun clear() = Unit
     override suspend fun clearCertificates() = Unit
 }

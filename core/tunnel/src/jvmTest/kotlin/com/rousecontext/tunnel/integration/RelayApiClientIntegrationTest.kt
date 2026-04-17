@@ -1,7 +1,6 @@
 package com.rousecontext.tunnel.integration
 
 import com.rousecontext.tunnel.CsrGenerator
-import com.rousecontext.tunnel.CsrResult
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import io.ktor.client.HttpClient
@@ -11,11 +10,12 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import java.io.File
 import java.net.InetAddress
-import java.security.KeyFactory
+import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Signature
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.ECGenParameterSpec
 import java.util.Base64
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
@@ -266,7 +266,10 @@ class RelayApiClientIntegrationTest {
             )
         )
 
-        val csr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
+        val csr = CsrGenerator().generate(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            keyPair = newKeyPair()
+        )
         val result = api.registerCerts(csrPem = csr.csrPem, firebaseToken = firebaseToken)
 
         val body = assertSuccess(result)
@@ -296,7 +299,8 @@ class RelayApiClientIntegrationTest {
                 )
             )
             val firstCsr = CsrGenerator().generate(
-                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+                commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+                keyPair = newKeyPair()
             )
             assertSuccess(
                 api.registerCerts(csrPem = firstCsr.csrPem, firebaseToken = firebaseToken)
@@ -305,7 +309,8 @@ class RelayApiClientIntegrationTest {
             // Second call with a fresh attacker-controlled keypair. No
             // signature field: the relay must reject with 403.
             val attackerCsr = CsrGenerator().generate(
-                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+                commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+                keyPair = newKeyPair()
             )
             val result = api.registerCerts(
                 csrPem = attackerCsr.csrPem,
@@ -326,8 +331,10 @@ class RelayApiClientIntegrationTest {
                 integrationIds = emptyList()
             )
         )
+        val regKey = newKeyPair()
         val firstCsr = CsrGenerator().generate(
-            commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            keyPair = regKey
         )
         assertSuccess(
             api.registerCerts(csrPem = firstCsr.csrPem, firebaseToken = firebaseToken)
@@ -336,11 +343,11 @@ class RelayApiClientIntegrationTest {
         // Second round-2 with the same keypair as the first. Sign the new
         // CSR DER with the registered private key so the relay's PoP check
         // passes.
-        val reissueCsr = CsrGenerator().generateWithExistingKey(
+        val reissueCsr = CsrGenerator().generate(
             commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
-            privateKeyPem = firstCsr.privateKeyPem
+            keyPair = regKey
         )
-        val signature = signCsrDer(firstCsr, reissueCsr.csrDer)
+        val signature = signCsrDer(regKey, reissueCsr.csrDer)
         val result = api.registerCerts(
             csrPem = reissueCsr.csrPem,
             firebaseToken = firebaseToken,
@@ -431,14 +438,19 @@ class RelayApiClientIntegrationTest {
         // Round 2: registerCerts populates `public_key` on the device
         // record. We must keep the matching private key so we can produce
         // a signature the relay will accept at renewal time.
+        val regKey = newKeyPair()
         val regCsr = CsrGenerator().generate(
-            commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            keyPair = regKey
         )
         assertSuccess(
             api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
         )
-        val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
-        val signature = signCsrDer(regCsr, renewCsr.csrDer)
+        val renewCsr = CsrGenerator().generate(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            keyPair = regKey
+        )
+        val signature = signCsrDer(regKey, renewCsr.csrDer)
 
         val result = api.renewWithMtls(
             csrPem = renewCsr.csrPem,
@@ -467,14 +479,19 @@ class RelayApiClientIntegrationTest {
                 integrationIds = emptyList()
             )
         )
+        val regKey = newKeyPair()
         val regCsr = CsrGenerator().generate(
-            commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            keyPair = regKey
         )
         assertSuccess(
             api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = firebaseToken)
         )
-        val renewCsr = CsrGenerator().generate(commonName = "${reg.subdomain}.$RELAY_HOSTNAME")
-        val signature = signCsrDer(regCsr, renewCsr.csrDer)
+        val renewCsr = CsrGenerator().generate(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            keyPair = regKey
+        )
+        val signature = signCsrDer(regKey, renewCsr.csrDer)
 
         val result = api.renewWithFirebase(
             csrPem = renewCsr.csrPem,
@@ -492,24 +509,22 @@ class RelayApiClientIntegrationTest {
     // --- helpers ---
 
     /**
-     * Sign [renewCsrDer] under SHA256withECDSA using the private key generated for
-     * [registrationCsr]. That matches what the relay verifies on /renew: it pulled the
-     * public key out of the registration CSR at /register/certs time and expects a
-     * signature from the corresponding private half here.
+     * Sign [renewCsrDer] under SHA256withECDSA using [registrationKey]. That matches what
+     * the relay verifies on /renew: it pulled the public key out of the registration CSR
+     * at /register/certs time and expects a signature from the corresponding private half.
      */
-    private fun signCsrDer(registrationCsr: CsrResult, renewCsrDer: ByteArray): String {
-        val pem = registrationCsr.privateKeyPem
-        val header = "-----BEGIN PRIVATE KEY-----"
-        val footer = "-----END PRIVATE KEY-----"
-        val start = pem.indexOf(header) + header.length
-        val end = pem.indexOf(footer)
-        val base64 = pem.substring(start, end).replace("\\s".toRegex(), "")
-        val pkcs8 = Base64.getDecoder().decode(base64)
-        val privateKey = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(pkcs8))
+    private fun signCsrDer(registrationKey: KeyPair, renewCsrDer: ByteArray): String {
         val signer = Signature.getInstance("SHA256withECDSA")
-        signer.initSign(privateKey)
+        signer.initSign(registrationKey.private)
         signer.update(renewCsrDer)
         return Base64.getEncoder().encodeToString(signer.sign())
+    }
+
+    /** Fresh P-256 keypair for test-owned registration/renewal flows. */
+    private fun newKeyPair(): KeyPair {
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(ECGenParameterSpec("secp256r1"))
+        return kpg.generateKeyPair()
     }
 
     private fun <T> assertSuccess(result: RelayApiResult<T>): T {

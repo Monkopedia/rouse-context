@@ -2,41 +2,50 @@ package com.rousecontext.app.session
 
 import com.rousecontext.bridge.TlsCertProvider
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.DeviceKeyManager
 import java.io.ByteArrayInputStream
-import java.security.KeyFactory
 import java.security.KeyStore
-import java.security.PrivateKey
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 
 /**
  * Production [TlsCertProvider] implementation that builds a server-side [SSLContext]
- * from the PEM-encoded certificate and private key held by [CertificateStore].
+ * from the PEM-encoded certificate chain held by [CertificateStore] and the hardware-backed
+ * device private key held by [DeviceKeyManager].
  *
- * Each call to [serverSslContext] rebuilds the context from fresh PEM. This is
- * cheap relative to the TLS handshake and avoids stale-cert issues after renewal.
- * If either the certificate or key is missing, returns null so the caller can
+ * Each call to [serverSslContext] rebuilds the context from fresh PEM + the current
+ * Keystore reference. This is cheap relative to the TLS handshake and avoids stale-cert
+ * issues after renewal. If the certificate is missing, returns null so the caller can
  * surface a meaningful "device not onboarded" error.
+ *
+ * Issue #200: the private key is a Keystore-backed JCA handle -- its bytes never surface
+ * in app memory. The SSLEngine drives signing through the Keystore provider at handshake
+ * time.
  */
-class CertStoreTlsCertProvider(private val certStore: CertificateStore) : TlsCertProvider {
+class CertStoreTlsCertProvider(
+    private val certStore: CertificateStore,
+    private val deviceKeyManager: DeviceKeyManager
+) : TlsCertProvider {
 
     override suspend fun serverSslContext(): SSLContext? {
         val certPem = certStore.getCertificate() ?: return null
-        val keyPem = certStore.getPrivateKey() ?: return null
 
         val certs = parsePemCertificates(certPem)
         require(certs.isNotEmpty()) { "No certificates found in stored PEM" }
-        val privateKey = parsePemPrivateKey(keyPem)
+
+        // Load the hardware-backed keypair. The PrivateKey instance we obtain is a JCA
+        // handle into the Android Keystore -- JSSE initialises signing through the
+        // Keystore provider at TLS handshake time.
+        val keyPair = deviceKeyManager.getOrCreateKeyPair()
 
         val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
         keyStore.load(null, null)
         keyStore.setKeyEntry(
             "device",
-            privateKey,
+            keyPair.private,
             charArrayOf(),
             certs.toTypedArray()
         )
@@ -60,21 +69,5 @@ class CertStoreTlsCertProvider(private val certStore: CertificateStore) : TlsCer
             val der = Base64.getDecoder().decode(base64)
             factory.generateCertificate(ByteArrayInputStream(der)) as X509Certificate
         }.toList()
-    }
-
-    private fun parsePemPrivateKey(pem: String): PrivateKey {
-        val body = pem
-            .replace("-----BEGIN PRIVATE KEY-----", "")
-            .replace("-----END PRIVATE KEY-----", "")
-            .replace("\\s".toRegex(), "")
-        val der = Base64.getDecoder().decode(body)
-        val spec = PKCS8EncodedKeySpec(der)
-        // Try EC first — post-#173 CsrGenerator emits ECDSA P-256. RSA kept for
-        // devices that still have pre-#173 keys stored.
-        return try {
-            KeyFactory.getInstance("EC").generatePrivate(spec)
-        } catch (_: Exception) {
-            KeyFactory.getInstance("RSA").generatePrivate(spec)
-        }
     }
 }
