@@ -67,6 +67,7 @@ class McpEndToEndTest {
     private var authCode: String? = null
     private var accessToken: String? = null
     private var refreshToken: String? = null
+    private var mcpSessionId: String? = null
 
     @BeforeAll
     fun setup() {
@@ -379,6 +380,8 @@ class McpEndToEndTest {
         client.newCall(request).execute().use { response ->
             val bodyText = response.body?.string() ?: ""
             assertEquals(200, response.code, "MCP initialize failed: $bodyText")
+            mcpSessionId = response.header("Mcp-Session-Id")
+            assertNotNull(mcpSessionId, "Initialize must return Mcp-Session-Id (#189)")
             val body = json.parseToJsonElement(bodyText).jsonObject
             // Before #181 was fixed, a second initialize against a cached
             // per-integration Server produced an error response (HTTP 200 with
@@ -412,6 +415,7 @@ class McpEndToEndTest {
             .url(mcpUrl)
             .post(listBody.toString().toRequestBody("application/json".toMediaType()))
             .header("Authorization", "Bearer $accessToken")
+            .header("Mcp-Session-Id", mcpSessionId!!)
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -452,6 +456,7 @@ class McpEndToEndTest {
             .url(mcpUrl)
             .post(callBody.toString().toRequestBody("application/json".toMediaType()))
             .header("Authorization", "Bearer $accessToken")
+            .header("Mcp-Session-Id", mcpSessionId!!)
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -527,6 +532,7 @@ class McpEndToEndTest {
             .url(mcpUrl)
             .post(callBody.toString().toRequestBody("application/json".toMediaType()))
             .header("Authorization", "Bearer $accessToken")
+            .header("Mcp-Session-Id", mcpSessionId!!)
             .build()
 
         client.newCall(request).execute().use { response ->
@@ -601,6 +607,7 @@ class McpEndToEndTest {
             .url(mcpUrl)
             .post(callBody.toString().toRequestBody("application/json".toMediaType()))
             .header("Authorization", "Bearer $tokenBeforeRefresh")
+            .header("Mcp-Session-Id", mcpSessionId!!)
             .build()
 
         client.newCall(oldRequest).execute().use { response ->
