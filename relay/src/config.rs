@@ -191,6 +191,21 @@ pub struct LimitsConfig {
     /// Window size (seconds) for the per-(source IP, subdomain) connection
     /// limiter. Default: 60.
     pub conn_rate_limit_window_secs: u64,
+    /// If true, `handle_ws` will auto-create a minimal Firestore device record
+    /// when a mTLS-authenticated device connects with no existing record.
+    ///
+    /// MUST remain `false` in production. The auto-create path silently
+    /// resurrects a Firestore record with empty `firebase_uid` and no
+    /// `valid_secrets` based on the client certificate alone -- if a device's
+    /// mTLS cert is ever compromised or revoked, an attacker could use it to
+    /// recreate a record under that subdomain. Genuine devices register via
+    /// `/register` -> `/register/certs` before ever connecting to `/ws`.
+    ///
+    /// The flag exists only to keep the test harness convenient: tests that
+    /// construct `InMemoryFirestore` and connect a simulated device without
+    /// first calling `/register` rely on this behaviour.
+    #[serde(default)]
+    pub allow_ws_auto_create_device: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -280,6 +295,7 @@ impl Default for LimitsConfig {
             request_subdomain_rate_refill_secs: 20,
             conn_rate_limit_max: 200,
             conn_rate_limit_window_secs: 60,
+            allow_ws_auto_create_device: false,
         }
     }
 }

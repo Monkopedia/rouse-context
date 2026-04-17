@@ -56,20 +56,38 @@ pub async fn handle_ws(
     };
 
     // mTLS client cert is sufficient authentication -- the cert was issued by
-    // our relay CA during registration. If Firestore has no record (e.g. after
-    // relay restart with InMemoryFirestore), we auto-create one below.
+    // our relay CA during registration. Normally the device already has a
+    // Firestore record from `/register` -> `/register/certs`. If not:
+    //   - In production (`allow_ws_auto_create_device` is false, the default),
+    //     refuse the connection. Auto-creating a record from a mTLS cert alone
+    //     would let a compromised or revoked cert silently resurrect a
+    //     subdomain with empty `firebase_uid` / no `valid_secrets` (#209).
+    //   - In the test harness (`allow_ws_auto_create_device` is true), the
+    //     record is auto-created below so that `InMemoryFirestore`-backed
+    //     fixtures don't need to call `/register` first.
     let firestore_has_record = match state.firestore.get_device(&subdomain).await {
         Ok(_) => true,
         Err(crate::firestore::FirestoreError::NotFound(_)) => {
-            warn!(
-                subdomain = %subdomain,
-                "Device not in Firestore (mTLS cert valid, will auto-create record on connect)"
-            );
-            false
+            if state.config.limits.allow_ws_auto_create_device {
+                warn!(
+                    subdomain = %subdomain,
+                    "Device not in Firestore (mTLS cert valid, will auto-create record on connect)"
+                );
+                false
+            } else {
+                warn!(
+                    subdomain = %subdomain,
+                    "Device not registered in Firestore and auto-create is disabled; rejecting /ws"
+                );
+                return ApiError::forbidden(
+                    "Device not registered. Re-run registration before connecting.",
+                )
+                .into_response();
+            }
         }
         Err(e) => {
             error!(subdomain = %subdomain, error = %e, "Firestore lookup failed");
-            false
+            return ApiError::internal("Firestore lookup failed").into_response();
         }
     };
 
@@ -610,10 +628,12 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
-    /// Valid cert for an unregistered subdomain -> 200.
-    /// mTLS is sufficient auth; Firestore record is auto-created on connect.
+    /// Valid cert for an unregistered subdomain -> 200 via the auth-only
+    /// shim (the Firestore gate is exercised separately — see
+    /// `ws_auto_create_gate_rejects_unregistered_device` below and the
+    /// integration tests).
     #[tokio::test]
-    async fn ws_with_cert_for_unregistered_subdomain_accepted() {
+    async fn ws_with_cert_for_unregistered_subdomain_accepted_by_auth_check() {
         let state = build_test_state(vec![]); // no registered subdomains
         let app = axum::Router::new()
             .route("/ws", axum::routing::get(auth_check))
@@ -643,5 +663,104 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Build an AppState whose Firestore knows nothing and whose config has
+    /// the gate set to `allow`.
+    fn state_with_auto_create(allow: bool) -> Arc<AppState> {
+        let mut config = RelayConfig::default();
+        config.limits.allow_ws_auto_create_device = allow;
+        Arc::new(AppState {
+            relay_state: Arc::new(RelayState::new()),
+            session_registry: Arc::new(SessionRegistry::new()),
+            firestore: Arc::new(MockFirestore {
+                registered: Vec::new(),
+            }),
+            fcm: Arc::new(StubFcm),
+            acme: Arc::new(StubAcme),
+            dns: Arc::new(crate::dns::StubDnsClient),
+            firebase_auth: Arc::new(StubFirebaseAuth),
+            subdomain_generator: crate::subdomain::SubdomainGenerator::new(),
+            rate_limiter: crate::rate_limit::RateLimiter::new(
+                crate::rate_limit::RateLimitConfig::default(),
+            ),
+            request_subdomain_rate_limiter: crate::rate_limit::RateLimiter::new(
+                crate::rate_limit::RateLimitConfig::default(),
+            ),
+            config,
+            device_ca: None,
+        })
+    }
+
+    /// With the gate closed (default / production), `/ws` rejects a valid
+    /// mTLS cert whose subdomain has no Firestore record. This is the #209
+    /// fix: the relay must not silently resurrect a Firestore record from
+    /// a client certificate alone.
+    ///
+    /// We run a real TCP server here rather than `tower::oneshot` because
+    /// axum's `WebSocketUpgrade` extractor refuses non-upgrade requests with
+    /// 426 before the handler body runs, which would hide the gate logic.
+    #[tokio::test]
+    async fn ws_auto_create_gate_rejects_unregistered_device() {
+        use tokio::net::TcpListener;
+
+        let state = state_with_auto_create(false);
+        let router = axum::Router::new()
+            .route("/ws", axum::routing::get(handle_ws))
+            .with_state(state)
+            .layer(axum::Extension(DeviceIdentity {
+                subdomain: "ghost-device".to_string(),
+            }));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let url = format!("ws://127.0.0.1:{}/ws", addr.port());
+        let err = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect_err("unregistered device must be refused at /ws when auto-create is off");
+
+        match err {
+            tokio_tungstenite::tungstenite::Error::Http(response) => {
+                assert_eq!(
+                    response.status(),
+                    StatusCode::FORBIDDEN,
+                    "expected 403 Forbidden when the auto-create gate is closed"
+                );
+            }
+            other => panic!("expected HTTP 403 error, got {other:?}"),
+        }
+    }
+
+    /// When the test harness flag is set, the gate is open and `/ws` accepts
+    /// a fresh device even without a Firestore record, auto-creating one.
+    #[tokio::test]
+    async fn ws_auto_create_gate_allows_unregistered_device_when_enabled() {
+        use tokio::net::TcpListener;
+
+        let state = state_with_auto_create(true);
+        let router = axum::Router::new()
+            .route("/ws", axum::routing::get(handle_ws))
+            .with_state(state)
+            .layer(axum::Extension(DeviceIdentity {
+                subdomain: "ghost-device".to_string(),
+            }));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+
+        let url = format!("ws://127.0.0.1:{}/ws", addr.port());
+        // A successful upgrade returns Ok(...). We do not need to exchange
+        // frames — the fact that the handshake completed proves the gate
+        // let us through.
+        let _ = tokio_tungstenite::connect_async(&url)
+            .await
+            .expect("with auto-create enabled, /ws must accept the upgrade");
     }
 }

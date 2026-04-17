@@ -41,3 +41,10 @@ wake_rate_limit = 6  # per minute per subdomain
 # getting through.
 # conn_rate_limit_max = 200
 # conn_rate_limit_window_secs = 60
+#
+# If true, `/ws` will auto-create a minimal Firestore device record when a
+# mTLS-authenticated device connects with no existing record. This exists
+# only to keep test fixtures convenient — MUST remain false in production.
+# A compromised or revoked client cert could otherwise silently resurrect a
+# subdomain with empty firebase_uid and no valid_secrets (#209).
+# allow_ws_auto_create_device = false
