@@ -1,8 +1,16 @@
 package com.rousecontext.tunnel
 
+import java.math.BigInteger
+import java.security.KeyFactory
+import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.Signature
+import java.security.interfaces.ECPrivateKey
+import java.security.spec.ECFieldFp
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECPoint
+import java.security.spec.ECPublicKeySpec
+import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 
 /**
@@ -19,6 +27,8 @@ class CsrGenerator {
     /**
      * Generate a new keypair and return a PEM-encoded CSR for the given common name.
      * Returns a [CsrResult] containing the CSR PEM and the private key PEM.
+     *
+     * Use this for first-time registration where a fresh keypair is needed.
      */
     fun generate(commonName: String): CsrResult {
         val keyPairGenerator = KeyPairGenerator.getInstance("EC")
@@ -33,6 +43,97 @@ class CsrGenerator {
         val privateKeyPem = derToPem(privateKeyDer, "PRIVATE KEY")
 
         return CsrResult(csrPem = csrPem, privateKeyPem = privateKeyPem, csrDer = csrDer)
+    }
+
+    /**
+     * Build a CSR for the given common name using an existing PEM-encoded private key.
+     * The public key is derived from the private key. Returns a [CsrResult] whose
+     * [CsrResult.privateKeyPem] is the same key that was passed in (unchanged).
+     *
+     * Use this for cert renewal where the registration keypair must be reused so the
+     * relay's stored public key stays correct.
+     */
+    fun generateWithExistingKey(commonName: String, privateKeyPem: String): CsrResult {
+        val keyPair = pemToKeyPair(privateKeyPem)
+
+        val csrDer = buildCsr(commonName, keyPair)
+        val csrPem = derToPem(csrDer, "CERTIFICATE REQUEST")
+
+        return CsrResult(csrPem = csrPem, privateKeyPem = privateKeyPem, csrDer = csrDer)
+    }
+
+    private fun pemToKeyPair(privateKeyPem: String): KeyPair {
+        val base64 = privateKeyPem
+            .substringAfter("-----BEGIN PRIVATE KEY-----")
+            .substringBefore("-----END PRIVATE KEY-----")
+            .replace("\\s".toRegex(), "")
+        val pkcs8Bytes = Base64.getDecoder().decode(base64)
+
+        val keyFactory = KeyFactory.getInstance("EC")
+        val privateKey = keyFactory.generatePrivate(PKCS8EncodedKeySpec(pkcs8Bytes))
+            as ECPrivateKey
+
+        // Derive the public key by computing Q = d * G on the P-256 curve.
+        val ecSpec = privateKey.params
+        val field = (ecSpec.curve.field as ECFieldFp).p
+        val publicPoint = ecPointMultiply(
+            ecSpec.generator,
+            privateKey.s,
+            ecSpec.curve.a,
+            field
+        )
+        val publicKey = keyFactory.generatePublic(ECPublicKeySpec(publicPoint, ecSpec))
+
+        return KeyPair(publicKey, privateKey)
+    }
+
+    /**
+     * EC point scalar multiplication using double-and-add on a Weierstrass curve
+     * y^2 = x^3 + ax + b (mod p). Used to derive Q = d * G from a private scalar.
+     */
+    private fun ecPointMultiply(
+        point: ECPoint,
+        scalar: BigInteger,
+        a: BigInteger,
+        p: BigInteger
+    ): ECPoint {
+        var result = ECPoint.POINT_INFINITY
+        var addend = point
+        var k = scalar
+        while (k > BigInteger.ZERO) {
+            if (k.testBit(0)) {
+                result = ecPointAdd(result, addend, a, p)
+            }
+            addend = ecPointAdd(addend, addend, a, p)
+            k = k.shiftRight(1)
+        }
+        return result
+    }
+
+    private fun ecPointAdd(p1: ECPoint, p2: ECPoint, a: BigInteger, p: BigInteger): ECPoint {
+        if (p1 == ECPoint.POINT_INFINITY) return p2
+        if (p2 == ECPoint.POINT_INFINITY) return p1
+
+        val x1 = p1.affineX
+        val y1 = p1.affineY
+        val x2 = p2.affineX
+        val y2 = p2.affineY
+
+        val lambda = if (x1 == x2 && y1 == y2) {
+            val numerator = x1.pow(2).multiply(BigInteger.valueOf(3)).add(a)
+            val denominator = y1.multiply(BigInteger.TWO)
+            numerator.multiply(denominator.modInverse(p)).mod(p)
+        } else {
+            if (x1 == x2) return ECPoint.POINT_INFINITY
+            val numerator = y2.subtract(y1)
+            val denominator = x2.subtract(x1)
+            numerator.multiply(denominator.modInverse(p)).mod(p)
+        }
+
+        val x3 = lambda.pow(2).subtract(x1).subtract(x2).mod(p)
+        val y3 = lambda.multiply(x1.subtract(x3)).subtract(y1).mod(p)
+
+        return ECPoint(x3, y3)
     }
 
     private fun buildCsr(commonName: String, keyPair: java.security.KeyPair): ByteArray {

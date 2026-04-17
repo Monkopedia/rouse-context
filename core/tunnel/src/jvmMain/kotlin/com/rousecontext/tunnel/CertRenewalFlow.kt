@@ -72,6 +72,7 @@ class CertRenewalFlow(
      * [RenewalResult.FirebaseAuthUnavailable] (transient Keystore-signing failure) so the
      * caller retries later.
      */
+    @Suppress("ReturnCount")
     suspend fun renewWithMtls(
         csrSigner: CsrSigner,
         baseDomain: String = defaultBaseDomain
@@ -82,8 +83,11 @@ class CertRenewalFlow(
 
         if (certInspector.inspect(currentCert).isExpired) return RenewalResult.CertExpired
 
+        val existingKey = certificateStore.getPrivateKey()
+            ?: return RenewalResult.NoCertificate
+
         val csrResult = try {
-            csrGenerator.generate("*.$subdomain.$baseDomain")
+            csrGenerator.generateWithExistingKey("*.$subdomain.$baseDomain", existingKey)
         } catch (e: Exception) {
             return RenewalResult.KeyGenerationFailed(e)
         }
@@ -97,7 +101,7 @@ class CertRenewalFlow(
                 subdomain = subdomain,
                 signature = signature
             )
-            handleRenewResponse(result, csrResult, currentCert)
+            handleRenewResponse(result, currentCert)
         }
     }
 
@@ -124,6 +128,7 @@ class CertRenewalFlow(
      * `null`, the renewal is reported as a [RenewalResult.NetworkError] surrogate so the
      * caller retries later (Firebase token / Keystore signing failures are transient).
      */
+    @Suppress("ReturnCount")
     suspend fun renewWithFirebase(
         credentialsProvider: FirebaseRenewalCredentialsProvider,
         baseDomain: String = defaultBaseDomain
@@ -131,8 +136,11 @@ class CertRenewalFlow(
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate
 
+        val existingKey = certificateStore.getPrivateKey()
+            ?: return RenewalResult.NoCertificate
+
         val csrResult = try {
-            csrGenerator.generate("*.$subdomain.$baseDomain")
+            csrGenerator.generateWithExistingKey("*.$subdomain.$baseDomain", existingKey)
         } catch (e: Exception) {
             return RenewalResult.KeyGenerationFailed(e)
         }
@@ -147,13 +155,12 @@ class CertRenewalFlow(
                 firebaseToken = credentials.token,
                 signature = credentials.signature
             )
-            handleRenewResponse(result, csrResult, null)
+            handleRenewResponse(result, null)
         }
     }
 
     private suspend fun handleRenewResponse(
         result: RelayApiResult<RenewResponse>,
-        csrResult: CsrResult,
         currentCertForValidation: String?
     ): RetryableResult {
         if (result is RelayApiResult.Success && currentCertForValidation != null) {
@@ -170,7 +177,6 @@ class CertRenewalFlow(
         }
         return when (result) {
             is RelayApiResult.Success -> {
-                certificateStore.storePrivateKey(csrResult.privateKeyPem)
                 certificateStore.storeCertificate(result.data.serverCert)
                 certificateStore.storeClientCertificate(result.data.clientCert)
                 certificateStore.storeRelayCaCert(result.data.relayCaCert)

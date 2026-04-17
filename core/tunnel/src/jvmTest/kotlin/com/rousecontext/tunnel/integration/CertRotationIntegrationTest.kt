@@ -170,8 +170,11 @@ class CertRotationIntegrationTest {
                 api.registerCerts(csrPem = regCsr.csrPem, firebaseToken = DUMMY_FIREBASE_TOKEN)
             )
 
-            // --- Step 2: Generate renewal CSR with fresh ECDSA P-256 keys ---
-            val renewCsr = CsrGenerator().generate(commonName = fqdn)
+            // --- Step 2: Generate renewal CSR reusing the registration keypair ---
+            val renewCsr = CsrGenerator().generateWithExistingKey(
+                commonName = fqdn,
+                privateKeyPem = regCsr.privateKeyPem
+            )
 
             // --- Step 3: Sign renewal CSR DER with the registration private key ---
             val signature = signCsrDer(regCsr, renewCsr.csrDer)
@@ -186,7 +189,7 @@ class CertRotationIntegrationTest {
             )
 
             // --- Step 5: Assert the relay returned a NEW cert triple ---
-            // client_cert must differ (signed over new CSR with new public key)
+            // client_cert must differ (new serial/expiry even though same public key)
             assertNotEquals(
                 initialCerts.clientCert,
                 renewedCerts.clientCert,
@@ -232,6 +235,7 @@ class CertRotationIntegrationTest {
      * (the relay does not rotate the stored public key on renewal). Verifies
      * that consecutive renewals work and each produces a distinct client cert.
      */
+    @Suppress("LongMethod")
     @Test
     fun `consecutive renewals with registration key produce distinct certs`(): Unit = runBlocking {
         // Register + initial certs
@@ -251,8 +255,11 @@ class CertRotationIntegrationTest {
             )
         )
 
-        // First renewal -- signed with the original registration key
-        val renewCsr1 = CsrGenerator().generate(commonName = fqdn)
+        // First renewal -- reusing the original registration keypair
+        val renewCsr1 = CsrGenerator().generateWithExistingKey(
+            commonName = fqdn,
+            privateKeyPem = regCsr.privateKeyPem
+        )
         val sig1 = signCsrDer(regCsr, renewCsr1.csrDer)
         val renewed1 = assertSuccess(
             api.renewWithMtls(
@@ -262,8 +269,11 @@ class CertRotationIntegrationTest {
             )
         )
 
-        // Second renewal -- also signed with the original registration key
-        val renewCsr2 = CsrGenerator().generate(commonName = fqdn)
+        // Second renewal -- also reusing the original registration keypair
+        val renewCsr2 = CsrGenerator().generateWithExistingKey(
+            commonName = fqdn,
+            privateKeyPem = regCsr.privateKeyPem
+        )
         val sig2 = signCsrDer(regCsr, renewCsr2.csrDer)
         val renewed2 = assertSuccess(
             api.renewWithMtls(
