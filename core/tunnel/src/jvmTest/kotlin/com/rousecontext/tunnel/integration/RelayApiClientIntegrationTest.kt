@@ -277,6 +277,81 @@ class RelayApiClientIntegrationTest {
         assertPem(body.relayCaCert, "CERTIFICATE", "relay_ca_cert")
     }
 
+    /**
+     * Proof-of-possession (issue #201): once a device has a public key on
+     * file from an earlier successful round-2 call, a re-issuance must be
+     * signed with the registered private key. Holding a valid Firebase ID
+     * token is no longer enough to mint a fresh cert for an attacker-chosen
+     * keypair.
+     */
+    @Test
+    fun `registerCerts rejects re-issuance without signature when key on file`(): Unit =
+        runBlocking {
+            val firebaseToken = DUMMY_FIREBASE_TOKEN + "-reissue-no-sig"
+            val reg = assertSuccess(
+                api.register(
+                    firebaseToken = firebaseToken,
+                    fcmToken = DUMMY_FCM_TOKEN,
+                    integrationIds = emptyList()
+                )
+            )
+            val firstCsr = CsrGenerator().generate(
+                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            )
+            assertSuccess(
+                api.registerCerts(csrPem = firstCsr.csrPem, firebaseToken = firebaseToken)
+            )
+
+            // Second call with a fresh attacker-controlled keypair. No
+            // signature field: the relay must reject with 403.
+            val attackerCsr = CsrGenerator().generate(
+                commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+            )
+            val result = api.registerCerts(
+                csrPem = attackerCsr.csrPem,
+                firebaseToken = firebaseToken
+            )
+            val err = result as? RelayApiResult.Error
+                ?: fail("Expected Error, was $result")
+            assertEquals(403, err.statusCode)
+        }
+
+    @Test
+    fun `registerCerts accepts re-issuance when signed by registered key`(): Unit = runBlocking {
+        val firebaseToken = DUMMY_FIREBASE_TOKEN + "-reissue-signed"
+        val reg = assertSuccess(
+            api.register(
+                firebaseToken = firebaseToken,
+                fcmToken = DUMMY_FCM_TOKEN,
+                integrationIds = emptyList()
+            )
+        )
+        val firstCsr = CsrGenerator().generate(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME"
+        )
+        assertSuccess(
+            api.registerCerts(csrPem = firstCsr.csrPem, firebaseToken = firebaseToken)
+        )
+
+        // Second round-2 with the same keypair as the first. Sign the new
+        // CSR DER with the registered private key so the relay's PoP check
+        // passes.
+        val reissueCsr = CsrGenerator().generateWithExistingKey(
+            commonName = "${reg.subdomain}.$RELAY_HOSTNAME",
+            privateKeyPem = firstCsr.privateKeyPem
+        )
+        val signature = signCsrDer(firstCsr, reissueCsr.csrDer)
+        val result = api.registerCerts(
+            csrPem = reissueCsr.csrPem,
+            firebaseToken = firebaseToken,
+            signature = signature
+        )
+
+        val body = assertSuccess(result)
+        assertEquals(reg.subdomain, body.subdomain)
+        assertPem(body.clientCert, "CERTIFICATE", "client_cert")
+    }
+
     @Test
     fun `updateSecrets via mTLS returns merged integration secret map`(): Unit = runBlocking {
         // The relay identifies the caller from the mTLS client cert's CN,

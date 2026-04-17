@@ -674,6 +674,277 @@ async fn register_certs_without_prior_registration_returns_404() {
     assert_eq!(resp.status(), 404);
 }
 
+// --- /register/certs proof-of-possession for existing device (issue #201) ---
+
+/// Generate a fresh P-256 keypair + self-signed CSR DER for a given CN. Returns
+/// the CSR DER and a `p256::ecdsa::SigningKey` cloned from the same PKCS#8
+/// material used by rcgen, so tests can produce an ECDSA signature over the
+/// CSR DER that verifies against the CSR's own SPKI.
+fn generate_test_csr(common_name: &str) -> (Vec<u8>, p256::ecdsa::SigningKey) {
+    use p256::ecdsa::SigningKey;
+    use p256::pkcs8::DecodePrivateKey;
+    use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair};
+
+    // rcgen generates its own P-256 keypair; re-import its PKCS#8 export
+    // into the p256 crate so we can sign arbitrary bytes against the same
+    // key later (rcgen's KeyPair doesn't expose a raw sign method).
+    let key_pair = KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+    let pkcs8_pem = key_pair.serialize_pem();
+    let signing_key = SigningKey::from_pkcs8_pem(&pkcs8_pem).unwrap();
+
+    let mut params = CertificateParams::new(vec![common_name.to_string()]).unwrap();
+    params.distinguished_name = DistinguishedName::new();
+    params
+        .distinguished_name
+        .push(DnType::CommonName, common_name);
+    let csr = params.serialize_request(&key_pair).unwrap();
+    (csr.der().to_vec(), signing_key)
+}
+
+/// Store the registered public key (DER, base64) for a device.
+fn pub_key_b64_from_signing_key(key: &p256::ecdsa::SigningKey) -> String {
+    use p256::pkcs8::EncodePublicKey;
+    let pub_der = key.verifying_key().to_public_key_der().unwrap();
+    BASE64.encode(pub_der.as_bytes())
+}
+
+fn existing_record_with_pub_key(uid: &str, pub_key_b64: String) -> DeviceRecord {
+    DeviceRecord {
+        fcm_token: "old-fcm".to_string(),
+        firebase_uid: uid.to_string(),
+        public_key: pub_key_b64,
+        cert_expires: SystemTime::now() + Duration::from_secs(86400),
+        registered_at: SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
+    }
+}
+
+#[tokio::test]
+async fn register_certs_fresh_registration_without_signature_succeeds() {
+    // Regression: fresh device (record.public_key empty) registered in round 1
+    // must still be able to call /register/certs without a signature.
+    let existing = DeviceRecord {
+        fcm_token: "fcm".to_string(),
+        firebase_uid: "uid-fresh".to_string(),
+        public_key: String::new(), // round 1 leaves this empty
+        cert_expires: SystemTime::UNIX_EPOCH,
+        registered_at: SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
+    };
+    let firestore = Arc::new(MockFirestore::new().with_device("fresh-device", existing));
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-fresh");
+
+    let state = build_test_state_with_ca(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let (csr_der, _signing_key) = generate_test_csr("fresh-device.rousecontext.com");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "csr": BASE64.encode(&csr_der)
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn register_certs_existing_device_with_valid_signature_succeeds() {
+    use p256::ecdsa::{signature::Signer, Signature};
+
+    // Device record with a prior public key on file. The caller signs the new
+    // CSR DER with that registered key and gets a new cert.
+    let (csr_der, _csr_key) = generate_test_csr("brave-falcon.rousecontext.com");
+
+    let registered_key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let pub_key_b64 = pub_key_b64_from_signing_key(&registered_key);
+    let existing = existing_record_with_pub_key("uid-existing", pub_key_b64);
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", existing));
+
+    let sig: Signature = registered_key.sign(&csr_der);
+    let sig_b64 = BASE64.encode(sig.to_der().as_bytes());
+
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-existing");
+    let state = build_test_state_with_ca(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "csr": BASE64.encode(&csr_der),
+                "signature": sig_b64,
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
+async fn register_certs_existing_device_without_signature_returns_403() {
+    // Attack scenario: attacker has a valid Firebase token for a UID whose
+    // device is already registered. Without a signature, the relay must
+    // reject rather than mint a cert for the attacker's CSR key.
+    let (csr_der, _csr_key) = generate_test_csr("brave-falcon.rousecontext.com");
+
+    let registered_key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let pub_key_b64 = pub_key_b64_from_signing_key(&registered_key);
+    let existing = existing_record_with_pub_key("uid-existing", pub_key_b64);
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", existing));
+
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-existing");
+    let state = build_test_state_with_ca(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "csr": BASE64.encode(&csr_der)
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn register_certs_existing_device_with_wrong_signature_returns_403() {
+    use p256::ecdsa::{signature::Signer, Signature};
+
+    // The attacker signs with their own key, not the registered key. The
+    // relay must reject.
+    let (csr_der, _csr_key) = generate_test_csr("brave-falcon.rousecontext.com");
+
+    let registered_key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let pub_key_b64 = pub_key_b64_from_signing_key(&registered_key);
+    let existing = existing_record_with_pub_key("uid-existing", pub_key_b64);
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", existing));
+
+    // Attacker-held, unrelated key.
+    let attacker_key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let sig: Signature = attacker_key.sign(&csr_der);
+    let sig_b64 = BASE64.encode(sig.to_der().as_bytes());
+
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-existing");
+    let state = build_test_state_with_ca(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "csr": BASE64.encode(&csr_der),
+                "signature": sig_b64,
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn register_certs_rejects_csr_with_tampered_self_signature() {
+    // Defense in depth: even on a fresh-registration path (no stored key yet),
+    // the CSR's own self-signature must be valid. Tampering with the signature
+    // byte triggers a 400, not a 500 or 200.
+    let existing = DeviceRecord {
+        fcm_token: "fcm".to_string(),
+        firebase_uid: "uid-tamper".to_string(),
+        public_key: String::new(),
+        cert_expires: SystemTime::UNIX_EPOCH,
+        registered_at: SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
+    };
+    let firestore = Arc::new(MockFirestore::new().with_device("tamper-device", existing));
+
+    let (mut csr_der, _csr_key) = generate_test_csr("tamper-device.rousecontext.com");
+    // Flip a byte in the trailing signature portion.
+    let last = csr_der.len() - 1;
+    csr_der[last] ^= 0x01;
+
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-tamper");
+    let state = build_test_state_with_ca(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "csr": BASE64.encode(&csr_der)
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
 // --- /register consumes active reservation created by /request-subdomain ---
 
 #[tokio::test]

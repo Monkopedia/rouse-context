@@ -70,6 +70,13 @@ pub struct CertRequest {
     pub firebase_token: String,
     /// Base64-encoded DER CSR with correct FQDN (subdomain.rousecontext.com).
     pub csr: String,
+    /// Base64-encoded DER ECDSA signature over the raw CSR DER bytes, using
+    /// the device's registered private key. Required when the device record
+    /// already has a public key on file (re-registration / proof-of-possession
+    /// path). Ignored on fresh registrations where `record.public_key` is
+    /// empty. See issue #201.
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 /// Round 2 response: both certificates, no private key.
@@ -336,7 +343,34 @@ pub async fn handle_register_certs(
         }
     };
 
-    // 5. Extract public key from CSR
+    // 4a. Proof-of-possession check (issue #201).
+    //
+    // If the device record already has a public key on file — i.e. a prior
+    // /register/certs round 2 has completed — require the caller to sign the
+    // raw CSR DER bytes with the registered private key. This prevents an
+    // attacker who only holds a valid Firebase ID token from re-issuing a
+    // relay-CA client cert with an attacker-controlled key.
+    //
+    // Fresh registrations (record.public_key empty) still work without a
+    // signature: round 2 is the step that binds the key for the first time.
+    if !_record.public_key.is_empty() {
+        let sig_b64 = match req.signature.as_deref() {
+            Some(s) if !s.is_empty() => s,
+            _ => {
+                return ApiError::forbidden(
+                    "Signature required: device already has a registered key. \
+                     Sign the CSR DER with the registered private key, or use /renew.",
+                )
+                .into_response()
+            }
+        };
+        if let Err(e) = verify_signature(&_record.public_key, &csr_der, sig_b64) {
+            return ApiError::forbidden(format!("Signature verification failed: {e}"))
+                .into_response();
+        }
+    }
+
+    // 5. Extract public key from CSR (also verifies the CSR self-signature).
     let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {
         Ok(spki) => spki,
         Err(e) => {

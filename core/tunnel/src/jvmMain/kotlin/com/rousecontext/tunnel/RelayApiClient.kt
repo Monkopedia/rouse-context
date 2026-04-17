@@ -70,19 +70,30 @@ class RelayApiClient(
      * Round 2: Submit CSR to receive both certificates.
      * The CSR must have CN={subdomain}.rousecontext.com.
      * Returns server cert (ACME/LE), client cert (relay CA), and relay CA cert.
+     *
+     * [signature] is a base64-encoded DER ECDSA signature over the raw CSR DER
+     * bytes using the device's registered private key. It is required when the
+     * device already has a public key on file from a prior /register/certs
+     * round (proof-of-possession, see issue #201). It must be omitted on the
+     * initial round-2 call for a fresh registration, where the relay binds
+     * the public key for the first time.
      */
-    suspend fun registerCerts(csrPem: String, firebaseToken: String): RelayApiResult<CertResponse> =
-        executeRequest {
-            httpClient.post("$baseUrl/register/certs") {
-                contentType(ContentType.Application.Json)
-                setBody(
-                    CertRequest(
-                        firebaseToken = firebaseToken,
-                        csr = csrToBase64(csrPem)
-                    )
+    suspend fun registerCerts(
+        csrPem: String,
+        firebaseToken: String,
+        signature: String? = null
+    ): RelayApiResult<CertResponse> = executeRequest {
+        httpClient.post("$baseUrl/register/certs") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                CertRequest(
+                    firebaseToken = firebaseToken,
+                    csr = csrToBase64(csrPem),
+                    signature = signature
                 )
-            }
+            )
         }
+    }
 
     /**
      * Rotate the device's integration secrets. Authenticated via mTLS:
@@ -256,7 +267,8 @@ data class UpdateSecretsResponse(
 @Serializable
 data class CertRequest(
     @SerialName("firebase_token") val firebaseToken: String,
-    @SerialName("csr") val csr: String
+    @SerialName("csr") val csr: String,
+    @SerialName("signature") val signature: String? = null
 )
 
 @Serializable

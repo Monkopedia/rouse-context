@@ -190,6 +190,12 @@ impl DeviceCa {
 }
 
 /// Extract the SubjectPublicKeyInfo (SPKI) in DER format from a PKCS#10 CSR.
+///
+/// Verifies the CSR's self-signature before returning. A well-formed DER
+/// shell with a mismatched or forged signature is rejected here — this is
+/// defense-in-depth so we never hand an unverified SPKI to the relay CA
+/// issuer, regardless of whether downstream ACME issuance would have caught
+/// it later.
 pub fn extract_public_key_from_csr_der(csr_der: &[u8]) -> io::Result<Vec<u8>> {
     use x509_parser::prelude::FromDer;
 
@@ -200,6 +206,13 @@ pub fn extract_public_key_from_csr_der(csr_der: &[u8]) -> io::Result<Vec<u8>> {
                 format!("failed to parse CSR DER: {e}"),
             )
         })?;
+
+    csr.verify_signature().map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("CSR self-signature verification failed: {e}"),
+        )
+    })?;
 
     let spki = csr.certification_request_info.subject_pki.raw;
 
@@ -382,6 +395,23 @@ mod tests {
         assert_eq!(spki_der, device_key.public_key_der());
         // And the reconstructed SPKI should also be usable
         drop(reconstructed);
+    }
+
+    #[test]
+    fn extract_public_key_rejects_tampered_csr_signature() {
+        // Flip a byte inside the signature value so the CSR's self-signature
+        // no longer verifies. `extract_public_key_from_csr_der` must reject.
+        let (csr_der, _device_key) = generate_device_csr();
+        let mut tampered = csr_der.clone();
+        // The signature BIT STRING sits at the tail of the DER CSR; flip a
+        // byte near the end so we know we're corrupting the signature, not
+        // the tbs structure (which would fail DER parsing instead).
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0x01;
+
+        let err = extract_public_key_from_csr_der(&tampered)
+            .expect_err("tampered CSR signature must be rejected");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
