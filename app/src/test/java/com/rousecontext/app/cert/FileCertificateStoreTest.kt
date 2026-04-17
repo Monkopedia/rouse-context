@@ -6,6 +6,8 @@ import com.rousecontext.tunnel.SelfCertVerifier
 import java.io.File
 import java.security.KeyStore
 import java.security.cert.X509Certificate
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,13 +23,21 @@ class FileCertificateStoreTest {
 
     private lateinit var context: Context
     private lateinit var store: FileCertificateStore
+    private lateinit var testEncryptionKey: SecretKey
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         // Clear filesDir to isolate from any lingering state
         context.filesDir.listFiles()?.forEach { it.delete() }
-        store = FileCertificateStore(context)
+        // Robolectric has no AndroidKeyStore provider, so tests that exercise
+        // AES-GCM encrypt/decrypt paths must supply a software-generated key.
+        // Production callers construct the store without this override so the
+        // real hardware-backed key path is used.
+        val keyGen = KeyGenerator.getInstance("AES")
+        keyGen.init(256)
+        testEncryptionKey = keyGen.generateKey()
+        store = FileCertificateStore(context, encryptionKeyProvider = { testEncryptionKey })
     }
 
     @Test
@@ -240,6 +250,87 @@ class FileCertificateStoreTest {
             "No .tmp siblings expected after successful write, got ${tmps.map { it.name }}",
             tmps.isEmpty()
         )
+    }
+
+    @Test
+    fun `getPrivateKey returns null when encrypted blob is tampered`() = runBlocking {
+        // Issue #204: the catch-all fallback used to read the file as plaintext
+        // PEM on any decrypt failure, including GCM authentication failures
+        // caused by tampering. That silently accepted tampered keystores.
+        // Expected behaviour: decrypt failure on a non-plaintext blob must
+        // return null (refuse) -- never fall back to reading raw bytes.
+        val pem = "-----BEGIN PRIVATE KEY-----\nMIIBVgIBAD==\n-----END PRIVATE KEY-----\n"
+        store.storePrivateKey(pem)
+
+        // Corrupt the ciphertext portion (skip the first IV-length byte + IV).
+        val keyFile = File(context.filesDir, "rouse_key.pem")
+        val data = keyFile.readBytes()
+        // Flip the final byte (GCM tag region) -- guaranteed tag-auth failure.
+        data[data.size - 1] = (data[data.size - 1].toInt() xor 0xFF).toByte()
+        keyFile.writeBytes(data)
+
+        val result = store.getPrivateKey()
+
+        assertNull(
+            "Tampered encrypted key file must not be silently accepted (got '$result')",
+            result
+        )
+    }
+
+    @Test
+    fun `getPrivateKey returns null when blob is truncated below IV length`() = runBlocking {
+        val keyFile = File(context.filesDir, "rouse_key.pem")
+        // Write a single byte indicating a 12-byte IV, but then only 3 bytes.
+        keyFile.writeBytes(byteArrayOf(12, 1, 2, 3))
+
+        assertNull(store.getPrivateKey())
+    }
+
+    @Test
+    fun `getPrivateKey migrates legacy plaintext PEM once then marks migrated`() = runBlocking {
+        // Legitimate migration path: pre-encryption installs had a plaintext
+        // PEM file. The first read must re-encrypt and return it. Subsequent
+        // tampering (e.g. dropping a plaintext PEM in place) must NOT be
+        // accepted, because migration has already completed.
+        val pem = "-----BEGIN PRIVATE KEY-----\nMIIBVgIBAD==\n-----END PRIVATE KEY-----\n"
+        val keyFile = File(context.filesDir, "rouse_key.pem")
+        keyFile.writeText(pem)
+
+        val migrated = store.getPrivateKey()
+        assertEquals(pem, migrated)
+
+        // The file on disk must no longer be plaintext PEM.
+        val afterMigration = keyFile.readBytes()
+        val firstByte = afterMigration[0].toInt() and 0xFF
+        assertFalse(
+            "After migration the file must not start with '-' (plaintext PEM)",
+            firstByte == '-'.code
+        )
+
+        // Now an attacker drops a plaintext PEM into the file. Because migration
+        // is marked complete, the plaintext must be refused.
+        keyFile.writeText(pem)
+        val secondRead = store.getPrivateKey()
+        assertNull(
+            "After migration, a dropped-in plaintext PEM must be refused (got '$secondRead')",
+            secondRead
+        )
+    }
+
+    @Test
+    fun `getPrivateKey returns null for non-PEM garbage with no valid GCM blob`() = runBlocking {
+        val keyFile = File(context.filesDir, "rouse_key.pem")
+        keyFile.writeBytes(byteArrayOf(0x01, 0x02, 0x03, 0x04, 0x05))
+
+        assertNull(store.getPrivateKey())
+    }
+
+    @Test
+    fun `getPrivateKey round trip succeeds`() = runBlocking {
+        val pem = "-----BEGIN PRIVATE KEY-----\nMIIBVgIBAD==\n-----END PRIVATE KEY-----\n"
+        store.storePrivateKey(pem)
+
+        assertEquals(pem, store.getPrivateKey())
     }
 
     @Test

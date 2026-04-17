@@ -12,13 +12,17 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.security.GeneralSecurityException
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.util.Base64
+import javax.crypto.AEADBadTagException
+import javax.crypto.BadPaddingException
 import javax.crypto.Cipher
+import javax.crypto.IllegalBlockSizeException
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
@@ -31,8 +35,16 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * [CertificateStore] implementation that stores PEM certs in filesDir
  * and the private key in Android Keystore (hardware-backed HSM).
+ *
+ * The [encryptionKeyProvider] indirection exists so tests running under
+ * Robolectric (where `AndroidKeyStore` is unavailable) can substitute a
+ * software-generated AES key. Production code must rely on the default,
+ * which binds the key to the hardware-backed Android Keystore.
  */
-class FileCertificateStore(private val context: Context) : CertificateStore {
+class FileCertificateStore(
+    private val context: Context,
+    private val encryptionKeyProvider: (() -> SecretKey)? = null
+) : CertificateStore {
 
     private val filesDir get() = context.filesDir
     private val certFile get() = File(filesDir, CERT_PEM_FILE)
@@ -40,6 +52,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     private val integrationSecretsFile get() = File(filesDir, INTEGRATION_SECRETS_FILE)
     private val legacySecretPrefixFile get() = File(filesDir, LEGACY_SECRET_PREFIX_FILE)
     private val fingerprintsFile get() = File(filesDir, FINGERPRINTS_FILE)
+    private val keyMigrationMarkerFile get() = File(filesDir, KEY_MIGRATION_MARKER_FILE)
 
     override suspend fun storeCertificate(pemChain: String) {
         certFile.writeText(pemChain)
@@ -134,27 +147,95 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     override suspend fun getPrivateKey(): String? {
         val keyFile = File(filesDir, KEY_PEM_FILE)
         if (!keyFile.exists()) return null
+        val data = keyFile.readBytes()
+        if (data.isEmpty()) return null
+
+        // Issue #204: the first byte of a valid AES-GCM blob is the IV length
+        // (a small integer like 12), never '-'. A leading '-' therefore can
+        // only mean plaintext PEM. If migration has NOT yet run we accept it
+        // once; otherwise we refuse, since a post-migration plaintext PEM in
+        // this file can only arrive via tampering or substitution.
+        if (data[0] == PEM_LEADING_BYTE) {
+            return handlePlaintextKeyFile(keyFile, data)
+        }
+        return decryptEncryptedKeyBlob(data)
+    }
+
+    private suspend fun handlePlaintextKeyFile(keyFile: File, data: ByteArray): String? {
+        if (keyMigrationMarkerFile.exists()) {
+            Log.e(
+                TAG,
+                "Plaintext PEM found in key file after migration completed; refusing to load"
+            )
+            return null
+        }
+        val text = String(data, Charsets.UTF_8)
+        if (!text.contains("BEGIN") || !text.contains("PRIVATE KEY")) {
+            Log.e(TAG, "Key file starts with '-' but is not a valid PEM; refusing to load")
+            return null
+        }
+        Log.w(
+            TAG,
+            "Migrating plaintext private key to encrypted storage: ${keyFile.absolutePath}"
+        )
+        storePrivateKey(text)
+        markKeyMigrated()
+        return text
+    }
+
+    private fun decryptEncryptedKeyBlob(data: ByteArray): String? {
+        val ivLen = data[0].toInt() and 0xFF
+        if (ivLen == 0 || data.size < 1 + ivLen + GCM_TAG_BYTES) {
+            Log.e(
+                TAG,
+                "Key file too short to contain a valid AES-GCM blob " +
+                    "(size=${data.size}, ivLen=$ivLen); refusing to load"
+            )
+            return null
+        }
+        val iv = data.copyOfRange(1, 1 + ivLen)
+        val ciphertext = data.copyOfRange(1 + ivLen, data.size)
         return try {
-            val data = keyFile.readBytes()
-            if (data.isEmpty()) return null
-            val ivLen = data[0].toInt() and 0xFF
-            if (data.size < 1 + ivLen) return null
-            val iv = data.copyOfRange(1, 1 + ivLen)
-            val ciphertext = data.copyOfRange(1 + ivLen, data.size)
             val encryptionKey = getOrCreateEncryptionKey()
             val cipher = Cipher.getInstance(AES_GCM_TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, encryptionKey, GCMParameterSpec(GCM_TAG_LENGTH, iv))
             String(cipher.doFinal(ciphertext), Charsets.UTF_8)
-        } catch (_: Exception) {
-            // Fall back to reading as plaintext PEM for migration from unencrypted storage
-            val text = keyFile.readText()
-            if (text.contains("BEGIN") && text.contains("PRIVATE KEY")) {
-                // Re-encrypt in place for future reads
-                storePrivateKey(text)
-                text
-            } else {
-                null
-            }
+        } catch (e: AEADBadTagException) {
+            // GCM tag authentication failed: the ciphertext, IV, or key have
+            // been tampered with. NEVER fall back to treating the raw bytes as
+            // plaintext PEM -- that was the silent-accept bug in issue #204.
+            Log.e(TAG, "AES-GCM tag authentication failed for private key; refusing to load", e)
+            null
+        } catch (e: BadPaddingException) {
+            // AES-GCM surfaces both tag failures and generic padding failures as
+            // BadPaddingException on some providers. Treat identically.
+            Log.e(TAG, "AES-GCM padding/tag failure for private key; refusing to load", e)
+            null
+        } catch (e: IllegalBlockSizeException) {
+            Log.e(TAG, "AES-GCM block-size failure for private key; refusing to load", e)
+            null
+        } catch (e: GeneralSecurityException) {
+            // Anything else from the JCA: refuse rather than silently adopt.
+            Log.e(TAG, "Unexpected crypto failure decrypting private key; refusing to load", e)
+            null
+        }
+    }
+
+    /**
+     * Record that we have completed the one-shot plaintext-to-encrypted
+     * migration (issue #204). Once present, this marker makes `getPrivateKey`
+     * refuse any plaintext PEM found in the key file -- that can only happen
+     * via tampering, so silently accepting it would defeat the AES-GCM
+     * authentication we already rely on.
+     */
+    private fun markKeyMigrated() {
+        try {
+            keyMigrationMarkerFile.writeText("1")
+        } catch (e: IOException) {
+            // Non-fatal: if we cannot create the marker, the worst case is a
+            // repeated WARN-log migration on next boot. We still return the
+            // migrated key to the caller.
+            Log.w(TAG, "Failed to write key migration marker", e)
         }
     }
 
@@ -222,6 +303,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         File(filesDir, CLIENT_CERT_PEM_FILE).delete()
         File(filesDir, RELAY_CA_PEM_FILE).delete()
         File(filesDir, KEY_PEM_FILE).delete()
+        keyMigrationMarkerFile.delete()
         fingerprintsFile.delete()
         val keyStore = androidKeyStore()
         if (keyStore.containsAlias(KEY_ALIAS)) {
@@ -347,6 +429,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     }
 
     private fun getOrCreateEncryptionKey(): SecretKey {
+        encryptionKeyProvider?.let { return it() }
         val keyStore = androidKeyStore()
         val existingKey = keyStore.getKey(ENCRYPTION_KEY_ALIAS, null) as? SecretKey
         if (existingKey != null) return existingKey
@@ -416,6 +499,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         private const val CLIENT_CERT_PEM_FILE = "rouse_client_cert.pem"
         private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
         private const val KEY_PEM_FILE = "rouse_key.pem"
+        private const val KEY_MIGRATION_MARKER_FILE = "rouse_key_migrated.flag"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
         private const val INTEGRATION_SECRETS_FILE = "rouse_integration_secrets.json"
         private const val LEGACY_SECRET_PREFIX_FILE = "rouse_secret_prefix.txt"
@@ -425,7 +509,9 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding"
         private const val GCM_TAG_LENGTH = 128
+        private const val GCM_TAG_BYTES = GCM_TAG_LENGTH / 8
         private const val AES_KEY_SIZE = 256
+        private const val PEM_LEADING_BYTE: Byte = '-'.code.toByte()
         private const val LINE_LENGTH = 64
         private const val EC_KEY_SIZE = 256
 
