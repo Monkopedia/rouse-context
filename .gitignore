@@ -11,5 +11,7 @@ local.properties
 # google-services.json is checked in — API keys are not secret (embedded in APK)
 relay/target/
 .claude/worktrees/
-.signing/
-.signing
+# Signing keystores and password files are private per clone.
+# Only the *.example templates are tracked.
+.signing/*
+!.signing/release.properties.example

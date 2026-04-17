@@ -1,0 +1,10 @@
+# Template for .signing/release.properties — copy this file to
+# .signing/release.properties and fill in the real passwords locally.
+#
+# The real file is gitignored (see .gitignore). This .example file is
+# tracked so new clones know the expected format.
+#
+# Alternative: set ROUSE_RELEASE_STORE_PASSWORD and ROUSE_RELEASE_KEY_PASSWORD
+# environment variables instead. Env vars take precedence over this file.
+storePassword=your-release-store-password
+keyPassword=your-release-key-password

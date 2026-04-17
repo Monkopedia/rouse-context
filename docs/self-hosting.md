@@ -63,7 +63,26 @@ keytool -genkeypair -v \
     -dname "CN=Release, O=YourOrg, C=US"
 ```
 
-Update `app/build.gradle.kts` signing config blocks to match your passwords, or (better) read them from environment variables.
+Release passwords are read at build time from either environment variables or
+a local properties file — they are **not** committed to the repo. Choose one:
+
+Environment variables (preferred for CI):
+
+```bash
+export ROUSE_RELEASE_STORE_PASSWORD=YOUR_RELEASE_PASS
+export ROUSE_RELEASE_KEY_PASSWORD=YOUR_RELEASE_PASS
+```
+
+Or a local properties file (preferred for interactive dev — survives shells):
+
+```bash
+cp .signing/release.properties.example .signing/release.properties
+# edit .signing/release.properties and set storePassword / keyPassword
+```
+
+`.signing/release.properties` is gitignored. Env vars take precedence over the
+file. Debug signing still uses a fixed password in `app/build.gradle.kts`
+because the debug keystore is not a secret.
 
 **Back these up off-machine.** Regenerating a keystore forces users to uninstall (app-data loss) and burns ACME cert quota on re-registration.
 

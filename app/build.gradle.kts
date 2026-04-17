@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,22 +9,64 @@ plugins {
     alias(libs.plugins.google.services)
 }
 
+// Loads a value from `.signing/release.properties` if that file exists.
+// The file is gitignored; see `.signing/release.properties.example` for format.
+val releaseSigningProps: Properties? = run {
+    val f = rootProject.file(".signing/release.properties")
+    if (f.exists()) {
+        Properties().apply { f.inputStream().use { load(it) } }
+    } else {
+        null
+    }
+}
+
+fun loadFromSigningProperties(key: String): String? = releaseSigningProps?.getProperty(key)
+
 android {
     namespace = "com.rousecontext.app"
     compileSdk = 36
 
+    // Release passwords are resolved lazily so non-release tasks (lint, tests,
+    // debug builds) don't require the env vars or .properties file.
+    val releaseStorePassword = System.getenv("ROUSE_RELEASE_STORE_PASSWORD")
+        ?: loadFromSigningProperties("storePassword")
+    val releaseKeyPassword = System.getenv("ROUSE_RELEASE_KEY_PASSWORD")
+        ?: loadFromSigningProperties("keyPassword")
+
     signingConfigs {
         create("release") {
             storeFile = file("${rootProject.projectDir}/.signing/release.keystore")
-            storePassword = "rousecontext-release"
+            storePassword = releaseStorePassword
             keyAlias = "release"
-            keyPassword = "rousecontext-release"
+            keyPassword = releaseKeyPassword
         }
         getByName("debug") {
             storeFile = file("${rootProject.projectDir}/.signing/debug.keystore")
             storePassword = "rousecontext"
             keyAlias = "debug"
             keyPassword = "rousecontext"
+        }
+    }
+
+    // Fail fast on release builds if passwords are missing, with a clear message.
+    gradle.taskGraph.whenReady {
+        val needsReleaseSigning = allTasks.any { task ->
+            if (task.project != project || !task.name.contains("Release")) return@any false
+            task.name.startsWith("package") ||
+                task.name.startsWith("assemble") ||
+                task.name.startsWith("bundle")
+        }
+        if (needsReleaseSigning) {
+            check(releaseStorePassword != null) {
+                "Release signing requires ROUSE_RELEASE_STORE_PASSWORD env var " +
+                    "or storePassword in .signing/release.properties " +
+                    "(see .signing/release.properties.example)."
+            }
+            check(releaseKeyPassword != null) {
+                "Release signing requires ROUSE_RELEASE_KEY_PASSWORD env var " +
+                    "or keyPassword in .signing/release.properties " +
+                    "(see .signing/release.properties.example)."
+            }
         }
     }
 
