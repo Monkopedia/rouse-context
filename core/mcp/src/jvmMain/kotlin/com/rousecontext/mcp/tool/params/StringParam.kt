@@ -23,7 +23,7 @@ class StringParam(name: String, description: String) : ParamDef<String>(name, de
 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("string"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         choices?.let { put("enum", JsonArray(it.map { v -> JsonPrimitive(v) })) }
         defaultValue?.let { put("default", JsonPrimitive(it)) }
     }

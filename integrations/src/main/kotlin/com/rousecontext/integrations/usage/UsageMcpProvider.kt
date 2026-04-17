@@ -65,12 +65,10 @@ class UsageMcpProvider(private val context: Context) : McpServerProvider {
 
 internal class GetUsageSummaryTool(private val context: Context) : McpTool() {
     override val name = "get_usage_summary"
-    override val description =
-        "Get total screen time and per-app breakdown " +
-            "for a time period. Returns apps sorted by foreground time."
+    override val description = "Screen time totals and top apps for a period."
 
-    val period by stringParam("period", "Time period: today, yesterday, week, month")
-    val limit by intParam("limit", "Max apps to return (default 10)").optional()
+    val period by stringParam("period", "today|yesterday|week|month")
+    val limit by intParam("limit", "Max apps (default 10)").optional()
 
     override suspend fun execute(): ToolResult {
         val periodStr = period!!
@@ -104,11 +102,10 @@ internal class GetUsageSummaryTool(private val context: Context) : McpTool() {
 
 internal class GetAppUsageTool(private val context: Context) : McpTool() {
     override val name = "get_app_usage"
-    override val description =
-        "Get detailed usage for a specific app, including daily breakdown."
+    override val description = "Per-day usage for one app."
 
-    val packageName by stringParam("package_name", "Package name of the app")
-    val period by stringParam("period", "Time period: today, yesterday, week, month")
+    val packageName by stringParam("package_name", "")
+    val period by stringParam("period", "today|yesterday|week|month")
 
     override suspend fun execute(): ToolResult {
         val pkg = packageName!!
@@ -140,18 +137,16 @@ internal class GetAppUsageTool(private val context: Context) : McpTool() {
 
 internal class GetUsageEventsTool(private val context: Context) : McpTool() {
     override val name = "get_usage_events"
-    override val description =
-        "Get raw usage events (app opened, closed, etc.) for a time range."
+    override val description = "Raw app foreground/background events over a range."
 
-    val since by stringParam("since", "Start period: today, yesterday, week, month")
-    val until by stringParam("until", "End period: today, yesterday, week, month")
-    val packageFilter by stringParam("package", "Optional: filter to this package name")
-        .optional()
+    val since by stringParam("since", "today|yesterday|week|month")
+    val until by stringParam("until", "today|yesterday|week|month")
+    val packageFilter by stringParam("package", "").optional()
     val includeSystem by boolParam(
         "include_system",
-        "Include Rouse Context and Android system intelligence events (default false)"
+        "Include Rouse/Android system events (default false)"
     ).optional()
-    val limit by intParam("limit", "Max events to return (default 50)").optional()
+    val limit by intParam("limit", "Default 50").optional()
 
     override suspend fun execute(): ToolResult {
         val sinceStr = since!!
@@ -181,13 +176,11 @@ internal class GetUsageEventsTool(private val context: Context) : McpTool() {
 
 internal class CompareUsageTool(private val context: Context) : McpTool() {
     override val name = "compare_usage"
-    override val description =
-        "Compare app usage between two time periods. " +
-            "Shows biggest increases and decreases in screen time."
+    override val description = "Compare screen time between two periods; biggest deltas first."
 
-    val period1 by stringParam("period1", "First period: today, yesterday, week, month")
-    val period2 by stringParam("period2", "Second period: today, yesterday, week, month")
-    val limit by intParam("limit", "Max apps to compare (default 10)").optional()
+    val period1 by stringParam("period1", "today|yesterday|week|month")
+    val period2 by stringParam("period2", "today|yesterday|week|month")
+    val limit by intParam("limit", "Max apps (default 10)").optional()
 
     override suspend fun execute(): ToolResult {
         val p1Str = period1!!

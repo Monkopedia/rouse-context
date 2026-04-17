@@ -21,7 +21,7 @@ class ListParam(name: String, description: String) : ParamDef<List<String>>(name
 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("array"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         put(
             "items",
             buildJsonObject { put("type", JsonPrimitive("string")) }
