@@ -79,8 +79,7 @@ class HealthConnectMcpServer(private val repository: HealthConnectRepository) : 
 
 internal class ListRecordTypesTool(private val repository: HealthConnectRepository) : McpTool() {
     override val name = "list_record_types"
-    override val description =
-        "Lists all available Health Connect record types with permission status"
+    override val description = "List Health Connect record types with permission status."
 
     override suspend fun execute(): ToolResult {
         val granted = repository.getGrantedPermissions()
@@ -96,22 +95,13 @@ internal class ListRecordTypesTool(private val repository: HealthConnectReposito
 internal class QueryHealthDataTool(private val repository: HealthConnectRepository) : McpTool() {
     override val name = "query_health_data"
     override val description =
-        "Query Health Connect records by type and time range. " +
-            "Use list_record_types to see available types."
+        "Query Health Connect records by type and time range; " +
+            "see list_record_types for types."
 
-    val recordType by stringParam(
-        "record_type",
-        "Record type name, e.g. Steps, HeartRate, SleepSession"
-    )
-    val since by stringParam(
-        "since",
-        "Start of time range, ISO 8601 datetime or date"
-    )
-    val until by stringParam(
-        "until",
-        "End of time range, ISO 8601 datetime or date. Defaults to now."
-    ).optional()
-    val limit by intParam("limit", "Maximum number of records to return").optional()
+    val recordType by stringParam("record_type", "e.g. Steps, HeartRate, SleepSession")
+    val since by stringParam("since", "ISO 8601 date or datetime")
+    val until by stringParam("until", "ISO 8601, defaults to now").optional()
+    val limit by intParam("limit", "").optional()
 
     override suspend fun execute(): ToolResult {
         val type = recordType!!
@@ -143,11 +133,9 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
 
 internal class GetHealthSummaryTool(private val repository: HealthConnectRepository) : McpTool() {
     override val name = "get_health_summary"
-    override val description =
-        "Get a high-level health summary across all permitted data types " +
-            "for a given period (today, week, or month)."
+    override val description = "Health summary across permitted types for a period."
 
-    val period by stringParam("period", "Summary period: today, week, or month")
+    val period by stringParam("period", "today|week|month")
 
     override suspend fun execute(): ToolResult {
         val now = Instant.now()

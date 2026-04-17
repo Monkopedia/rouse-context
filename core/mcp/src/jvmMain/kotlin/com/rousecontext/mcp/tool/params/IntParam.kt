@@ -18,7 +18,7 @@ class IntParam(name: String, description: String) : ParamDef<Int>(name, descript
 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("integer"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         range?.let {
             put("minimum", JsonPrimitive(it.first))
             put("maximum", JsonPrimitive(it.last))

@@ -23,7 +23,7 @@ class MapParam(name: String, description: String) :
 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("object"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         put(
             "additionalProperties",
             buildJsonObject { put("type", JsonPrimitive("string")) }

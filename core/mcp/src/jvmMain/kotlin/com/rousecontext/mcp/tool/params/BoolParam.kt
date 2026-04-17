@@ -15,7 +15,7 @@ class BoolParam(name: String, description: String) : ParamDef<Boolean>(name, des
 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("boolean"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         defaultValue?.let { put("default", JsonPrimitive(it)) }
     }
 

@@ -21,7 +21,7 @@ class EnumParam<T : Enum<T>>(name: String, description: String, private val kCla
 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("string"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         put("enum", JsonArray(values.map { JsonPrimitive(it.name.lowercase()) }))
         defaultValue?.let { put("default", JsonPrimitive(it.name.lowercase())) }
     }

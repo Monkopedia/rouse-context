@@ -127,11 +127,10 @@ internal class LaunchAppTool(
     private val launchNotifier: LaunchRequestNotifierApi?
 ) : McpTool() {
     override val name = "launch_app"
-    override val description = "Launch an installed app on the device by package name"
+    override val description = "Launch an installed app by package name."
 
-    val packageName by stringParam("package_name", "Package name of the app to launch")
-    val extras by mapParam("extras", "Optional string key-value extras to pass to the intent")
-        .optional()
+    val packageName by stringParam("package_name", "Reverse-DNS, e.g. com.example.app")
+    val extras by mapParam("extras", "").optional()
 
     override suspend fun execute(): ToolResult {
         val pkg = packageName!!
@@ -160,9 +159,9 @@ internal class OpenLinkTool(
     private val launchNotifier: LaunchRequestNotifierApi?
 ) : McpTool() {
     override val name = "open_link"
-    override val description = "Open a URL in the default browser or appropriate app"
+    override val description = "Open an http/https URL in the default app."
 
-    val url by stringParam("url", "URL to open (http or https only)")
+    val url by stringParam("url", "")
 
     override suspend fun execute(): ToolResult {
         val u = url!!
@@ -188,10 +187,10 @@ internal class OpenLinkTool(
 
 internal class CopyToClipboardTool(private val context: Context) : McpTool() {
     override val name = "copy_to_clipboard"
-    override val description = "Copy text to the device clipboard"
+    override val description = "Copy text to the clipboard."
 
-    val text by stringParam("text", "Text to copy")
-    val label by stringParam("label", "Optional label describing the content").optional()
+    val text by stringParam("text", "")
+    val label by stringParam("label", "").optional()
 
     override suspend fun execute(): ToolResult {
         withContext(Dispatchers.Main) {
@@ -208,16 +207,13 @@ internal class SendNotificationTool(
     private val idCounter: AtomicInteger
 ) : McpTool() {
     override val name = "send_notification"
-    override val description = "Send a notification to the user on the device"
+    override val description = "Post a notification."
 
-    val title by stringParam("title", "Notification title")
-    val message by stringParam("message", "Notification body text")
-    val priority by stringParam("priority", "Notification priority: low, default, or high")
+    val title by stringParam("title", "")
+    val message by stringParam("message", "")
+    val priority by stringParam("priority", "")
         .optional().choices("low", "default", "high")
-    val channelId by stringParam(
-        "channel_id",
-        "Optional channel ID created via create_notification_channel. Uses default channel if omitted."
-    ).optional()
+    val channelId by stringParam("channel_id", "From create_notification_channel").optional()
 
     override suspend fun execute(): ToolResult {
         if (!rateLimiter.tryAcquire("send_notification")) {
@@ -242,9 +238,9 @@ internal class SendNotificationTool(
 
 internal class ListInstalledAppsTool(private val context: Context) : McpTool() {
     override val name = "list_installed_apps"
-    override val description = "List installed apps on the device"
+    override val description = "List installed apps."
 
-    val filter by stringParam("filter", "Optional text to filter apps by name").optional()
+    val filter by stringParam("filter", "Name substring").optional()
 
     override suspend fun execute(): ToolResult {
         val apps = queryInstalledApps(context, filter?.lowercase())
@@ -254,16 +250,16 @@ internal class ListInstalledAppsTool(private val context: Context) : McpTool() {
 
 internal class CreateNotificationChannelTool(private val context: Context) : McpTool() {
     override val name = "create_notification_channel"
-    override val description = "Create a notification channel for sending categorized notifications"
+    override val description = "Create a notification channel."
 
-    val id by stringParam("id", "Unique channel identifier")
-    val channelName by stringParam("name", "User-visible channel name")
-    val channelDescription by stringParam("description", "Optional channel description").optional()
-    val importance by stringParam("importance", "Channel importance: min, low, default, or high")
+    val id by stringParam("id", "")
+    val channelName by stringParam("name", "User-visible name")
+    val channelDescription by stringParam("description", "").optional()
+    val importance by stringParam("importance", "")
         .default("default").choices("min", "low", "default", "high")
-    val vibrate by boolParam("vibrate", "Whether the channel should vibrate").optional()
-    val soundEnabled by boolParam("sound", "Whether to play sound (default true)").default(true)
-    val showBadge by boolParam("show_badge", "Whether to show badge on app icon").optional()
+    val vibrate by boolParam("vibrate", "").optional()
+    val soundEnabled by boolParam("sound", "Play sound").default(true)
+    val showBadge by boolParam("show_badge", "").optional()
 
     override suspend fun execute(): ToolResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -297,7 +293,7 @@ internal class CreateNotificationChannelTool(private val context: Context) : Mcp
 
 internal class ListNotificationChannelsTool(private val context: Context) : McpTool() {
     override val name = "list_notification_channels"
-    override val description = "List AI-created notification channels on the device"
+    override val description = "List AI-created notification channels."
 
     override suspend fun execute(): ToolResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -313,9 +309,9 @@ internal class ListNotificationChannelsTool(private val context: Context) : McpT
 
 internal class DeleteNotificationChannelTool(private val context: Context) : McpTool() {
     override val name = "delete_notification_channel"
-    override val description = "Delete an AI-created notification channel"
+    override val description = "Delete an AI-created notification channel."
 
-    val id by stringParam("id", "Channel ID to delete")
+    val id by stringParam("id", "")
 
     override suspend fun execute(): ToolResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -339,7 +335,7 @@ internal class DeleteNotificationChannelTool(private val context: Context) : Mcp
 
 internal class GetDndStateTool(private val context: Context) : McpTool() {
     override val name = "get_dnd_state"
-    override val description = "Check Do Not Disturb status"
+    override val description = "Get Do Not Disturb state."
 
     override suspend fun execute(): ToolResult {
         val nm = context.getSystemService(NotificationManager::class.java)
@@ -352,10 +348,10 @@ internal class GetDndStateTool(private val context: Context) : McpTool() {
 
 internal class SetDndStateTool(private val context: Context) : McpTool() {
     override val name = "set_dnd_state"
-    override val description = "Control Do Not Disturb state"
+    override val description = "Set Do Not Disturb state."
 
-    val enabled by boolParam("enabled", "Whether to enable or disable DND")
-    val mode by stringParam("mode", "DND mode: total_silence, priority_only, or alarms_only")
+    val enabled by boolParam("enabled", "")
+    val mode by stringParam("mode", "")
         .optional().choices("total_silence", "priority_only", "alarms_only")
 
     override suspend fun execute(): ToolResult {

@@ -78,10 +78,9 @@ internal class ListActiveNotificationsTool(
     private val activeNotificationSource: () -> Array<StatusBarNotification>
 ) : McpTool() {
     override val name = "list_active_notifications"
-    override val description = "Returns currently posted notifications on the device."
+    override val description = "List posted notifications."
 
-    val filter by stringParam("filter", "Optional app package name pattern to filter by")
-        .optional()
+    val filter by stringParam("filter", "").optional()
 
     override suspend fun execute(): ToolResult {
         val f = filter
@@ -103,14 +102,10 @@ internal class PerformNotificationActionTool(
     private val allowActions: Boolean
 ) : McpTool() {
     override val name = "perform_notification_action"
-    override val description = "Executes an action button on an active notification." +
-        " Rouse Context's own notifications cannot be acted on."
+    override val description = "Invoke an action button on an active notification."
 
-    val notificationKey by stringParam(
-        "notification_key",
-        "The notification key from list_active_notifications"
-    )
-    val actionIndex by intParam("action_index", "Zero-based index of the action to perform")
+    val notificationKey by stringParam("notification_key", "Key from list_active_notifications")
+    val actionIndex by intParam("action_index", "0-based")
 
     override suspend fun execute(): ToolResult {
         if (!allowActions) {
@@ -140,10 +135,9 @@ internal class DismissNotificationTool(
     private val allowActions: Boolean
 ) : McpTool() {
     override val name = "dismiss_notification"
-    override val description = "Dismisses an active notification by its key." +
-        " Rouse Context's own notifications cannot be dismissed."
+    override val description = "Dismiss an active notification by key."
 
-    val notificationKey by stringParam("notification_key", "The notification key to dismiss")
+    val notificationKey by stringParam("notification_key", "")
 
     override suspend fun execute(): ToolResult {
         if (!allowActions) {
@@ -171,14 +165,13 @@ internal class SearchNotificationHistoryTool(
     private val fieldEncryptor: FieldEncryptor?
 ) : McpTool() {
     override val name = "search_notification_history"
-    override val description = "Searches the notification history log." +
-        " Supports text search, package filter, and time range."
+    override val description = "Search notification history by text, package, or time range."
 
-    val query by stringParam("query", "Text to search in title and body").optional()
-    val packageFilter by stringParam("package", "Filter by package name").optional()
-    val since by stringParam("since", "ISO datetime start bound").optional()
-    val until by stringParam("until", "ISO datetime end bound").optional()
-    val limit by intParam("limit", "Max results (default 50)").optional()
+    val query by stringParam("query", "Text in title or body").optional()
+    val packageFilter by stringParam("package", "").optional()
+    val since by stringParam("since", "ISO 8601").optional()
+    val until by stringParam("until", "ISO 8601").optional()
+    val limit by intParam("limit", "Default 50").optional()
 
     override suspend fun execute(): ToolResult {
         val sinceMillis = since?.let { parseIsoToMillis(it) } ?: 0L
@@ -204,10 +197,9 @@ internal class SearchNotificationHistoryTool(
 
 internal class GetNotificationStatsTool(private val dao: NotificationDao) : McpTool() {
     override val name = "get_notification_stats"
-    override val description = "Returns aggregate notification statistics for a time period." +
-        " Includes total count, per-app breakdown, and busiest hour."
+    override val description = "Notification counts, top apps, and busiest hour for a period."
 
-    val period by stringParam("period", "Time period: 'today', 'week', or 'month'").optional()
+    val period by stringParam("period", "today|week|month, default today").optional()
 
     override suspend fun execute(): ToolResult {
         val periodStr = period ?: "today"

@@ -21,7 +21,7 @@ class InstantParam(name: String, description: String) : ParamDef<Instant>(name, 
     override fun schema(): JsonObject = buildJsonObject {
         put("type", JsonPrimitive("string"))
         put("format", JsonPrimitive("date-time"))
-        put("description", JsonPrimitive(description))
+        if (description.isNotEmpty()) put("description", JsonPrimitive(description))
         defaultValue?.let { put("default", JsonPrimitive(it.toString())) }
     }
 
