@@ -82,6 +82,7 @@ pub(super) async fn ensure_account(
     let nonce = get_nonce(http, &dir.new_nonce).await?;
     let mut payload_obj = serde_json::json!({
         "termsOfServiceAgreed": true,
+        "contact": ["mailto:security@rousecontext.com"],
     });
     if let Some(eab) = eab {
         let eab_jws = build_eab_jws(account_key, &dir.new_account, &eab.kid, &eab.hmac_key);
