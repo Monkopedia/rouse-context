@@ -329,7 +329,10 @@ class SessionHandlerTest {
         // Step 4: Approve via device code manager
         deviceCodeManager.approve(userCode!!)
 
-        // Step 5: Poll again should get token
+        // Step 5: Poll again should get token. Wait past the RFC 8628 poll
+        // interval (5s, see #211) so the second poll is not rejected as
+        // slow_down.
+        kotlinx.coroutines.delay(5_500)
         val approvedResponse = withTimeout(10_000) {
             httpPost(clientIn, clientOut, "/token", pollBody)
         }
