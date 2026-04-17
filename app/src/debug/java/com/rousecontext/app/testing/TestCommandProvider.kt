@@ -52,7 +52,11 @@ class TestCommandProvider : ContentProvider() {
                 val id = extras?.getString("id")
                     ?: return Bundle().apply { putString("error", "missing 'id' extra") }
                 val store = getKoin().get<IntegrationStateStore>()
-                runBlocking { store.setUserEnabled(id, true) }
+                runBlocking {
+                    store.setUserEnabled(id, true)
+                    // Allow DataStore flow → ProviderRegistry StateFlow propagation
+                    kotlinx.coroutines.delay(500)
+                }
                 Log.i(TAG, "Enabled integration: $id")
                 Bundle().apply { putString("result", "enabled $id") }
             }
@@ -60,7 +64,10 @@ class TestCommandProvider : ContentProvider() {
                 val id = extras?.getString("id")
                     ?: return Bundle().apply { putString("error", "missing 'id' extra") }
                 val store = getKoin().get<IntegrationStateStore>()
-                runBlocking { store.setUserEnabled(id, false) }
+                runBlocking {
+                    store.setUserEnabled(id, false)
+                    kotlinx.coroutines.delay(500)
+                }
                 Log.i(TAG, "Disabled integration: $id")
                 Bundle().apply { putString("result", "disabled $id") }
             }
