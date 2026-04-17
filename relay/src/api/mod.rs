@@ -10,10 +10,14 @@ pub mod status;
 pub mod wake;
 pub mod ws;
 
+use axum::extract::Request;
 use axum::http::StatusCode;
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
+
+use crate::api::ws::DeviceIdentity;
 
 /// Standard error response envelope.
 #[derive(Debug, Clone, Serialize)]
@@ -184,9 +188,45 @@ pub struct AppState {
     pub device_ca: Option<crate::device_ca::DeviceCa>,
 }
 
+/// Tower middleware that rejects requests without a `DeviceIdentity`
+/// extension (i.e. without a valid mTLS client certificate) before the
+/// handler runs.
+///
+/// This exists so that the authenticated routes never have to repeat a
+/// per-handler `DeviceIdentity.is_some()` check. Missing that check is
+/// exactly how #202 slipped in: `/rotate-secret` trusted the request body's
+/// `subdomain` field when no mTLS identity was present. Making the auth
+/// boundary structural means any future handler added to the authed router
+/// inherits the guarantee.
+///
+/// Public routes (`/register`, `/status`, `/.well-known/*`, etc.) are on a
+/// separate router that does NOT apply this middleware, so they remain
+/// reachable without a client cert.
+pub async fn require_device_identity(req: Request, next: Next) -> Response {
+    if req.extensions().get::<DeviceIdentity>().is_none() {
+        return ApiError::unauthorized("Valid client certificate required").into_response();
+    }
+    next.run(req).await
+}
+
 /// Build the axum router with all API endpoints.
+///
+/// The router is split into two groups:
+/// - **Public**: no auth layer; handlers either need no auth or do their own
+///   (body-driven signature check, Firebase token, PoP signature, etc.).
+/// - **Authed**: `require_device_identity` middleware rejects with 401 before
+///   the handler body runs if no mTLS `DeviceIdentity` is present.
+///
+/// Currently only hard-mTLS routes live in the authed group:
+/// - `POST /rotate-secret` — privileged per-device secret rotation.
+/// - `GET /ws` — mux WebSocket upgrade.
+///
+/// Everything else (including `/renew`, which has a body-driven Firebase
+/// fallback, and `/register/certs`, which uses a PoP signature rather than
+/// mTLS) stays in the public group. Expanding the authed group is a matter
+/// of moving the route across; the middleware enforcement is then automatic.
 pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
-    axum::Router::new()
+    let public_router = axum::Router::new()
         .route("/register", axum::routing::post(register::handle_register))
         .route(
             "/register/certs",
@@ -197,13 +237,17 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
             axum::routing::post(request_subdomain::handle_request_subdomain),
         )
         .route("/renew", axum::routing::post(renew::handle_renew))
+        // /wake disabled — passthrough handles FCM wake implicitly on client connect
+        // .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))
+        .route("/status", axum::routing::get(status::handle_status));
+
+    let authed_router = axum::Router::new()
         .route(
             "/rotate-secret",
             axum::routing::post(rotate_secret::handle_rotate_secret),
         )
-        // /wake disabled — passthrough handles FCM wake implicitly on client connect
-        // .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))
-        .route("/status", axum::routing::get(status::handle_status))
         .route("/ws", axum::routing::get(ws::handle_ws))
-        .with_state(state)
+        .layer(axum::middleware::from_fn(require_device_identity));
+
+    public_router.merge(authed_router).with_state(state)
 }
