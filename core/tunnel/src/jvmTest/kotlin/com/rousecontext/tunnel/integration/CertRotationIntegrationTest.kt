@@ -18,6 +18,7 @@ import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.Signature
 import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 import javax.net.ssl.KeyManagerFactory
@@ -189,19 +190,23 @@ class CertRotationIntegrationTest {
             )
 
             // --- Step 5: Assert the relay returned a NEW cert triple ---
-            // client_cert must differ (new serial/expiry even though same public key)
-            assertNotEquals(
-                initialCerts.clientCert,
-                renewedCerts.clientCert,
-                "Renewed client_cert must differ from the original"
-            )
-            // relay_ca_cert may or may not differ (same CA), but must be present
+            assertPem(renewedCerts.clientCert, "CERTIFICATE", "renewed client_cert")
+            assertPem(renewedCerts.relayCaCert, "CERTIFICATE", "renewed relay_ca_cert")
             assertTrue(
                 renewedCerts.relayCaCert.isNotBlank(),
                 "Renewed relay_ca_cert must be non-blank"
             )
-            assertPem(renewedCerts.clientCert, "CERTIFICATE", "renewed client_cert")
-            assertPem(renewedCerts.relayCaCert, "CERTIFICATE", "renewed relay_ca_cert")
+
+            // Parse both certs and assert distinct serial numbers. The relay
+            // now uses random serials, so even same-key same-second renewals
+            // produce different certificates.
+            val initialX509 = parsePemCert(initialCerts.clientCert)
+            val renewedX509 = parsePemCert(renewedCerts.clientCert)
+            assertNotEquals(
+                initialX509.serialNumber,
+                renewedX509.serialNumber,
+                "Renewed cert must have a different serial number"
+            )
 
             // --- Step 6: Build an mTLS SSLContext from the renewed client cert ---
             val renewedSslContext = buildMtlsSslContextFromPem(
@@ -283,12 +288,16 @@ class CertRotationIntegrationTest {
             )
         )
 
-        assertNotEquals(
-            renewed1.clientCert,
-            renewed2.clientCert,
-            "Second renewal must produce a different client_cert"
-        )
         assertPem(renewed2.clientCert, "CERTIFICATE", "second renewal client_cert")
+
+        // Assert distinct serial numbers between the two renewals
+        val renewed1X509 = parsePemCert(renewed1.clientCert)
+        val renewed2X509 = parsePemCert(renewed2.clientCert)
+        assertNotEquals(
+            renewed1X509.serialNumber,
+            renewed2X509.serialNumber,
+            "Second renewal must produce a cert with a different serial number"
+        )
 
         // Reconnect with second renewal certs
         val sslContext = buildMtlsSslContextFromPem(
@@ -416,6 +425,11 @@ class CertRotationIntegrationTest {
             "Relay rate-limited: retryAfter=${result.retryAfterSeconds}"
         )
         is RelayApiResult.NetworkError -> fail("Network error: ${result.cause}")
+    }
+
+    private fun parsePemCert(pem: String): X509Certificate {
+        val cf = CertificateFactory.getInstance("X.509")
+        return cf.generateCertificate(ByteArrayInputStream(pem.toByteArray())) as X509Certificate
     }
 
     private fun assertPem(pem: String, label: String, fieldName: String) {

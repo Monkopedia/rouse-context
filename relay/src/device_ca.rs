@@ -7,9 +7,10 @@
 //! The relay's mTLS verifier trusts this CA cert, meaning only devices that
 //! registered through the relay can establish WebSocket connections back.
 
+use rand::prelude::*;
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
-    KeyPair, KeyUsagePurpose, SanType, SubjectPublicKeyInfo,
+    KeyPair, KeyUsagePurpose, SanType, SerialNumber, SubjectPublicKeyInfo,
 };
 use std::io;
 use std::path::Path;
@@ -164,6 +165,15 @@ impl DeviceCa {
         })?;
 
         let mut params = CertificateParams::default();
+        // Use a random 20-byte serial number instead of rcgen's default
+        // deterministic serial (SHA256 of public key). Without this, two
+        // sign_client_cert calls with the same public key in the same second
+        // produce byte-identical certs.
+        let mut serial = [0u8; 20];
+        rand::thread_rng().fill(&mut serial[..]);
+        // Ensure the leading bit is 0 so the ASN.1 INTEGER is positive.
+        serial[0] &= 0x7f;
+        params.serial_number = Some(SerialNumber::from_slice(&serial));
         params.distinguished_name = DistinguishedName::new();
         params.distinguished_name.push(DnType::CommonName, &fqdn);
         params.subject_alt_names = vec![SanType::DnsName(fqdn.try_into().map_err(|e| {
@@ -412,6 +422,43 @@ mod tests {
         let err = extract_public_key_from_csr_der(&tampered)
             .expect_err("tampered CSR signature must be rejected");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn same_key_produces_distinct_serial_numbers() {
+        let dir = tempfile::tempdir().unwrap();
+        let ca = DeviceCa::load_or_create(
+            &dir.path().join("ca_key.pem"),
+            &dir.path().join("ca_cert.pem"),
+        )
+        .unwrap();
+
+        let (csr_der, _device_key) = generate_device_csr();
+        let spki_der = extract_public_key_from_csr_der(&csr_der).unwrap();
+
+        // Sign twice with the same public key (simulates renewal within the same second)
+        let bundle1 = ca
+            .sign_client_cert(&spki_der, "test-device", "rousecontext.com")
+            .unwrap();
+        let bundle2 = ca
+            .sign_client_cert(&spki_der, "test-device", "rousecontext.com")
+            .unwrap();
+
+        // Parse both certs and extract serial numbers
+        let pem1 = pem::parse(&bundle1.cert_pem).unwrap();
+        let (_, cert1) =
+            x509_parser::certificate::X509Certificate::from_der(pem1.contents()).unwrap();
+        let pem2 = pem::parse(&bundle2.cert_pem).unwrap();
+        let (_, cert2) =
+            x509_parser::certificate::X509Certificate::from_der(pem2.contents()).unwrap();
+
+        assert_ne!(
+            cert1.raw_serial(),
+            cert2.raw_serial(),
+            "Two certs with the same public key must have different serial numbers"
+        );
+        // The PEM strings themselves should also differ
+        assert_ne!(bundle1.cert_pem, bundle2.cert_pem);
     }
 
     #[test]
