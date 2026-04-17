@@ -181,6 +181,17 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
 
 /// Passthrough should reject a secret that is not in the cache (and the
 /// cache is authoritative once seeded).
+///
+/// Regression note (#216): `/rotate-secret` generates
+/// `{adjective}-{integrationId}` secrets using `rand::thread_rng()`, drawing
+/// the adjective from the fixed list in `words::adjectives` which contains
+/// `"old"`. Rotating integration `"health"` therefore had a ~1/217 chance of
+/// producing the literal secret `"old-health"`, making this test flaky under
+/// any amount of parallel or repeated execution. To keep the assertion
+/// structurally collision-proof, we rotate a DIFFERENT integration
+/// (`"usage"`) than the one whose legacy secret we replay (`"old-health"`):
+/// the rotation produces `{adj}-usage`, which can never equal `"old-health"`
+/// for any adjective in the list.
 #[tokio::test]
 async fn rotate_secret_cache_rejects_secrets_not_in_list() {
     let firestore =
@@ -218,8 +229,10 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
         device_ca: Some(ca),
     });
 
-    // Ask the relay to generate a fresh health secret. The old secret
-    // ("old-health") is no longer in the cache after this call.
+    // Rotate the "usage" integration (not "health"). After this call the
+    // cache holds `[{adj}-usage]` for exactly one adjective pick, so the
+    // legacy `"old-health"` secret cannot be present in the cache under any
+    // RNG outcome.
     // DeviceIdentity is layered in to simulate mTLS (see #202).
     let app = build_router(app_state.clone()).layer(axum::Extension(DeviceIdentity {
         subdomain: "cool-penguin".to_string(),
@@ -230,7 +243,7 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "integrations": ["health"]
+                "integrations": ["usage"]
             })
             .to_string(),
         ))
@@ -246,8 +259,9 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
         Arc::new(MockFcm::new()),
     );
 
-    // An unknown secret must be rejected even if the legacy secret_prefix
-    // in Firestore matches.
+    // An unknown secret (the legacy "old-health", which is never in the
+    // rotated `{adj}-usage` set) must be rejected even if the legacy
+    // secret_prefix in Firestore matches.
     let result = resolve_device_stream(
         &ctx,
         "cool-penguin",
