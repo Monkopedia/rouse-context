@@ -801,6 +801,12 @@ private suspend fun respondToDeviceCodePoll(
                 OAuthError("authorization_pending")
             )
         }
+        DeviceCodeStatus.SLOW_DOWN -> {
+            call.respond(
+                HttpStatusCode.BadRequest,
+                OAuthError("slow_down")
+            )
+        }
         DeviceCodeStatus.ACCESS_DENIED -> {
             call.respond(
                 HttpStatusCode.BadRequest,

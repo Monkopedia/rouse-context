@@ -7,6 +7,7 @@ import java.security.SecureRandom
  */
 enum class DeviceCodeStatus {
     AUTHORIZATION_PENDING,
+    SLOW_DOWN,
     APPROVED,
     ACCESS_DENIED,
     EXPIRED_TOKEN,
@@ -54,7 +55,8 @@ class DeviceCodeManager(
         val integrationId: String,
         val createdAt: Long,
         // null = pending, true = approved, false = denied
-        var approved: Boolean? = null
+        var approved: Boolean? = null,
+        var lastPolledAt: Long? = null
     )
 
     private val pendingCodes = mutableListOf<PendingCode>()
@@ -95,10 +97,17 @@ class DeviceCodeManager(
             val pending = pendingCodes.find { it.deviceCode == deviceCode }
                 ?: return DeviceCodePollResult(DeviceCodeStatus.INVALID_CODE)
 
-            val elapsed = clock.currentTimeMillis() - pending.createdAt
+            val elapsed = now - pending.createdAt
             if (elapsed > DEVICE_CODE_TTL_MS) {
                 pendingCodes.remove(pending)
                 return DeviceCodePollResult(DeviceCodeStatus.EXPIRED_TOKEN)
+            }
+
+            // RFC 8628 §3.5: slow_down if client polls faster than the issued interval
+            val lastPoll = pending.lastPolledAt
+            pending.lastPolledAt = now
+            if (lastPoll != null && (now - lastPoll) < DEFAULT_POLL_INTERVAL_SECONDS * 1000L) {
+                return DeviceCodePollResult(DeviceCodeStatus.SLOW_DOWN)
             }
 
             return when (pending.approved) {
