@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 /**
  * Room database for token persistence.
  */
-@Database(entities = [TokenEntity::class], version = 2, exportSchema = false)
+@Database(entities = [TokenEntity::class], version = 3, exportSchema = false)
 abstract class TokenDatabase : RoomDatabase() {
 
     abstract fun tokenDao(): TokenDao

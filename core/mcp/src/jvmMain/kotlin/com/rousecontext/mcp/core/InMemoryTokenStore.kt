@@ -1,5 +1,6 @@
 package com.rousecontext.mcp.core
 
+import java.util.UUID
 import kotlin.random.Random
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
         val integrationId: String,
         val clientId: String,
         val clientName: String?,
+        val familyId: String,
         val token: String,
         val createdAt: Long,
         val expiresAt: Long,
@@ -28,10 +30,14 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
         val integrationId: String,
         val clientId: String,
         val clientName: String?,
+        val familyId: String,
         val refreshToken: String,
         val createdAt: Long,
         val expiresAt: Long,
-        var revoked: Boolean = false
+        var revoked: Boolean = false,
+        // Set when this refresh token has been rotated into a child. A subsequent
+        // redemption of the same refresh token is a reuse signal (OAuth 2.1 §4.14).
+        var rotatedAt: Long? = null
     )
 
     private val tokens = mutableListOf<StoredToken>()
@@ -78,6 +84,18 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
         integrationId: String,
         clientId: String,
         clientName: String?
+    ): TokenPair = createTokenPair(
+        integrationId = integrationId,
+        clientId = clientId,
+        clientName = clientName,
+        familyId = UUID.randomUUID().toString()
+    )
+
+    private fun createTokenPair(
+        integrationId: String,
+        clientId: String,
+        clientName: String?,
+        familyId: String
     ): TokenPair {
         val accessToken = generateToken()
         val refreshToken = generateToken()
@@ -88,6 +106,7 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
                     integrationId = integrationId,
                     clientId = clientId,
                     clientName = clientName,
+                    familyId = familyId,
                     token = accessToken,
                     createdAt = now,
                     expiresAt = now + ACCESS_TOKEN_TTL_MS,
@@ -99,6 +118,7 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
                     integrationId = integrationId,
                     clientId = clientId,
                     clientName = clientName,
+                    familyId = familyId,
                     refreshToken = refreshToken,
                     createdAt = now,
                     expiresAt = now + REFRESH_TOKEN_TTL_MS
@@ -132,23 +152,49 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
     }
 
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
-        synchronized(this) {
-            val stored = refreshTokens.find {
-                it.refreshToken == refreshToken && !it.revoked
-            } ?: return null
-            if (stored.integrationId != integrationId) return null
-            if (clock.currentTimeMillis() > stored.expiresAt) return null
+        val parent = consumeRefreshToken(integrationId, refreshToken) ?: return null
+        return createTokenPair(integrationId, parent.clientId, parent.clientName, parent.familyId)
+    }
 
-            // Rotate: invalidate old refresh token and revoke existing access tokens
-            stored.revoked = true
-            tokens.filter {
-                it.integrationId == integrationId &&
-                    it.clientId == stored.clientId &&
-                    !it.revoked
-            }.forEach { it.revoked = true }
+    /**
+     * Atomically validates and consumes [refreshToken]. Returns the parent
+     * refresh-token row on success, or null if the token is unknown, scoped
+     * to a different integration, already revoked, expired, or replayed
+     * (OAuth 2.1 §4.14 reuse detection, which also revokes the family as a
+     * side effect).
+     */
+    private fun consumeRefreshToken(
+        integrationId: String,
+        refreshToken: String
+    ): StoredRefreshToken? = synchronized(this) {
+        // Search regardless of revoked/rotated so we can detect replay of a
+        // previously-rotated refresh token.
+        val stored = refreshTokens.find { it.refreshToken == refreshToken }
+        if (stored == null || stored.integrationId != integrationId) return null
 
-            return createTokenPair(integrationId, stored.clientId, stored.clientName)
+        if (stored.rotatedAt != null) {
+            // Reuse detected: revoke the entire token family.
+            revokeFamily(stored.familyId)
+            return null
         }
+
+        if (stored.revoked || clock.currentTimeMillis() > stored.expiresAt) return null
+
+        // Mark this refresh as rotated (kept around for future reuse detection)
+        // and revoke the sibling access tokens from this rotation step.
+        stored.rotatedAt = clock.currentTimeMillis()
+        tokens.filter {
+            it.integrationId == integrationId &&
+                it.familyId == stored.familyId &&
+                !it.revoked
+        }.forEach { it.revoked = true }
+        stored
+    }
+
+    private fun revokeFamily(familyId: String) {
+        tokens.filter { it.familyId == familyId }.forEach { it.revoked = true }
+        refreshTokens.filter { it.familyId == familyId }.forEach { it.revoked = true }
+        notifyChanged()
     }
 
     override fun listTokens(integrationId: String): List<TokenInfo> {

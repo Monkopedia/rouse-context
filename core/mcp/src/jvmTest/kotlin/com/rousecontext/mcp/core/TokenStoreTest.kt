@@ -208,4 +208,85 @@ class TokenStoreTest {
 
         assertNull(store.resolveClientId("health", pair.accessToken))
     }
+
+    @Test
+    fun `sequential legitimate refreshes rotate forward`() {
+        val store = InMemoryTokenStore()
+        val pair1 = store.createTokenPair("health", "client-1")
+
+        val pair2 = store.refreshToken("health", pair1.refreshToken)
+        assertNotNull(pair2)
+        val pair3 = store.refreshToken("health", pair2!!.refreshToken)
+        assertNotNull(pair3)
+        val pair4 = store.refreshToken("health", pair3!!.refreshToken)
+        assertNotNull(pair4)
+
+        // Latest access token is valid
+        assertTrue(store.validateToken("health", pair4!!.accessToken))
+        // Earlier access tokens are not valid
+        assertFalse(store.validateToken("health", pair1.accessToken))
+        assertFalse(store.validateToken("health", pair2.accessToken))
+        assertFalse(store.validateToken("health", pair3.accessToken))
+    }
+
+    @Test
+    fun `reused rotated refresh token revokes entire family`() {
+        val store = InMemoryTokenStore()
+        val pair1 = store.createTokenPair("health", "client-1")
+        val pair2 = store.refreshToken("health", pair1.refreshToken)
+        assertNotNull(pair2)
+        val pair3 = store.refreshToken("health", pair2!!.refreshToken)
+        assertNotNull(pair3)
+
+        // pair3 access token works normally
+        assertTrue(store.validateToken("health", pair3!!.accessToken))
+
+        // Attacker replays pair1.refreshToken (a previously-rotated refresh token).
+        val replay = store.refreshToken("health", pair1.refreshToken)
+        assertNull(replay)
+
+        // Entire family is revoked: current access token no longer validates,
+        // and the current refresh token no longer rotates.
+        assertFalse(store.validateToken("health", pair3.accessToken))
+        assertNull(store.refreshToken("health", pair3.refreshToken))
+        assertFalse(store.hasTokens("health"))
+    }
+
+    @Test
+    fun `reused middle refresh token revokes entire family`() {
+        val store = InMemoryTokenStore()
+        val pair1 = store.createTokenPair("health", "client-1")
+        val pair2 = store.refreshToken("health", pair1.refreshToken)
+        assertNotNull(pair2)
+        val pair3 = store.refreshToken("health", pair2!!.refreshToken)
+        assertNotNull(pair3)
+
+        // Replay a middle (already-rotated) refresh token.
+        val replay = store.refreshToken("health", pair2.refreshToken)
+        assertNull(replay)
+
+        // Entire family is gone.
+        assertFalse(store.validateToken("health", pair3!!.accessToken))
+        assertNull(store.refreshToken("health", pair3.refreshToken))
+    }
+
+    @Test
+    fun `reuse detection only revokes the compromised family`() {
+        val store = InMemoryTokenStore()
+        val aliceA = store.createTokenPair("health", "alice")
+        val bobA = store.createTokenPair("health", "bob")
+
+        val aliceB = store.refreshToken("health", aliceA.refreshToken)
+        assertNotNull(aliceB)
+
+        // Alice's old refresh token is replayed — her family is revoked.
+        assertNull(store.refreshToken("health", aliceA.refreshToken))
+        assertFalse(store.validateToken("health", aliceB!!.accessToken))
+
+        // Bob is unaffected.
+        assertTrue(store.validateToken("health", bobA.accessToken))
+        val bobB = store.refreshToken("health", bobA.refreshToken)
+        assertNotNull(bobB)
+        assertTrue(store.validateToken("health", bobB!!.accessToken))
+    }
 }

@@ -9,6 +9,7 @@ import com.rousecontext.mcp.core.TokenStore
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -48,6 +49,18 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         integrationId: String,
         clientId: String,
         clientName: String?
+    ): TokenPair = createTokenPair(
+        integrationId = integrationId,
+        clientId = clientId,
+        clientName = clientName,
+        familyId = UUID.randomUUID().toString()
+    )
+
+    private fun createTokenPair(
+        integrationId: String,
+        clientId: String,
+        clientName: String?,
+        familyId: String
     ): TokenPair {
         val accessRaw = generateRawToken()
         val accessToken = Base64.getUrlEncoder().withoutPadding().encodeToString(accessRaw)
@@ -62,6 +75,7 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
                 tokenHash = hashToken(accessToken),
                 refreshTokenHash = hashToken(refreshToken),
                 label = clientName ?: clientId,
+                familyId = familyId,
                 createdAt = now,
                 lastUsedAt = now,
                 expiresAt = now + ACCESS_TOKEN_TTL_MS,
@@ -87,12 +101,28 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
         val hash = hashToken(refreshToken)
         val entity = dao.findByRefreshHash(integrationId, hash) ?: return null
+
+        // Reuse detection (OAuth 2.1 §4.14): if the refresh token has already
+        // been rotated, treat this redemption as a replay and revoke the
+        // entire token family.
+        if (entity.rotatedAt != null) {
+            dao.deleteByFamilyId(entity.familyId)
+            return null
+        }
+
         val now = System.currentTimeMillis()
         if (now > entity.refreshExpiresAt) return null
 
-        // Rotate: delete the old row, create a new pair
-        dao.deleteById(entity.id)
-        return createTokenPair(integrationId, entity.clientId, entity.label)
+        // Rotate: keep the parent row (with rotatedAt set) so future replays
+        // are detectable; mint a child pair with the same familyId. Setting
+        // rotatedAt also invalidates the old access token via findByHash.
+        dao.markRotated(entity.id, now)
+        return createTokenPair(
+            integrationId = integrationId,
+            clientId = entity.clientId,
+            clientName = entity.label,
+            familyId = entity.familyId
+        )
     }
 
     override fun listTokens(integrationId: String): List<TokenInfo> =
