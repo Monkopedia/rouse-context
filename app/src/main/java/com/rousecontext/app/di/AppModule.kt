@@ -289,7 +289,7 @@ val appModule = module {
     }
 
     // --- Provider registry ---
-    single<ProviderRegistry> {
+    single<ProviderRegistry>(createdAtStart = true) {
         IntegrationProviderRegistry(
             integrations = get(),
             stateStore = get(),
