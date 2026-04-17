@@ -27,6 +27,15 @@ interface TokenStore {
     fun resolveClientName(integrationId: String, token: String): String?
 
     /**
+     * Resolves the DCR-assigned `client_id` associated with [token] within
+     * [integrationId], or null if the token is invalid / unknown / revoked /
+     * scoped to a different integration. Used for security checks that must
+     * tie session state to the issuing client (e.g. `Mcp-Session-Id`
+     * ownership — see issue #206).
+     */
+    fun resolveClientId(integrationId: String, token: String): String?
+
+    /**
      * Creates a new access token + refresh token pair for [integrationId], associated
      * with the given [clientId]. The optional [clientName] is a human-readable label
      * for display in the authorized clients UI.

@@ -177,4 +177,35 @@ class TokenStoreTest {
         val result = store.refreshToken("health", "nonexistent-token")
         assertNull(result)
     }
+
+    @Test
+    fun `resolveClientId returns client id for valid token`() {
+        val store = InMemoryTokenStore()
+        val pair = store.createTokenPair("health", "client-42", clientName = "MyClient")
+
+        assertEquals("client-42", store.resolveClientId("health", pair.accessToken))
+    }
+
+    @Test
+    fun `resolveClientId returns null for unknown token`() {
+        val store = InMemoryTokenStore()
+        assertNull(store.resolveClientId("health", "nonexistent-token"))
+    }
+
+    @Test
+    fun `resolveClientId returns null for wrong integration`() {
+        val store = InMemoryTokenStore()
+        val pair = store.createTokenPair("health", "client-42")
+
+        assertNull(store.resolveClientId("notifications", pair.accessToken))
+    }
+
+    @Test
+    fun `resolveClientId returns null for revoked token`() {
+        val store = InMemoryTokenStore()
+        val pair = store.createTokenPair("health", "client-42")
+        store.revokeToken("health", pair.accessToken)
+
+        assertNull(store.resolveClientId("health", pair.accessToken))
+    }
 }

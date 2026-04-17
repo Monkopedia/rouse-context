@@ -38,6 +38,12 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         return entity.label.takeIf { it != entity.clientId }
     }
 
+    override fun resolveClientId(integrationId: String, token: String): String? {
+        val hash = hashToken(token)
+        val entity = dao.findByHash(integrationId, hash) ?: return null
+        return entity.clientId
+    }
+
     override fun createTokenPair(
         integrationId: String,
         clientId: String,

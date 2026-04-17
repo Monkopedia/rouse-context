@@ -126,6 +126,22 @@ class McpProtocolTest {
         setBody(body)
     }
 
+    /**
+     * Like [mcpPost] but with an explicit [sessionId], so a test can route
+     * requests across multiple sessions without relying on the shared
+     * [currentSessionId] holder.
+     */
+    private suspend fun io.ktor.client.HttpClient.mcpPostWith(
+        token: String,
+        sessionId: String,
+        body: String
+    ): io.ktor.client.statement.HttpResponse = post("/mcp") {
+        header("Authorization", "Bearer $token")
+        header("Mcp-Session-Id", sessionId)
+        contentType(ContentType.Application.Json)
+        setBody(body)
+    }
+
     private suspend fun io.ktor.client.HttpClient.initialize(token: String): String {
         val initRequest = mcpJsonRpc(
             "initialize",
@@ -352,13 +368,17 @@ class McpProtocolTest {
         val token1 = tokenStore.createTokenPair("health", "client-1").accessToken
         val token2 = tokenStore.createTokenPair("health", "client-2").accessToken
 
-        // Initialize both sessions
+        // Initialize both sessions. Issue #206: sessions are bound to the
+        // owning client id, so each client must use its own session header.
         client.initialize(token1)
+        val session1 = currentSessionId!!
         client.initialize(token2)
+        val session2 = currentSessionId!!
 
-        // Both clients call tools/list -- both should succeed independently
-        val response1 = client.mcpPost(token1, mcpJsonRpc("tools/list", id = 2))
-        val response2 = client.mcpPost(token2, mcpJsonRpc("tools/list", id = 2))
+        // Both clients call tools/list -- both should succeed independently,
+        // each scoped to its own session.
+        val response1 = client.mcpPostWith(token1, session1, mcpJsonRpc("tools/list", id = 2))
+        val response2 = client.mcpPostWith(token2, session2, mcpJsonRpc("tools/list", id = 2))
 
         assertEquals(HttpStatusCode.OK, response1.status)
         assertEquals(HttpStatusCode.OK, response2.status)
@@ -378,16 +398,18 @@ class McpProtocolTest {
         )
 
         // Both clients call tools independently
-        val call1 = client.mcpPost(
+        val call1 = client.mcpPostWith(
             token1,
+            session1,
             mcpJsonRpc(
                 "tools/call",
                 """{"name":"get_steps","arguments":{"date":"2024-01-15"}}""",
                 id = 3
             )
         )
-        val call2 = client.mcpPost(
+        val call2 = client.mcpPostWith(
             token2,
+            session2,
             mcpJsonRpc(
                 "tools/call",
                 """{"name":"get_steps","arguments":{"date":"2024-02-20"}}""",

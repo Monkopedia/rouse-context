@@ -48,12 +48,14 @@ private val mcpJson = Json {
 
 /**
  * Per-session MCP server state: the SDK Server, its HTTP transport, the
- * integration name, and a timestamp used for idle-timeout eviction.
+ * integration name, the OAuth client id that initialized the session (see
+ * issue #206), and a timestamp used for idle-timeout eviction.
  */
 private data class SessionEntry(
     val server: Server,
     val transport: HttpTransport,
     val integration: String,
+    val clientId: String,
     @Volatile var lastAccessedAt: Long
 )
 
@@ -626,6 +628,20 @@ internal class McpRoutes(
         // the user -- e.g. outreach's "X wants to open Y" notification.
         val clientName = tokenStore.resolveClientName(ri, token)
 
+        // Client id (from DCR) for session-ownership enforcement (issue #206).
+        // Must be non-null here -- the token just passed validateToken above,
+        // so a lookup failure indicates a store inconsistency; treat as 401.
+        val callerClientId = tokenStore.resolveClientId(ri, token)
+        if (callerClientId == null) {
+            response.headers.append(
+                "WWW-Authenticate",
+                "Bearer resource_metadata=\"https://${resolveHostname()}" +
+                    "/.well-known/oauth-protected-resource\""
+            )
+            respond(HttpStatusCode.Unauthorized)
+            return
+        }
+
         // Parse the request body to determine method and whether it's a notification.
         val requestBody = try {
             withTimeout(MCP_REQUEST_TIMEOUT_MS) {
@@ -691,6 +707,7 @@ internal class McpRoutes(
                 server = newServer,
                 transport = newTransport,
                 integration = ri,
+                clientId = callerClientId,
                 lastAccessedAt = clock.currentTimeMillis()
             )
             val evicted = sessionsMutex.withLock {
@@ -709,6 +726,15 @@ internal class McpRoutes(
             val key = "$ri:$incomingSessionId"
             val entry = sessionsMutex.withLock { sessions[key] }
             if (entry == null) {
+                respond(HttpStatusCode.NotFound)
+                return
+            }
+            // Session-to-client binding check (issue #206): a session is
+            // owned by the client id that created it. A different client
+            // (even one with a valid token for the same integration) must
+            // not be able to reuse the session id. We return 404, matching
+            // the unknown-session-id behaviour, so existence isn't leaked.
+            if (entry.clientId != callerClientId) {
                 respond(HttpStatusCode.NotFound)
                 return
             }
