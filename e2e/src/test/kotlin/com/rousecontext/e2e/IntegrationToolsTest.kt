@@ -149,11 +149,13 @@ class IntegrationToolsTest {
             .header("Authorization", "Bearer $accessToken")
             .build()
 
+        var mcpSessionId: String? = null
         client.newCall(initRequest).execute().use { response ->
             val bodyText = response.body?.string() ?: ""
             if (response.code != 200) {
                 fail<Unit>("[$integrationId] MCP initialize failed (${response.code}): $bodyText")
             }
+            mcpSessionId = response.header("Mcp-Session-Id")
         }
 
         // tools/list
@@ -163,11 +165,14 @@ class IntegrationToolsTest {
             put("id", 2)
         }
 
-        val listRequest = Request.Builder()
+        val listRequestBuilder = Request.Builder()
             .url(mcpUrl)
             .post(listBody.toString().toRequestBody("application/json".toMediaType()))
             .header("Authorization", "Bearer $accessToken")
-            .build()
+        if (mcpSessionId != null) {
+            listRequestBuilder.header("Mcp-Session-Id", mcpSessionId!!)
+        }
+        val listRequest = listRequestBuilder.build()
 
         client.newCall(listRequest).execute().use { response ->
             val bodyText = response.body?.string() ?: ""
