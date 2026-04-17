@@ -3,7 +3,8 @@
 Rust service that fronts on-device MCP servers running on Android phones. It
 performs TLS-passthrough SNI routing, sends FCM wake pushes to the target
 device, splices client and device TCP connections, and orchestrates ACME
-(Let's Encrypt) DNS-01 challenges via the Cloudflare API on behalf of devices.
+(Google Trust Services by default; Let's Encrypt also supported) DNS-01
+challenges via the Cloudflare API on behalf of devices.
 
 The relay never terminates TLS, never stores payload data, and never handles
 device private keys. Device identity keys are generated on-device and never
@@ -25,19 +26,50 @@ overrides (see `src/config.rs::apply_env_overrides`).
 
 ## Operational notes
 
+### ACME provider
+
+The relay uses Google Trust Services (GTS) as its default ACME provider
+(switched from Let's Encrypt in #213). GTS offers ~16,800 new orders/week
+vs LE's 50/week/registered-domain, and its roots are in every major
+browser/OS trust store, so no client-side change is needed.
+
+#### External Account Binding
+
+GTS requires [External Account Binding](https://datatracker.ietf.org/doc/html/rfc8555#section-7.3.4)
+(EAB) on `newAccount`. Create EAB credentials once per project with:
+
+```sh
+gcloud publicca external-account-keys create
+```
+
+The command returns a `keyId` and a base64url-encoded `b64MacKey`. Store
+them on the relay host (for example in `/etc/rouse-relay/env`, loaded via
+a systemd `EnvironmentFile=`):
+
+```
+GTS_EAB_KID=<keyId>
+GTS_EAB_HMAC=<b64MacKey>
+```
+
+The env-var names are configurable via `acme.external_account_binding_kid_env`
+and `acme.external_account_binding_hmac_env` in `relay.example.toml`.
+Leave either unset to fall back to the LE-style no-EAB path.
+
 ### ACME account key
 
 The relay persists its ACME account private key at
-`/etc/rouse-relay/acme_account_key.pem` (override with `acme.account_key_path`
-or the `ACME_ACCOUNT_KEY_PATH` env var). This key is the relay's identity to
-Let's Encrypt. Every certificate issuance for every device subdomain flows
-through the single ACME account bound to this key.
+`/etc/rouse-relay/gts_acme_account_key.pem` (override with
+`acme.account_key_path` or the `ACME_ACCOUNT_KEY_PATH` env var). This key
+is the relay's identity to the ACME provider. Every certificate issuance
+for every device subdomain flows through the single ACME account bound to
+this key. The GTS-specific filename means switching providers won't
+accidentally reuse an account that belongs to a different directory;
+ACME accounts are directory-bound and not portable.
 
 #### Why it must persist across redeploys
 
-Let's Encrypt enforces a 50-cert/week quota per registered domain, shared
-across all issuers for that domain. Rotating the ACME account does not reset
-that quota, but it does:
+Rotating the ACME account does not reset the provider's rate-limit
+headroom on the domain, but it does:
 
 - Reset per-account rate-limit history (orphaning any in-flight authorizations
   and re-triggering "new account" checks).
@@ -46,10 +78,10 @@ that quota, but it does:
 - Eliminate the ability to revoke previously issued certificates via the
   original account.
 
-For the relay, an accidental rotation on every deploy would also burn the
-domain-level 50-certs/week headroom: every device subdomain would need a fresh
-issuance under the new account's authorization cache, and the domain-level
-budget is shared with all devices.
+For the relay, an accidental rotation on every deploy would force every
+device subdomain to re-issue under a fresh account's authorization cache,
+bypassing the provider's per-account caching; GTS's headroom absorbs this
+but LE's 50/week budget would not.
 
 #### Backup
 
@@ -59,9 +91,9 @@ to a timestamped file:
 ```sh
 ./relay/scripts/backup-acme-key.sh
 # default: /etc/rouse-relay/acme_account_key.pem
-#          -> ~/backups/rouse-relay/acme/acme_account_key.pem.<UTC-timestamp>
+#          -> ~/backups/rouse-relay/acme/<basename>.<UTC-timestamp>
 
-./relay/scripts/backup-acme-key.sh /etc/rouse-relay/acme_account_key.pem /mnt/backups/relay
+./relay/scripts/backup-acme-key.sh /etc/rouse-relay/gts_acme_account_key.pem /mnt/backups/relay
 ```
 
 The script creates the destination directory with mode `0700` and writes the
@@ -75,7 +107,7 @@ Scheduling is an operator concern. A simple cron entry is sufficient, e.g.:
 ```
 
 Do not push backed-up keys to the repo or any remote store. The key is a
-long-lived secret equivalent to the relay's Let's Encrypt identity.
+long-lived secret equivalent to the relay's ACME identity.
 
 #### Restore
 
@@ -83,9 +115,9 @@ Stop the relay, copy a backup into place, then start the relay:
 
 ```sh
 systemctl stop rouse-relay
-install -m 0600 /path/to/backup/acme_account_key.pem.<timestamp> \
-    /etc/rouse-relay/acme_account_key.pem
-chown rouse-relay:rouse-relay /etc/rouse-relay/acme_account_key.pem  # if applicable
+install -m 0600 /path/to/backup/gts_acme_account_key.pem.<timestamp> \
+    /etc/rouse-relay/gts_acme_account_key.pem
+chown rouse-relay:rouse-relay /etc/rouse-relay/gts_acme_account_key.pem  # if applicable
 systemctl start rouse-relay
 ```
 
@@ -108,10 +140,10 @@ exists and is included in the deploy's persistent-state contract.
 - The relay generates a new ACME account on next startup (unless
   `require_existing_account` is set).
 - Previously issued device certificates remain valid until their natural
-  expiry (90 days for Let's Encrypt). Devices continue working on existing
+  expiry (90 days for GTS and LE). Devices continue working on existing
   certs until renewal.
-- Renewals under the new account re-consume the domain-level 50/week budget;
-  if renewals bunch up, some devices may see delayed issuance.
+- Renewals under the new account re-consume the provider's per-account
+  rate-limit allocation; GTS absorbs this easily, LE may not.
 - There is no way to recover the old ACME account without its private key,
   and no way to deactivate it either.
 

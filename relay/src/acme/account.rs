@@ -6,9 +6,21 @@ use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey};
 use std::path::Path;
 use tracing::{debug, info, warn};
 
-use super::jws::{acme_post, get_nonce};
+use super::jws::{acme_post, build_eab_jws, get_nonce};
 use super::types::AcmeDirectory;
 use super::AcmeError;
+
+/// External Account Binding credentials as issued by an ACME provider.
+///
+/// Required by GTS, ZeroSSL, and SSL.com on account registration. The `kid`
+/// identifies the provider-side account binding; `hmac_key` is the raw
+/// HMAC-SHA256 key used to sign the EAB JWS (the `hmac_key` field stores
+/// the decoded bytes, not the base64 string the provider issues).
+#[derive(Debug, Clone)]
+pub struct ExternalAccountBinding {
+    pub kid: String,
+    pub hmac_key: Vec<u8>,
+}
 
 /// Load an ECDSA P-256 account key from a PEM file, or generate a new one and
 /// save it. This ensures the relay reuses the same ACME account across restarts.
@@ -56,16 +68,27 @@ pub(super) fn load_or_create_account_key(key_path: &Path, require_existing: bool
 }
 
 /// Create or retrieve an ACME account. Returns (account_url, nonce).
+///
+/// When `eab` is `Some`, an `externalAccountBinding` field is included in the
+/// `newAccount` payload per RFC 8555 §7.3.4 — required by GTS and other
+/// providers that tie ACME accounts to a pre-authenticated identity.
+/// When `None`, behaves exactly as the LE-style no-EAB path.
 pub(super) async fn ensure_account(
     http: &reqwest::Client,
     account_key: &SigningKey,
     dir: &AcmeDirectory,
+    eab: Option<&ExternalAccountBinding>,
 ) -> Result<(String, String), AcmeError> {
     let nonce = get_nonce(http, &dir.new_nonce).await?;
-    let payload = serde_json::json!({
+    let mut payload_obj = serde_json::json!({
         "termsOfServiceAgreed": true,
-    })
-    .to_string();
+    });
+    if let Some(eab) = eab {
+        let eab_jws = build_eab_jws(account_key, &dir.new_account, &eab.kid, &eab.hmac_key);
+        payload_obj["externalAccountBinding"] = eab_jws;
+        debug!(eab_kid = %eab.kid, "Including externalAccountBinding in newAccount");
+    }
+    let payload = payload_obj.to_string();
 
     let (resp, nonce) =
         acme_post(http, account_key, &dir.new_account, &nonce, &payload, None).await?;

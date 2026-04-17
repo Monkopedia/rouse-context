@@ -471,8 +471,9 @@ where
 ///
 /// When Cloudflare credentials are configured (zone_id + api_token_env pointing to
 /// a set env var), this creates a `RealAcmeClient` that performs DNS-01 challenges
-/// via Cloudflare and issues certs from Let's Encrypt. Falls back to `StubAcme` with
-/// a warning when credentials are missing.
+/// via Cloudflare and issues certs from the configured ACME provider (default:
+/// Google Trust Services, see #213). Falls back to `StubAcme` with a warning
+/// when credentials are missing.
 fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeClient> {
     let cf = &config.cloudflare;
 
@@ -492,11 +493,23 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
     // Derive the base domain from config (falls back to stripping "relay." from relay_hostname).
     let base_domain = config.server.resolved_base_domain();
 
-    // Resolve ACME directory URL: config file > env var > Let's Encrypt production
+    // Resolve ACME directory URL: config file > default (Google Trust Services).
+    // Env var override already applied in apply_env_overrides().
     let directory_url = if !config.acme.directory_url.is_empty() {
         config.acme.directory_url.clone()
     } else {
-        rouse_relay::acme::LETS_ENCRYPT_DIRECTORY.to_string()
+        rouse_relay::acme::GOOGLE_TRUST_SERVICES_DIRECTORY.to_string()
+    };
+
+    // Resolve External Account Binding credentials if the provider (e.g. GTS)
+    // requires them. Resolution returns None cleanly when the env vars are
+    // unset, which is the correct behaviour for LE-style providers.
+    let eab = match config.acme.resolve_eab() {
+        Ok(eab) => eab,
+        Err(e) => {
+            warn!("Failed to resolve ACME EAB credentials ({e}), using stub ACME client");
+            return Arc::new(StubAcme);
+        }
     };
 
     let account_key_path = std::path::PathBuf::from(&config.acme.account_key_path);
@@ -509,6 +522,7 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
         require_existing_account = config.acme.require_existing_account,
         dns_propagation_timeout_secs = config.acme.dns_propagation_timeout_secs,
         dns_poll_interval_secs = config.acme.dns_poll_interval_secs,
+        eab_configured = eab.is_some(),
         "Wiring real ACME client with Cloudflare DNS-01"
     );
 
@@ -521,13 +535,20 @@ fn build_acme_client(config: &RelayConfig) -> Arc<dyn rouse_relay::acme::AcmeCli
             config.acme.dns_poll_interval_secs,
         ));
 
-    Arc::new(rouse_relay::acme::RealAcmeClient::with_persistent_key(
+    let mut client = rouse_relay::acme::RealAcmeClient::with_persistent_key(
         directory_url,
         dns,
         base_domain,
         &account_key_path,
         config.acme.require_existing_account,
-    ))
+    );
+    if let Some((kid, hmac_key)) = eab {
+        client = client.with_external_account_binding(rouse_relay::acme::ExternalAccountBinding {
+            kid,
+            hmac_key,
+        });
+    }
+    Arc::new(client)
 }
 
 /// Build the DNS client from config.

@@ -22,9 +22,20 @@ mod jws;
 mod protocol;
 mod types;
 
+pub use account::ExternalAccountBinding;
 pub use client::RealAcmeClient;
 
-/// Let's Encrypt production directory URL.
+/// Google Trust Services (GTS) production ACME directory URL.
+///
+/// GTS is the relay's default ACME provider (switched from LE in #213). It
+/// requires External Account Binding on `newAccount`; see
+/// [`ExternalAccountBinding`] and the `acme.external_account_binding_*_env`
+/// config fields.
+pub const GOOGLE_TRUST_SERVICES_DIRECTORY: &str = "https://dv.acme-v02.api.pki.goog/directory";
+
+/// Let's Encrypt production directory URL. Kept as a well-known constant
+/// so operators can switch back by setting `acme.directory_url` in config;
+/// not the default anymore (see #213).
 pub const LETS_ENCRYPT_DIRECTORY: &str = "https://acme-v02.api.letsencrypt.org/directory";
 
 /// Let's Encrypt staging directory URL (for testing).

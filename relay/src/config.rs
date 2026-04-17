@@ -10,6 +10,8 @@ pub enum ConfigError {
     Parse(#[from] toml::de::Error),
     #[error("environment variable '{0}' is not set")]
     MissingEnvVar(String),
+    #[error("invalid base64url for ACME EAB HMAC: {0}")]
+    InvalidEabHmac(String),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -211,7 +213,17 @@ pub struct LimitsConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct AcmeConfig {
-    /// ACME directory URL. Use the staging URL for development/testing.
+    /// ACME directory URL.
+    ///
+    /// Defaults to Google Trust Services (GTS) production:
+    /// `https://dv.acme-v02.api.pki.goog/directory`. GTS offers 100 new orders
+    /// per hour (~16,800/week) vs Let's Encrypt's 50/week/registered-domain,
+    /// and is already in every browser/OS root store.
+    ///
+    /// Override with the LE URL (`https://acme-v02.api.letsencrypt.org/directory`)
+    /// if you want to keep issuing from Let's Encrypt. Both use the same ACME
+    /// protocol; GTS additionally requires `externalAccountBinding` on
+    /// account registration (see `external_account_binding_*_env`).
     pub directory_url: String,
     /// Maximum seconds to wait for DNS TXT record propagation before giving up.
     pub dns_propagation_timeout_secs: u64,
@@ -220,24 +232,78 @@ pub struct AcmeConfig {
     /// Path to persist the ACME account private key (PEM format).
     /// If the file exists, the key is loaded from it; otherwise a new key is
     /// generated and saved here.
+    ///
+    /// Defaults to a GTS-specific filename (`gts_acme_account_key.pem`) so
+    /// switching between ACME providers does not reuse the same account —
+    /// ACME accounts are bound to a specific directory and not portable.
     pub account_key_path: String,
     /// If true, startup fails when `account_key_path` does not exist instead of
     /// silently generating a new key. Enable in production to guard against
     /// deploy misconfigurations that would rotate the ACME account and burn
-    /// Let's Encrypt rate-limit headroom (50 certs/week/registered-domain).
-    /// Default: false, so fresh installs can bootstrap without manual setup.
+    /// rate-limit headroom. Default: false, so fresh installs can bootstrap
+    /// without manual setup.
     pub require_existing_account: bool,
+    /// Name of the environment variable holding the External Account Binding
+    /// (EAB) `kid` (key identifier) issued by the ACME provider.
+    ///
+    /// Required by GTS (`publicca.googleapis.com`) on account registration:
+    /// the EAB proves the ACME account is owned by an authenticated GCP
+    /// project. Not required by Let's Encrypt — leave unset (empty) to skip
+    /// the EAB branch entirely.
+    ///
+    /// See RFC 8555 §7.3.4.
+    pub external_account_binding_kid_env: String,
+    /// Name of the environment variable holding the base64url-encoded
+    /// HMAC-SHA256 key for the External Account Binding. Paired with
+    /// `external_account_binding_kid_env`.
+    pub external_account_binding_hmac_env: String,
 }
 
 impl Default for AcmeConfig {
     fn default() -> Self {
         Self {
-            directory_url: String::new(), // empty means use ACME_DIRECTORY_URL env or LE production
+            // Empty means "use GTS production" (resolved at startup). Kept as
+            // empty-string default so env var and config-file overrides both
+            // take precedence without special-casing.
+            directory_url: String::new(),
             dns_propagation_timeout_secs: 60,
             dns_poll_interval_secs: 5,
-            account_key_path: "/etc/rouse-relay/acme_account_key.pem".to_string(),
+            account_key_path: "/etc/rouse-relay/gts_acme_account_key.pem".to_string(),
             require_existing_account: false,
+            external_account_binding_kid_env: "GTS_EAB_KID".to_string(),
+            external_account_binding_hmac_env: "GTS_EAB_HMAC".to_string(),
         }
+    }
+}
+
+impl AcmeConfig {
+    /// Resolve the External Account Binding credentials from the configured
+    /// environment variables. Returns `Ok(None)` when either env var is unset
+    /// or empty — this is the correct behaviour for ACME providers (like
+    /// Let's Encrypt) that do not require EAB. Returns `Err` when the HMAC
+    /// env var is set but not valid base64url.
+    ///
+    /// The HMAC is base64url-decoded here; ACME providers issue it in that
+    /// encoding (both GTS's `publicca.googleapis.com` and ZeroSSL).
+    pub fn resolve_eab(&self) -> Result<Option<(String, Vec<u8>)>, ConfigError> {
+        if self.external_account_binding_kid_env.is_empty()
+            || self.external_account_binding_hmac_env.is_empty()
+        {
+            return Ok(None);
+        }
+        let kid = match std::env::var(&self.external_account_binding_kid_env) {
+            Ok(v) if !v.is_empty() => v,
+            _ => return Ok(None),
+        };
+        let hmac_b64 = match std::env::var(&self.external_account_binding_hmac_env) {
+            Ok(v) if !v.is_empty() => v,
+            _ => return Ok(None),
+        };
+        use base64::Engine as _;
+        let hmac_key = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(hmac_b64.trim())
+            .map_err(|e| ConfigError::InvalidEabHmac(e.to_string()))?;
+        Ok(Some((kid, hmac_key)))
     }
 }
 
@@ -348,6 +414,12 @@ impl RelayConfig {
             // Accept "1", "true", "yes" (case-insensitive) as true.
             let v = val.trim().to_ascii_lowercase();
             self.acme.require_existing_account = matches!(v.as_str(), "1" | "true" | "yes");
+        }
+        if let Ok(val) = std::env::var("ACME_EAB_KID_ENV") {
+            self.acme.external_account_binding_kid_env = val;
+        }
+        if let Ok(val) = std::env::var("ACME_EAB_HMAC_ENV") {
+            self.acme.external_account_binding_hmac_env = val;
         }
         if let Ok(val) = std::env::var("DEVICE_CA_KEY_PATH") {
             self.device_ca.ca_key_path = val;

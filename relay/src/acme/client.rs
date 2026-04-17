@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 
-use super::account::{ensure_account, load_or_create_account_key};
+use super::account::{ensure_account, load_or_create_account_key, ExternalAccountBinding};
 use super::jws::{acme_post, jwk_thumbprint};
 use super::protocol::{create_order, get_directory, poll_status};
 use super::types::{base64url, AcmeAuthorization, AcmeOrder};
@@ -24,6 +24,7 @@ pub struct RealAcmeClient {
     account_key: SigningKey,
     dns: Arc<dyn DnsChallengeProvider>,
     base_domain: String,
+    eab: Option<ExternalAccountBinding>,
 }
 
 impl RealAcmeClient {
@@ -42,6 +43,7 @@ impl RealAcmeClient {
             account_key,
             dns,
             base_domain,
+            eab: None,
         }
     }
 
@@ -55,7 +57,7 @@ impl RealAcmeClient {
     /// When `require_existing_account` is true and the key file is missing,
     /// construction panics rather than silently generating a new account. Use
     /// this in production to catch deploy misconfigurations that would
-    /// otherwise rotate the relay's Let's Encrypt identity.
+    /// otherwise rotate the relay's ACME identity.
     pub fn with_persistent_key(
         directory_url: String,
         dns: Arc<dyn DnsChallengeProvider>,
@@ -71,7 +73,19 @@ impl RealAcmeClient {
             account_key,
             dns,
             base_domain,
+            eab: None,
         }
+    }
+
+    /// Attach External Account Binding credentials (RFC 8555 §7.3.4).
+    ///
+    /// Required by GTS (`publicca.googleapis.com`) on first `newAccount`
+    /// registration. Subsequent account lookups with the same key succeed
+    /// regardless, but an unbound `newAccount` against GTS returns
+    /// `urn:ietf:params:acme:error:externalAccountRequired`.
+    pub fn with_external_account_binding(mut self, eab: ExternalAccountBinding) -> Self {
+        self.eab = Some(eab);
+        self
     }
 }
 
@@ -126,7 +140,8 @@ impl AcmeClient for RealAcmeClient {
         let dir = get_directory(&self.http, &self.directory_url).await?;
 
         // 2. Create/retrieve account
-        let (kid, nonce) = ensure_account(&self.http, &self.account_key, &dir).await?;
+        let (kid, nonce) =
+            ensure_account(&self.http, &self.account_key, &dir, self.eab.as_ref()).await?;
 
         // 3. Create order
         let (order, order_url, nonce) =

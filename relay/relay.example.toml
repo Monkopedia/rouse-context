@@ -19,16 +19,32 @@ zone_id = "your-cloudflare-zone-id"
 api_token_env = "CF_API_TOKEN"
 
 [acme]
-# Use staging for development/testing to avoid rate limits (50 certs/week on production)
-directory_url = "https://acme-staging-v02.api.letsencrypt.org/directory"
-# directory_url = "https://acme-v02.api.letsencrypt.org/directory"  # production
+# ACME provider directory URL. Default (when omitted) is Google Trust Services
+# production: https://dv.acme-v02.api.pki.goog/directory — 100 new orders/hour
+# and already in every browser/OS root store. GTS requires
+# externalAccountBinding; see `external_account_binding_*_env` below.
+# directory_url = "https://dv.acme-v02.api.pki.goog/directory"          # GTS production (default)
+# directory_url = "https://acme-v02.api.letsencrypt.org/directory"      # LE production (no EAB)
+# directory_url = "https://acme-staging-v02.api.letsencrypt.org/directory"  # LE staging
 dns_propagation_timeout_secs = 60  # max wait for TXT record to propagate
 dns_poll_interval_secs = 5         # how often to check DNS during propagation
-# account_key_path = "/etc/rouse-relay/acme_account_key.pem"
+# account_key_path = "/etc/rouse-relay/gts_acme_account_key.pem"
 # Refuse to start if account_key_path is missing instead of silently creating a
 # new ACME account. Enable in production; leave false for fresh installs.
 # See README.md "ACME account key" for why this matters.
 require_existing_account = false
+#
+# External Account Binding (RFC 8555 §7.3.4). GTS requires this on the first
+# newAccount registration; subsequent cert orders against the same account
+# key work without it. Let's Encrypt does not require EAB — leave these unset
+# (or point them at env vars that aren't set) to disable.
+#
+# Each field names an environment variable; the env var holds the value.
+# For GTS, create EAB credentials with:
+#   gcloud publicca external-account-keys create
+# and populate /etc/rouse-relay/env with GTS_EAB_KID and GTS_EAB_HMAC.
+external_account_binding_kid_env = "GTS_EAB_KID"
+external_account_binding_hmac_env = "GTS_EAB_HMAC"
 
 [limits]
 max_streams_per_device = 32

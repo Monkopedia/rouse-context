@@ -1794,6 +1794,7 @@ dependencies = [
  "dashmap",
  "futures-util",
  "hickory-resolver",
+ "hmac",
  "hyper",
  "hyper-util",
  "jsonwebtoken",
