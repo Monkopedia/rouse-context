@@ -185,10 +185,6 @@ async fn main() {
         maint_shutdown,
     ));
 
-    let relay_hostname = config.server.relay_hostname.clone();
-    let base_domain = config.server.resolved_base_domain();
-    let fcm_timeout = Duration::from_secs(config.limits.fcm_wakeup_timeout_secs.unwrap_or(20));
-
     // Bot protection: rate limiters for passthrough connections
     // Throttle must be shorter than fcm_wakeup_timeout so a failed wake
     // allows a retry on the next client connection.
@@ -204,6 +200,34 @@ async fn main() {
         config.limits.conn_rate_limit_max,
         Duration::from_secs(config.limits.conn_rate_limit_window_secs),
     ));
+
+    // Spawn rate-limiter sweep loop.
+    //
+    // The rate-limiter DashMaps would otherwise grow unbounded: an attacker
+    // varying source IP or SNI label inserts a fresh entry on every rejected
+    // connection and memory climbs until OOM (#203). Every 5 minutes we
+    // evict entries whose window/cooldown has fully expired — their state is
+    // indistinguishable from a never-seen key, so eviction never changes a
+    // rate-limit decision. The interval is short enough to cap memory growth
+    // but long enough to stay off the hot path.
+    let sweep_shutdown = shutdown.clone();
+    let sweep_app_state = app_state.clone();
+    let sweep_fcm_throttle = fcm_wake_throttle.clone();
+    let sweep_conn_limiter = conn_rate_limiter.clone();
+    tokio::spawn(async move {
+        rouse_relay::rate_limit::run_rate_limit_sweep_loop(
+            Duration::from_secs(300),
+            sweep_app_state,
+            sweep_fcm_throttle,
+            sweep_conn_limiter,
+            sweep_shutdown,
+        )
+        .await;
+    });
+
+    let relay_hostname = config.server.relay_hostname.clone();
+    let base_domain = config.server.resolved_base_domain();
+    let fcm_timeout = Duration::from_secs(config.limits.fcm_wakeup_timeout_secs.unwrap_or(20));
 
     // Accept loop
     info!("Accept loop running");

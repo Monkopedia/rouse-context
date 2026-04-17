@@ -10,6 +10,7 @@
 
 use dashmap::DashMap;
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Configuration for the token bucket rate limiter.
@@ -46,6 +47,37 @@ impl RateLimiter {
             config,
             buckets: DashMap::new(),
         }
+    }
+
+    /// Number of entries currently held (for tests / metrics).
+    pub fn len(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Returns `true` if the underlying map is empty.
+    pub fn is_empty(&self) -> bool {
+        self.buckets.is_empty()
+    }
+
+    /// Drop entries whose bucket would already be fully refilled.
+    ///
+    /// Once a bucket has been idle long enough to refill to `max_tokens`, its
+    /// state is indistinguishable from a freshly-created bucket, so it is safe
+    /// to evict. We use twice the full-refill interval as a safety margin so
+    /// we never race a caller that is about to read the same entry.
+    pub fn sweep_expired(&self) {
+        self.sweep_expired_at(Instant::now());
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn sweep_expired_at(&self, now: Instant) {
+        let full_refill = self
+            .config
+            .refill_interval
+            .saturating_mul(self.config.max_tokens.max(1));
+        let ttl = full_refill.saturating_mul(2);
+        self.buckets
+            .retain(|_, bucket| now.duration_since(bucket.last_refill) < ttl);
     }
 
     /// Try to consume a token for the given subdomain.
@@ -108,6 +140,33 @@ impl FcmWakeThrottle {
         }
     }
 
+    /// Number of entries currently held (for tests / metrics).
+    pub fn len(&self) -> usize {
+        self.last_wake.len()
+    }
+
+    /// Returns `true` if the underlying map is empty.
+    pub fn is_empty(&self) -> bool {
+        self.last_wake.is_empty()
+    }
+
+    /// Drop entries whose cooldown has expired twice over.
+    ///
+    /// An entry older than the cooldown window is indistinguishable from a
+    /// never-seen subdomain (both return `true` on next call), so evicting
+    /// expired entries does not change the throttle's decisions. We use 2×
+    /// the cooldown as a safety margin.
+    pub fn sweep_expired(&self) {
+        self.sweep_expired_at(Instant::now());
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn sweep_expired_at(&self, now: Instant) {
+        let ttl = self.cooldown.saturating_mul(2);
+        self.last_wake
+            .retain(|_, last| now.duration_since(*last) < ttl);
+    }
+
     /// Returns `true` if an FCM wake should be sent (cooldown expired or first wake).
     /// Returns `false` if a wake was already sent within the cooldown window.
     pub fn should_wake(&self, subdomain: &str) -> bool {
@@ -156,6 +215,33 @@ impl ConnectionRateLimiter {
         }
     }
 
+    /// Number of entries currently held (for tests / metrics).
+    pub fn len(&self) -> usize {
+        self.counters.len()
+    }
+
+    /// Returns `true` if the underlying map is empty.
+    pub fn is_empty(&self) -> bool {
+        self.counters.is_empty()
+    }
+
+    /// Drop entries whose sliding window has fully expired.
+    ///
+    /// Once `window_start` is older than the window itself, the next call to
+    /// `allow_at` resets the counter — so the entry's state is equivalent to
+    /// a never-seen `(ip, subdomain)`. We use 2× the window as a safety
+    /// margin before evicting.
+    pub fn sweep_expired(&self) {
+        self.sweep_expired_at(Instant::now());
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn sweep_expired_at(&self, now: Instant) {
+        let ttl = self.window.saturating_mul(2);
+        self.counters
+            .retain(|_, (_, window_start)| now.duration_since(*window_start) < ttl);
+    }
+
     /// Returns `true` if the connection is allowed, `false` if rate-limited.
     pub fn allow(&self, ip: IpAddr, subdomain: &str) -> bool {
         self.allow_at(ip, subdomain, Instant::now())
@@ -175,6 +261,48 @@ impl ConnectionRateLimiter {
 
         *count += 1;
         *count <= self.max_connections
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Background sweep loop.
+// ---------------------------------------------------------------------------
+
+/// Periodically evicts expired entries from every rate-limiter DashMap so
+/// attacker-varied keys (source IP / SNI label) cannot grow the maps without
+/// bound. Runs until the shutdown signal fires.
+pub async fn run_rate_limit_sweep_loop(
+    interval: Duration,
+    app_state: Arc<crate::api::AppState>,
+    fcm_wake_throttle: Arc<FcmWakeThrottle>,
+    conn_rate_limiter: Arc<ConnectionRateLimiter>,
+    shutdown: crate::shutdown::ShutdownController,
+) {
+    tracing::info!(
+        interval_secs = interval.as_secs(),
+        "Rate-limit sweep loop started"
+    );
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {
+                app_state.rate_limiter.sweep_expired();
+                app_state.request_subdomain_rate_limiter.sweep_expired();
+                fcm_wake_throttle.sweep_expired();
+                conn_rate_limiter.sweep_expired();
+                tracing::debug!(
+                    rate_limiter = app_state.rate_limiter.len(),
+                    request_subdomain_rate_limiter = app_state.request_subdomain_rate_limiter.len(),
+                    fcm_wake_throttle = fcm_wake_throttle.len(),
+                    conn_rate_limiter = conn_rate_limiter.len(),
+                    "Rate-limit sweep completed"
+                );
+            }
+            _ = shutdown.wait_for_shutdown() => {
+                tracing::info!("Rate-limit sweep loop shutting down");
+                return;
+            }
+        }
     }
 }
 
@@ -318,5 +446,109 @@ mod tests {
         assert!(limiter.allow_at(ip, "dev1", now));
         assert!(limiter.allow_at(ip, "dev2", now));
         assert!(!limiter.allow_at(ip, "dev1", now));
+    }
+
+    // --- sweep_expired tests ---
+
+    #[test]
+    fn rate_limiter_sweep_removes_expired_entries() {
+        let limiter = RateLimiter::new(RateLimitConfig {
+            max_tokens: 2,
+            refill_interval: Duration::from_secs(10),
+        });
+        let now = Instant::now();
+        limiter.try_acquire_at("a", now).unwrap();
+        limiter.try_acquire_at("b", now).unwrap();
+        assert_eq!(limiter.len(), 2);
+
+        // Before TTL (2 * 2 * 10s = 40s): nothing evicted.
+        limiter.sweep_expired_at(now + Duration::from_secs(39));
+        assert_eq!(limiter.len(), 2);
+
+        // After TTL: both entries evicted.
+        limiter.sweep_expired_at(now + Duration::from_secs(41));
+        assert_eq!(limiter.len(), 0);
+    }
+
+    #[test]
+    fn rate_limiter_sweep_keeps_recent_entries() {
+        let limiter = RateLimiter::new(RateLimitConfig {
+            max_tokens: 2,
+            refill_interval: Duration::from_secs(10),
+        });
+        let now = Instant::now();
+        limiter.try_acquire_at("old", now).unwrap();
+        // "new" touched right before the sweep
+        limiter
+            .try_acquire_at("new", now + Duration::from_secs(40))
+            .unwrap();
+        assert_eq!(limiter.len(), 2);
+
+        // 41s after "old" was seen (past 40s TTL), but "new" is only 1s old.
+        limiter.sweep_expired_at(now + Duration::from_secs(41));
+        assert_eq!(limiter.len(), 1);
+        assert!(limiter.buckets.contains_key("new"));
+    }
+
+    #[test]
+    fn fcm_throttle_sweep_removes_expired_entries() {
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        let now = Instant::now();
+        throttle.should_wake_at("a", now);
+        throttle.should_wake_at("b", now);
+        assert_eq!(throttle.len(), 2);
+
+        // Before TTL (2 * 30s = 60s): nothing evicted.
+        throttle.sweep_expired_at(now + Duration::from_secs(59));
+        assert_eq!(throttle.len(), 2);
+
+        // After TTL: both evicted.
+        throttle.sweep_expired_at(now + Duration::from_secs(61));
+        assert_eq!(throttle.len(), 0);
+    }
+
+    #[test]
+    fn conn_limiter_sweep_removes_expired_entries() {
+        let limiter = ConnectionRateLimiter::new(5, Duration::from_secs(60));
+        let ip1: IpAddr = "1.2.3.4".parse().unwrap();
+        let ip2: IpAddr = "5.6.7.8".parse().unwrap();
+        let now = Instant::now();
+        assert!(limiter.allow_at(ip1, "dev1", now));
+        assert!(limiter.allow_at(ip2, "dev2", now));
+        assert_eq!(limiter.len(), 2);
+
+        // Before TTL (2 * 60s = 120s): nothing evicted.
+        limiter.sweep_expired_at(now + Duration::from_secs(119));
+        assert_eq!(limiter.len(), 2);
+
+        // After TTL: both entries evicted.
+        limiter.sweep_expired_at(now + Duration::from_secs(121));
+        assert_eq!(limiter.len(), 0);
+    }
+
+    #[test]
+    fn conn_limiter_sweep_keeps_active_entries() {
+        let limiter = ConnectionRateLimiter::new(5, Duration::from_secs(60));
+        let ip1: IpAddr = "1.2.3.4".parse().unwrap();
+        let ip2: IpAddr = "5.6.7.8".parse().unwrap();
+        let t0 = Instant::now();
+        assert!(limiter.allow_at(ip1, "dev1", t0));
+        // ip2/dev2 touched 100s later — still fresh.
+        assert!(limiter.allow_at(ip2, "dev2", t0 + Duration::from_secs(100)));
+
+        // Sweep at 121s: ip1/dev1 is 121s old (past 120s TTL); ip2/dev2 is
+        // only 21s old.
+        limiter.sweep_expired_at(t0 + Duration::from_secs(121));
+        assert_eq!(limiter.len(), 1);
+        assert!(limiter.counters.contains_key(&(ip2, "dev2".to_string())));
+    }
+
+    #[test]
+    fn sweep_is_idempotent_and_safe_on_empty() {
+        let limiter = ConnectionRateLimiter::new(5, Duration::from_secs(60));
+        let now = Instant::now();
+        limiter.sweep_expired_at(now);
+        limiter.sweep_expired_at(now + Duration::from_secs(3600));
+        assert_eq!(limiter.len(), 0);
     }
 }
