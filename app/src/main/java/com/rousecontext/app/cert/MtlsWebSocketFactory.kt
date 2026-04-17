@@ -13,7 +13,6 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.util.Base64
 import java.util.concurrent.TimeUnit
-import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
@@ -44,6 +43,7 @@ object MtlsWebSocketFactory {
     // NOT the server cert (ACME, serverAuth) which is for AI clients.
     private const val CERT_PEM_FILE = "rouse_client_cert.pem"
     private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
+    private const val KEYSTORE_ALIAS = "rouse_device_key"
 
     /**
      * Build a [WebSocketFactory] that presents the device client certificate during
@@ -77,16 +77,15 @@ object MtlsWebSocketFactory {
                 clientCerts
             }
 
-            val keyStore = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
-                load(null, null)
-                setKeyEntry("client", privateKey, charArrayOf(), fullChain.toTypedArray())
-            }
-
-            val keyManagerFactory = KeyManagerFactory.getInstance(
-                KeyManagerFactory.getDefaultAlgorithm()
-            ).apply {
-                init(keyStore, charArrayOf())
-            }
+            // Hardware-backed keys (Android Keystore / StrongBox) return null
+            // from getEncoded() and can't be put into a generic BKS KeyStore
+            // or even AndroidKeyStore via setEntry (Conscrypt doesn't bridge
+            // the cert chain correctly). Use a direct X509KeyManager that
+            // hands the SSL engine the key reference + cert chain without
+            // any keystore serialization.
+            val keyManagers = arrayOf(
+                DirectX509KeyManager(privateKey, fullChain.toTypedArray())
+            )
 
             // Trust both system CAs (for Let's Encrypt server cert) and the relay CA
             // (so the KeyManager can match against the relay's CertificateRequest)
@@ -118,7 +117,7 @@ object MtlsWebSocketFactory {
                 .first { it is X509TrustManager } as X509TrustManager
 
             val sslContext = SSLContext.getInstance("TLS").apply {
-                init(keyManagerFactory.keyManagers, trustManagerFactory.trustManagers, null)
+                init(keyManagers, trustManagerFactory.trustManagers, null)
             }
 
             OkHttpClient.Builder()

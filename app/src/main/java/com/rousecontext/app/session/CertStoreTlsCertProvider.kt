@@ -1,14 +1,13 @@
 package com.rousecontext.app.session
 
+import com.rousecontext.app.cert.DirectX509KeyManager
 import com.rousecontext.bridge.TlsCertProvider
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.DeviceKeyManager
 import java.io.ByteArrayInputStream
-import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.util.Base64
-import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 
 /**
@@ -41,20 +40,12 @@ class CertStoreTlsCertProvider(
         // Keystore provider at TLS handshake time.
         val keyPair = deviceKeyManager.getOrCreateKeyPair()
 
-        val keyStore = KeyStore.getInstance(KeyStore.getDefaultType())
-        keyStore.load(null, null)
-        keyStore.setKeyEntry(
-            "device",
-            keyPair.private,
-            charArrayOf(),
-            certs.toTypedArray()
+        val keyManagers = arrayOf(
+            DirectX509KeyManager(keyPair.private, certs.toTypedArray())
         )
 
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        kmf.init(keyStore, charArrayOf())
-
         val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(kmf.keyManagers, null, null)
+        sslContext.init(keyManagers, null, null)
         return sslContext
     }
 
