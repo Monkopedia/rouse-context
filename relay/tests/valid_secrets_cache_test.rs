@@ -12,6 +12,7 @@
 mod test_helpers;
 
 use rouse_relay::api::build_router;
+use rouse_relay::api::ws::DeviceIdentity;
 use rouse_relay::firestore::DeviceRecord;
 use rouse_relay::mux::frame::Frame;
 use rouse_relay::mux::lifecycle::MuxSession;
@@ -124,14 +125,18 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
 
     // Hit /rotate-secret asking the relay to generate a fresh secret for
     // "usage". The relay picks an adjective and returns the mapping.
-    let app = build_router(app_state.clone());
+    // DeviceIdentity is injected via a layer to simulate an mTLS-validated
+    // client cert for "cool-penguin" (per issue #202 the handler now
+    // requires this; there is no body subdomain fallback).
+    let app = build_router(app_state.clone()).layer(axum::Extension(DeviceIdentity {
+        subdomain: "cool-penguin".to_string(),
+    }));
     let resp = axum::http::Request::builder()
         .method("POST")
         .uri("/rotate-secret")
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin",
                 "integrations": ["usage"]
             })
             .to_string(),
@@ -215,14 +220,16 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
 
     // Ask the relay to generate a fresh health secret. The old secret
     // ("old-health") is no longer in the cache after this call.
-    let app = build_router(app_state.clone());
+    // DeviceIdentity is layered in to simulate mTLS (see #202).
+    let app = build_router(app_state.clone()).layer(axum::Extension(DeviceIdentity {
+        subdomain: "cool-penguin".to_string(),
+    }));
     let resp = axum::http::Request::builder()
         .method("POST")
         .uri("/rotate-secret")
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin",
                 "integrations": ["health"]
             })
             .to_string(),

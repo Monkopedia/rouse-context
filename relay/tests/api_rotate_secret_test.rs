@@ -3,13 +3,36 @@
 mod test_helpers;
 
 use rouse_relay::api::build_router;
+use rouse_relay::api::ws::DeviceIdentity;
 use rouse_relay::firestore::DeviceRecord;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use test_helpers::*;
 
-fn make_app_with_ca(
+/// Build a router with a `DeviceIdentity` extension layered in, simulating
+/// an mTLS-authenticated request for `subdomain`.
+fn make_app_with_ca_as(
+    firestore: MockFirestore,
+    firebase_auth: MockFirebaseAuth,
+    identity_subdomain: &str,
+) -> (axum::Router, Arc<MockFirestore>) {
+    let firestore = Arc::new(firestore);
+    let state = build_test_state_with_ca(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(MockAcme::new("test-cert")),
+        Arc::new(firebase_auth),
+    );
+    let router = build_router(state).layer(axum::Extension(DeviceIdentity {
+        subdomain: identity_subdomain.to_string(),
+    }));
+    (router, firestore)
+}
+
+/// Build a router WITHOUT any `DeviceIdentity` extension, simulating an
+/// unauthenticated (no-client-cert) request.
+fn make_app_without_identity(
     firestore: MockFirestore,
     firebase_auth: MockFirebaseAuth,
 ) -> (axum::Router, Arc<MockFirestore>) {
@@ -41,7 +64,7 @@ fn make_device(secret: &str) -> DeviceRecord {
 #[tokio::test]
 async fn rotate_secret_generates_and_returns_new_secrets() {
     let firestore = MockFirestore::new().with_device("cool-penguin", make_device("old-secret"));
-    let (app, fs) = make_app_with_ca(firestore, MockFirebaseAuth::new());
+    let (app, fs) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "cool-penguin");
 
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -49,16 +72,14 @@ async fn rotate_secret_generates_and_returns_new_secrets() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin",
                 "integrations": ["outreach", "health"]
             })
             .to_string(),
         ))
         .unwrap();
 
-    // Note: in production this requires mTLS auth, but in tests we use the
-    // test device identity layer (no TLS). The handler should extract the
-    // subdomain from the mTLS cert or request body.
+    // Identity is supplied via a layered Extension (simulating the mTLS
+    // layer in production).
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
     assert_eq!(resp.status(), 200);
 
@@ -118,7 +139,7 @@ async fn rotate_secret_preserves_existing_secrets_when_all_present() {
     ]);
     device.valid_secrets = device.integration_secrets.values().cloned().collect();
     let firestore = MockFirestore::new().with_device("cool-penguin", device);
-    let (app, fs) = make_app_with_ca(firestore, MockFirebaseAuth::new());
+    let (app, fs) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "cool-penguin");
 
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -126,7 +147,6 @@ async fn rotate_secret_preserves_existing_secrets_when_all_present() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin",
                 "integrations": ["outreach", "health"]
             })
             .to_string(),
@@ -168,7 +188,7 @@ async fn rotate_secret_mix_of_new_and_existing_returns_full_map() {
         HashMap::from([("outreach".to_string(), "brave-outreach".to_string())]);
     device.valid_secrets = device.integration_secrets.values().cloned().collect();
     let firestore = MockFirestore::new().with_device("cool-penguin", device);
-    let (app, fs) = make_app_with_ca(firestore, MockFirebaseAuth::new());
+    let (app, fs) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "cool-penguin");
 
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -176,7 +196,6 @@ async fn rotate_secret_mix_of_new_and_existing_returns_full_map() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin",
                 "integrations": ["outreach", "health"]
             })
             .to_string(),
@@ -230,7 +249,7 @@ async fn rotate_secret_legacy_device_populates_map() {
     // for this one call. After, the map is populated for future merges.
     let device = make_device("unused"); // integration_secrets = HashMap::new()
     let firestore = MockFirestore::new().with_device("cool-penguin", device);
-    let (app, fs) = make_app_with_ca(firestore, MockFirebaseAuth::new());
+    let (app, fs) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "cool-penguin");
 
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -238,7 +257,6 @@ async fn rotate_secret_legacy_device_populates_map() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "cool-penguin",
                 "integrations": ["outreach", "health"]
             })
             .to_string(),
@@ -276,7 +294,9 @@ async fn rotate_secret_legacy_device_populates_map() {
 #[tokio::test]
 async fn rotate_secret_device_not_found_returns_404() {
     let firestore = MockFirestore::new(); // no devices
-    let (app, _) = make_app_with_ca(firestore, MockFirebaseAuth::new());
+                                          // mTLS layer presents an identity for a subdomain that no device record
+                                          // exists for (e.g. cert was revoked or Firestore lost the row).
+    let (app, _) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "nonexistent");
 
     let resp = axum::http::Request::builder()
         .method("POST")
@@ -284,7 +304,6 @@ async fn rotate_secret_device_not_found_returns_404() {
         .header("content-type", "application/json")
         .body(axum::body::Body::from(
             serde_json::json!({
-                "subdomain": "nonexistent",
                 "integrations": ["outreach"]
             })
             .to_string(),
@@ -293,4 +312,92 @@ async fn rotate_secret_device_not_found_returns_404() {
 
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
     assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn rotate_secret_without_mtls_identity_returns_401() {
+    // Regression test for issue #202: a request that reaches the handler
+    // without a DeviceIdentity extension (no mTLS client cert) must be
+    // rejected with 401, even if the body names a real subdomain. Before
+    // the fix, the handler trusted the body's `subdomain` field and would
+    // happily rotate the victim's secrets.
+    let firestore = MockFirestore::new().with_device("cool-penguin", make_device("old-secret"));
+    let (app, fs) = make_app_without_identity(firestore, MockFirebaseAuth::new());
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/rotate-secret")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                // Attacker-supplied subdomain — must be ignored now.
+                "subdomain": "cool-penguin",
+                "integrations": ["outreach", "health"]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 401, "unauthenticated rotate must be 401");
+
+    // And Firestore must NOT have been touched.
+    let devices = fs.devices.lock().unwrap();
+    let stored = devices.get("cool-penguin").unwrap();
+    assert!(
+        stored.valid_secrets.is_empty(),
+        "valid_secrets must not have been populated by an unauthenticated caller"
+    );
+    assert!(
+        stored.integration_secrets.is_empty(),
+        "integration_secrets must not have been populated by an unauthenticated caller"
+    );
+}
+
+#[tokio::test]
+async fn rotate_secret_ignores_body_subdomain_when_identity_present() {
+    // Documented behavior: if a caller with a valid mTLS identity for
+    // subdomain A includes a different subdomain B in the JSON body, the
+    // body field is simply ignored (the request struct does not declare
+    // it). The cert-derived identity is authoritative. This pins that
+    // behavior so future refactors don't accidentally reintroduce the
+    // body-trust bug.
+    let firestore = MockFirestore::new()
+        .with_device("cool-penguin", make_device("owned-by-victim"))
+        .with_device("attacker-sub", make_device("owned-by-attacker"));
+    let (app, fs) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "attacker-sub");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/rotate-secret")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                // Attacker tries to target the victim in the body.
+                "subdomain": "cool-penguin",
+                "integrations": ["outreach"]
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let devices = fs.devices.lock().unwrap();
+    let victim = devices.get("cool-penguin").unwrap();
+    assert!(
+        victim.valid_secrets.is_empty(),
+        "victim subdomain must remain untouched when attacker names it in the body"
+    );
+    assert!(
+        victim.integration_secrets.is_empty(),
+        "victim integration_secrets must remain untouched"
+    );
+    let attacker = devices.get("attacker-sub").unwrap();
+    assert_eq!(
+        attacker.integration_secrets.len(),
+        1,
+        "attacker's own subdomain (from mTLS identity) is the one that gets rotated"
+    );
 }

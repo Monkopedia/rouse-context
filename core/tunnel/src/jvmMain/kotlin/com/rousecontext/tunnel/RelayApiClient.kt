@@ -85,18 +85,26 @@ class RelayApiClient(
         }
 
     /**
-     * Rotate the device's integration secrets. Authenticated via mTLS.
-     * The client sends the list of integration IDs; the relay generates one
-     * `{adjective}-{integrationId}` secret per entry and returns the mapping
-     * in [UpdateSecretsResponse.secrets].
+     * Rotate the device's integration secrets. Authenticated via mTLS:
+     * the subdomain is extracted from the client certificate on the relay
+     * side and the body no longer carries it. See issue #202 — accepting a
+     * subdomain from the request body turned this endpoint into an
+     * unauthenticated DoS.
+     *
+     * [subdomain] is retained only for local call-site logging; it is not
+     * transmitted in the request body.
      */
     suspend fun updateSecrets(
         subdomain: String,
         integrationIds: List<String>
     ): RelayApiResult<UpdateSecretsResponse> = executeRequest {
+        // subdomain is intentionally ignored for transport — the relay uses
+        // the mTLS client cert CN. Passed in for caller logging only.
+        @Suppress("UNUSED_VARIABLE")
+        val localSubdomain = subdomain
         httpClient.post("$baseUrl/rotate-secret") {
             contentType(ContentType.Application.Json)
-            setBody(UpdateSecretsRequest(subdomain = subdomain, integrations = integrationIds))
+            setBody(UpdateSecretsRequest(integrations = integrationIds))
         }
     }
 
@@ -237,10 +245,7 @@ data class RegisterResponse(
 )
 
 @Serializable
-data class UpdateSecretsRequest(
-    @SerialName("subdomain") val subdomain: String,
-    @SerialName("integrations") val integrations: List<String>
-)
+data class UpdateSecretsRequest(@SerialName("integrations") val integrations: List<String>)
 
 @Serializable
 data class UpdateSecretsResponse(

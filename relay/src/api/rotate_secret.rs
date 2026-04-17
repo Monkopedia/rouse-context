@@ -40,9 +40,6 @@ use crate::api::{ApiError, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct RotateSecretRequest {
-    /// Subdomain to rotate. In production this is verified against the mTLS
-    /// client cert identity; in tests it may be provided directly.
-    pub subdomain: String,
     /// Integration IDs the client wants to have secrets for. The relay
     /// generates fresh `{adjective}-{integrationId}` secrets only for IDs
     /// not already present in the stored mapping.
@@ -63,15 +60,20 @@ pub async fn handle_rotate_secret(
     device_identity: Option<Extension<DeviceIdentity>>,
     Json(req): Json<RotateSecretRequest>,
 ) -> Response {
-    // Determine subdomain: prefer mTLS identity, fall back to request body
-    let subdomain = if let Some(Extension(identity)) = device_identity {
-        identity.subdomain
-    } else {
-        req.subdomain
+    // Subdomain is ALWAYS taken from the mTLS client cert identity.
+    // There is no body fallback: rotating a device's secrets is a privileged
+    // operation, and accepting a subdomain from an unauthenticated request
+    // body turns this endpoint into a one-shot DoS of every registered
+    // integration. See issue #202.
+    let subdomain = match device_identity {
+        Some(Extension(identity)) => identity.subdomain,
+        None => {
+            return ApiError::unauthorized("Valid client certificate required").into_response();
+        }
     };
 
     if subdomain.is_empty() {
-        return ApiError::bad_request("Missing subdomain").into_response();
+        return ApiError::unauthorized("Client certificate missing subdomain").into_response();
     }
 
     // Verify device exists
