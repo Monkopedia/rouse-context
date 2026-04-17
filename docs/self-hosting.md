@@ -251,3 +251,74 @@ If any step fails, tail the relay logs (`journalctl -u rouse-relay -f`) and the 
 **`strip_prefix("relay.")` doesn't match my hostname** — set `[server].base_domain` explicitly in `relay.toml`.
 
 **ACME rate limit (50 certs/week)** — use the staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`) for development, and persist `acme.account_key_path` so you don't register new accounts on every restart.
+
+## Appendix: Runtime secrets for the upstream deploy (maintainers)
+
+The upstream Rouse Context deploy reads all VPS runtime secrets from GitHub repo
+secrets at deploy time, rather than maintaining them by hand on the VPS. The
+`relay-deploy.yml` workflow renders `/etc/rouse-relay/env` and
+`/etc/rouse-relay/firebase-sa.json` on each run and SCPs them to the VPS.
+
+### Secret inventory
+
+Naming convention: secrets added during this migration use a `RELAY_` prefix.
+Secrets that predate the migration (`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`)
+keep their unprefixed names to avoid churn — the Cloudflare creds are also used
+directly by other workflows (e.g. cert renewal), not only at relay runtime.
+
+| GH secret name | Purpose | Format | Rotated by |
+|---|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | DNS-01 challenges via Cloudflare API (relay runtime + cert renewal workflow) | plain token | Cloudflare dashboard |
+| `CLOUDFLARE_ZONE_ID` | Cloudflare zone id for `rousecontext.com` | hex string | Cloudflare dashboard |
+| `RELAY_RUST_LOG` | `RUST_LOG` value baked into the env file | e.g. `rustls=debug,rouse_relay=debug` | edit repo secret |
+| `RELAY_GTS_EAB_KID` | Google Trust Services ACME EAB key id | plain string | GTS console |
+| `RELAY_GTS_EAB_HMAC` | Google Trust Services ACME EAB HMAC | base64url | GTS console |
+| `RELAY_FIREBASE_SERVICE_ACCOUNT_JSON` | Service account JSON for FCM + Firebase Auth, **base64-encoded** | `base64` of the raw JSON file | Firebase console (new key) |
+
+### What the workflow does
+
+1. Renders the env file with `printf '%s=%s\n'` (not `echo`) into a mode-0700
+   tempdir on the runner. No secret values are ever passed as command-line args
+   or written to stdout.
+2. Base64-decodes `RELAY_FIREBASE_SERVICE_ACCOUNT_JSON` into a JSON file in the
+   same tempdir, validates it parses.
+3. `scp`s both files to `/tmp/*.new` on the VPS.
+4. Over SSH: `mv` into `/etc/rouse-relay/`, `chown root:relay`, `chmod 0640`,
+   then `systemctl restart rouse-relay`.
+5. `shred -u`s the tempdir on the runner regardless of success/failure.
+
+### Rotating a secret
+
+1. Generate/obtain the new value from the upstream provider (Cloudflare, GTS,
+   Firebase).
+2. `gh secret set <NAME> --repo Monkopedia/rouse-context` (value via stdin,
+   never as a shell arg).
+3. Trigger the `Deploy Relay` workflow (`gh workflow run relay-deploy.yml`).
+4. Verify `systemctl is-active rouse-relay` and tail logs briefly.
+
+### Adding a new secret
+
+1. Add the secret via `gh secret set`.
+2. Update `.github/workflows/relay-deploy.yml`'s render step to include a new
+   `printf 'NAME=%s\n' "$NEW_SECRET"` line (or write it to a separate file if
+   it's not a KEY=VALUE env var).
+3. Update the inventory table above.
+4. Deploy.
+
+### Recovering / onboarding: backfill from a running VPS
+
+If you ever lose the repo secrets (e.g. setting up a fork, or the repo was
+rotated), `scripts/backfill-relay-secrets.sh` re-syncs them by SSHing to the
+VPS, reading `/etc/rouse-relay/env` and `firebase-sa.json`, and piping each
+value into `gh secret set`. It never echoes secret values and shreds its temp
+files on exit. Requires `gcloud` (for the SSH) and `gh` (for the API).
+
+```bash
+./scripts/backfill-relay-secrets.sh Monkopedia/rouse-context
+```
+
+### Why the `EnvironmentFile` pattern (vs. systemd `Environment=` lines)
+
+The production unit uses `EnvironmentFile=/etc/rouse-relay/env` so the deploy
+workflow only has to drop a single 0640 file into place rather than edit the
+unit. This is the recommended pattern in this repo.

@@ -34,6 +34,51 @@ jobs:
         working-directory: relay
         run: cargo test
 
+      # Render runtime secrets into files the deploy step will ship to the VPS.
+      # We use printf + file redirection (NOT echo) and write into a mode-0700
+      # tempdir so values never appear in logs. GitHub log redaction is
+      # best-effort; file redirection is the belt-and-suspenders approach.
+      - name: Render /etc/rouse-relay/env + firebase-sa.json
+        if: github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+          RELAY_GTS_EAB_KID: ${{ secrets.RELAY_GTS_EAB_KID }}
+          RELAY_GTS_EAB_HMAC: ${{ secrets.RELAY_GTS_EAB_HMAC }}
+          RELAY_RUST_LOG: ${{ secrets.RELAY_RUST_LOG }}
+          RELAY_FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.RELAY_FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -u -o pipefail
+          RENDER_DIR=$(mktemp -d)
+          chmod 700 "$RENDER_DIR"
+          echo "RENDER_DIR=$RENDER_DIR" >> "$GITHUB_ENV"
+
+          # Env file — systemd KEY=VALUE, no quoting needed (values have no spaces).
+          # Using printf with explicit format strings avoids any echo-flag pitfalls.
+          {
+            printf 'CLOUDFLARE_API_TOKEN=%s\n' "$CLOUDFLARE_API_TOKEN"
+            printf 'CLOUDFLARE_ZONE_ID=%s\n'   "$CLOUDFLARE_ZONE_ID"
+            printf 'RUST_LOG=%s\n'             "$RELAY_RUST_LOG"
+            printf 'GTS_EAB_KID=%s\n'          "$RELAY_GTS_EAB_KID"
+            printf 'GTS_EAB_HMAC=%s\n'         "$RELAY_GTS_EAB_HMAC"
+          } > "$RENDER_DIR/env"
+          chmod 600 "$RENDER_DIR/env"
+
+          # Firebase service account JSON comes in as base64 (multi-line-safe).
+          # Decode into place; do not echo the decoded contents.
+          printf '%s' "$RELAY_FIREBASE_SERVICE_ACCOUNT_JSON" \
+            | base64 -d > "$RENDER_DIR/firebase-sa.json"
+          chmod 600 "$RENDER_DIR/firebase-sa.json"
+
+          # Sanity check: rendered env must parse as KEY=VALUE and firebase-sa
+          # must be valid JSON. Never log contents, only counts.
+          env_lines=$(wc -l < "$RENDER_DIR/env")
+          sa_bytes=$(wc -c < "$RENDER_DIR/firebase-sa.json")
+          echo "Rendered env file: ${env_lines} lines"
+          echo "Rendered firebase-sa.json: ${sa_bytes} bytes"
+          python3 -c "import json,sys; json.load(open('$RENDER_DIR/firebase-sa.json'))"
+          echo "firebase-sa.json: valid JSON"
+
       - name: Deploy to VPS
         if: github.ref == 'refs/heads/main'
         env:
@@ -41,20 +86,52 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
+          set -u -o pipefail
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
+          # Binary
           scp -i ~/.ssh/deploy_key \
             relay/target/x86_64-unknown-linux-musl/release/rouse-relay \
             "$VPS_USER@$VPS_HOST":/tmp/rouse-relay.new
 
+          # Runtime secrets (rendered in previous step)
+          scp -i ~/.ssh/deploy_key \
+            "$RENDER_DIR/env" \
+            "$VPS_USER@$VPS_HOST":/tmp/rouse-relay.env.new
+          scp -i ~/.ssh/deploy_key \
+            "$RENDER_DIR/firebase-sa.json" \
+            "$VPS_USER@$VPS_HOST":/tmp/rouse-relay.firebase-sa.json.new
+
           ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" bash -s <<'EOF'
+          set -u -o pipefail
+
+          # Binary
           sudo mv /tmp/rouse-relay.new /opt/rouse-relay/rouse-relay
           sudo chmod +x /opt/rouse-relay/rouse-relay
           sudo chown relay:relay /opt/rouse-relay/rouse-relay
+
+          # Env file
+          sudo mv /tmp/rouse-relay.env.new /etc/rouse-relay/env
+          sudo chown root:relay /etc/rouse-relay/env
+          sudo chmod 0640 /etc/rouse-relay/env
+
+          # Firebase service account JSON
+          sudo mv /tmp/rouse-relay.firebase-sa.json.new /etc/rouse-relay/firebase-sa.json
+          sudo chown root:relay /etc/rouse-relay/firebase-sa.json
+          sudo chmod 0640 /etc/rouse-relay/firebase-sa.json
+
           sudo systemctl restart rouse-relay || echo "Service not fully configured yet"
           sleep 2
           sudo systemctl is-active rouse-relay || echo "Service not active (may need TLS cert)"
           EOF
+
+      - name: Shred render tempdir
+        if: always() && env.RENDER_DIR != ''
+        run: |
+          if [ -d "$RENDER_DIR" ]; then
+            find "$RENDER_DIR" -type f -exec shred -u {} + 2>/dev/null || true
+            rm -rf "$RENDER_DIR"
+          fi
