@@ -94,6 +94,12 @@ pub(super) async fn ensure_account(
         acme_post(http, account_key, &dir.new_account, &nonce, &payload, None).await?;
 
     let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(AcmeError::Http(format!(
+            "newAccount failed (status {status}): {body}"
+        )));
+    }
     let account_url = resp
         .headers()
         .get("location")

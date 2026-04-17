@@ -8,9 +8,12 @@ import android.os.Binder
 import android.os.Bundle
 import android.os.Process
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.mcp.core.McpSession
+import com.rousecontext.tunnel.CertProvisioningFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.tasks.await
 import org.koin.core.context.GlobalContext
 import org.koin.java.KoinJavaComponent.getKoin
 
@@ -52,6 +55,26 @@ class TestCommandProvider : ContentProvider() {
                 runBlocking { store.setUserEnabled(id, true) }
                 Log.i(TAG, "Enabled integration: $id")
                 Bundle().apply { putString("result", "enabled $id") }
+            }
+            "disable_integration" -> {
+                val id = extras?.getString("id")
+                    ?: return Bundle().apply { putString("error", "missing 'id' extra") }
+                val store = getKoin().get<IntegrationStateStore>()
+                runBlocking { store.setUserEnabled(id, false) }
+                Log.i(TAG, "Disabled integration: $id")
+                Bundle().apply { putString("result", "disabled $id") }
+            }
+            "provision_cert" -> {
+                val flow = getKoin().get<CertProvisioningFlow>()
+                val result = runBlocking {
+                    val user = FirebaseAuth.getInstance().signInAnonymously().await().user
+                    val token = user?.getIdToken(false)?.await()?.token
+                        ?: return@runBlocking "Firebase auth failed"
+                    val r = flow.execute(token)
+                    r.toString()
+                }
+                Log.i(TAG, "Cert provisioning result: $result")
+                Bundle().apply { putString("result", result) }
             }
             "approve_auth" -> {
                 val code = extras?.getString("code")
