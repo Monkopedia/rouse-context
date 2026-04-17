@@ -151,6 +151,8 @@ private class StubCertStore : CertificateStore {
     override suspend fun storeCertChain(chain: List<ByteArray>) = Unit
     override suspend fun getKnownFingerprints(): Set<String> = emptySet()
     override suspend fun storeFingerprint(fingerprint: String) = Unit
+    override suspend fun hasFingerprintBootstrapMarker(): Boolean = false
+    override suspend fun writeFingerprintBootstrapMarker() = Unit
     override suspend fun storeCertificate(pemChain: String) = Unit
     override suspend fun getCertificate(): String? = null
     override suspend fun storeClientCertificate(pemChain: String) = Unit

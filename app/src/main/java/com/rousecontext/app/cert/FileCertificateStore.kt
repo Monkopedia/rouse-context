@@ -52,6 +52,8 @@ class FileCertificateStore(
     private val integrationSecretsFile get() = File(filesDir, INTEGRATION_SECRETS_FILE)
     private val legacySecretPrefixFile get() = File(filesDir, LEGACY_SECRET_PREFIX_FILE)
     private val fingerprintsFile get() = File(filesDir, FINGERPRINTS_FILE)
+    private val fingerprintBootstrapMarkerFile get() =
+        File(filesDir, FINGERPRINT_BOOTSTRAP_MARKER_FILE)
     private val keyMigrationMarkerFile get() = File(filesDir, KEY_MIGRATION_MARKER_FILE)
 
     override suspend fun storeCertificate(pemChain: String) {
@@ -287,6 +289,22 @@ class FileCertificateStore(
         fingerprintsFile.appendText("$fingerprint\n")
     }
 
+    override suspend fun hasFingerprintBootstrapMarker(): Boolean =
+        fingerprintBootstrapMarkerFile.exists()
+
+    override suspend fun writeFingerprintBootstrapMarker() {
+        // Best-effort: if we cannot persist the marker we log and continue.
+        // A missing marker would allow another one-shot backfill on the next
+        // run, which is strictly less safe but no worse than the pre-#210
+        // behaviour; failing the verify outright would force a 503 lockout
+        // and wipe out the backfilled fingerprint we just wrote.
+        try {
+            fingerprintBootstrapMarkerFile.writeText("1")
+        } catch (e: IOException) {
+            Log.w(TAG, "Failed to write fingerprint bootstrap marker", e)
+        }
+    }
+
     override suspend fun clear() {
         clearCertificates()
         subdomainFile.delete()
@@ -305,6 +323,11 @@ class FileCertificateStore(
         File(filesDir, KEY_PEM_FILE).delete()
         keyMigrationMarkerFile.delete()
         fingerprintsFile.delete()
+        // The bootstrap marker is tied to the current install's fingerprint
+        // state. When we roll back cert provisioning we also reset this so a
+        // fresh install on the same filesDir can legitimately one-shot
+        // backfill again (issue #210).
+        fingerprintBootstrapMarkerFile.delete()
         val keyStore = androidKeyStore()
         if (keyStore.containsAlias(KEY_ALIAS)) {
             keyStore.deleteEntry(KEY_ALIAS)
@@ -504,6 +527,7 @@ class FileCertificateStore(
         private const val INTEGRATION_SECRETS_FILE = "rouse_integration_secrets.json"
         private const val LEGACY_SECRET_PREFIX_FILE = "rouse_secret_prefix.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"
+        private const val FINGERPRINT_BOOTSTRAP_MARKER_FILE = "rouse_fingerprint_bootstrapped"
         private const val KEY_ALIAS = "rouse_device_key"
         private const val ENCRYPTION_KEY_ALIAS = "rouse_key_encryption_key"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"

@@ -11,6 +11,7 @@ class InMemoryCertificateStore : CertificateStore {
     private var privateKey: String? = null
     private var certChain: List<ByteArray>? = null
     private val knownFingerprints: MutableSet<String> = mutableSetOf()
+    private var fingerprintBootstrapMarker: Boolean = false
 
     var storeCallCount = 0
         private set
@@ -79,6 +80,7 @@ class InMemoryCertificateStore : CertificateStore {
         privateKey = null
         certChain = null
         knownFingerprints.clear()
+        fingerprintBootstrapMarker = false
         storeCallCount = 0
     }
 
@@ -90,6 +92,7 @@ class InMemoryCertificateStore : CertificateStore {
         privateKey = null
         certChain = null
         knownFingerprints.clear()
+        fingerprintBootstrapMarker = false
     }
 
     // --- Binary access (security monitoring) ---
@@ -108,5 +111,11 @@ class InMemoryCertificateStore : CertificateStore {
 
     override suspend fun storeFingerprint(fingerprint: String) {
         knownFingerprints.add(fingerprint)
+    }
+
+    override suspend fun hasFingerprintBootstrapMarker(): Boolean = fingerprintBootstrapMarker
+
+    override suspend fun writeFingerprintBootstrapMarker() {
+        fingerprintBootstrapMarker = true
     }
 }

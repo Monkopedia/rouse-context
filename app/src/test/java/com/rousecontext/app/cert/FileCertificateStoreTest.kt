@@ -334,6 +334,48 @@ class FileCertificateStoreTest {
     }
 
     @Test
+    fun `fingerprint bootstrap marker is absent on a fresh store`() = runBlocking {
+        // Issue #210: on a clean filesDir the marker must not exist so a
+        // legitimate pre-#111 migration can still fire once.
+        assertFalse(store.hasFingerprintBootstrapMarker())
+    }
+
+    @Test
+    fun `writeFingerprintBootstrapMarker persists marker across store instances`() = runBlocking {
+        // The marker lives on disk in filesDir, not just in memory. A fresh
+        // FileCertificateStore pointed at the same context must see it.
+        store.writeFingerprintBootstrapMarker()
+
+        val fresh = FileCertificateStore(context, encryptionKeyProvider = { testEncryptionKey })
+        assertTrue(fresh.hasFingerprintBootstrapMarker())
+    }
+
+    @Test
+    fun `clearCertificates deletes fingerprint bootstrap marker`() = runBlocking {
+        // Full cert rollback must reset the marker: after clearCertificates the
+        // next install-cycle bootstrap must be allowed to fire again. If we
+        // left the marker behind, a re-onboarded device could never self-heal
+        // an empty fingerprints file through legitimate migration.
+        //
+        // Robolectric does not expose AndroidKeyStore, so the latter half of
+        // clearCertificates() throws. We still want coverage for the marker
+        // deletion (which happens before the AndroidKeyStore calls), so we
+        // tolerate the KeyStoreException as long as the marker file is gone.
+        store.writeFingerprintBootstrapMarker()
+        assertTrue(store.hasFingerprintBootstrapMarker())
+
+        try {
+            store.clearCertificates()
+        } catch (_: java.security.KeyStoreException) {
+            // Expected under Robolectric: AndroidKeyStore provider missing.
+        }
+
+        assertFalse(
+            File(context.filesDir, "rouse_fingerprint_bootstrapped").exists()
+        )
+    }
+
+    @Test
     fun `atomicWrite on integrationSecrets also reaps stale tmps`() = runBlocking {
         // Both callers of atomicWrite (subdomain + integration secrets) must
         // reap stale siblings targeted at their own filename.

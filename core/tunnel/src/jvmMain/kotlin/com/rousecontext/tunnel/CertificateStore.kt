@@ -31,6 +31,25 @@ interface CertificateStore {
     /** Stores a certificate fingerprint as known/trusted. */
     suspend fun storeFingerprint(fingerprint: String)
 
+    /**
+     * Returns whether the one-shot trust-on-first-sight bootstrap has already
+     * fired for this install. Used by [SelfCertVerifier] to distinguish a
+     * legitimate pre-#111 migration (marker absent, fingerprints empty) from
+     * post-bootstrap corruption (marker present, fingerprints empty), which
+     * MUST Alert instead of silently re-trusting whatever cert is presented.
+     * See issue #210.
+     */
+    suspend fun hasFingerprintBootstrapMarker(): Boolean
+
+    /**
+     * Record that the one-shot fingerprint bootstrap has completed for this
+     * install. Once written, the marker must persist for the lifetime of the
+     * install and survive cert renewals; it is only cleared by
+     * [clearCertificates] / [clear], which are invoked on a full provisioning
+     * rollback where the known-fingerprint set is also dropped. See issue #210.
+     */
+    suspend fun writeFingerprintBootstrapMarker()
+
     // --- PEM cert access (onboarding/renewal) ---
 
     /** Store a PEM-encoded server certificate (ACME, serverAuth - for inner TLS). */
