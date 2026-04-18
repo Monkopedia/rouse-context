@@ -479,6 +479,74 @@ class IntegrationSetupViewModelTest {
     }
 
     @Test
+    fun `duplicate startSetup while provisioning only invokes cert flow once`() =
+        runTest(testDispatcher) {
+            // Issue #238: IntegrationSetupDestination fires startSetup from a
+            // LaunchedEffect that can re-run during recomposition/navigation,
+            // leading to two viewModelScope coroutines each calling
+            // CertProvisioningFlow.execute. The Provisioning-state guard at
+            // the top of startSetup must short-circuit the second call so
+            // execute() is never invoked twice.
+            val stateStore = mockk<IntegrationStateStore>(relaxed = true)
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val certProvisioningFlow = mockk<CertProvisioningFlow> {
+                coEvery { execute(any()) } coAnswers {
+                    // Suspend so the second startSetup call arrives while the
+                    // first is still in flight, reproducing the recomposition
+                    // race.
+                    gate.await()
+                    CertProvisioningResult.AlreadyProvisioned
+                }
+            }
+            val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
+            val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
+            val relayApiClient = mockk<RelayApiClient> {
+                coEvery { updateSecrets(any(), any()) } returns
+                    RelayApiResult.Success(
+                        UpdateSecretsResponse(
+                            success = true,
+                            secrets = mapOf("health" to "brave-health")
+                        )
+                    )
+            }
+            val certStore = mockk<CertificateStore> {
+                coEvery { getSubdomain() } returns "cool-penguin"
+                coEvery { getIntegrationSecrets() } returns mapOf("health" to "brave-health")
+                coEvery { storeIntegrationSecrets(any()) } just Runs
+            }
+
+            val vm = IntegrationSetupViewModel(
+                stateStore = stateStore,
+                certProvisioningFlow = certProvisioningFlow,
+                lazyWebSocketFactory = webSocketFactory,
+                registrationStatus = registrationStatus,
+                relayApiClient = relayApiClient,
+                certStore = certStore,
+                integrationIds = listOf("health"),
+                firebaseTokenProvider = { "test-firebase-token" }
+            )
+
+            vm.startSetup("health")
+            // Let the first call reach certProvisioningFlow.execute and suspend.
+            advanceUntilIdle()
+            assertTrue(
+                "First startSetup should have moved state to Provisioning",
+                vm.state.value is IntegrationSetupState.Provisioning
+            )
+
+            // Second call lands while first is still mid-flight. Must be
+            // rejected by the Provisioning-state guard.
+            vm.startSetup("health")
+            advanceUntilIdle()
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(IntegrationSetupState.Complete, vm.state.value)
+            coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
+        }
+
+    @Test
     fun `updateSecrets succeeds on second attempt`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true)
         val certProvisioningFlow = mockk<CertProvisioningFlow> {

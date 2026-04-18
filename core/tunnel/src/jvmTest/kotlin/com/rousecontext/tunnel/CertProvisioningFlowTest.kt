@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -7,6 +8,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 
 class CertProvisioningFlowTest {
@@ -150,6 +155,73 @@ class CertProvisioningFlowTest {
             actual = store.getSubdomain(),
             message = "Subdomain (onboarding state) must survive cert provisioning rollback"
         )
+    }
+
+    @Test
+    fun `concurrent execute calls serialize and issue exactly one registerCerts`() {
+        runBlocking { runConcurrentExecuteSerializationTest() }
+    }
+
+    private suspend fun runConcurrentExecuteSerializationTest(): Unit = coroutineScope {
+        // Issue #238: a Compose LaunchedEffect can re-run the ViewModel's
+        // startSetup during onboarding, causing two coroutines to call
+        // CertProvisioningFlow.execute concurrently. Before the Mutex, both
+        // callers raced past the already-provisioned check and each issued a
+        // /register/certs POST, which in turn triggered two ACME orders and
+        // the GTS deduplicator 400-ed the second one. The Mutex inside
+        // execute() must serialize callers so only one POST is made.
+        store.storeSubdomain("abc123")
+
+        val releaseFirst = CompletableDeferred<Unit>()
+        val firstCallStarted = CompletableDeferred<Unit>()
+        val certRequests = AtomicInteger(0)
+
+        mockServer.certHandler = { _ ->
+            val ordinal = certRequests.incrementAndGet()
+            if (ordinal == 1) {
+                // Signal that the first handler is running, then block until
+                // the test explicitly releases it. This pins execute() inside
+                // its critical section long enough for the second call to
+                // contend on the Mutex. If serialization is broken, the second
+                // caller races through and this counter will advance past 1
+                // before releaseFirst completes.
+                firstCallStarted.complete(Unit)
+                releaseFirst.await()
+            }
+            MockCertResponse(
+                status = 201,
+                body = CertResponse(
+                    subdomain = "abc123",
+                    serverCert = MockRelayServer.MOCK_CERT_PEM,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM,
+                    relayHost = "relay.rousecontext.com"
+                )
+            )
+        }
+
+        val firstCall = async { flow.execute(FAKE_FIREBASE_TOKEN) }
+        // Wait for the first call to reach the server before launching the
+        // second one. This guarantees the second caller arrives while the
+        // first still holds the Mutex, which is the race we are protecting
+        // against.
+        firstCallStarted.await()
+
+        val secondCall = async { flow.execute(FAKE_FIREBASE_TOKEN) }
+
+        releaseFirst.complete(Unit)
+
+        val results = listOf(firstCall, secondCall).awaitAll()
+
+        assertEquals(
+            expected = 1,
+            actual = certRequests.get(),
+            message = "Concurrent execute() calls must issue exactly one /register/certs"
+        )
+        // One caller wins and receives Success; the other must observe the
+        // freshly-stored certs under the lock and return AlreadyProvisioned.
+        assertTrue(results.any { it is CertProvisioningResult.Success })
+        assertTrue(results.any { it is CertProvisioningResult.AlreadyProvisioned })
     }
 
     @Test
