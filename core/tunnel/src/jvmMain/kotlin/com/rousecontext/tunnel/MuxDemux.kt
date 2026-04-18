@@ -207,13 +207,14 @@ class MuxDemux(private val log: (LogLevel, String) -> Unit = { _, _ -> }) {
         }
         _activeStreamCount.value = 0
         incomingChannel.close()
-        // pendingPings isn't synchronized by this mutex, but failing the waiters
-        // is best-effort: the calling code uses a timeout and will still exit.
+        // Cancel pending ping waiters so any in-flight healthCheck() reports the
+        // tunnel as dead rather than alive. Cancellation-only is deliberate: if
+        // we also called complete(Unit), the completion would win and the waiter
+        // would observe a successful pong (see issue #230). pendingPings is
+        // accessed under its own Mutex on the send path, but closeAllQuietly is
+        // non-suspend; synchronized(pendingPings) is adequate for tearing the
+        // map down, and CompletableDeferred.cancel() is itself thread-safe.
         synchronized(pendingPings) {
-            pendingPings.values.forEach { it.complete(Unit).let { } }
-            // We do NOT complete waiters with success -- mark them as failed so
-            // healthCheck reports false. Since CompletableDeferred<Unit> can only
-            // carry Unit, we cancel instead.
             pendingPings.values.forEach { it.cancel() }
             pendingPings.clear()
         }
