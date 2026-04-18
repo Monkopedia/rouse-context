@@ -1039,7 +1039,7 @@ internal fun buildAuthorizePage(
  * request to fail.
  */
 @Suppress("TooGenericExceptionCaught", "LongParameterList")
-private fun emitAuditEvent(
+private suspend fun emitAuditEvent(
     auditListener: AuditListener,
     request: JsonObject,
     responseJson: String,
@@ -1081,7 +1081,7 @@ private fun emitAuditEvent(
 }
 
 @Suppress("TooGenericExceptionCaught", "LongParameterList")
-private fun emitRequestEvent(
+private suspend fun emitRequestEvent(
     auditListener: AuditListener,
     request: JsonObject,
     responseJson: String,
@@ -1111,7 +1111,7 @@ private fun emitRequestEvent(
 }
 
 @Suppress("TooGenericExceptionCaught", "ReturnCount", "LongParameterList")
-private fun emitToolCallEvent(
+private suspend fun emitToolCallEvent(
     auditListener: AuditListener,
     request: JsonObject,
     responseJson: String,

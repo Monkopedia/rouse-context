@@ -453,7 +453,7 @@ class McpProtocolTest {
             registry,
             tokenStore,
             auditListener = object : AuditListener {
-                override fun onToolCall(event: ToolCallEvent) {
+                override suspend fun onToolCall(event: ToolCallEvent) {
                     events.add(event)
                 }
             },
@@ -489,7 +489,7 @@ class McpProtocolTest {
             registry,
             tokenStore,
             auditListener = object : AuditListener {
-                override fun onToolCall(event: ToolCallEvent) {
+                override suspend fun onToolCall(event: ToolCallEvent) {
                     events.add(event)
                 }
             }
@@ -513,7 +513,7 @@ class McpProtocolTest {
             registry,
             tokenStore,
             auditListener = object : AuditListener {
-                override fun onToolCall(event: ToolCallEvent) {
+                override suspend fun onToolCall(event: ToolCallEvent) {
                     events.add(event)
                 }
             }
@@ -592,7 +592,7 @@ class McpProtocolTest {
                 hostname = "brave-health.abc123.rousecontext.com",
                 integration = "health",
                 auditListener = object : AuditListener {
-                    override fun onToolCall(event: ToolCallEvent) {
+                    override suspend fun onToolCall(event: ToolCallEvent) {
                         events.add(event)
                     }
                 }
@@ -662,10 +662,10 @@ class McpProtocolTest {
     private class CollectingAuditListener : AuditListener {
         val toolCalls = mutableListOf<ToolCallEvent>()
         val requests = mutableListOf<McpRequestEvent>()
-        override fun onToolCall(event: ToolCallEvent) {
+        override suspend fun onToolCall(event: ToolCallEvent) {
             toolCalls.add(event)
         }
-        override fun onRequest(event: McpRequestEvent) {
+        override suspend fun onRequest(event: McpRequestEvent) {
             requests.add(event)
         }
     }

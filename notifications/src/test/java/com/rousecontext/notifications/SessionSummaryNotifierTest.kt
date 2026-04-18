@@ -6,9 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.mcp.core.ToolCallEvent
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
+import com.rousecontext.notifications.audit.RoomAuditListener
 import com.rousecontext.tunnel.TunnelState
+import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
+import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -292,6 +296,74 @@ class SessionSummaryNotifierTest {
             1,
             dao.queryCreatedAfterCount
         )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    /**
+     * Regression test for issue #244: the session-summary query on the
+     * ACTIVE -> CONNECTED transition used to race a fire-and-forget insert
+     * started inside `RoomAuditListener.onToolCall`. On fast hardware the
+     * query won, found no entries, and the summary never fired.
+     *
+     * With the fix, `AuditListener.onToolCall` is `suspend` and the insert
+     * runs on the caller's coroutine context — by the time the method
+     * returns the row is committed. This test wires a real
+     * [RoomAuditListener] in front of the same [FakeAuditDao] the notifier
+     * observes, drives a single session through the state machine, and
+     * asserts the summary notification is posted.
+     */
+    @Test
+    fun `onToolCall insert is visible to summary query before state transition`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val listener = RoomAuditListener(dao = dao)
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val posted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+
+        val job = launch { notifier.observe(states) }
+
+        states.emit(TunnelState.CONNECTING)
+        states.emit(TunnelState.CONNECTED)
+        states.emit(TunnelState.ACTIVE)
+
+        // Wait for the notifier to capture its cursor before we persist.
+        awaitLatestId()
+
+        // Persist via the real listener. Because onToolCall is now `suspend`
+        // and does NOT internally launch, this call returns only after the
+        // row has been inserted.
+        listener.onToolCall(
+            ToolCallEvent(
+                sessionId = "session-1",
+                providerId = "health",
+                timestamp = System.currentTimeMillis(),
+                toolName = "get_steps",
+                arguments = emptyMap(),
+                result = CallToolResult(content = listOf(TextContent("ok"))),
+                durationMs = 5L
+            )
+        )
+
+        // Immediately drain — this is the transition that used to race the
+        // in-flight insert. With the fix, the insert is already committed.
+        states.emit(TunnelState.CONNECTED)
+
+        withTimeout(TIMEOUT_MS) { posted.await() }
+
+        val shadow = Shadows.shadowOf(manager)
+        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        assertNotNull(
+            "Summary notification should be posted when the insert completes " +
+                "before the ACTIVE -> CONNECTED transition (issue #244)",
+            notification
+        )
+        val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
+        val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
+        val all = "$title $text"
+        assertTrue("Expected 1 tool call in summary text, was: $all", all.contains("1"))
+        assertTrue("Expected health provider in summary text, was: $all", all.contains("health"))
 
         job.cancel()
         coroutineContext.cancelChildren()

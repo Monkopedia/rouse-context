@@ -351,7 +351,6 @@ val appModule = module {
     single<AuditListener> {
         RoomAuditListener(
             dao = get(),
-            scope = get(named("appScope")),
             fieldEncryptor = get(),
             perCallObserver = get(),
             mcpRequestDao = get()
