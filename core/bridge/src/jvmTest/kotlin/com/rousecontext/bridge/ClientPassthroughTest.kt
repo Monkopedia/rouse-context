@@ -29,6 +29,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Rule
+import org.junit.rules.Timeout
 
 /**
  * Verifies the full client -> relay -> device passthrough path at the protocol level.
@@ -44,6 +46,13 @@ import kotlinx.serialization.json.jsonPrimitive
  *   MuxStream -> TLS unwrap -> Client HTTP response
  */
 class ClientPassthroughTest {
+
+    /**
+     * Fail fast if a test hangs instead of burning the full CI budget.
+     * See issue #223.
+     */
+    @get:Rule
+    val timeout: Timeout = Timeout.seconds(TEST_TIMEOUT_SECONDS)
 
     private val mcpJson = Json { ignoreUnknownKeys = true }
 

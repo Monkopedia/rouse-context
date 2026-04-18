@@ -21,12 +21,21 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Rule
+import org.junit.rules.Timeout
 
 /**
  * Tests for [SessionHandler] verifying the full data path:
  * MuxStream -> TLS accept -> plaintext HTTP -> MCP session -> JSON-RPC response.
  */
 class SessionHandlerTest {
+
+    /**
+     * Fail fast if a test hangs instead of burning the full CI budget.
+     * See issue #223.
+     */
+    @get:Rule
+    val timeout: Timeout = Timeout.seconds(TEST_TIMEOUT_SECONDS)
 
     private val mcpJson = Json { ignoreUnknownKeys = true }
 

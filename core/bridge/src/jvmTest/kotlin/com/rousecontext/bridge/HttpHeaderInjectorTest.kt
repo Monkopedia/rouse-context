@@ -4,6 +4,8 @@ import java.io.ByteArrayOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import org.junit.Rule
+import org.junit.rules.Timeout
 
 /**
  * Verifies the byte-level HTTP header injector used by [SessionHandler] to
@@ -11,6 +13,13 @@ import kotlin.test.assertTrue
  * server. See issue #177.
  */
 class HttpHeaderInjectorTest {
+
+    /**
+     * Fail fast if a test hangs instead of burning the full CI budget.
+     * See issue #223.
+     */
+    @get:Rule
+    val timeout: Timeout = Timeout.seconds(TEST_TIMEOUT_SECONDS)
 
     private val header = "X-Internal-Token: secret-abc"
 

@@ -7,6 +7,9 @@ import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.security.KeyStore
 import java.security.cert.X509Certificate
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngineResult
@@ -123,6 +126,14 @@ internal fun createMuxPipe(streamId: UInt): Pair<ChannelMuxStream, ChannelMuxStr
 
 /**
  * Performs TLS client-side handshake over a [ChannelMuxStream] and returns plaintext I/O streams.
+ *
+ * After the handshake, a dedicated pump thread drains the MuxStream's incoming
+ * ciphertext into a [LinkedBlockingQueue] so that [TlsClientInputStream.read]
+ * can block on the queue without using a nested `runBlocking` on the caller's
+ * thread. A matching outbound pump drains writes from the output queue back to
+ * the MuxStream. This avoids deadlocks when the test body (typically driving
+ * `runBlocking`) invokes these blocking JDK streams while other coroutines are
+ * pending on the same event loop. See issue #223.
  */
 internal suspend fun tlsClientHandshake(
     certHelper: TestCertHelper,
@@ -134,6 +145,30 @@ internal suspend fun tlsClientHandshake(
     )
     sslEngine.useClientMode = true
 
+    val netIn = performTlsClientHandshake(sslEngine, clientStream)
+    val pumps = startTlsClientPumps(clientStream)
+    return Pair(
+        TlsClientInputStream(
+            sslEngine,
+            pumps.inboundQueue,
+            netIn,
+            pumps.closed,
+            pumps.inboundThread,
+            pumps.outboundThread
+        ),
+        TlsClientOutputStream(sslEngine, pumps.outboundQueue)
+    )
+}
+
+/**
+ * Drives the TLS client handshake synchronously against [clientStream] until
+ * it is finished, returning the residual ciphertext read buffer so the caller
+ * can continue decoding any already-received data.
+ */
+private suspend fun performTlsClientHandshake(
+    sslEngine: javax.net.ssl.SSLEngine,
+    clientStream: ChannelMuxStream
+): ByteBuffer {
     val session = sslEngine.session
     var netIn = ByteBuffer.allocate(session.packetBufferSize)
     val netOut = ByteBuffer.allocate(session.packetBufferSize)
@@ -178,12 +213,78 @@ internal suspend fun tlsClientHandshake(
             else -> break
         }
     }
-
-    return Pair(
-        TlsClientInputStream(sslEngine, clientStream, netIn),
-        TlsClientOutputStream(sslEngine, clientStream)
-    )
+    return netIn
 }
+
+private class TlsClientPumps(
+    val inboundQueue: LinkedBlockingQueue<ByteArray>,
+    val outboundQueue: LinkedBlockingQueue<ByteArray>,
+    val closed: AtomicBoolean,
+    val inboundThread: Thread,
+    val outboundThread: Thread
+)
+
+/**
+ * Starts a pair of dedicated pump threads that bridge the [clientStream]
+ * suspend API to blocking queues. The inbound pump drains ciphertext from the
+ * MuxStream and enqueues it for [TlsClientInputStream.read]. The outbound pump
+ * drains the queue that [TlsClientOutputStream.write] fills and sends to the
+ * MuxStream. Each pump owns its own `runBlocking` on its own thread, so the
+ * test's outer `runBlocking` event loop is never reentered.
+ */
+private fun startTlsClientPumps(clientStream: ChannelMuxStream): TlsClientPumps {
+    val inbound = LinkedBlockingQueue<ByteArray>()
+    val outbound = LinkedBlockingQueue<ByteArray>()
+    val closed = AtomicBoolean(false)
+
+    val inboundThread = Thread({
+        try {
+            while (!closed.get()) {
+                val data = kotlinx.coroutines.runBlocking { clientStream.read() }
+                inbound.put(data)
+            }
+        } catch (_: Exception) {
+            // EOF or close -- let the reader see EOF via sentinel.
+        } finally {
+            inbound.offer(EMPTY_EOF)
+        }
+    }, "tls-client-inbound-pump").apply {
+        isDaemon = true
+        start()
+    }
+
+    val outboundThread = Thread({
+        try {
+            while (!closed.get()) {
+                val data = outbound.poll(POLL_INTERVAL_MS, TimeUnit.MILLISECONDS) ?: continue
+                if (data === EMPTY_EOF) break
+                kotlinx.coroutines.runBlocking { clientStream.send(data) }
+            }
+        } catch (_: Exception) {
+            // Stream closed -- stop.
+        }
+    }, "tls-client-outbound-pump").apply {
+        isDaemon = true
+        start()
+    }
+
+    return TlsClientPumps(inbound, outbound, closed, inboundThread, outboundThread)
+}
+
+private const val POLL_INTERVAL_MS: Long = 100
+
+/**
+ * Sentinel value meaning "end of stream". Reference-equality checked.
+ */
+internal val EMPTY_EOF = ByteArray(0)
+
+/**
+ * Per-test wall-clock timeout used by the JUnit `Timeout` rule on each bridge
+ * test class. 30 seconds is generous for the slowest test (OAuth device flow
+ * waits 5.5 s past the RFC 8628 poll interval) while still failing fast if a
+ * coroutine deadlocks. See issue #223.
+ */
+internal const val TEST_TIMEOUT_SECONDS: Long = 30
 
 private fun ensureCapacity(buffer: ByteBuffer, additionalBytes: Int): ByteBuffer {
     if (buffer.remaining() >= additionalBytes) return buffer
@@ -195,11 +296,19 @@ private fun ensureCapacity(buffer: ByteBuffer, additionalBytes: Int): ByteBuffer
 
 /**
  * TLS client-side InputStream for tests.
+ *
+ * Reads ciphertext from a [LinkedBlockingQueue] fed by a dedicated pump thread
+ * rather than calling a nested `runBlocking` on the caller's thread. This keeps
+ * the test's outer `runBlocking` event loop free of reentrant blocking
+ * operations. See issue #223.
  */
 internal class TlsClientInputStream(
     private val engine: javax.net.ssl.SSLEngine,
-    private val stream: MuxStream,
-    private var netIn: ByteBuffer
+    private val inbound: LinkedBlockingQueue<ByteArray>,
+    private var netIn: ByteBuffer,
+    private val closedFlag: AtomicBoolean,
+    private val inboundPump: Thread,
+    private val outboundPump: Thread
 ) : InputStream() {
     private var appIn = ByteBuffer.allocate(engine.session.applicationBufferSize)
     init {
@@ -212,6 +321,7 @@ internal class TlsClientInputStream(
         return if (n == -1) -1 else buf[0].toInt() and 0xFF
     }
 
+    @Suppress("ReturnCount")
     override fun read(b: ByteArray, off: Int, len: Int): Int {
         if (appIn.hasRemaining()) {
             val toRead = minOf(len, appIn.remaining())
@@ -220,11 +330,15 @@ internal class TlsClientInputStream(
         }
         appIn.clear()
         while (true) {
+            // Block the JDK-side reader thread on the queue. The inbound pump
+            // thread performs the actual suspending read against the MuxStream.
             val tlsData = try {
-                kotlinx.coroutines.runBlocking { stream.read() }
-            } catch (_: Exception) {
+                inbound.take()
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
                 return -1
             }
+            if (tlsData === EMPTY_EOF) return -1
             netIn = ensureCapacity(netIn, tlsData.size)
             netIn.put(tlsData)
             netIn.flip()
@@ -254,14 +368,23 @@ internal class TlsClientInputStream(
             }
         }
     }
+
+    override fun close() {
+        closedFlag.set(true)
+        inboundPump.interrupt()
+        outboundPump.interrupt()
+    }
 }
 
 /**
  * TLS client-side OutputStream for tests.
+ *
+ * Pushes ciphertext onto a [LinkedBlockingQueue] drained by a dedicated pump
+ * thread. No nested `runBlocking` on the caller's thread. See issue #223.
  */
 internal class TlsClientOutputStream(
     private val engine: javax.net.ssl.SSLEngine,
-    private val stream: MuxStream
+    private val outbound: LinkedBlockingQueue<ByteArray>
 ) : OutputStream() {
     private val netOut = ByteBuffer.allocate(engine.session.packetBufferSize)
 
@@ -278,7 +401,7 @@ internal class TlsClientOutputStream(
             if (netOut.hasRemaining()) {
                 val data = ByteArray(netOut.remaining())
                 netOut.get(data)
-                kotlinx.coroutines.runBlocking { stream.send(data) }
+                outbound.put(data)
             }
             if (result.status != SSLEngineResult.Status.OK) {
                 throw java.io.IOException("TLS wrap failed: ${result.status}")
