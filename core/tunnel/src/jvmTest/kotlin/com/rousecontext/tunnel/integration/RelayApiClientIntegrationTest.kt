@@ -1,8 +1,11 @@
 package com.rousecontext.tunnel.integration
 
 import com.rousecontext.tunnel.CsrGenerator
+import com.rousecontext.tunnel.MtlsCertSource
+import com.rousecontext.tunnel.MtlsIdentity
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
+import com.rousecontext.tunnel.createMtlsRelayHttpClient
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -420,6 +423,97 @@ class RelayApiClientIntegrationTest {
     }
 
     /**
+     * Regression test for issue #237. The app wires [RelayApiClient] through
+     * [createMtlsRelayHttpClient] with a lazy [MtlsCertSource] so a single
+     * long-lived client can issue both the unauthenticated onboarding calls
+     * (`/register`, `/register/certs`) and the mTLS-required follow-up calls
+     * (`/rotate-secret`). This test asserts that specific wiring works
+     * end-to-end against the real relay — not a hand-rolled mTLS Ktor client
+     * sitting alongside the production factory.
+     *
+     * Pre-bug reproduction: [RelayApiClient.createDefaultClient] had no
+     * KeyManager, so the TLS handshake for `/rotate-secret` presented no
+     * client cert and the relay returned 401 "Valid client certificate
+     * required". The flow here uses the production factory exclusively; a
+     * regression on that wiring (e.g. someone reverting AppModule to the
+     * default client or removing the lazy KM) fails this test deterministically
+     * on the `updateSecrets` call.
+     */
+    @Test
+    fun `createMtlsRelayHttpClient succeeds on register then updateSecrets`(): Unit = runBlocking {
+        // Lazy cert holder. Starts empty: the first /register call must still
+        // succeed because the relay runs its API TLS in allow_unauthenticated
+        // mode, accepting handshakes with no client cert. Onboarding writes
+        // into this holder between /register and /rotate-secret.
+        val identityHolder = AtomicMtlsIdentityHolder()
+        val (trustingSsl, trustingTm) = buildTrustingSslContext(ca.caCert)
+        val httpClient = createMtlsRelayHttpClient(
+            certSource = identityHolder,
+            trustManagers = arrayOf(trustingTm),
+            configureOkHttp = {
+                hostnameVerifier { _, _ -> true }
+                dns(Ipv4OnlyDns)
+            }
+        )
+
+        // Discard the SSLContext we built only for the trust manager — the
+        // factory constructs its own from the cert source.
+        @Suppress("UNUSED_VARIABLE")
+        val unusedSsl = trustingSsl
+        val scopedApi = RelayApiClient(baseUrl = baseUrl, httpClient = httpClient)
+
+        try {
+            // Phase 1: unauthenticated /register must work with no cert in
+            // the source (simulating fresh onboarding).
+            val firebaseToken = DUMMY_FIREBASE_TOKEN + "-lazy-wiring"
+            val initialIntegrations = listOf("health")
+            val reg = assertSuccess(
+                scopedApi.register(
+                    firebaseToken = firebaseToken,
+                    fcmToken = DUMMY_FCM_TOKEN,
+                    integrationIds = initialIntegrations
+                )
+            )
+            val healthSecret = reg.secrets.getValue("health")
+            val subdomain = reg.subdomain
+            assertTrue(
+                identityHolder.current() == null,
+                "Phase 1 must run with no client cert present in the source"
+            )
+
+            // Phase 2: mint a cert via the test CA and install it in the
+            // cert source. No HttpClient rebuild. Connection pooling is
+            // disabled by the factory so the next request forces a fresh
+            // TLS handshake.
+            val keyStoreForSubdomain = ca.createDeviceKeyStore(subdomain)
+            identityHolder.set(mtlsIdentityFrom(keyStoreForSubdomain))
+
+            // Phase 3: /rotate-secret must succeed — the LazyMtlsKeyManager
+            // now hands the cert to the TLS engine on the next handshake.
+            val requestedIntegrations = listOf("health", "notifications")
+            val result = scopedApi.updateSecrets(
+                subdomain = subdomain,
+                integrationIds = requestedIntegrations
+            )
+
+            val body = assertSuccess(result)
+            assertTrue(body.success, "response.success must be true")
+            assertEquals(
+                requestedIntegrations.toSet(),
+                body.secrets.keys,
+                "secrets map must mirror requested integrations after merge-missing"
+            )
+            assertEquals(
+                healthSecret,
+                body.secrets["health"],
+                "existing 'health' secret must be preserved on merge-missing rotation"
+            )
+        } finally {
+            httpClient.close()
+        }
+    }
+
+    /**
      * Full success-shape /renew over the mTLS-equivalent (signature-only) path.
      *
      * Holds onto the private key generated for the registration CSR so it can sign the
@@ -638,5 +732,42 @@ class RelayApiClientIntegrationTest {
     private object Ipv4OnlyDns : Dns {
         override fun lookup(hostname: String): List<InetAddress> =
             listOf(InetAddress.getByName("127.0.0.1"))
+    }
+
+    /**
+     * Thread-safe mutable [MtlsCertSource] for driving the #237 regression
+     * test through the "no cert → cert present" transition inside a single
+     * HttpClient. Writes from the test coroutine are picked up on the next
+     * TLS handshake since the OkHttp factory is configured with no idle
+     * connection pool.
+     */
+    private class AtomicMtlsIdentityHolder : MtlsCertSource {
+        @Volatile
+        private var identity: MtlsIdentity? = null
+
+        override fun current(): MtlsIdentity? = identity
+
+        fun set(value: MtlsIdentity) {
+            identity = value
+        }
+    }
+
+    /**
+     * Convert a PKCS12 [KeyStore] (as produced by
+     * [TestCertificateAuthority.createDeviceKeyStore]) into an
+     * [MtlsIdentity] suitable for the [MtlsCertSource]. Mirrors what
+     * `FileMtlsCertSource` does at runtime: extract the private key + cert
+     * chain and hand them to the KeyManager verbatim.
+     */
+    private fun mtlsIdentityFrom(keyStore: KeyStore): MtlsIdentity {
+        val alias = keyStore.aliases().toList()
+            .firstOrNull { keyStore.isKeyEntry(it) }
+            ?: fail("Key store has no key entry: ${keyStore.aliases().toList()}")
+        val privateKey = keyStore.getKey(alias, TestCertificateAuthority.STORE_PASS.toCharArray())
+            as? java.security.PrivateKey
+            ?: fail("Expected private key entry at alias '$alias'")
+        val chain = keyStore.getCertificateChain(alias)?.map { it as X509Certificate }
+            ?: fail("No certificate chain for alias '$alias'")
+        return MtlsIdentity(privateKey = privateKey, certChain = chain)
     }
 }

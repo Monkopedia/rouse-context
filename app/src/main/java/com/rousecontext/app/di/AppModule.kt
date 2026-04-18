@@ -16,6 +16,7 @@ import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
 import com.rousecontext.app.auth.FirebaseFcmTokenProvider
 import com.rousecontext.app.cert.AndroidKeystoreDeviceKeyManager
 import com.rousecontext.app.cert.FileCertificateStore
+import com.rousecontext.app.cert.FileMtlsCertSource
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.receivers.AuthApprovalReceiver
 import com.rousecontext.app.registry.HealthConnectIntegration
@@ -84,6 +85,7 @@ import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.SelfCertVerifier
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelClientImpl
+import com.rousecontext.tunnel.createMtlsRelayHttpClient
 import com.rousecontext.work.AndroidKeystoreSigner
 import com.rousecontext.work.CertRenewalFlowRenewer
 import com.rousecontext.work.CertRenewalPreferences
@@ -200,8 +202,22 @@ val appModule = module {
     // --- Onboarding ---
     single { CsrGenerator() }
     single {
+        // Issue #237: construct the RelayApiClient with an HTTP client that
+        // presents the device's mTLS client certificate on handshakes once
+        // it has been provisioned. The default createDefaultClient() carried
+        // no KeyManager, so every `/rotate-secret` call after onboarding
+        // returned 401 "Valid client certificate required". The
+        // FileMtlsCertSource reads the PEM files on every call, so the same
+        // long-lived HttpClient transparently moves from "no cert" (during
+        // `/register`, `/register/certs`) to "present cert" (`/rotate-secret`,
+        // `/renew`) without a rebuild.
         val httpScheme = if (BuildConfig.RELAY_SCHEME == "wss") "https" else "http"
-        RelayApiClient("$httpScheme://${BuildConfig.RELAY_HOST}")
+        val certSource = FileMtlsCertSource(androidContext(), get<DeviceKeyManager>())
+        val httpClient = createMtlsRelayHttpClient(certSource)
+        RelayApiClient(
+            baseUrl = "$httpScheme://${BuildConfig.RELAY_HOST}",
+            httpClient = httpClient
+        )
     }
     single {
         OnboardingFlow(
