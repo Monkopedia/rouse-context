@@ -65,6 +65,7 @@ kotlin {
         }
         val jvmTest by getting {
             dependencies {
+                implementation(project(":core:testfixtures"))
                 implementation(kotlin("test"))
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.ktor.client.mock)
