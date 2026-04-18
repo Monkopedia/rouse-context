@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
@@ -732,6 +733,13 @@ private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
             Icons.Default.Error,
             ext.alertContent,
             stringResource(R.string.screen_settings_trust_result_alert)
+        )
+        // Issue #228: "skipped" is the pre-onboarding / not-yet-configured
+        // state. Rendered in muted colours so it does not read like a failure.
+        "skipped" -> Triple(
+            Icons.Default.Info,
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            stringResource(R.string.screen_settings_trust_result_skipped)
         )
         else -> Triple(
             Icons.Default.Warning,

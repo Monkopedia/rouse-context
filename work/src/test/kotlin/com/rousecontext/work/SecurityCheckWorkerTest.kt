@@ -127,6 +127,29 @@ class SecurityCheckWorkerTest {
     }
 
     @Test
+    fun `skipped on both - no notifications fired and preferences record skipped`() = runBlocking {
+        // Issue #228: "no cert stored" / "no subdomain configured" must NOT
+        // surface a notification -- that's a pre-onboarding state, not a
+        // security issue.
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Skipped("No certificate stored"),
+            ctResult = SecurityCheckResult.Skipped("No subdomain configured")
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertEquals("skipped", prefs.selfCertResult())
+        assertEquals("skipped", prefs.ctLogResult())
+        assertTrue(prefs.lastCheckAt() > 0)
+        assertEquals(
+            "Skipped result MUST NOT fire a notification",
+            emptyList<FakeSecurityCheckNotifier.Call>(),
+            fakeNotifier.calls
+        )
+    }
+
+    @Test
     fun `network warning on both - notifier postInfo invoked for each check`() = runBlocking {
         val worker = buildWorker(
             selfCertResult = SecurityCheckResult.Warning("network unreachable"),

@@ -28,8 +28,12 @@ class StoredCertVerifierSource(
             )
         }
         if (chain.isNullOrEmpty()) {
-            // No cert stored yet (pre-onboarding) — nothing to verify against.
-            return SecurityCheckResult.Warning("No certificate stored")
+            // Issue #228: no cert stored yet (pre-onboarding / post-reinstall)
+            // — nothing to verify against. This is not a security condition,
+            // so MUST NOT surface a user-facing notification. The worker still
+            // records "skipped" so the Settings screen can show the waiting
+            // state if the user checks.
+            return SecurityCheckResult.Skipped("No certificate stored")
         }
         return verifier.verify(chain)
     }
