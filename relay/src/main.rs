@@ -1049,12 +1049,8 @@ async fn start_test_admin_if_enabled(
 ) -> Option<Arc<rouse_relay::test_mode::TestMetrics>> {
     let port = port?;
     let metrics = Arc::new(rouse_relay::test_mode::TestMetrics::new());
-    if let Err(e) = rouse_relay::test_mode::spawn_admin_server(
-        port,
-        metrics.clone(),
-        session_registry,
-    )
-    .await
+    if let Err(e) =
+        rouse_relay::test_mode::spawn_admin_server(port, metrics.clone(), session_registry).await
     {
         error!(port, "Failed to start test-mode admin server: {e}");
         std::process::exit(1);

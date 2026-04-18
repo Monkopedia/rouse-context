@@ -183,7 +183,11 @@ pub async fn handle_stats(State(state): State<AdminState>) -> Response {
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default(),
-        captured_wakes: m.captured_wakes.lock().map(|g| g.clone()).unwrap_or_default(),
+        captured_wakes: m
+            .captured_wakes
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default(),
     };
     (StatusCode::OK, Json(snapshot)).into_response()
 }
