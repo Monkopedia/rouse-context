@@ -46,6 +46,11 @@ kotlin {
                 implementation(libs.ktor.client.content.negotiation)
                 implementation(libs.ktor.serialization.json)
                 implementation(libs.ktor.client.cio)
+                // OkHttp engine for relay REST mTLS (issue #237). Ktor CIO
+                // has historically dropped client certs; OkHttp's JSSE TLS
+                // stack presents them correctly.
+                implementation(libs.ktor.client.okhttp)
+                implementation(libs.okhttp)
             }
         }
         val jvmTest by getting {
