@@ -34,6 +34,7 @@ turbine = "1.2.1"
 mockk = "1.14.9"
 okhttp = "5.3.2"
 desugar = "2.1.5"
+kover = "0.9.8"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -130,3 +131,4 @@ detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 google-services = { id = "com.google.gms.google-services", version = "4.4.4" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
