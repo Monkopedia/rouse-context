@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Timeout
  * production ~120s.
  */
 @Tag("integration")
+@Timeout(value = 240, unit = TimeUnit.SECONDS)
 class HalfOpenDetectionTest {
 
     companion object {

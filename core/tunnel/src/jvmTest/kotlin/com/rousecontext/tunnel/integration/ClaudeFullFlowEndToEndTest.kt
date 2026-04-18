@@ -27,6 +27,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import kotlin.test.assertEquals
@@ -53,6 +54,7 @@ import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestInstance
 import org.junit.jupiter.api.TestMethodOrder
+import org.junit.jupiter.api.Timeout
 
 /**
  * Claude-style full-flow end-to-end test exercising every step a real
@@ -78,6 +80,7 @@ import org.junit.jupiter.api.TestMethodOrder
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class ClaudeFullFlowEndToEndTest {
 
     companion object {

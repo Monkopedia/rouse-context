@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 /**
  * End-to-end session tests using the real Rust relay binary.
@@ -58,6 +59,7 @@ import org.junit.jupiter.api.Test
  */
 @Suppress("LargeClass")
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class EndToEndSessionTest {
 
     companion object {
