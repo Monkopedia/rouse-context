@@ -2,6 +2,7 @@ package com.rousecontext.bridge
 
 import com.rousecontext.tunnel.TunnelClient
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -30,13 +31,21 @@ class TunnelSessionManager(
     /**
      * Starts collecting incoming sessions. Safe to call multiple times;
      * subsequent calls are no-ops if already running.
+     *
+     * Each session is dispatched to [Dispatchers.IO] so that blocking socket
+     * I/O and Ktor's internal `runBlocking` bridges (e.g. `CIOApplicationEngine.start`)
+     * do not run on the caller's dispatcher. In production that dispatcher is
+     * typically the Android main thread; in tests it is the `runBlocking` event
+     * loop. Pinning handler work to IO prevents the nested runBlocking calls
+     * inside Ktor from deadlocking on the same thread that is driving the
+     * outer coroutine. See issue #223.
      */
     fun start() {
         if (collectionJob?.isActive == true) return
 
         collectionJob = scope.launch {
             tunnelClient.incomingSessions.collect { stream ->
-                launch {
+                launch(Dispatchers.IO) {
                     try {
                         sessionHandler.handleStream(stream)
                     } catch (_: Exception) {
