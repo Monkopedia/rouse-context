@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -58,19 +59,57 @@ class SecurityCheckPreferences(private val context: Context) {
         }
     }
 
+    /**
+     * Issue #256: per-source consecutive-warning counter used by
+     * [SecurityCheckWorker] to debounce notification noise. A notification
+     * only fires after the same [sourceName] returns [SecurityCheckResult.Warning]
+     * on [SecurityCheckWorker.WARNING_NOTIFICATION_THRESHOLD] consecutive runs.
+     * Any non-Warning result resets the counter via [resetWarningStreak].
+     */
+    suspend fun warningStreak(sourceName: String): Int =
+        dataStore.data.first()[warningStreakKey(sourceName)] ?: 0
+
+    suspend fun incrementWarningStreak(sourceName: String): Int {
+        val key = warningStreakKey(sourceName)
+        var newValue = 0
+        dataStore.edit { prefs ->
+            newValue = (prefs[key] ?: 0) + 1
+            prefs[key] = newValue
+        }
+        return newValue
+    }
+
+    suspend fun resetWarningStreak(sourceName: String) {
+        dataStore.edit { prefs ->
+            prefs[warningStreakKey(sourceName)] = 0
+        }
+    }
+
     /** Clears the acknowledgeable alert/warning fields (used by "Acknowledge"). */
     suspend fun clearResults() {
         dataStore.edit { prefs ->
             prefs[KEY_SELF_CERT_RESULT] = ""
             prefs[KEY_CT_LOG_RESULT] = ""
             prefs[KEY_LAST_CHECK_TIME] = 0L
+            prefs[warningStreakKey(SOURCE_SELF_CERT)] = 0
+            prefs[warningStreakKey(SOURCE_CT_LOG)] = 0
         }
     }
 
     companion object {
+        /**
+         * Stable source names used as DataStore key suffixes. Must stay in sync
+         * with the sources passed in by [SecurityCheckWorker].
+         */
+        const val SOURCE_SELF_CERT = "self_cert"
+        const val SOURCE_CT_LOG = "ct_log"
+
         private val KEY_LAST_CHECK_TIME = longPreferencesKey("last_check_time")
         private val KEY_SELF_CERT_RESULT = stringPreferencesKey("self_cert_result")
         private val KEY_CT_LOG_RESULT = stringPreferencesKey("ct_log_result")
         private val KEY_CERT_FINGERPRINT = stringPreferencesKey("cert_fingerprint")
+
+        private fun warningStreakKey(sourceName: String) =
+            intPreferencesKey("warning_streak_$sourceName")
     }
 }

@@ -104,7 +104,11 @@ class SecurityCheckWorkerTest {
         }
 
     @Test
-    fun `ct check warning - notifier postInfo invoked for CT_LOG`() = runBlocking {
+    fun `ct check warning below threshold - no notification`() = runBlocking {
+        // Issue #256: a single Warning from a source MUST NOT surface a user
+        // notification. crt.sh routinely flaps, and the adjacent retry loop in
+        // HttpCtLogFetcher will absorb most transients -- but a genuine flap
+        // that survives retries should still debounce across worker runs.
         val worker = buildWorker(
             selfCertResult = SecurityCheckResult.Verified,
             ctResult = SecurityCheckResult.Warning("could not reach CT log")
@@ -116,12 +120,129 @@ class SecurityCheckWorkerTest {
         assertEquals("verified", prefs.selfCertResult())
         assertEquals("warning", prefs.ctLogResult())
         assertEquals(
+            "Single warning MUST NOT fire a notification",
+            emptyList<FakeSecurityCheckNotifier.Call>(),
+            fakeNotifier.calls
+        )
+    }
+
+    @Test
+    fun `ct check warning fires notification only after threshold consecutive runs`() =
+        runBlocking {
+            // Three consecutive Warning runs must fire exactly one notification
+            // (on the third run). Runs 1 and 2 stay silent.
+            repeat(2) {
+                val worker = buildWorker(
+                    selfCertResult = SecurityCheckResult.Verified,
+                    ctResult = SecurityCheckResult.Warning("could not reach CT log")
+                )
+                worker.doWork()
+            }
+            assertEquals(
+                "Runs below threshold must stay silent",
+                emptyList<FakeSecurityCheckNotifier.Call>(),
+                fakeNotifier.calls
+            )
+
+            val worker = buildWorker(
+                selfCertResult = SecurityCheckResult.Verified,
+                ctResult = SecurityCheckResult.Warning("could not reach CT log")
+            )
+            worker.doWork()
+
+            assertEquals(
+                listOf(
+                    FakeSecurityCheckNotifier.Call.Info(
+                        SecurityCheck.CT_LOG,
+                        "could not reach CT log"
+                    )
+                ),
+                fakeNotifier.calls
+            )
+        }
+
+    @Test
+    fun `warning counter resets on verified result`() = runBlocking {
+        // Two warning runs, then a verified run -- counter MUST reset so the
+        // NEXT two warnings do not cross the threshold.
+        repeat(2) {
+            val w = buildWorker(
+                selfCertResult = SecurityCheckResult.Verified,
+                ctResult = SecurityCheckResult.Warning("flap")
+            )
+            w.doWork()
+        }
+
+        val verifiedWorker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Verified
+        )
+        verifiedWorker.doWork()
+
+        // After the reset, one more warning should not fire (counter back to 1).
+        val afterResetWorker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Warning("flap")
+        )
+        afterResetWorker.doWork()
+
+        assertEquals(
+            "Counter must have reset; single warning post-reset MUST NOT fire",
+            emptyList<FakeSecurityCheckNotifier.Call>(),
+            fakeNotifier.calls
+        )
+    }
+
+    @Test
+    fun `alert fires immediately regardless of warning debounce state`() = runBlocking {
+        // Alerts are a different severity -- they MUST fire immediately even
+        // when no prior warnings have accumulated. Debouncing applies only to
+        // Warning, never to Alert.
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Alert("unexpected issuer Evil CA")
+        )
+
+        val result = worker.doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertEquals(
             listOf(
-                FakeSecurityCheckNotifier.Call.Info(
+                FakeSecurityCheckNotifier.Call.Alert(
                     SecurityCheck.CT_LOG,
-                    "could not reach CT log"
+                    "unexpected issuer Evil CA"
                 )
             ),
+            fakeNotifier.calls
+        )
+    }
+
+    @Test
+    fun `warning counter is per-source - self cert warnings do not block ct log`() = runBlocking {
+        // Source counters MUST be independent: two self-cert warnings should
+        // not push the ct-log counter toward its threshold.
+        repeat(2) {
+            val w = buildWorker(
+                selfCertResult = SecurityCheckResult.Warning("self cert flap"),
+                ctResult = SecurityCheckResult.Verified
+            )
+            w.doWork()
+        }
+        assertEquals(
+            "Two self-cert warnings alone must stay below threshold",
+            emptyList<FakeSecurityCheckNotifier.Call>(),
+            fakeNotifier.calls
+        )
+
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Warning("ct flap")
+        )
+        worker.doWork()
+
+        assertEquals(
+            "Fresh ct-log warning must not fire just because self-cert had two",
+            emptyList<FakeSecurityCheckNotifier.Call>(),
             fakeNotifier.calls
         )
     }
@@ -150,31 +271,35 @@ class SecurityCheckWorkerTest {
     }
 
     @Test
-    fun `network warning on both - notifier postInfo invoked for each check`() = runBlocking {
-        val worker = buildWorker(
-            selfCertResult = SecurityCheckResult.Warning("network unreachable"),
-            ctResult = SecurityCheckResult.Warning("could not reach CT log")
-        )
-
-        val result = worker.doWork()
-
-        assertEquals(ListenableWorker.Result.success(), result)
-        assertEquals("warning", prefs.selfCertResult())
-        assertEquals("warning", prefs.ctLogResult())
-        assertEquals(
-            listOf(
-                FakeSecurityCheckNotifier.Call.Info(
-                    SecurityCheck.SELF_CERT,
-                    "network unreachable"
-                ),
-                FakeSecurityCheckNotifier.Call.Info(
-                    SecurityCheck.CT_LOG,
-                    "could not reach CT log"
+    fun `network warning on both - both fire once threshold reached on each source`() =
+        runBlocking {
+            // Repeat three times: both sources cross their warning threshold on
+            // the third run and each fires its own notification. Earlier runs
+            // stay silent.
+            repeat(3) {
+                val worker = buildWorker(
+                    selfCertResult = SecurityCheckResult.Warning("network unreachable"),
+                    ctResult = SecurityCheckResult.Warning("could not reach CT log")
                 )
-            ),
-            fakeNotifier.calls
-        )
-    }
+                worker.doWork()
+            }
+
+            assertEquals("warning", prefs.selfCertResult())
+            assertEquals("warning", prefs.ctLogResult())
+            assertEquals(
+                listOf(
+                    FakeSecurityCheckNotifier.Call.Info(
+                        SecurityCheck.SELF_CERT,
+                        "network unreachable"
+                    ),
+                    FakeSecurityCheckNotifier.Call.Info(
+                        SecurityCheck.CT_LOG,
+                        "could not reach CT log"
+                    )
+                ),
+                fakeNotifier.calls
+            )
+        }
 
     private fun buildWorker(
         selfCertResult: SecurityCheckResult,
