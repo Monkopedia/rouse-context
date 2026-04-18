@@ -3,6 +3,17 @@ name = "rouse-relay"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Compile-time opt-in for test-mode admin endpoints and instrumentation.
+# When enabled, the relay exposes a separate HTTP admin port (configured via
+# `--test-mode <port>` or `TEST_MODE_PORT=<port>`) for integration tests:
+#   - POST /test/kill-ws?subdomain=X   drop the active mux for the device
+#   - POST /test/fcm-wake?subdomain=X  record a synthetic FCM wake
+#   - GET  /test/stats                 per-endpoint request counters
+# This feature MUST NOT be enabled in release builds — it bypasses auth on
+# the admin port and exposes internal state. See issue #249.
+test-mode = []
+
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 rustls = { version = "0.23", features = ["ring"] }

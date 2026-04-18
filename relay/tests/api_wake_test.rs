@@ -46,6 +46,8 @@ fn make_app_with_state(
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     });
     build_router(state)
 }
@@ -172,6 +174,8 @@ async fn wake_rate_limit_returns_429() {
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     });
 
     // First two requests should succeed

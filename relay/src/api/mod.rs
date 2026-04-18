@@ -186,6 +186,13 @@ pub struct AppState {
     pub request_subdomain_rate_limiter: crate::rate_limit::RateLimiter,
     pub config: crate::config::RelayConfig,
     pub device_ca: Option<crate::device_ca::DeviceCa>,
+    /// Optional test-mode instrumentation. `None` in production. When `Some`,
+    /// every HTTP request that flows through the relay API router is counted
+    /// in the shared metrics store (see `test_mode::record_api_request`).
+    /// Only populated when the binary is built with `--features test-mode`
+    /// and launched with `--test-mode <port>`.
+    #[cfg(feature = "test-mode")]
+    pub test_metrics: Option<std::sync::Arc<crate::test_mode::TestMetrics>>,
 }
 
 /// Tower middleware that rejects requests without a `DeviceIdentity`
@@ -249,5 +256,20 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
         .route("/ws", axum::routing::get(ws::handle_ws))
         .layer(axum::middleware::from_fn(require_device_identity));
 
-    public_router.merge(authed_router).with_state(state)
+    let merged = public_router.merge(authed_router).with_state(state.clone());
+
+    // In test-mode, wrap every request with the instrumentation middleware
+    // that records call counts + client-cert presence. In release builds
+    // (feature disabled) this branch is compiled out entirely.
+    #[cfg(feature = "test-mode")]
+    let merged = if let Some(metrics) = state.test_metrics.clone() {
+        merged.layer(axum::middleware::from_fn_with_state(
+            metrics,
+            crate::test_mode::record_api_request,
+        ))
+    } else {
+        merged
+    };
+
+    merged
 }

@@ -1,6 +1,9 @@
 package com.rousecontext.tunnel.integration
 
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URI
+import java.net.URL
 import java.security.KeyStore
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -331,9 +334,26 @@ class TestRelayManager(
      * convention (e.g. when tests use a non-literal local hostname so SNI
      * isn't suppressed).
      */
-    private val baseDomainOverride: String? = null
+    private val baseDomainOverride: String? = null,
+    /**
+     * When `true`, start the relay with `--test-mode <port>` so the test-admin
+     * HTTP surface (see [TestRelayAdmin]) is available for killing WebSockets,
+     * recording synthetic FCM wakes, and reading per-endpoint counters.
+     *
+     * Requires the relay binary to have been built with the `test-mode` Cargo
+     * feature. CI's `android-ci.yml` passes `--features test-mode` in the
+     * `cargo build` step for that reason. See issue #249.
+     */
+    private val enableTestMode: Boolean = false
 ) {
     var process: Process? = null
+        private set
+
+    /**
+     * Admin client for the test-mode HTTP surface, or `null` when test-mode
+     * was disabled at construction. Populated by [start].
+     */
+    var admin: TestRelayAdmin? = null
         private set
 
     /**
@@ -342,21 +362,98 @@ class TestRelayManager(
      */
     fun start(port: Int): Process {
         writeRelayConfig(port)
-        val relay = startRelay(port)
+        val adminPort = if (enableTestMode) findFreePort() else null
+        val relay = startRelay(port, adminPort)
         process = relay
+        if (adminPort != null) {
+            admin = TestRelayAdmin(adminPort)
+            admin?.waitUntilReady()
+        }
         return relay
     }
 
+    /**
+     * Gracefully stop the relay subprocess with a kill -9 fallback.
+     *
+     * We hit zombie subprocess issues in #223 when a parent holding the
+     * `Process` exited before the child actually died. The sequence is:
+     *   1. `destroy()` — SIGTERM; allow graceful shutdown
+     *   2. wait up to 3s
+     *   3. `destroyForcibly()` — SIGKILL; always succeeds on POSIX
+     *   4. wait up to 3s — on rare kernel/fs stalls this is the last line
+     *      of defense before we leak the handle
+     */
     fun stop() {
-        process?.let {
-            it.destroyForcibly()
-            it.waitFor(5, TimeUnit.SECONDS)
+        process?.let { p ->
+            // Phase 1: gentle SIGTERM.
+            p.destroy()
+            if (!p.waitFor(3, TimeUnit.SECONDS)) {
+                // Phase 2: SIGKILL-equivalent.
+                p.destroyForcibly()
+                if (!p.waitFor(3, TimeUnit.SECONDS)) {
+                    System.err.println(
+                        "TestRelayManager: relay subprocess (pid=${runCatching {
+                            p.pid()
+                        }.getOrDefault(-1)}) " +
+                            "did not exit after destroyForcibly(); leaking handle"
+                    )
+                }
+            }
         }
         process = null
+        admin = null
     }
 
     /** Snapshot of the relay subprocess's captured stdout/stderr so far. */
     fun capturedOutput(): String = synchronized(capturedStdout) { capturedStdout.toString() }
+
+    /**
+     * Drop the active mux WebSocket for [subdomain] on the relay side without
+     * sending a close frame. Simulates a relay-side crash or network drop; the
+     * device-side half-open detector should fire via ping timeout.
+     *
+     * Requires [enableTestMode] = true. Throws if test-mode is disabled.
+     *
+     * Returns `true` if a live session existed and was killed, `false` if no
+     * session was registered.
+     */
+    fun killActiveWebsocket(subdomain: String): Boolean =
+        requireAdmin().killActiveWebsocket(subdomain)
+
+    /**
+     * Record a synthetic FCM wake for [subdomain] on the relay. This does NOT
+     * actually wake a device — it populates the relay-side test metrics so
+     * assertions in integration tests can confirm a wake was requested. The
+     * app-wired harness (#250) is responsible for injecting the wake into the
+     * device-side FCM receiver.
+     *
+     * Requires [enableTestMode] = true.
+     */
+    fun sendFcmWake(subdomain: String) {
+        requireAdmin().sendFcmWake(subdomain)
+    }
+
+    /** Count of `/register/certs` calls observed by the relay. */
+    fun registerCertsCalls(): Int = requireAdmin().registerCertsCalls()
+
+    /** Count of `/rotate-secret` calls observed by the relay. */
+    fun rotateSecretCalls(): Int = requireAdmin().rotateSecretCalls()
+
+    /** Count of `/renew` calls observed by the relay. */
+    fun renewCalls(): Int = requireAdmin().renewCalls()
+
+    /**
+     * Whether the most recent request to [endpoint] (e.g. `"/renew"`) carried
+     * a valid mTLS client certificate. Returns `null` if no request to that
+     * endpoint has been observed yet.
+     */
+    fun lastRequestHadClientCert(endpoint: String): Boolean? =
+        requireAdmin().lastRequestHadClientCert(endpoint)
+
+    private fun requireAdmin(): TestRelayAdmin = admin ?: fail(
+        "TestRelayManager: test-mode admin not available — " +
+            "construct with enableTestMode = true"
+    )
 
     private val capturedStdout = StringBuilder()
 
@@ -412,10 +509,14 @@ class TestRelayManager(
         File(tempDir, "relay.toml").writeText(config)
     }
 
-    private fun startRelay(port: Int): Process {
+    private fun startRelay(port: Int, testAdminPort: Int? = null): Process {
         val relayBinary = findRelayBinary()
         val configPath = File(tempDir, "relay.toml").absolutePath
-        val pb = ProcessBuilder(relayBinary.absolutePath, configPath)
+        val cmd = mutableListOf(relayBinary.absolutePath, configPath)
+        if (testAdminPort != null) {
+            cmd += listOf("--test-mode", testAdminPort.toString())
+        }
+        val pb = ProcessBuilder(cmd)
             .redirectErrorStream(true)
         pb.environment()["RUST_LOG"] = "debug"
 
@@ -462,6 +563,202 @@ class TestRelayManager(
 
     companion object {
         private const val RELAY_STARTUP_TIMEOUT_MS = 10_000L
+    }
+}
+
+/**
+ * Thin HTTP client against the relay's test-mode admin surface.
+ *
+ * The relay exposes these endpoints on a separate plain-HTTP listener bound to
+ * `127.0.0.1:<port>` when launched with `--test-mode <port>` (requires the
+ * `test-mode` Cargo feature). See `relay/src/test_mode.rs` for the server-side
+ * handlers.
+ *
+ * This client is intentionally tiny — no OkHttp, no serialisation library,
+ * just JDK URLConnection + naive JSON parsing — so it can be used without
+ * adding test dependencies and won't interact with the OkHttp MockWebServer
+ * instances that integration tests set up.
+ *
+ * Fixture lifetime mirrors the relay subprocess: created in [TestRelayManager.start],
+ * cleared in [TestRelayManager.stop].
+ *
+ * Issue #249.
+ */
+@Suppress("TooManyFunctions")
+class TestRelayAdmin(private val port: Int) {
+    private val baseUrl = "http://127.0.0.1:$port"
+
+    /**
+     * Poll `/test/stats` until the admin server answers (or a short deadline
+     * elapses). Called by [TestRelayManager.start] so fixture code can assume
+     * the admin is ready as soon as `start()` returns.
+     */
+    fun waitUntilReady(deadlineMs: Long = 5_000) {
+        val deadline = System.currentTimeMillis() + deadlineMs
+        var lastErr: Exception? = null
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                stats()
+                return
+            } catch (e: Exception) {
+                lastErr = e
+                Thread.sleep(READY_POLL_MS)
+            }
+        }
+        fail("test-mode admin did not become ready within ${deadlineMs}ms: $lastErr")
+    }
+
+    /**
+     * Abort the active mux WebSocket for [subdomain] without sending a close
+     * frame. The device-side ping loop should notice the dead socket within
+     * one ping interval.
+     *
+     * Returns `true` if the relay had a live session to kill, `false` if no
+     * session was registered for that subdomain.
+     */
+    fun killActiveWebsocket(subdomain: String): Boolean {
+        val body = post("/test/kill-ws?subdomain=${subdomain.urlEncoded()}", "")
+        return parseBoolField(body, "killed")
+    }
+
+    /**
+     * Record a synthetic FCM wake for [subdomain]. The relay accumulates the
+     * call in its test metrics; callers that need to actually invoke the
+     * device-side FCM receiver must supply their own `onWake` callback (this
+     * hook just tells the relay-side fake that a wake was requested so
+     * [stats] assertions see it).
+     */
+    fun sendFcmWake(subdomain: String) {
+        post("/test/fcm-wake?subdomain=${subdomain.urlEncoded()}", "")
+    }
+
+    /** Number of `/register` calls observed since the relay started. */
+    fun registerCalls(): Int = parseIntField(statsRaw(), "register_calls")
+
+    /** Number of `/register/certs` calls observed since the relay started. */
+    fun registerCertsCalls(): Int = parseIntField(statsRaw(), "register_certs_calls")
+
+    /** Number of `/rotate-secret` calls observed since the relay started. */
+    fun rotateSecretCalls(): Int = parseIntField(statsRaw(), "rotate_secret_calls")
+
+    /** Number of `/renew` calls observed since the relay started. */
+    fun renewCalls(): Int = parseIntField(statsRaw(), "renew_calls")
+
+    /** Number of `/ws` upgrade requests observed since the relay started. */
+    fun wsCalls(): Int = parseIntField(statsRaw(), "ws_calls")
+
+    /**
+     * Whether the most recent request to [endpoint] (e.g. `"/renew"`) carried
+     * a valid mTLS client certificate. Returns `null` if no such request has
+     * been observed.
+     */
+    fun lastRequestHadClientCert(endpoint: String): Boolean? {
+        val body = statsRaw()
+        val marker = "\"$endpoint\":"
+        val idx = body.indexOf(marker)
+        if (idx < 0) return null
+        val after = body.substring(idx + marker.length).trimStart()
+        return when {
+            after.startsWith("true") -> true
+            after.startsWith("false") -> false
+            else -> null
+        }
+    }
+
+    /** Subdomains captured by synthetic `/test/fcm-wake` calls, in arrival order. */
+    fun capturedWakes(): List<String> {
+        val body = statsRaw()
+        val marker = "\"captured_wakes\":"
+        val idx = body.indexOf(marker)
+        if (idx < 0) return emptyList()
+        val open = body.indexOf('[', idx)
+        val close = body.indexOf(']', open)
+        if (open < 0 || close < 0) return emptyList()
+        val inner = body.substring(open + 1, close).trim()
+        if (inner.isEmpty()) return emptyList()
+        return inner.split(",").map { it.trim().trim('"') }.filter { it.isNotEmpty() }
+    }
+
+    /** Structured stats snapshot. */
+    data class Stats(
+        val registerCalls: Int,
+        val registerCertsCalls: Int,
+        val rotateSecretCalls: Int,
+        val renewCalls: Int,
+        val wsCalls: Int
+    )
+
+    /** Convenience accessor that returns a typed snapshot. */
+    fun stats(): Stats {
+        val body = statsRaw()
+        return Stats(
+            registerCalls = parseIntField(body, "register_calls"),
+            registerCertsCalls = parseIntField(body, "register_certs_calls"),
+            rotateSecretCalls = parseIntField(body, "rotate_secret_calls"),
+            renewCalls = parseIntField(body, "renew_calls"),
+            wsCalls = parseIntField(body, "ws_calls")
+        )
+    }
+
+    private fun statsRaw(): String = get("/test/stats")
+
+    private fun get(path: String): String {
+        val conn = openConnection(path).apply {
+            requestMethod = "GET"
+        }
+        return readBody(conn)
+    }
+
+    private fun post(path: String, body: String): String {
+        val conn = openConnection(path).apply {
+            requestMethod = "POST"
+            doOutput = true
+        }
+        conn.outputStream.use { it.write(body.toByteArray()) }
+        return readBody(conn)
+    }
+
+    private fun openConnection(path: String): HttpURLConnection {
+        val url: URL = URI.create(baseUrl + path).toURL()
+        return (url.openConnection() as HttpURLConnection).apply {
+            connectTimeout = HTTP_TIMEOUT_MS
+            readTimeout = HTTP_TIMEOUT_MS
+        }
+    }
+
+    private fun readBody(conn: HttpURLConnection): String {
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (code !in 200..299) {
+            fail("test-mode admin returned HTTP $code: $body")
+        }
+        return body
+    }
+
+    private fun String.urlEncoded(): String = java.net.URLEncoder.encode(this, "UTF-8")
+
+    private fun parseIntField(json: String, key: String): Int {
+        val marker = "\"$key\":"
+        val idx = json.indexOf(marker)
+        if (idx < 0) fail("stats JSON missing field '$key': $json")
+        val after = json.substring(idx + marker.length).trimStart()
+        val end = after.indexOfAny(charArrayOf(',', '}', ' ', '\n', '\r'))
+        val numStr = if (end < 0) after else after.substring(0, end)
+        return numStr.trim().toInt()
+    }
+
+    private fun parseBoolField(json: String, key: String): Boolean {
+        val marker = "\"$key\":"
+        val idx = json.indexOf(marker)
+        if (idx < 0) fail("JSON missing field '$key': $json")
+        val after = json.substring(idx + marker.length).trimStart()
+        return after.startsWith("true")
+    }
+
+    companion object {
+        private const val HTTP_TIMEOUT_MS = 3_000
+        private const val READY_POLL_MS = 50L
     }
 }
 

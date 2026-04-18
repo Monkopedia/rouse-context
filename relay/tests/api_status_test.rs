@@ -26,6 +26,8 @@ fn make_app(relay_state: Arc<RelayState>) -> axum::Router {
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     });
     build_router(state)
 }

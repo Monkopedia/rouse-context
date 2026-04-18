@@ -72,6 +72,11 @@ pub struct OpenStreamRequest {
 /// Contains a channel sender for requesting stream opens from the session owner.
 pub struct SessionEntry {
     pub open_stream_tx: mpsc::Sender<OpenStreamRequest>,
+    /// Signals the ws mux task to abort immediately without sending a close
+    /// frame. Used by the test-mode admin endpoint `POST /test/kill-ws` to
+    /// simulate a relay-side network drop (see issue #249). In production the
+    /// sender is never fired; the channel sits idle.
+    pub kill_tx: mpsc::Sender<()>,
 }
 
 /// Registry of active mux sessions, keyed by subdomain.
@@ -95,9 +100,34 @@ impl SessionRegistry {
     }
 
     /// Register a mux session for a subdomain.
-    pub fn insert(&self, subdomain: &str, open_stream_tx: mpsc::Sender<OpenStreamRequest>) {
-        self.sessions
-            .insert(subdomain.to_string(), SessionEntry { open_stream_tx });
+    pub fn insert(
+        &self,
+        subdomain: &str,
+        open_stream_tx: mpsc::Sender<OpenStreamRequest>,
+        kill_tx: mpsc::Sender<()>,
+    ) {
+        self.sessions.insert(
+            subdomain.to_string(),
+            SessionEntry {
+                open_stream_tx,
+                kill_tx,
+            },
+        );
+    }
+
+    /// Signal the mux session for `subdomain` to abort without sending a close
+    /// frame. Returns `true` if a session existed and was signaled. Test-only.
+    pub fn kill(&self, subdomain: &str) -> bool {
+        match self.sessions.get(subdomain) {
+            Some(entry) => {
+                // `try_send` is used because `kill_tx` has capacity 1 and the
+                // ws task drains it immediately on receipt. If it's already
+                // full, the kill is already pending.
+                let _ = entry.kill_tx.try_send(());
+                true
+            }
+            None => false,
+        }
     }
 
     /// Remove a mux session.

@@ -19,5 +19,7 @@ pub mod shutdown;
 pub mod sni;
 pub mod state;
 pub mod subdomain;
+#[cfg(feature = "test-mode")]
+pub mod test_mode;
 pub mod tls;
 pub mod words;

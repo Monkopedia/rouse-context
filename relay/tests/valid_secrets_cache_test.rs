@@ -49,8 +49,9 @@ fn setup_device(
     let mut session = MuxSession::new(subdomain.to_string(), 8);
     let frame_rx = session.take_frame_rx().unwrap();
     let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
+    let (kill_tx, _kill_rx) = mpsc::channel::<()>(1);
     relay_state.register_mux_connection(subdomain);
-    registry.insert(subdomain, open_tx);
+    registry.insert(subdomain, open_tx, kill_tx);
     tokio::spawn(async move {
         while let Some(req) = open_rx.recv().await {
             let result = session
@@ -121,6 +122,8 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     });
 
     // Hit /rotate-secret asking the relay to generate a fresh secret for
@@ -227,6 +230,8 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     });
 
     // Rotate the "usage" integration (not "health"). After this call the
