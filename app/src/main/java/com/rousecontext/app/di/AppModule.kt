@@ -122,10 +122,22 @@ private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
  * crt.sh issuer names that are legitimate for Rouse Context certificates.
  * Any CT log entry with an issuer outside this set triggers a security alert.
  *
- * The relay uses Let's Encrypt via ACME; these are the currently-rotated
- * Let's Encrypt intermediates. Update when LE rotates intermediates.
+ * Post-#213 the relay issues via Google Trust Services (WR/WE intermediates).
+ * Let's Encrypt intermediates are retained here because any pre-#213 device
+ * cert is still legitimate until its natural 90-day expiry. Update when
+ * either CA rotates intermediates.
  */
-private val EXPECTED_CERT_ISSUERS: Set<String> = setOf(
+internal val EXPECTED_CERT_ISSUERS: Set<String> = setOf(
+    // Google Trust Services (primary, post-#213)
+    "C=US, O=Google Trust Services, CN=WR1",
+    "C=US, O=Google Trust Services, CN=WR2",
+    "C=US, O=Google Trust Services, CN=WR3",
+    "C=US, O=Google Trust Services, CN=WR4",
+    "C=US, O=Google Trust Services, CN=WE1",
+    "C=US, O=Google Trust Services, CN=WE2",
+    "C=US, O=Google Trust Services, CN=WE3",
+    "C=US, O=Google Trust Services, CN=WE4",
+    // Let's Encrypt (transitional — legacy device certs valid until expiry)
     "C=US, O=Let's Encrypt, CN=R3",
     "C=US, O=Let's Encrypt, CN=R10",
     "C=US, O=Let's Encrypt, CN=R11",
