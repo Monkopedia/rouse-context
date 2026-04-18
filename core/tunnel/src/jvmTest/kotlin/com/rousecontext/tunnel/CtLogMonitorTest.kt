@@ -118,6 +118,24 @@ class CtLogMonitorTest {
 
         assertIs<SecurityCheckResult.Warning>(result)
     }
+
+    @Test
+    fun `no subdomain configured - skipped not warning (issue 228)`(): Unit = runBlocking {
+        // Pre-onboarding / post-reinstall: no subdomain has been requested yet.
+        // This is "not set up" and must not fire a user notification.
+        val fetcher = FakeCtLogFetcher(response = "[]")
+        val store = SecurityCertificateStore(subdomain = null)
+        val monitor = CtLogMonitor(
+            certificateStore = store,
+            ctLogFetcher = fetcher,
+            expectedIssuers = setOf("C=US, O=Let's Encrypt, CN=R3"),
+            baseDomain = "rousecontext.com"
+        )
+
+        val result = monitor.check()
+
+        assertIs<SecurityCheckResult.Skipped>(result)
+    }
 }
 
 /** Fake fetcher for testing CtLogMonitor without real network calls. */

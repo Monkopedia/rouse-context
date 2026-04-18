@@ -205,6 +205,7 @@
     <string name="screen_settings_trust_result_warning">Unable to verify</string>
     <string name="screen_settings_trust_result_alert">Verification failed</string>
     <string name="screen_settings_trust_result_unchecked">Not checked</string>
+    <string name="screen_settings_trust_result_skipped">Waiting for onboarding</string>
     <string name="screen_settings_trust_row">%1$s: %2$s</string>
     <string name="screen_settings_trust_alert_note">Integration requests are blocked while an alert is active.</string>
     <string name="screen_settings_trust_acknowledge">Acknowledge</string>

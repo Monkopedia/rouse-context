@@ -73,6 +73,12 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
                 Log.d(TAG, "$checkName: verified")
             }
 
+            is SecurityCheckResult.Skipped -> {
+                // Issue #228: pre-onboarding / "not yet configured" states log
+                // for diagnostics but MUST NOT fire a user notification.
+                Log.d(TAG, "$checkName: skipped - ${result.reason}")
+            }
+
             is SecurityCheckResult.Warning -> {
                 Log.w(TAG, "$checkName: warning - ${result.reason}")
                 notifier.postInfo(check, result.reason)
@@ -91,6 +97,7 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
 
         private fun resultToString(result: SecurityCheckResult): String = when (result) {
             is SecurityCheckResult.Verified -> "verified"
+            is SecurityCheckResult.Skipped -> "skipped"
             is SecurityCheckResult.Warning -> "warning"
             is SecurityCheckResult.Alert -> "alert"
         }

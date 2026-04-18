@@ -46,7 +46,10 @@ class CtLogMonitor(
         }
 
         if (subdomain == null) {
-            return SecurityCheckResult.Warning("No subdomain configured")
+            // Issue #228: no subdomain means the device has not yet completed
+            // onboarding (or is between reinstall and re-onboarding). That is
+            // not a security issue, so MUST NOT fire a user notification.
+            return SecurityCheckResult.Skipped("No subdomain configured")
         }
 
         val domain = "$subdomain.$baseDomain"
