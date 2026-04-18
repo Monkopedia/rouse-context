@@ -1,5 +1,8 @@
 package com.rousecontext.tunnel
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 /**
  * Provisions ACME server + relay CA client certificates for a device that has
  * already completed onboarding (has a subdomain assigned).
@@ -12,6 +15,12 @@ package com.rousecontext.tunnel
  * Issue #200: the device identity keypair is owned by [DeviceKeyManager] (hardware-backed
  * on Android). The private key never leaves the keystore; `CertProvisioningFlow` only
  * reads the public key (via [DeviceKeyManager.getOrCreateKeyPair]) to build the CSR.
+ *
+ * Issue #238: [execute] is serialized by an internal [Mutex] so that concurrent callers
+ * (e.g. a Compose `LaunchedEffect` that re-runs during recomposition) do not each race
+ * past the already-provisioned check and issue duplicate `/register/certs` requests,
+ * which forces the relay to start two concurrent ACME orders and ends up 400-ing the
+ * second one when GTS deduplicates challenges.
  */
 class CertProvisioningFlow(
     private val csrGenerator: CsrGenerator,
@@ -20,6 +29,8 @@ class CertProvisioningFlow(
     private val deviceKeyManager: DeviceKeyManager,
     private val defaultBaseDomain: String = "rousecontext.com"
 ) {
+
+    private val mutex = Mutex()
 
     /**
      * Provisions certificates if not already present.
@@ -33,16 +44,18 @@ class CertProvisioningFlow(
     suspend fun execute(
         firebaseToken: String,
         baseDomain: String = defaultBaseDomain
-    ): CertProvisioningResult {
-        // Already provisioned?
+    ): CertProvisioningResult = mutex.withLock {
+        // Already provisioned? Re-checked under the lock so that a second caller
+        // who arrived while the first call was in flight sees the freshly-stored
+        // certificates and short-circuits instead of re-issuing the CSR.
         if (certificateStore.getCertificate() != null &&
             certificateStore.getClientCertificate() != null
         ) {
-            return CertProvisioningResult.AlreadyProvisioned
+            return@withLock CertProvisioningResult.AlreadyProvisioned
         }
 
         val subdomain = certificateStore.getSubdomain()
-            ?: return CertProvisioningResult.NotOnboarded
+            ?: return@withLock CertProvisioningResult.NotOnboarded
 
         // Obtain (or generate) the hardware-backed device keypair and build the CSR.
         val fqdn = "*.$subdomain.$baseDomain"
@@ -50,11 +63,11 @@ class CertProvisioningFlow(
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
             csrGenerator.generate(fqdn, keyPair)
         } catch (e: Exception) {
-            return CertProvisioningResult.KeyGenerationFailed(e)
+            return@withLock CertProvisioningResult.KeyGenerationFailed(e)
         }
 
         // Submit CSR to get both certs
-        return when (
+        when (
             val certResponse = relayApiClient.registerCerts(
                 csrPem = csrResult.csrPem,
                 firebaseToken = firebaseToken

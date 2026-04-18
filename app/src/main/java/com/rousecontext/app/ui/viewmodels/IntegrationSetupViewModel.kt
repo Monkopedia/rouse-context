@@ -87,6 +87,14 @@ class IntegrationSetupViewModel(
     private var lastFailureStage: IntegrationSetupFailureStage? = null
 
     fun startSetup(id: String) {
+        // Issue #238: IntegrationSetupDestination fires startSetup from a
+        // LaunchedEffect that can re-run on recomposition/navigation. Without
+        // this guard a second invocation spawns a duplicate viewModelScope
+        // coroutine, which would race the first past CertProvisioningFlow's
+        // already-provisioned check and issue two /register/certs requests.
+        // CertProvisioningFlow also serializes via Mutex as defense-in-depth,
+        // but bailing here avoids even starting the work.
+        if (_state.value is IntegrationSetupState.Provisioning) return
         integrationId = id
         _state.value = IntegrationSetupState.Provisioning(
             SettingUpState(variant = SettingUpVariant.Requesting)
