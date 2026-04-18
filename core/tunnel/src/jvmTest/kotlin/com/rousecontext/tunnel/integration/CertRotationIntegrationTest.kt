@@ -21,6 +21,7 @@ import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 /**
  * End-to-end cert rotation test against the real Rust relay binary.
@@ -60,6 +62,7 @@ import org.junit.jupiter.api.Test
  *   cd relay && cargo build
  */
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class CertRotationIntegrationTest {
 
     companion object {

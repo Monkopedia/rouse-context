@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Timeout
  * client can reconnect by calling [TunnelClientImpl.connect] manually.
  */
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class AbruptDisconnectTest {
 
     companion object {

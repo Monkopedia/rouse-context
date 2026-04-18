@@ -24,6 +24,7 @@ import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngineResult
 import kotlin.test.assertEquals
@@ -43,6 +44,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 /**
  * End-to-end integration tests verifying the full data path:
@@ -52,6 +54,7 @@ import org.junit.jupiter.api.Test
  * Tests IDs 97-99 from overall.md.
  */
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class TunnelMcpIntegrationTest {
 
     private val mcpJson = Json { ignoreUnknownKeys = true }

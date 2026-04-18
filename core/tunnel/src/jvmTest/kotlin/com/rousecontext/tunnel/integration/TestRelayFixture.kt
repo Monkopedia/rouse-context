@@ -397,6 +397,14 @@ class TestRelayManager(
             max_streams_per_device = 8
             wake_rate_limit = 60
             fcm_wakeup_timeout_secs = 5
+            # Tunnel integration tests connect a simulated device directly to
+            # /ws without first calling /register -> /register/certs. That path
+            # relies on the relay auto-creating a Firestore record on WS upgrade
+            # when the device's mTLS cert validates. Production defaults this
+            # flag to false; tests opt in explicitly. See issue #209 for the
+            # security rationale and issue #225 for the test regression that
+            # missing this opt-in caused.
+            allow_ws_auto_create_device = true
             $deviceCaBlock
             $firebaseBlock
         """.trimIndent()

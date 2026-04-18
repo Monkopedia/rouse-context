@@ -27,6 +27,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import kotlin.test.assertEquals
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 /**
  * End-to-end test that exercises the full OAuth authorization code flow
@@ -63,6 +65,7 @@ import org.junit.jupiter.api.Test
  */
 @Suppress("LargeClass")
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class OAuthEndToEndTest {
 
     companion object {

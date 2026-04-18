@@ -67,8 +67,18 @@ class MtlsWebSocketFactory(private val sslContext: SSLContext) : WebSocketFactor
             .build()
 
         try {
+            // buildAsync returns a CompletableFuture that completes exceptionally
+            // if the handshake fails (TLS error, server rejects upgrade with
+            // non-101 status, etc.). If we don't observe it the listener never
+            // learns about the failure and the caller's opened.await() hangs
+            // forever. See issue #225.
             client.newWebSocketBuilder()
                 .buildAsync(URI.create(url), javaListener)
+                .whenComplete { _, error ->
+                    if (error != null && !handle.isBound()) {
+                        listener.onFailure(error)
+                    }
+                }
         } catch (e: Exception) {
             listener.onFailure(e)
         }

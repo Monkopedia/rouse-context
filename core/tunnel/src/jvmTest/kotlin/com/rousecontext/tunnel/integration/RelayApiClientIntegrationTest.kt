@@ -17,6 +17,7 @@ import java.security.Signature
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 import kotlin.test.AfterTest
@@ -31,6 +32,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Dns
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Tag
+import org.junit.jupiter.api.Timeout
 
 /**
  * End-to-end HTTP wire-contract tests for [RelayApiClient] against the real
@@ -48,6 +50,7 @@ import org.junit.jupiter.api.Tag
  *   cd relay && cargo build
  */
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class RelayApiClientIntegrationTest {
 
     companion object {

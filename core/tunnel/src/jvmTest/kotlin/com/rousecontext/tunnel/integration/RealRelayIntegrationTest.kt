@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Tag
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
 
 /**
  * Integration tests that start the real Rust relay binary as a subprocess
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test
  * Build it with: cd relay && cargo build
  */
 @Tag("integration")
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class RealRelayIntegrationTest {
 
     companion object {
