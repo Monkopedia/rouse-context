@@ -688,6 +688,82 @@ class TunnelClientImplTest {
         }
     }
 
+    @Suppress("LongMethod")
+    @Test
+    fun `healthCheck returns false after server silently drops connection`() = runBlocking {
+        // Simulates a half-open socket: the server stops without sending a
+        // WebSocket close frame. The device's local TCP socket may still look
+        // alive until a write or read fails. A mux-level Ping with a short
+        // timeout must return false, proving the tunnel is dead. See #243.
+        val port = findFreePort()
+        val serverSessionRef = CompletableDeferred<io.ktor.websocket.WebSocketSession>()
+
+        val server = embeddedServer(CIO, port = port) {
+            install(ServerWebSockets)
+            routing {
+                webSocket("/tunnel") {
+                    serverSessionRef.complete(this)
+                    // Echo Pongs for the first Ping so the tunnel looks alive
+                    // initially. Then the server is killed externally.
+                    for (frame in incoming) {
+                        if (frame is Frame.Binary) {
+                            val muxFrame = MuxCodec.decode(frame.readBytes())
+                            if (muxFrame is MuxFrame.Ping) {
+                                send(
+                                    Frame.Binary(
+                                        true,
+                                        MuxCodec.encode(MuxFrame.Pong(muxFrame.nonce))
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        server.start(wait = false)
+
+        try {
+            val client = TunnelClientImpl(
+                scope = this,
+                webSocketFactory = KtorWebSocketFactory(),
+                // Disable keepalive so it doesn't interfere with the test.
+                keepaliveIntervalMillis = 600_000L,
+                keepaliveTimeoutMillis = 10_000L,
+                keepaliveMaxMisses = 100
+            )
+            client.connect("ws://localhost:$port/tunnel")
+            assertEquals(TunnelState.CONNECTED, client.state.value)
+
+            // Verify the tunnel is initially alive.
+            val alive = client.healthCheck(kotlin.time.Duration.parse("2s"))
+            assertTrue(alive, "healthCheck should pass while server is up")
+
+            // Kill the server without sending a close frame — simulates the
+            // relay dropping the TCP connection after idle timeout or crash.
+            server.stop(0, 0)
+            // Brief delay for the TCP RST / FIN to propagate.
+            delay(500)
+
+            // The tunnel's local state may still be CONNECTED because the
+            // WebSocket library hasn't noticed the drop yet. A health check
+            // must detect it.
+            val stale = client.healthCheck(kotlin.time.Duration.parse("2s"))
+            assertTrue(!stale, "healthCheck must return false after server drops connection")
+
+            // Clean up: the client should eventually reach DISCONNECTED.
+            withTimeout(10_000) {
+                while (client.state.value != TunnelState.DISCONNECTED) {
+                    delay(50)
+                }
+            }
+
+            coroutineContext.cancelChildren()
+        } finally {
+            server.stop(0, 0) // idempotent
+        }
+    }
+
     @Test
     fun `connection failure emits error on SharedFlow`() = runBlocking {
         val client = TunnelClientImpl(this, KtorWebSocketFactory())
