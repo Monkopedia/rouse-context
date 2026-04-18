@@ -4,13 +4,8 @@ import com.rousecontext.mcp.core.McpRequestEvent
 import com.rousecontext.mcp.core.ToolCallEvent
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -28,6 +23,7 @@ import org.junit.Test
  *
  * Verifies the listener persists tool call events to the DAO and forwards
  * them to the [PerCallObserver] hook that drives per-tool-call notifications.
+ * Inserts run synchronously from the caller's perspective (see issue #244).
  */
 class RoomAuditListenerTest {
 
@@ -35,18 +31,14 @@ class RoomAuditListenerTest {
     fun `onToolCall persists entry and invokes observer`() = runBlocking {
         val dao = FakeAuditDao()
         val observer = RecordingObserver()
-        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
         val listener = RoomAuditListener(
             dao = dao,
-            scope = scope,
             fieldEncryptor = null,
             perCallObserver = observer
         )
 
         val event = makeEvent(provider = "health", toolName = "get_steps")
         listener.onToolCall(event)
-
-        withTimeout(TIMEOUT_MS) { observer.signal.await() }
 
         assertEquals("Entry should be inserted", 1, dao.entries.size)
         val entry = dao.entries.first()
@@ -56,15 +48,12 @@ class RoomAuditListenerTest {
         assertNotNull("Observer should be invoked with the event", observer.lastEvent)
         assertEquals("health", observer.lastEvent?.providerId)
         assertEquals("get_steps", observer.lastEvent?.toolName)
-
-        coroutineContext.cancelChildren()
     }
 
     @Test
     fun `onToolCall serializes result as valid JSON with content array`() = runBlocking {
         val dao = FakeAuditDao()
-        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
-        val listener = RoomAuditListener(dao = dao, scope = scope)
+        val listener = RoomAuditListener(dao = dao)
 
         val event = ToolCallEvent(
             sessionId = "session-1",
@@ -76,7 +65,6 @@ class RoomAuditListenerTest {
             durationMs = 5L
         )
         listener.onToolCall(event)
-        kotlinx.coroutines.yield()
 
         assertEquals(1, dao.entries.size)
         val rawJson = dao.entries.first().resultJson
@@ -94,18 +82,14 @@ class RoomAuditListenerTest {
         // isError should be preserved (default false).
         val isError = parsed["isError"]?.jsonPrimitive?.content?.toBoolean() ?: false
         assertFalse("Default isError should be false", isError)
-
-        coroutineContext.cancelChildren()
     }
 
     @Test
     fun `onToolCall invokes observer for every event`() = runBlocking {
         val dao = FakeAuditDao()
-        val observer = RecordingObserver(expectedCount = 3)
-        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
+        val observer = RecordingObserver()
         val listener = RoomAuditListener(
             dao = dao,
-            scope = scope,
             fieldEncryptor = null,
             perCallObserver = observer
         )
@@ -114,26 +98,20 @@ class RoomAuditListenerTest {
         listener.onToolCall(makeEvent(provider = "health", toolName = "get_hr"))
         listener.onToolCall(makeEvent(provider = "usage", toolName = "get_app_usage"))
 
-        withTimeout(TIMEOUT_MS) { observer.signal.await() }
-
         assertEquals(3, dao.entries.size)
         assertEquals(3, observer.calls.size)
         assertEquals(
             listOf("get_steps", "get_hr", "get_app_usage"),
             observer.calls.map { it.toolName }
         )
-
-        coroutineContext.cancelChildren()
     }
 
     @Test
     fun `onRequest persists to mcp request dao`() = runBlocking {
         val dao = FakeAuditDao()
         val requestDao = FakeMcpRequestDao()
-        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
         val listener = RoomAuditListener(
             dao = dao,
-            scope = scope,
             fieldEncryptor = null,
             mcpRequestDao = requestDao
         )
@@ -149,8 +127,6 @@ class RoomAuditListenerTest {
         )
         listener.onRequest(event)
 
-        kotlinx.coroutines.yield()
-
         assertEquals("Request entry should be inserted", 1, requestDao.entries.size)
         val entry = requestDao.entries.first()
         assertEquals("health", entry.provider)
@@ -164,15 +140,12 @@ class RoomAuditListenerTest {
 
         // Tool-call DAO stays empty - onRequest is separate from onToolCall
         assertEquals(0, dao.entries.size)
-
-        coroutineContext.cancelChildren()
     }
 
     @Test
     fun `onRequest is a no-op when mcp request dao is absent`() = runBlocking {
         val dao = FakeAuditDao()
-        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
-        val listener = RoomAuditListener(dao = dao, scope = scope)
+        val listener = RoomAuditListener(dao = dao)
 
         val event = McpRequestEvent(
             sessionId = "s",
@@ -185,26 +158,18 @@ class RoomAuditListenerTest {
         )
         // Does not throw
         listener.onRequest(event)
-        kotlinx.coroutines.yield()
 
         assertEquals(0, dao.entries.size)
-        coroutineContext.cancelChildren()
     }
 
     @Test
     fun `observer is optional — listener works without one`() = runBlocking {
         val dao = FakeAuditDao()
-        val scope = CoroutineScope(coroutineContext + Dispatchers.Unconfined)
-        val listener = RoomAuditListener(dao = dao, scope = scope)
+        val listener = RoomAuditListener(dao = dao)
 
         listener.onToolCall(makeEvent(provider = "health", toolName = "get_steps"))
 
-        // Let the scope drain.
-        kotlinx.coroutines.yield()
-
         assertEquals(1, dao.entries.size)
-
-        coroutineContext.cancelChildren()
     }
 
     private fun makeEvent(
@@ -221,17 +186,13 @@ class RoomAuditListenerTest {
         durationMs = 5L
     )
 
-    private class RecordingObserver(val expectedCount: Int = 1) : PerCallObserver {
+    private class RecordingObserver : PerCallObserver {
         val calls = mutableListOf<ToolCallEvent>()
         var lastEvent: ToolCallEvent? = null
-        val signal = CompletableDeferred<Unit>()
 
         override suspend fun onToolCallRecorded(event: ToolCallEvent) {
             calls.add(event)
             lastEvent = event
-            if (calls.size >= expectedCount && !signal.isCompleted) {
-                signal.complete(Unit)
-            }
         }
     }
 
@@ -302,9 +263,5 @@ class RoomAuditListenerTest {
 
         override suspend fun deleteOlderThan(cutoffMillis: Long): Int = 0
         override suspend fun count(): Int = entries.size
-    }
-
-    companion object {
-        private const val TIMEOUT_MS = 2_000L
     }
 }

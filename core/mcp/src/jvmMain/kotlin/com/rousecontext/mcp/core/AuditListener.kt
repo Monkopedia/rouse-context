@@ -8,7 +8,13 @@ import kotlinx.serialization.json.JsonElement
  * Implemented by :app to persist a per-tool-call history log.
  */
 interface AuditListener {
-    fun onToolCall(event: ToolCallEvent)
+    /**
+     * Called for every `tools/call` completion. Suspending so implementations
+     * can persist the event before returning — the post-session summary
+     * notifier queries the audit DAO on stream drain and races any
+     * fire-and-forget insert that returns early. See issue #244.
+     */
+    suspend fun onToolCall(event: ToolCallEvent)
 
     /**
      * Called when a client completes OAuth and receives an access token.
@@ -24,9 +30,13 @@ interface AuditListener {
      * tool-call UI stays intact while the broader message log receives every
      * request.
      *
+     * Suspending for the same reason as [onToolCall]: implementations must be
+     * able to persist synchronously from the caller's perspective so the
+     * summary notifier doesn't race an in-flight insert (#244).
+     *
      * Default no-op so existing implementations don't break.
      */
-    fun onRequest(event: McpRequestEvent) {}
+    suspend fun onRequest(event: McpRequestEvent) {}
 }
 
 data class ToolCallEvent(
