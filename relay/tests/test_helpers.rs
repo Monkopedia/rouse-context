@@ -422,6 +422,8 @@ pub fn build_test_state_with_dns(
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     })
 }
 
@@ -462,5 +464,7 @@ pub fn build_test_state_with_ca(
         ),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
     })
 }

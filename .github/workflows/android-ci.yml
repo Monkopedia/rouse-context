@@ -38,7 +38,11 @@ jobs:
           workspaces: relay
       - name: Build relay binary (for :core:tunnel:integrationTest)
         working-directory: relay
-        run: cargo build
+        # `--features test-mode` compiles in the test-admin surface used by
+        # the `:core:tunnel:integrationTest` fixture (issue #249). The feature
+        # is compile-time excluded from release builds (deploy workflow runs
+        # `cargo build --release` WITHOUT this flag).
+        run: cargo build --features test-mode
       - name: Generate debug keystore
         run: |
           mkdir -p .signing

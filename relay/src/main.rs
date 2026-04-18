@@ -39,9 +39,13 @@ async fn main() {
         )
         .init();
 
-    let config_path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "relay.toml".to_string());
+    // Parse CLI args. Layout is positional:
+    //   rouse-relay [config_path] [--test-mode <port>]
+    // The `--test-mode` flag is only recognised when the binary was built with
+    // the `test-mode` feature; in release builds the flag is silently ignored
+    // (and warned about) so a misconfigured systemd unit can't accidentally
+    // enable the admin surface.
+    let (config_path, test_admin_port) = parse_cli_args();
 
     let config = if Path::new(&config_path).exists() {
         match RelayConfig::from_file_with_env(Path::new(&config_path)) {
@@ -124,6 +128,11 @@ async fn main() {
     ));
     let session_registry = Arc::new(SessionRegistry::new());
 
+    // Start the test-mode admin server (no-op unless the binary was built
+    // with `--features test-mode` AND --test-mode <port> was passed).
+    let _test_metrics =
+        start_test_admin_if_enabled(test_admin_port, session_registry.clone()).await;
+
     // Build external service clients — use real implementations when a service account is available
     let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> =
         build_firestore_client(&config);
@@ -158,6 +167,8 @@ async fn main() {
         ),
         config: config.clone(),
         device_ca,
+        #[cfg(feature = "test-mode")]
+        test_metrics: _test_metrics.clone(),
     });
 
     // Shutdown controller
@@ -972,4 +983,99 @@ fn stable_uid_hash(token: &str) -> String {
     let mut hasher = DefaultHasher::new();
     token.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+/// Parse CLI args into `(config_path, test_admin_port)`. See issue #249.
+fn parse_cli_args() -> (String, Option<u16>) {
+    let mut config_path = "relay.toml".to_string();
+    let mut test_admin_port: Option<u16> = None;
+
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut i = 0;
+    let mut config_set = false;
+    while i < args.len() {
+        let arg = &args[i];
+        if arg == "--test-mode" {
+            // Accept `--test-mode <port>` or `--test-mode=<port>`. We
+            // deliberately do NOT error on unknown flags after this for
+            // forward-compat.
+            let port_str = args.get(i + 1).cloned();
+            match port_str.as_deref().and_then(|s| s.parse::<u16>().ok()) {
+                Some(port) => {
+                    test_admin_port = Some(port);
+                    i += 2;
+                    continue;
+                }
+                None => {
+                    error!("--test-mode requires a port number argument");
+                    std::process::exit(2);
+                }
+            }
+        }
+        if let Some(value) = arg.strip_prefix("--test-mode=") {
+            match value.parse::<u16>() {
+                Ok(port) => test_admin_port = Some(port),
+                Err(_) => {
+                    error!("--test-mode=<port> could not be parsed");
+                    std::process::exit(2);
+                }
+            }
+            i += 1;
+            continue;
+        }
+        if !arg.starts_with("--") && !config_set {
+            config_path = arg.clone();
+            config_set = true;
+        }
+        i += 1;
+    }
+
+    // Env-var fallback so CI can pass TEST_MODE_PORT without touching argv.
+    if test_admin_port.is_none() {
+        if let Ok(v) = std::env::var("TEST_MODE_PORT") {
+            if let Ok(port) = v.parse::<u16>() {
+                test_admin_port = Some(port);
+            }
+        }
+    }
+
+    (config_path, test_admin_port)
+}
+
+#[cfg(feature = "test-mode")]
+async fn start_test_admin_if_enabled(
+    port: Option<u16>,
+    session_registry: Arc<SessionRegistry>,
+) -> Option<Arc<rouse_relay::test_mode::TestMetrics>> {
+    let port = port?;
+    let metrics = Arc::new(rouse_relay::test_mode::TestMetrics::new());
+    if let Err(e) = rouse_relay::test_mode::spawn_admin_server(
+        port,
+        metrics.clone(),
+        session_registry,
+    )
+    .await
+    {
+        error!(port, "Failed to start test-mode admin server: {e}");
+        std::process::exit(1);
+    }
+    warn!(
+        port,
+        "test-mode admin server started — DO NOT ENABLE IN PRODUCTION"
+    );
+    Some(metrics)
+}
+
+#[cfg(not(feature = "test-mode"))]
+async fn start_test_admin_if_enabled(
+    port: Option<u16>,
+    _session_registry: Arc<SessionRegistry>,
+) -> Option<()> {
+    if port.is_some() {
+        warn!(
+            "--test-mode / TEST_MODE_PORT set but binary built without the \
+             `test-mode` feature; ignoring"
+        );
+    }
+    None
 }

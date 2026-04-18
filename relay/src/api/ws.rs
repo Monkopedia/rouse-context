@@ -152,11 +152,23 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     // Channel for passthrough code to request new streams
     let (open_stream_tx, mut open_stream_rx) = mpsc::channel::<OpenStreamRequest>(16);
 
+    // Channel for test-mode admin to abort this ws session without sending a
+    // close frame. Capacity 1 since one kill is sufficient; extra triggers are
+    // coalesced via try_send. In production this sender is never fired.
+    //
+    // We keep `_kill_tx_keepalive` as a local clone so that the receiver side
+    // never sees `None` when the SessionEntry is replaced (e.g. a second
+    // connection for the same subdomain evicts the first). Without this, the
+    // `kill_rx.recv()` branch in the session select below would fire on
+    // entry-replacement and incorrectly abort the surviving session.
+    let (kill_tx, mut kill_rx) = mpsc::channel::<()>(1);
+    let _kill_tx_keepalive = kill_tx.clone();
+
     // Register the session so passthrough can find it.
     // Order matters: insert into registry FIRST so try_open_stream() works,
     // THEN signal waiters via register_mux_connection(). Otherwise, FCM
     // waiters wake up but find no session entry and get StreamRefused.
-    session_registry.insert(&subdomain, open_stream_tx);
+    session_registry.insert(&subdomain, open_stream_tx, kill_tx);
     relay_state.register_mux_connection(&subdomain);
 
     info!(subdomain = %subdomain, "Mux session registered");
@@ -264,13 +276,36 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     //
     // We use select! to handle both in the same task, which owns the MuxSession
     // without needing a mutex.
-    run_session_loop(&mut session, incoming_rx, &mut open_stream_rx, &relay_state).await;
+    //
+    // If `kill_rx` receives an explicit kill message (test-mode admin invoked
+    // `POST /test/kill-ws`), abort the read/write tasks so the WebSocket
+    // sockets are dropped mid-frame. `_kill_tx_keepalive` above ensures the
+    // receiver never observes `None` from a dropped sender, so the only way
+    // we enter this branch with `Some(())` is an explicit kill.
+    tokio::select! {
+        _ = run_session_loop(
+            &mut session,
+            incoming_rx,
+            &mut open_stream_rx,
+            &relay_state,
+        ) => {}
+        kill_signal = kill_rx.recv() => {
+            if kill_signal.is_some() {
+                warn!(
+                    subdomain = %subdomain,
+                    "test-mode: killing ws session without close frame"
+                );
+                read_task.abort();
+                write_task.abort();
+            }
+        }
+    }
 
     // Clean up
     session_registry.remove(&subdomain);
     relay_state.remove_mux_connection(&subdomain);
 
-    // Wait for read/write tasks to finish
+    // Wait for read/write tasks to finish (abort() causes them to return Err)
     let _ = read_task.await;
     let _ = write_task.await;
 
@@ -582,6 +617,8 @@ mod tests {
             ),
             config: RelayConfig::default(),
             device_ca: None,
+            #[cfg(feature = "test-mode")]
+            test_metrics: None,
         })
     }
 
@@ -689,6 +726,8 @@ mod tests {
             ),
             config,
             device_ca: None,
+            #[cfg(feature = "test-mode")]
+            test_metrics: None,
         })
     }
 
