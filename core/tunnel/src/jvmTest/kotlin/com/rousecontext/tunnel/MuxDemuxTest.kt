@@ -363,6 +363,42 @@ class MuxDemuxTest {
         coroutineContext.cancelChildren()
     }
 
+    /**
+     * Regression test for issue #230.
+     *
+     * When the underlying transport dies mid-healthCheck, [MuxDemux.closeAllQuietly]
+     * tears everything down. Any in-flight [MuxDemux.sendPingAwaitPong] caller must
+     * observe this as a *failed* health check (no Pong arrived), not a success.
+     *
+     * Previously, `closeAllQuietly` completed each pending ping waiter with `Unit`
+     * *before* cancelling it. Completion wins: the waiter saw success, healthCheck
+     * returned true, and `EndToEndSessionTest.healthCheck fails and state flips when
+     * relay is killed` flaked on the "relay is dead, check must report dead" assertion.
+     */
+    @Test
+    fun awaitPongReturnsFalseWhenTransportClosedQuietly() = runBlocking {
+        val demux = MuxDemux()
+        demux.onOutgoingFrame = { /* swallow, relay is "dead" */ }
+
+        val result = CompletableDeferred<Boolean>()
+        launch {
+            result.complete(
+                demux.sendPingAwaitPong(timeoutMillis = 10_000L, nonce = 0xDEADu.toULong())
+            )
+        }
+
+        // Give the ping coroutine a chance to register its waiter before we tear down.
+        kotlinx.coroutines.delay(50)
+        demux.closeAllQuietly()
+
+        assertEquals(
+            false,
+            result.await(),
+            "Transport-died teardown must surface as failed health check, not success"
+        )
+        coroutineContext.cancelChildren()
+    }
+
     @Test
     fun rejectedOpenInvokesLogLambda() = runBlocking {
         val captured = mutableListOf<Pair<LogLevel, String>>()
