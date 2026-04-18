@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.roborazzi)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.kover)
 }
 
 // Loads a value from `.signing/release.properties` if that file exists.
@@ -49,12 +50,17 @@ android {
     }
 
     // Fail fast on release builds if passwords are missing, with a clear message.
+    // Restricted to the exact signing-triggering tasks so unrelated Gradle targets
+    // (e.g. `koverHtmlReport`, which transitively schedules `packageReleaseResources`
+    // and `packageReleaseUnitTestForUnitTest`) don't spuriously require the keys.
     gradle.taskGraph.whenReady {
+        val releaseSigningTasks = setOf(
+            "assembleRelease",
+            "packageRelease",
+            "bundleRelease"
+        )
         val needsReleaseSigning = allTasks.any { task ->
-            if (task.project != project || !task.name.contains("Release")) return@any false
-            task.name.startsWith("package") ||
-                task.name.startsWith("assemble") ||
-                task.name.startsWith("bundle")
+            task.project == project && task.name in releaseSigningTasks
         }
         if (needsReleaseSigning) {
             check(releaseStorePassword != null) {

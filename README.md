@@ -75,6 +75,17 @@ Rust binary on a small VPS. Handles:
 
 Requires Android SDK (API 35) and JDK 17+.
 
+### Coverage report
+
+```bash
+./gradlew koverHtmlReport
+```
+
+Aggregates line + branch coverage across every module's unit tests and the
+`:core:tunnel:integrationTest` tier (real relay subprocess). HTML lands in
+`build/reports/kover/html/index.html`. CI publishes the same report as a
+`test-coverage` artifact plus a per-module summary on each PR.
+
 ### Relay
 
 ```bash

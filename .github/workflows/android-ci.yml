@@ -70,6 +70,61 @@ jobs:
         if: success() || failure()
         timeout-minutes: 10
         run: ./gradlew :core:tunnel:integrationTest
+      - name: Coverage report (Kover)
+        # Runs after unit + integration tests. Kover would also trigger tests
+        # on its own, but the preceding steps already ran them — Gradle will
+        # reuse those results via `UP-TO-DATE`, so this step just aggregates.
+        if: success() || failure()
+        timeout-minutes: 10
+        run: ./gradlew koverHtmlReport koverXmlReport
+      - name: Per-module coverage summary
+        if: success() || failure()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Coverage (line %)"
+            echo
+            echo "| Module | Covered | Missed | Line % |"
+            echo "|---|---:|---:|---:|"
+            modules=(api core/tunnel core/mcp core/bridge notifications work integrations app)
+            total_cov=0
+            total_mis=0
+            for m in "${modules[@]}"; do
+              f="$m/build/reports/kover/report.xml"
+              if [ ! -f "$f" ]; then
+                echo "| \`:$m\` | — | — | (no report) |"
+                continue
+              fi
+              # The last LINE counter in a Kover XML is the module total.
+              line=$(grep -E '<counter type="LINE"' "$f" | tail -1)
+              cov=$(echo "$line" | sed -n 's/.*covered="\([0-9]*\)".*/\1/p')
+              mis=$(echo "$line" | sed -n 's/.*missed="\([0-9]*\)".*/\1/p')
+              cov=${cov:-0}
+              mis=${mis:-0}
+              tot=$((cov + mis))
+              if [ "$tot" -eq 0 ]; then
+                pct="—"
+              else
+                pct=$(awk "BEGIN { printf \"%.1f%%\", ($cov * 100) / $tot }")
+              fi
+              echo "| \`:${m//\//:}\` | $cov | $mis | $pct |"
+              total_cov=$((total_cov + cov))
+              total_mis=$((total_mis + mis))
+            done
+            grand_tot=$((total_cov + total_mis))
+            if [ "$grand_tot" -gt 0 ]; then
+              grand_pct=$(awk "BEGIN { printf \"%.1f%%\", ($total_cov * 100) / $grand_tot }")
+            else
+              grand_pct="—"
+            fi
+            echo "| **Total** | **$total_cov** | **$total_mis** | **$grand_pct** |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage HTML
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-coverage
+          path: build/reports/kover/html/
       - name: Upload test reports
         if: success() || failure()
         uses: actions/upload-artifact@v4

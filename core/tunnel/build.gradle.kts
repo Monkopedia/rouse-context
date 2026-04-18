@@ -1,6 +1,9 @@
+import org.jetbrains.kotlin.gradle.targets.jvm.tasks.KotlinJvmTest
+
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kover)
 }
 
 kotlin {
@@ -24,7 +27,14 @@ kotlin {
     // binary is absent, so this task degrades to skips rather than hard
     // failures on machines where `relay/target/debug/rouse-relay` hasn't
     // been built (see relay/README.md for the build command).
-    tasks.register<Test>("integrationTest") {
+    //
+    // Registered as `KotlinJvmTest` (not a plain `Test`) so Kover's KMP
+    // locator picks it up — Kover's auto-discovery matches on the
+    // `KotlinJvmTest` superclass and `targetName` bean. Without this, coverage
+    // from the integration tier would silently be dropped from the aggregated
+    // report (issue #248).
+    tasks.register<KotlinJvmTest>("integrationTest") {
+        targetName = "jvm"
         group = "verification"
         description = "Runs @Tag(\"integration\") tests against the real relay binary."
         val jvmTest = tasks.named<Test>("jvmTest").get()
