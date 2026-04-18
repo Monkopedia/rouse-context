@@ -152,17 +152,20 @@ class TunnelForegroundService : LifecycleService() {
                 Log.i(TAG, "Already connecting, skipping")
                 return
             }
-            WakeAction.Skip -> {
-                Log.i(TAG, "Tunnel is active and responsive, skipping reconnect")
-                return
-            }
             is WakeAction.Reconnect -> {
                 val currentState = tunnelClient.state.value
                 if (action.wasStale) {
                     Log.w(TAG, "Tunnel reports ACTIVE but failed health check, reconnecting")
+                } else if (currentState == TunnelState.ACTIVE) {
+                    // Health check passed but relay sent FCM anyway — relay lost
+                    // its WebSocket mapping (idle timeout, restart, etc.). See #243.
+                    Log.w(
+                        TAG,
+                        "Tunnel health check passed but relay requested wake, reconnecting"
+                    )
                 }
                 if (currentState == TunnelState.ACTIVE || currentState == TunnelState.CONNECTED) {
-                    if (!action.wasStale) {
+                    if (currentState == TunnelState.CONNECTED) {
                         Log.i(TAG, "Already connected, disconnecting first to refresh")
                     }
                     // Mark intentional so the state observer doesn't trigger reconnect

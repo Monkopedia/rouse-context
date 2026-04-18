@@ -40,10 +40,13 @@ class WakeReconnectDeciderTest {
     }
 
     @Test
-    fun `ACTIVE with healthy probe triggers Skip`() = runBlocking {
+    fun `ACTIVE with healthy probe triggers Reconnect with wasStale=false`() = runBlocking {
+        // Issue #243: FCM wake always reconnects. A passing health check only
+        // means the TCP socket is alive — the relay may have lost its mapping.
         val client = fakeClient(TunnelState.ACTIVE, healthy = true)
         val action = WakeReconnectDecider.decide(client, 2.seconds)
-        assertEquals(WakeAction.Skip, action)
+        assertTrue(action is WakeAction.Reconnect)
+        assertEquals(false, (action as WakeAction.Reconnect).wasStale)
         coVerify(exactly = 1) { client.healthCheck(any()) }
     }
 

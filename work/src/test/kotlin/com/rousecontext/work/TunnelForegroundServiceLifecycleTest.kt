@@ -133,11 +133,13 @@ class TunnelForegroundServiceLifecycleTest {
         )
     }
 
-    // -- Test 2: FCM wake when ACTIVE with healthy probe skips reconnect --
+    // -- Test 2: FCM wake when ACTIVE with healthy probe forces reconnect (#243) --
 
     @Test
-    fun `FCM wake when ACTIVE with healthy probe skips reconnect`() {
-        // Start in ACTIVE state with a healthy probe
+    fun `FCM wake when ACTIVE with healthy probe forces reconnect`() {
+        // Start in ACTIVE state with a healthy probe.
+        // Issue #243: an FCM wake means the relay needs a fresh connection,
+        // even if the health check passes. The decider must return Reconnect.
         fakeTunnelClient.stateFlow.value = TunnelState.ACTIVE
         fakeTunnelClient.healthCheckResult = true
 
@@ -151,11 +153,14 @@ class TunnelForegroundServiceLifecycleTest {
         controller.startCommand(0, 1)
         drainMain()
 
-        // WakeReconnectDecider returns Skip for ACTIVE + healthy probe
         assertTrue("healthCheck should have been called", fakeTunnelClient.healthCheckCalled)
         assertTrue(
-            "Should not call connect when probe is healthy",
-            fakeTunnelClient.connectCount == connectsBefore
+            "disconnect should have been called to tear down stale tunnel",
+            fakeTunnelClient.disconnectCalled
+        )
+        assertTrue(
+            "Should call connect after FCM wake, even when probe is healthy",
+            fakeTunnelClient.connectCount > connectsBefore
         )
     }
 
