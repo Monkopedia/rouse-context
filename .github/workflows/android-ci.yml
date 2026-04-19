@@ -73,7 +73,12 @@ jobs:
       - name: Integration tests (relay)
         if: success() || failure()
         timeout-minutes: 10
-        run: ./gradlew :core:tunnel:integrationTest
+        # `:app:integrationTest` boots the real AppModule Koin graph against
+        # the same `--test-mode` relay used by `:core:tunnel:integrationTest`
+        # (issue #250 scaffold; umbrella #247). Both tasks share the relay
+        # binary built above. Run together so Kover's aggregate report
+        # (`koverHtmlReport`) picks up coverage from both.
+        run: ./gradlew :core:tunnel:integrationTest :app:integrationTest
       - name: Coverage report (Kover)
         # Runs after unit + integration tests. Kover would also trigger tests
         # on its own, but the preceding steps already ran them — Gradle will

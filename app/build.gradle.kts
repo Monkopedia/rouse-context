@@ -1,3 +1,4 @@
+import java.time.Duration
 import java.util.Properties
 
 plugins {
@@ -213,4 +214,72 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
+    testImplementation(libs.okhttp)
+    // Ktor client used by the integration-test harness to speak to the fixture
+    // relay (mirrors the production `createMtlsRelayHttpClient` setup so the
+    // real RelayApiClient singleton can run end-to-end against loopback).
+    testImplementation(libs.ktor.client.core)
+    testImplementation(libs.ktor.client.okhttp)
+    testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.ktor.serialization.json)
+    testImplementation(libs.kotlinx.serialization.json)
+    // Shared fixture for integration-tier tests that boot the real Rust relay
+    // binary. Hosts `TestRelayFixture`, originally from `:core:tunnel:jvmTest`,
+    // now extracted so `:app` integration tests (issue #250) can use it without
+    // pulling in `:core:tunnel`'s unrelated JUnit5 integration classes.
+    testImplementation(project(":core:testfixtures"))
+    // The fixture uses `kotlin.test.fail`; surface it here so the integration
+    // smoke tests can pattern-match against the same failure messages.
+    testImplementation(kotlin("test"))
+}
+
+// Integration-tier tests that boot the real relay binary and exercise the
+// full Koin graph (umbrella issue #247, scaffold issue #250). These tests
+// live in the standard Android unit-test source set under the
+// `com.rousecontext.app.integration` package but take tens of seconds to run
+// and depend on `relay/target/debug/rouse-relay` being built with
+// `--features test-mode`.
+//
+// They are excluded from the default `testDebugUnitTest` run (CI's "unit
+// tests" step stays fast) and fronted by a dedicated `:app:integrationTest`
+// task so CI can gate them separately. Both tasks are Android `Test` tasks
+// on the debug variant, so Kover's auto-discovery picks them up for the
+// aggregated coverage report (issue #248).
+private val integrationPackage = "com.rousecontext.app.integration"
+
+tasks.withType<Test>().configureEach {
+    if (name == "testDebugUnitTest") {
+        filter {
+            excludeTestsMatching("$integrationPackage.*")
+            isFailOnNoMatchingTests = false
+        }
+    }
+}
+
+tasks.register<Test>("integrationTest") {
+    group = "verification"
+    description =
+        "Runs `$integrationPackage.*` tests against the real relay binary. " +
+        "Requires `cd relay && cargo build --features test-mode` first."
+
+    // Reuse everything about `testDebugUnitTest` (Robolectric runtime,
+    // compiled test classes, android resources, JVM args) — we just want a
+    // different filter applied to the same test task classpath.
+    val source = tasks.named<Test>("testDebugUnitTest").get()
+    testClassesDirs = source.testClassesDirs
+    classpath = source.classpath
+    systemProperty("repo.root", rootProject.projectDir.absolutePath)
+    // Mirror Robolectric graphics config from `testOptions.unitTests.all`.
+    systemProperty("robolectric.graphicsMode", "NATIVE")
+
+    filter {
+        includeTestsMatching("$integrationPackage.*")
+        isFailOnNoMatchingTests = false
+    }
+
+    useJUnit()
+
+    // Integration tests are I/O-heavy (relay subprocess + real TLS + cert
+    // generation) so fail if something hangs instead of wedging CI.
+    timeout.set(Duration.ofMinutes(10L))
 }
