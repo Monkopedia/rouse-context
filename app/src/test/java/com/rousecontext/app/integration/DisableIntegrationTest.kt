@@ -139,7 +139,7 @@ class DisableIntegrationTest {
 
         // Minimum wait for the synchronizer's debounce + certStore peek
         // to settle after a baseline flip sequence so assertions downstream
-        // observe a quiescent baseline. 1.5s = 3x the 500ms debounce.
-        const val SYNC_QUIESCE_MS = 1_500L
+        // observe a quiescent baseline. 800ms = debounce (500ms) + margin.
+        const val SYNC_QUIESCE_MS = 800L
     }
 }
