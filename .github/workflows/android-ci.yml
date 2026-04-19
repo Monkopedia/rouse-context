@@ -72,7 +72,13 @@ jobs:
             :app:testDebugUnitTest
       - name: Integration tests (relay)
         if: success() || failure()
-        timeout-minutes: 10
+        # Raised from 10 → 15 as the integration-scenario coverage grew
+        # through #247's batches. Both :core:tunnel:integrationTest and
+        # :app:integrationTest launch the real relay subprocess (Rust TLS
+        # handshake + Robolectric Android runtime), so each scenario costs
+        # several real seconds; the 10-min cap started truncating CI at
+        # ~120 tests (see the #285/#287 CI failures).
+        timeout-minutes: 15
         # `:app:integrationTest` boots the real AppModule Koin graph against
         # the same `--test-mode` relay used by `:core:tunnel:integrationTest`
         # (issue #250 scaffold; umbrella #247). Both tasks share the relay
