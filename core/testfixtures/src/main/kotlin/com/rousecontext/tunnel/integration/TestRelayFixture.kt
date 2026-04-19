@@ -479,6 +479,9 @@ class TestRelayManager(
     /** Count of `/renew` calls observed by the relay. */
     fun renewCalls(): Int = requireAdmin().renewCalls()
 
+    /** Count of `/request-subdomain` calls observed by the relay. */
+    fun requestSubdomainCalls(): Int = requireAdmin().requestSubdomainCalls()
+
     /**
      * Whether the most recent request to [endpoint] (e.g. `"/renew"`) carried
      * a valid mTLS client certificate. Returns `null` if no request to that
@@ -765,6 +768,9 @@ class TestRelayAdmin(private val port: Int) {
 
     /** Number of `/ws` upgrade requests observed since the relay started. */
     fun wsCalls(): Int = parseIntField(statsRaw(), "ws_calls")
+
+    /** Number of `/request-subdomain` calls observed since the relay started. */
+    fun requestSubdomainCalls(): Int = parseIntField(statsRaw(), "request_subdomain_calls")
 
     /**
      * Whether the most recent request to [endpoint] (e.g. `"/renew"`) carried

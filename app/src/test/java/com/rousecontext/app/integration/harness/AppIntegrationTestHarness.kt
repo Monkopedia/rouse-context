@@ -378,6 +378,84 @@ class AppIntegrationTestHarness(
         }
         snapshotProviderNames = null
     }
+
+    /**
+     * Simulate an Android `pm clear` on the app-under-test: drop every
+     * persistent artefact the app stores, so the next [start] observes a fresh
+     * install. Call this between a [stop] and the following [start].
+     *
+     * Wiped:
+     *   - Everything under `context.filesDir` — that's where
+     *     [com.rousecontext.app.cert.FileCertificateStore] persists the device
+     *     cert + client cert + relay CA + subdomain + integration secrets, and
+     *     where every `preferencesDataStore(name = …)` DataStore writes its
+     *     `datastore/<name>.preferences_pb` file.
+     *   - Every Room database declared by the app graph (tokens, audit,
+     *     notifications). Uses `Context.deleteDatabase(...)` so the file,
+     *     the `-shm` / `-wal` companions and any open references are all
+     *     tracked together (matches what `pm clear` does at the framework
+     *     level).
+     *   - The `rouse_device_key` alias in the Android Keystore, if the
+     *     provider is available in the test runtime. Robolectric does not
+     *     ship `AndroidKeyStore` by default (see `AppIntegrationTestHarness`'s
+     *     class docs), so this branch is a no-op in typical runs — the
+     *     harness's [SoftwareDeviceKeyManager] is already refreshed by the
+     *     subsequent [start] (a new instance is constructed in
+     *     `buildTestOverrides`). Clearing the alias is defensive so the call
+     *     is still correct on a runtime where the provider is wired up.
+     *
+     * Does NOT touch the relay subprocess (it's already shut down by [stop]).
+     * The next [start] spins up a fresh relay, meaning Firestore / subdomain
+     * pool / reservations are all empty — the same observable state the
+     * device would see if it were re-onboarded under a fresh Google account.
+     * Regression guard for issue #271.
+     */
+    fun clearPersistentState() {
+        check(koinInstance == null) {
+            "clearPersistentState() must be called between stop() and start()"
+        }
+
+        val appContext: Context = ApplicationProvider.getApplicationContext<Application>()
+
+        // filesDir: FileCertificateStore + every preferencesDataStore file
+        // (datastore/<name>.preferences_pb).
+        appContext.filesDir?.listFiles()?.forEach { it.deleteRecursively() }
+
+        // Room DBs. deleteDatabase is a no-op for unknown names, but naming
+        // them explicitly catches the case where a future module adds a new
+        // Room DB and forgets to wire it in here.
+        listOf(ROOM_DB_TOKENS, ROOM_DB_AUDIT, ROOM_DB_NOTIFICATIONS)
+            .forEach { runCatching { appContext.deleteDatabase(it) } }
+
+        // AndroidKeyStore alias. Robolectric omits the provider by default, so
+        // `KeyStore.getInstance("AndroidKeyStore")` throws
+        // `NoSuchAlgorithmException` — swallow it: the harness's
+        // software-backed DeviceKeyManager is regenerated on the next start().
+        runCatching {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE_NAME)
+            keyStore.load(null)
+            if (keyStore.containsAlias(DEVICE_KEY_ALIAS)) {
+                keyStore.deleteEntry(DEVICE_KEY_ALIAS)
+            }
+        }
+    }
+
+    private companion object {
+        // Keep these values in sync with:
+        //   app/token/TokenDatabase (DB_NAME)
+        //   notifications/audit/AuditDatabase (DB_NAME)
+        //   integrations/notifications/NotificationDatabase (DB_NAME)
+        // App under test owns the names; duplicating them here is safe because
+        // a rename would force this wipe to be updated alongside the schema.
+        const val ROOM_DB_TOKENS = "rouse_tokens.db"
+        const val ROOM_DB_AUDIT = "rouse_audit.db"
+        const val ROOM_DB_NOTIFICATIONS = "rouse_notifications.db"
+
+        // Matches [com.rousecontext.app.cert.AndroidKeystoreDeviceKeyManager.KEY_ALIAS]
+        // and the legacy `FileCertificateStore` alias.
+        const val DEVICE_KEY_ALIAS = "rouse_device_key"
+        const val ANDROID_KEYSTORE_NAME = "AndroidKeyStore"
+    }
 }
 
 /**

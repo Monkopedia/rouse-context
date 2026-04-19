@@ -60,6 +60,7 @@ pub struct TestMetrics {
     pub rotate_secret_calls: AtomicU64,
     pub renew_calls: AtomicU64,
     pub ws_calls: AtomicU64,
+    pub request_subdomain_calls: AtomicU64,
     /// Last-seen client-cert presence flag per endpoint path.
     /// Indexed by normalised path (e.g. "/renew"). `true` means the request
     /// carried a `DeviceIdentity` extension (mTLS client cert validated).
@@ -97,6 +98,9 @@ impl TestMetrics {
             }
             "/ws" => {
                 self.ws_calls.fetch_add(1, Ordering::Relaxed);
+            }
+            "/request-subdomain" => {
+                self.request_subdomain_calls.fetch_add(1, Ordering::Relaxed);
             }
             _ => {}
         }
@@ -195,6 +199,7 @@ pub struct StatsResponse {
     pub rotate_secret_calls: u64,
     pub renew_calls: u64,
     pub ws_calls: u64,
+    pub request_subdomain_calls: u64,
     pub last_client_cert_seen: std::collections::HashMap<String, bool>,
     pub captured_wakes: Vec<String>,
     pub routed_passthrough_snis: Vec<String>,
@@ -208,6 +213,7 @@ pub async fn handle_stats(State(state): State<AdminState>) -> Response {
         rotate_secret_calls: m.rotate_secret_calls.load(Ordering::Relaxed),
         renew_calls: m.renew_calls.load(Ordering::Relaxed),
         ws_calls: m.ws_calls.load(Ordering::Relaxed),
+        request_subdomain_calls: m.request_subdomain_calls.load(Ordering::Relaxed),
         last_client_cert_seen: m
             .last_client_cert_seen
             .lock()
