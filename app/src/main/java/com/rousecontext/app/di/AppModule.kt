@@ -99,6 +99,7 @@ import com.rousecontext.work.DeviceKeystoreSigner
 import com.rousecontext.work.FcmTokenRegistrar
 import com.rousecontext.work.FirebaseRenewalAuthProvider
 import com.rousecontext.work.IdleTimeoutManager
+import com.rousecontext.work.IntegrationSecretsSynchronizer
 import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.RenewalAuthProvider
 import com.rousecontext.work.SecurityCheckPreferences
@@ -322,6 +323,24 @@ val appModule = module {
             stateStore = get(),
             appScope = get(named("appScope"))
         )
+    }
+
+    // --- Integration-secrets synchronizer (issue #285) ---
+    // Listens to IntegrationStateStore enable/disable flips and auto-pushes
+    // the updated set to the relay. Without this, disabling an integration
+    // from Settings would flip a local DataStore flag but leave the relay's
+    // valid-secrets cache unchanged — leaked AI-client URLs would stay live.
+    // Must be `createdAtStart` so the observer is running before any UI
+    // touches the state store.
+    single(createdAtStart = true) {
+        IntegrationSecretsSynchronizer(
+            integrations = get(),
+            stateStore = get(),
+            relayApiClient = get(),
+            certStore = get(),
+            appScope = get(named("appScope")),
+            crashReporter = get()
+        ).also { it.start() }
     }
 
     // --- Preferences snapshot holder (live reactive view of all prefs) ---
