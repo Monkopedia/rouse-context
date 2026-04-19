@@ -297,13 +297,74 @@ class AppIntegrationTestHarness(
             runCatching { stopKoin() }
         }
 
+        synchronized(capturedRotateSecretPayloads) { capturedRotateSecretPayloads.clear() }
+
+        bootKoin(ca = newCa, relayPort = newPort)
+    }
+
+    /**
+     * Tear down the Koin graph, harness coroutine scope, and in-memory fake
+     * health repository, then re-boot Koin against the SAME running relay and
+     * the SAME `context.filesDir` contents. Used by scenarios that simulate a
+     * client-side crash between persistent-state writes: the device loses its
+     * in-memory state (Koin singletons, DeviceKeyManager, registration
+     * status flow) while the relay's Firestore record and the on-disk
+     * [com.rousecontext.app.cert.FileCertificateStore] both survive.
+     *
+     * Inverse of [clearPersistentState] — that one is for "`pm clear`" style
+     * scenarios (#271), this one is for "process died, OS will relaunch us"
+     * scenarios (#272). Callers must have a currently-running harness (call on
+     * an instance where [start] was invoked and [stop] was not); calling twice
+     * in a row is fine.
+     *
+     * Concretely:
+     *   - Stops Koin and cancels the harness scope so no callbacks from the
+     *     prior graph can race with the new one.
+     *   - Builds a fresh [SoftwareDeviceKeyManager] via the normal Koin
+     *     override module. That mirrors production where a process restart
+     *     would re-resolve the Android Keystore key (same alias, same key),
+     *     but the harness's key manager is purely in-memory — a fresh
+     *     keypair is actually the stricter analogue of "the in-memory
+     *     handle is gone and must be re-obtained".
+     *   - Does NOT touch: the relay subprocess, the test CA, the temp dir,
+     *     `context.filesDir` (CertificateStore + DataStore persist there),
+     *     Room databases, or JCA provider registrations.
+     */
+    fun restartKoinPreservingState() {
+        checkNotNull(koinInstance) {
+            "restartKoinPreservingState() requires a running harness (call start() first)"
+        }
+        val currentCa = checkNotNull(ca) { "harness CA missing" }
+        val currentPort = relayPortOrNegative
+        check(currentPort > 0) { "harness relay port invalid" }
+
+        runCatching { stopKoin() }
+        koinInstance = null
+
+        harnessScope?.cancel()
+        harnessScope = null
+        fakeHealth = null
+
+        // On purpose: we do NOT clear capturedRotateSecretPayloads. Callers
+        // inspecting payloads across a restart expect to see the cumulative
+        // timeline, matching how the relay stats accumulate on the preserved
+        // subprocess.
+
+        bootKoin(ca = currentCa, relayPort = currentPort)
+    }
+
+    /**
+     * Shared Koin-startup path used by both [start] (fresh relay) and
+     * [restartKoinPreservingState] (existing relay). Builds a new scope, new
+     * fake health repo, and re-runs `startKoin { modules(appModule + overrides) }`.
+     */
+    private fun bootKoin(ca: TestCertificateAuthority, relayPort: Int) {
         val newHarnessScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         harnessScope = newHarnessScope
 
         val newFakeHealth = HarnessFakeHealthConnectRepository()
         fakeHealth = newFakeHealth
 
-        synchronized(capturedRotateSecretPayloads) { capturedRotateSecretPayloads.clear() }
         val captureSink: (List<String>) -> Unit = { ids ->
             synchronized(capturedRotateSecretPayloads) { capturedRotateSecretPayloads.add(ids) }
         }
@@ -314,8 +375,8 @@ class AppIntegrationTestHarness(
             modules(
                 appModule,
                 buildTestOverrides(
-                    ca = newCa,
-                    relayPort = newPort,
+                    ca = ca,
+                    relayPort = relayPort,
                     relayHostname = relayHostname,
                     baseDomain = baseDomain,
                     harnessScope = newHarnessScope,
