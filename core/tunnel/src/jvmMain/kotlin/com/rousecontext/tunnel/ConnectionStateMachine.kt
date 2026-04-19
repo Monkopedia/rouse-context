@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class ConnectionStateMachine(private val log: (LogLevel, String) -> Unit = { _, _ -> }) {
 
+    private val lock = Any()
     private val _state = MutableStateFlow(TunnelState.DISCONNECTED)
 
     /**
@@ -28,21 +29,23 @@ class ConnectionStateMachine(private val log: (LogLevel, String) -> Unit = { _, 
         get() = _state.asStateFlow()
 
     /**
-     * Attempt a state transition.
+     * Attempt a state transition. Internally synchronized so the
+     * read-check-write sequence is atomic with respect to other concurrent
+     * `transition()` callers; see #269.
      *
      * @return true if the transition was valid and applied, false if invalid (logged as warning)
      */
-    fun transition(to: TunnelState): Boolean {
+    fun transition(to: TunnelState): Boolean = synchronized(lock) {
         val from = _state.value
         if (!isValidTransition(from, to)) {
             log(
                 LogLevel.WARN,
                 "ConnectionStateMachine: ignoring invalid transition from $from to $to"
             )
-            return false
+            return@synchronized false
         }
         _state.value = to
-        return true
+        true
     }
 
     private fun isValidTransition(from: TunnelState, to: TunnelState): Boolean = when (from) {

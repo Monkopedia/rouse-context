@@ -135,14 +135,17 @@ class TunnelClientImpl(
                 demux.activeStreamCount
                     .drop(1)
                     .collect { count ->
-                        synchronized(stateMachine) {
-                            when {
-                                count > 0 && stateMachine.state.value == TunnelState.CONNECTED -> {
-                                    stateMachine.transition(TunnelState.ACTIVE)
-                                }
-                                count == 0 && stateMachine.state.value == TunnelState.ACTIVE -> {
-                                    stateMachine.transition(TunnelState.CONNECTED)
-                                }
+                        // transition() is internally synchronized (#269), so the
+                        // read-check-call pattern here is safe: a racing
+                        // disconnect() that invalidates the read will cause the
+                        // transition() below to be rejected as invalid and
+                        // logged, which is the correct outcome.
+                        when {
+                            count > 0 && stateMachine.state.value == TunnelState.CONNECTED -> {
+                                stateMachine.transition(TunnelState.ACTIVE)
+                            }
+                            count == 0 && stateMachine.state.value == TunnelState.ACTIVE -> {
+                                stateMachine.transition(TunnelState.CONNECTED)
                             }
                         }
                     }
