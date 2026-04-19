@@ -231,6 +231,11 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
     testImplementation(libs.okhttp)
+    // WorkManager test helpers — `WorkManagerTestInitHelper`, `SynchronousExecutor`,
+    // `TestDriver`. Used by the integration-tier scheduling test for
+    // [com.rousecontext.work.CertRenewalWorker] (issue #277) to drive periodic
+    // / one-time work through to completion without real time passing.
+    testImplementation(libs.workmanager.testing)
     // Ktor client used by the integration-test harness to speak to the fixture
     // relay (mirrors the production `createMtlsRelayHttpClient` setup so the
     // real RelayApiClient singleton can run end-to-end against loopback).
