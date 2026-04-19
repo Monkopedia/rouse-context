@@ -121,7 +121,15 @@ class AppIntegrationTestHarness(
      */
     private val initialSubdomain: String = "smoke-device",
     private val relayHostname: String = "relay.test.local",
-    private val baseDomain: String = "relay.test.local"
+    private val baseDomain: String = "relay.test.local",
+    /**
+     * Integrations to register in place of the production list. Issue #252
+     * scenarios need at least one integration wired into the Koin graph
+     * (the default `emptyList()` leaves `ProviderRegistry` empty, so the
+     * MCP session has no tools to call). Callers provide a lightweight
+     * in-test integration like `TestEchoMcpIntegration` here.
+     */
+    private val integrationsFactory: () -> List<McpIntegration> = { emptyList() }
 ) {
     // ---- Lifecycle state ----
     // All set by [start], cleared by [stop]. The backing storage is intentionally
@@ -237,7 +245,8 @@ class AppIntegrationTestHarness(
                     relayHostname = relayHostname,
                     baseDomain = baseDomain,
                     harnessScope = newHarnessScope,
-                    fakeHealth = newFakeHealth
+                    fakeHealth = newFakeHealth,
+                    integrations = integrationsFactory()
                 )
             )
         }.koin
@@ -287,14 +296,15 @@ class AppIntegrationTestHarness(
  * `@Suppress("LongMethod")` — split into sub-functions would obscure the
  * parallel structure with [appModule].
  */
-@Suppress("LongMethod")
+@Suppress("LongMethod", "LongParameterList")
 private fun buildTestOverrides(
     ca: TestCertificateAuthority,
     relayPort: Int,
     relayHostname: String,
     baseDomain: String,
     harnessScope: CoroutineScope,
-    fakeHealth: HarnessFakeHealthConnectRepository
+    fakeHealth: HarnessFakeHealthConnectRepository,
+    integrations: List<McpIntegration>
 ) = module {
     // --- appScope override ---
     // Production supplies a main-dispatcher scope from RouseApplication. We
@@ -316,12 +326,11 @@ private fun buildTestOverrides(
     // not shipped in Robolectric's SDK 33 runtime, so Koin start would
     // cascade-fail with `NoSuchAlgorithmException: AndroidKeyStore`.
     //
-    // Replace the list with an empty one here; scenario tests that need a
-    // specific integration wired in should extend this override further.
-    // `TestMcpIntegration` from the debug source set is intentionally not
-    // pulled in because it would cascade into `debugModules()` wiring that
-    // `startKoin` in this harness does not load.
-    single<List<McpIntegration>> { emptyList() }
+    // Tests that need providers wired into the MCP session pass them via
+    // `AppIntegrationTestHarness(integrationsFactory = { ... })`; the
+    // default is the empty list (onboarding / cert-provisioning scenarios
+    // don't talk to the MCP server and don't need providers).
+    single<List<McpIntegration>> { integrations }
 
     // --- DeviceKeyManager ---
     // AndroidKeystoreDeviceKeyManager requires the AndroidKeyStore JCA
@@ -421,6 +430,21 @@ private fun buildTestOverrides(
     // production graph reads this qualifier to pick the relay endpoint.
     single<String>(named("relayUrl")) {
         "wss://$relayHostname:$relayPort/ws"
+    }
+
+    // --- AuditListener override (no FieldEncryptor) ---
+    // Production's `RoomAuditListener` encrypts sensitive fields with a
+    // [com.rousecontext.notifications.FieldEncryptor] backed by the
+    // AndroidKeyStore JCA provider, which isn't shipped in Robolectric's
+    // SDK 33 runtime. `RoomAuditListener` already takes a nullable
+    // [FieldEncryptor], so we just re-bind the AuditListener with `null`.
+    single<com.rousecontext.mcp.core.AuditListener> {
+        com.rousecontext.notifications.audit.RoomAuditListener(
+            dao = get(),
+            fieldEncryptor = null,
+            perCallObserver = get(),
+            mcpRequestDao = get()
+        )
     }
 }
 
