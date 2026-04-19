@@ -8,6 +8,41 @@ fn write_toml(content: &str) -> NamedTempFile {
     f
 }
 
+/// Build a VALID_TOML with a per-test `api_token_env` name.
+///
+/// Rust integration tests all share a single process, and `std::env` is
+/// process-global. Two tests that toggle the same env var will race under
+/// default parallel execution (cargo runs test fns on a thread pool). By
+/// parameterising the env var name per test, each test owns an isolated
+/// namespace, so `set_var` / `remove_var` from one test cannot affect
+/// assertions in another. This is cheaper and less brittle than serialising
+/// the whole test file behind a mutex.
+fn valid_toml_with_cf_env(api_token_env: &str) -> String {
+    format!(
+        r#"
+[server]
+bind_addr = "0.0.0.0:8443"
+relay_hostname = "relay.rousecontext.com"
+
+[tls]
+cert_path = "/etc/relay/cert.pem"
+key_path = "/etc/relay/key.pem"
+
+[firebase]
+project_id = "rouse-context"
+service_account_path = "/etc/relay/firebase-sa.json"
+
+[cloudflare]
+zone_id = "test-zone-id"
+api_token_env = "{api_token_env}"
+
+[limits]
+max_streams_per_device = 16
+wake_rate_limit = 6
+"#
+    )
+}
+
 const VALID_TOML: &str = r#"
 [server]
 bind_addr = "0.0.0.0:8443"
@@ -101,28 +136,35 @@ fn env_var_overrides_relay_hostname() {
 
 #[test]
 fn missing_required_cloudflare_token_env_var_fails() {
-    let f = write_toml(VALID_TOML);
+    // Use a test-unique env var name so a concurrent test can't accidentally
+    // set "CF_API_TOKEN" and flip this assertion. See `valid_toml_with_cf_env`.
+    let var_name = "CF_API_TOKEN_MISSING_TEST";
+    let toml = valid_toml_with_cf_env(var_name);
+    let f = write_toml(&toml);
     let cfg = RelayConfig::from_file(f.path()).unwrap();
-    // The api_token_env field names an env var. Resolving it should fail
-    // if that env var is not set.
-    std::env::remove_var("CF_API_TOKEN");
+    // Ensure the var is unset before resolving (defensive — no other test
+    // should ever touch this name, but we guard against a polluted caller env).
+    std::env::remove_var(var_name);
     let result = cfg.cloudflare.resolve_api_token();
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("CF_API_TOKEN"),
+        err_msg.contains(var_name),
         "Error should mention the missing env var name, got: {err_msg}"
     );
 }
 
 #[test]
 fn resolve_cloudflare_token_succeeds_when_set() {
-    let f = write_toml(VALID_TOML);
+    // Use a test-unique env var name — see sibling test for rationale.
+    let var_name = "CF_API_TOKEN_SUCCESS_TEST";
+    let toml = valid_toml_with_cf_env(var_name);
+    let f = write_toml(&toml);
     let cfg = RelayConfig::from_file(f.path()).unwrap();
-    std::env::set_var("CF_API_TOKEN", "test-token-value");
+    std::env::set_var(var_name, "test-token-value");
     let token = cfg.cloudflare.resolve_api_token().unwrap();
     assert_eq!(token, "test-token-value");
-    std::env::remove_var("CF_API_TOKEN");
+    std::env::remove_var(var_name);
 }
 
 #[test]
