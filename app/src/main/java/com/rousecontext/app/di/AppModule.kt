@@ -178,14 +178,8 @@ val appModule = module {
     single { BugReportUriBuilder(androidContext()) }
 
     // --- Certificate store ---
-    // Issue #200: run the legacy-PEM migration sweep once at startup so any lingering
-    // software-key PEM from pre-hardware-key builds is cleared before the first cert
-    // provisioning / renewal attempt. The sweep is idempotent.
     single {
-        val store = FileCertificateStore(androidContext())
-        val appScope: CoroutineScope = get(named("appScope"))
-        appScope.launch { store.migrateLegacyPrivateKeyFileIfNeeded() }
-        store
+        FileCertificateStore(androidContext())
     } bind CertificateStore::class
 
     // --- Device identity key (Android Keystore, StrongBox/TEE) ---
