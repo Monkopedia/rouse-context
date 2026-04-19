@@ -487,6 +487,18 @@ class TestRelayManager(
     fun lastRequestHadClientCert(endpoint: String): Boolean? =
         requireAdmin().lastRequestHadClientCert(endpoint)
 
+    /**
+     * SNI hostnames the relay dispatched to device-passthrough routes,
+     * in arrival order. Recorded from `main.rs::handle_connection` under
+     * `#[cfg(feature = "test-mode")]`. Used by `:app` integration tests
+     * (issue #262) to prove the synthetic AI client actually emitted an
+     * SNI extension in its outbound ClientHello — Conscrypt
+     * (Robolectric's default JSSE) silently strips SNI, so these tests
+     * swap in BouncyCastle JSSE and rely on this counter to lock in the
+     * fix.
+     */
+    fun routedPassthroughSnis(): List<String> = requireAdmin().routedPassthroughSnis()
+
     private fun requireAdmin(): TestRelayAdmin = admin ?: fail(
         "TestRelayManager: test-mode admin not available — " +
             "construct with enableTestMode = true"
@@ -773,9 +785,22 @@ class TestRelayAdmin(private val port: Int) {
     }
 
     /** Subdomains captured by synthetic `/test/fcm-wake` calls, in arrival order. */
-    fun capturedWakes(): List<String> {
-        val body = statsRaw()
-        val marker = "\"captured_wakes\":"
+    fun capturedWakes(): List<String> = parseStringArrayField(statsRaw(), "captured_wakes")
+
+    /**
+     * SNI hostnames the relay's router dispatched to the device-passthrough
+     * path, in arrival order. Populated by `handle_connection` in
+     * `relay/src/main.rs` under `#[cfg(feature = "test-mode")]`. Used by
+     * `:app` integration tests (#262) to assert the synthetic AI client
+     * actually emitted an SNI extension in its ClientHello — Conscrypt
+     * (Robolectric's default JSSE) strips SNI, and BouncyCastle JSSE was
+     * swapped in to restore it.
+     */
+    fun routedPassthroughSnis(): List<String> =
+        parseStringArrayField(statsRaw(), "routed_passthrough_snis")
+
+    private fun parseStringArrayField(body: String, field: String): List<String> {
+        val marker = "\"$field\":"
         val idx = body.indexOf(marker)
         if (idx < 0) return emptyList()
         val open = body.indexOf('[', idx)

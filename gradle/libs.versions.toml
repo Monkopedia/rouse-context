@@ -36,6 +36,7 @@ okhttp = "5.3.2"
 desugar = "2.1.5"
 kover = "0.9.8"
 firebase-crashlytics-gradle = "3.0.6"
+bouncycastle = "1.78.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -115,6 +116,16 @@ datastore-preferences = { group = "androidx.datastore", name = "datastore-prefer
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+
+# BouncyCastle JSSE — test-scope only. Robolectric registers Conscrypt as the
+# default JCA TLS provider; ConscryptEngineSocket silently strips the SNI
+# extension from outbound ClientHellos regardless of how it's configured (see
+# issue #262). BC JSSE honours `SSLParameters.serverNames`, so the synthetic
+# AI-client integration tests insert it at Security priority 1 for the
+# duration of the harness lifecycle to force `SSLContext.getInstance("TLS")`
+# to resolve to BC. Production code is untouched — no `implementation` dep.
+bouncycastle-jsse = { group = "org.bouncycastle", name = "bctls-jdk18on", version.ref = "bouncycastle" }
+bouncycastle-prov = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 splashscreen = { group = "androidx.core", name = "core-splashscreen", version = "1.2.0" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
 

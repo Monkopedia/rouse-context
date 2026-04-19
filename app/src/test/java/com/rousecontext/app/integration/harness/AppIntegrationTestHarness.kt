@@ -28,6 +28,7 @@ import java.net.InetAddress
 import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
+import java.security.Security
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
 import java.util.concurrent.TimeUnit
@@ -187,6 +188,32 @@ class AppIntegrationTestHarness(
      * matching the rest of the integration suite.
      */
     fun start() {
+        // Capture the pre-swap provider list snapshot (see [stop]).
+        snapshotSecurityProviders()
+
+        // Insert BouncyCastle JSSE + Prov at JCA priority 1 for the
+        // duration of this harness. Robolectric registers Conscrypt as the
+        // default JSSE, and Conscrypt's outbound `SSLSocket` silently drops
+        // the SNI extension from client ClientHellos regardless of how it
+        // is configured — issue #262. BC JSSE honours
+        // `SSLParameters.serverNames`, so raw `SSLSocket` code paths
+        // (synthetic AI client in `ToolCallViaSniPassthroughTest`) actually
+        // reach the relay's SNI router.
+        //
+        // Must happen before any `SSLContext.getInstance("TLS")` call
+        // inside `start()` — in particular before OkHttp builds the
+        // relay mTLS client, and before the TunnelClient opens its
+        // WebSocket.
+        //
+        // [FreshSslContextSocketFactory] explicitly falls back to the
+        // highest-priority non-BC TLS provider so the OkHttp mTLS
+        // `DelegatingX509KeyManager` path keeps the same JSSE it was
+        // validated against (Conscrypt under Robolectric). BC's TLS 1.3
+        // client-auth handshake does not interoperate with that
+        // delegating key manager; scoping BC to raw SSLSockets avoids
+        // dragging every OkHttp handshake into BC-land.
+        installBouncyCastleJsseProvider()
+
         val relayBinary = findRelayBinary()
         assumeTrue(
             "Relay binary not found. Build with: cd relay && cargo build --features test-mode",
@@ -280,6 +307,91 @@ class AppIntegrationTestHarness(
 
         tempDir?.takeIf { it.exists() }?.deleteRecursively()
         tempDir = null
+
+        // Restore the JCA provider list to whatever it was before
+        // [start] so the next test class in the same JVM is not affected
+        // by BC's position.
+        restoreSecurityProviders()
+    }
+
+    private var snapshotProviderNames: List<String>? = null
+
+    private fun snapshotSecurityProviders() {
+        snapshotProviderNames = Security.getProviders().map { it.name }
+    }
+
+    private fun restoreSecurityProviders() {
+        // Remove any provider that is not in the pre-start snapshot.
+        val keep = snapshotProviderNames ?: return
+        Security.getProviders().toList().forEach { p ->
+            if (p.name !in keep) {
+                Security.removeProvider(p.name)
+            }
+        }
+        snapshotProviderNames = null
+    }
+}
+
+/**
+ * Return the highest-priority JCA provider that advertises a service of
+ * [serviceType] (e.g. `"SSLContext"`, `"TrustManagerFactory"`) whose
+ * algorithm [algorithmFilter] accepts, excluding BouncyCastle.
+ *
+ * Callers use this to route specific JCA lookups around the global BC
+ * provider that the harness installs at priority 1. The mTLS OkHttp
+ * client (`DelegatingX509KeyManager` / PKCS12 / `SunX509` stack) was
+ * validated against Conscrypt's JSSE, and BC's TLS 1.3 client-auth path
+ * does not interoperate cleanly with that setup.
+ */
+private fun pickNonBouncyCastleProviderOffering(
+    serviceType: String,
+    algorithmFilter: (String) -> Boolean
+): java.security.Provider {
+    for (p in Security.getProviders()) {
+        if (p.name == "BCJSSE" || p.name == "BC") continue
+        val supports = p.services.any { svc ->
+            svc.type == serviceType && algorithmFilter(svc.algorithm)
+        }
+        if (supports) return p
+    }
+    error(
+        "No non-BouncyCastle JCA provider offers $serviceType matching the " +
+            "requested algorithm filter — harness cannot build its mTLS stack"
+    )
+}
+
+/**
+ * Alias for [pickNonBouncyCastleProviderOffering] restricted to the default
+ * [TrustManagerFactory] algorithm. Used by [buildFixtureMtlsHttpClient] to
+ * ensure the trust manager comes from the same JSSE implementation as the
+ * mTLS SSLContext.
+ */
+private fun pickNonBouncyCastleTrustProvider(): java.security.Provider {
+    val defaultAlgo = TrustManagerFactory.getDefaultAlgorithm()
+    return pickNonBouncyCastleProviderOffering("TrustManagerFactory") {
+        it == defaultAlgo
+    }
+}
+
+/**
+ * Insert BouncyCastle's JSSE + crypto providers at JCA priority 1 so
+ * `SSLContext.getInstance("TLS")` resolves to BC by default. Loaded
+ * reflectively to keep BC out of the app module's production classpath —
+ * the libraries are declared `testImplementation` only. Idempotent:
+ * skipped if already registered.
+ */
+private fun installBouncyCastleJsseProvider() {
+    if (Security.getProvider("BC") == null) {
+        val bcProv = Class.forName("org.bouncycastle.jce.provider.BouncyCastleProvider")
+            .getDeclaredConstructor()
+            .newInstance() as java.security.Provider
+        Security.insertProviderAt(bcProv, 1)
+    }
+    if (Security.getProvider("BCJSSE") == null) {
+        val bcJsse = Class.forName("org.bouncycastle.jsse.provider.BouncyCastleJsseProvider")
+            .getDeclaredConstructor()
+            .newInstance() as java.security.Provider
+        Security.insertProviderAt(bcJsse, 1)
     }
 }
 
@@ -516,7 +628,16 @@ private fun buildFixtureMtlsHttpClient(
     val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
     trustStore.load(null, null)
     trustStore.setCertificateEntry("ca", caCert)
-    val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+    // Pin the trust-manager factory to a non-BC provider so its trust
+    // manager pairs cleanly with the non-BC `SSLContext` built in
+    // [FreshSslContextSocketFactory]. Mixing a BC trust manager with a
+    // Conscrypt SSLContext throws "Unsupported server authType: GENERIC"
+    // on TLS 1.3 handshakes — the two providers use different authType
+    // coding.
+    val tmf = TrustManagerFactory.getInstance(
+        TrustManagerFactory.getDefaultAlgorithm(),
+        pickNonBouncyCastleTrustProvider()
+    )
     tmf.init(trustStore)
     val trustManager = tmf.trustManagers.firstOrNull { it is X509TrustManager } as? X509TrustManager
         ?: error("No X509TrustManager")
@@ -669,7 +790,16 @@ private class FreshSslContextSocketFactory(
 ) : javax.net.ssl.SSLSocketFactory() {
 
     private fun freshFactory(): javax.net.ssl.SSLSocketFactory {
-        val sslContext = SSLContext.getInstance("TLS")
+        // Pin this factory to the first non-BouncyCastle TLS provider
+        // (Conscrypt under Robolectric, SunJSSE under plain JVM). The
+        // harness installs BC JSSE at priority 1 to fix raw-SSLSocket SNI
+        // emission for #262, but BC's TLS 1.3 client-auth path does not
+        // interoperate with the `DelegatingX509KeyManager` / PKCS12 /
+        // `SunX509` stack this OkHttp mTLS client uses — the handshake
+        // completes without a client cert and the relay 401s. Scoping BC
+        // to raw SSLSockets (in `ToolCallViaSniPassthroughTest`) keeps
+        // every OkHttp path on whichever JSSE it was validated against.
+        val sslContext = SSLContext.getInstance("TLS", pickNonBouncyCastleTlsProvider())
         sslContext.init(
             arrayOf(DelegatingX509KeyManager(keyManagerSource)),
             trustManagers,
@@ -679,6 +809,9 @@ private class FreshSslContextSocketFactory(
         sslContext.clientSessionContext?.sessionTimeout = 1
         return sslContext.socketFactory
     }
+
+    private fun pickNonBouncyCastleTlsProvider(): java.security.Provider =
+        pickNonBouncyCastleProviderOffering("SSLContext") { it == "TLS" || it == "Default" }
 
     override fun getDefaultCipherSuites(): Array<String> = freshFactory().defaultCipherSuites
     override fun getSupportedCipherSuites(): Array<String> = freshFactory().supportedCipherSuites

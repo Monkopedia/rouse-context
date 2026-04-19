@@ -247,6 +247,13 @@ dependencies {
     // The fixture uses `kotlin.test.fail`; surface it here so the integration
     // smoke tests can pattern-match against the same failure messages.
     testImplementation(kotlin("test"))
+    // BouncyCastle JSSE — test-scope only. See the comment in
+    // `gradle/libs.versions.toml` / issue #262. `AppIntegrationTestHarness`
+    // registers the provider at position 1 so synthetic AI-client
+    // `SSLSocket`s correctly emit SNI (Conscrypt, Robolectric's default,
+    // silently omits it).
+    testImplementation(libs.bouncycastle.jsse)
+    testImplementation(libs.bouncycastle.prov)
 }
 
 // Integration-tier tests that boot the real relay binary and exercise the

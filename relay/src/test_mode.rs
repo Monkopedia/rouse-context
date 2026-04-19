@@ -66,6 +66,14 @@ pub struct TestMetrics {
     pub last_client_cert_seen: Mutex<std::collections::HashMap<String, bool>>,
     /// Synthetic FCM wake events captured via `POST /test/fcm-wake`.
     pub captured_wakes: Mutex<Vec<String>>,
+    /// SNI hostnames seen on successfully-routed device-passthrough
+    /// connections, in arrival order. Populated by `record_routed_passthrough`
+    /// from `main.rs::handle_connection` when a ClientHello is dispatched to
+    /// a device's mux session. Used by `:app` integration tests (#262) to
+    /// prove the synthetic AI client's outbound TLS actually carried an SNI
+    /// extension — previously Conscrypt (Robolectric's default JSSE) silently
+    /// dropped it.
+    pub routed_passthrough_snis: Mutex<Vec<String>>,
 }
 
 impl TestMetrics {
@@ -94,6 +102,15 @@ impl TestMetrics {
         }
         if let Ok(mut map) = self.last_client_cert_seen.lock() {
             map.insert(path.to_string(), had_client_cert);
+        }
+    }
+
+    /// Record an SNI hostname that was resolved to a device-passthrough route.
+    /// Called from the SNI router in `main.rs::handle_connection` right
+    /// before the splice task starts.
+    pub fn record_routed_passthrough(&self, sni: &str) {
+        if let Ok(mut v) = self.routed_passthrough_snis.lock() {
+            v.push(sni.to_string());
         }
     }
 }
@@ -180,6 +197,7 @@ pub struct StatsResponse {
     pub ws_calls: u64,
     pub last_client_cert_seen: std::collections::HashMap<String, bool>,
     pub captured_wakes: Vec<String>,
+    pub routed_passthrough_snis: Vec<String>,
 }
 
 pub async fn handle_stats(State(state): State<AdminState>) -> Response {
@@ -197,6 +215,11 @@ pub async fn handle_stats(State(state): State<AdminState>) -> Response {
             .unwrap_or_default(),
         captured_wakes: m
             .captured_wakes
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default(),
+        routed_passthrough_snis: m
+            .routed_passthrough_snis
             .lock()
             .map(|g| g.clone())
             .unwrap_or_default(),

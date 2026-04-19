@@ -22,21 +22,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * rows, session-summary notifications, per-call notifications, tool
  * dispatch. That's all downstream of the TLS + mux + bridge layers.
  *
- * Robolectric ships Conscrypt as the default TLS provider, and its client
- * sockets silently drop the SNI extension from the ClientHello (see
- * #262). The relay's passthrough router rejects connections without SNI,
- * so a synthetic AI client can't reach the device's bridge at all under
- * Robolectric — independently of `setHostname` /
- * `SSLParameters.serverNames` / `Conscrypt.setHostname` / the
- * `setUseEngineSocket(false)` legacy path.
- *
- * Batch B's assertions only care about the device-side half of the pipe,
- * so we skip the relay + bridge layers entirely and call
- * [McpSession]'s local HTTP server directly. The bridge layer is already
- * end-to-end regression-guarded by the JVM-only
+ * Historically (pre-#262) Robolectric's Conscrypt provider silently
+ * stripped SNI from every outbound ClientHello, which blocked any
+ * attempt to route a synthetic AI client through the real relay's
+ * SNI-routed passthrough. Batch B landed against this loopback driver
+ * to make progress; [ToolCallViaSniPassthroughTest] now proves the
+ * SNI path works end-to-end (via BouncyCastle JSSE swap in
+ * [AppIntegrationTestHarness]). The loopback scenarios here stay as-is
+ * because their assertions only care about the device-side half of the
+ * pipe — the relay + bridge legs are regression-guarded by the JVM-only
  * [com.rousecontext.tunnel.integration.ClaudeFullFlowEndToEndTest] and
- * [com.rousecontext.bridge.SessionHandlerTest]; batch C (#253) picks up
- * the resilience scenarios once #262 is resolved.
+ * [com.rousecontext.bridge.SessionHandlerTest].
  *
  * ## How it works
  *
