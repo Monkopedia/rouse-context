@@ -10,6 +10,7 @@ import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.notifications.NotificationChannels
+import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.work.CertRenewalScheduler
 import com.rousecontext.work.KoinWorkerFactory
 import com.rousecontext.work.SecurityCheckWorker
@@ -68,6 +69,28 @@ class RouseApplication :
         configureCrashReporting()
         scheduleSecurityChecks()
         CertRenewalScheduler.enqueuePeriodic(this)
+        enqueueImmediateCertRenewalIfNeeded()
+    }
+
+    /**
+     * Fire-and-forget app-start hook that forces an immediate cert renewal
+     * when the stored cert is near-expiry or already expired (issue #289).
+     *
+     * Without this, the periodic worker's 24h interval means a user opening
+     * the app with an expired cert would sit stuck until the next periodic
+     * tick — the TLS tunnel handshake would fail well before that, with no
+     * in-band recovery path.
+     *
+     * Runs on [appScope] so [onCreate] stays non-blocking; Koin resolution
+     * for [CertificateStore] also happens here rather than in the static
+     * scheduler to keep the scheduler reusable from tests that don't run
+     * the full DI graph.
+     */
+    private fun enqueueImmediateCertRenewalIfNeeded() {
+        appScope.launch {
+            val certStore: CertificateStore = GlobalContext.get().get()
+            CertRenewalScheduler.enqueueImmediateIfExpiring(this@RouseApplication, certStore)
+        }
     }
 
     /**
