@@ -30,7 +30,7 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
-import javax.net.ssl.KeyManagerFactory
+import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
@@ -39,7 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
-import okhttp3.Dns
+import okhttp3.ConnectionPool
 import org.junit.Assume.assumeTrue
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.Koin
@@ -335,13 +335,35 @@ private fun buildTestOverrides(
     // BuildConfig is baked at build time so we cannot mutate it; instead,
     // we replace the singleton with one pointed at the fixture loopback.
     //
-    // Mirrors RelayApiClientIntegrationTest: same OkHttp DNS override
-    // (forces `$relayHostname` -> 127.0.0.1), same CA-trusting SSL context.
+    // The mTLS identity is served by [DynamicPkcs12CertSource], which
+    // rebuilds a fresh `SunX509`-compatible `X509KeyManager` from the
+    // current contents of [CertificateStore] + [DeviceKeyManager] on every
+    // TLS handshake. This lets the harness exercise the same "switch from
+    // unauthenticated to mTLS mid-lifecycle" shape that is the regression
+    // guard for issue #237 in production code (`createMtlsRelayHttpClient` +
+    // `LazyMtlsKeyManager` + `FileMtlsCertSource`): before provisioning
+    // writes a cert we present none, after we present one. The difference
+    // is only in *how* the key manager is built (PKCS12-backed vs
+    // PEM+LazyManager) — a detail dictated by Conscrypt's TLS stack on
+    // Robolectric silently ignoring custom `X509ExtendedKeyManager` alias
+    // chooser callbacks. Production's `LazyMtlsKeyManager` path is
+    // regression-guarded separately at the JVM-test layer in
+    // `RelayApiClientIntegrationTest`.
+    //
+    // The OkHttp engine is configured with a DNS override so `$relayHostname`
+    // resolves to 127.0.0.1 (the fixture runs on loopback) and a loose
+    // hostname verifier because the test relay cert uses the literal
+    // hostname as SAN — the default OkHttp verifier rejects non-FQDN
+    // SANs during TLS.
     single {
-        val httpClient = buildFixtureRelayHttpClient(
+        val ctx = androidContext()
+        val deviceKeyManager: DeviceKeyManager = get()
+        val certStoreRef: CertificateStore = get()
+        val httpClient = buildFixtureMtlsHttpClient(
             caCert = ca.caCert,
-            deviceKeyStore = ca.deviceKeyStore,
-            storePass = TestCertificateAuthority.STORE_PASS
+            keyManagerSource = {
+                buildKeyManagerFromDiskIfProvisioned(ctx, deviceKeyManager, certStoreRef)
+            }
         )
         RelayApiClient(
             baseUrl = "https://$relayHostname:$relayPort",
@@ -434,37 +456,69 @@ private class SoftwareDeviceKeyManager : DeviceKeyManager {
 }
 
 /**
- * Ktor [HttpClient] that mirrors `createMtlsRelayHttpClient` but:
- *   1. Trusts the test CA only (production trusts the JVM default store).
- *   2. Presents the test device client cert on handshakes.
- *   3. Redirects DNS lookups for `$relayHostname` -> 127.0.0.1 so the
- *      TLS ClientHello carries the right SNI even though the relay is
- *      bound to loopback.
+ * Ktor [HttpClient] that presents the device mTLS identity on every handshake.
+ *
+ * [keyManagerSource] is invoked per-handshake (via a
+ * [DelegatingX509KeyManager] wrapper) so that the harness can point at the
+ * live on-disk [CertificateStore] state: before `/register/certs` writes a
+ * cert the source returns `null` and we present nothing (unauthenticated
+ * onboarding), and once provisioning lands we present the freshly-issued
+ * cert. That "switch from no-cert to with-cert on a long-lived client" is
+ * exactly the regression shape #237 fixed in production.
+ *
+ * Production-side [createMtlsRelayHttpClient] works fine on real Android and
+ * plain JVM via `LazyMtlsKeyManager`. Robolectric loads Conscrypt as the
+ * default TLS provider, and Conscrypt's `OpenSSLContextImpl` does not call
+ * custom `X509ExtendedKeyManager.chooseEngineClientAlias` for TLS 1.2/1.3
+ * client auth — the handshake completes but the Certificate message sent
+ * to the relay is empty. We side-step that here by wrapping a
+ * `SunX509`-compatible [X509KeyManager] built from a PKCS12 `KeyStore`
+ * (the JCA contract Conscrypt does honour for this case). Production's
+ * `LazyMtlsKeyManager` path stays regression-guarded at the JVM-test layer
+ * in `RelayApiClientIntegrationTest`.
+ *
+ * Test-side customisations beyond the PKCS12-backed KeyManager:
+ *   1. A test trust manager that trusts the fixture CA (production trusts
+ *      the JVM default store, which is fine for real GTS certs but rejects
+ *      the fixture's `CN=Test CA` root).
+ *   2. A DNS override that collapses `$relayHostname` to 127.0.0.1 (the
+ *      fixture binds to loopback) and a loose hostname verifier because
+ *      OkHttp's default verifier rejects non-FQDN SANs like `relay.test.local`.
  */
-private fun buildFixtureRelayHttpClient(
+private fun buildFixtureMtlsHttpClient(
     caCert: X509Certificate,
-    deviceKeyStore: KeyStore,
-    storePass: String
+    keyManagerSource: () -> javax.net.ssl.X509KeyManager?
 ): HttpClient {
     val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
     trustStore.load(null, null)
     trustStore.setCertificateEntry("ca", caCert)
     val tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
     tmf.init(trustStore)
-
-    val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-    kmf.init(deviceKeyStore, storePass.toCharArray())
-
-    val sslContext = SSLContext.getInstance("TLS")
-    sslContext.init(kmf.keyManagers, tmf.trustManagers, null)
-
     val trustManager = tmf.trustManagers.firstOrNull { it is X509TrustManager } as? X509TrustManager
         ?: error("No X509TrustManager")
+
+    // Build a fresh SSLContext per-TLS-handshake so we never hit Conscrypt's
+    // TLS 1.3 session resumption cache (which bypasses client-auth
+    // renegotiation and presents no cert on resumed connections).
+    val freshContextFactory = FreshSslContextSocketFactory(
+        trustManagers = tmf.trustManagers,
+        keyManagerSource = keyManagerSource
+    )
 
     return HttpClient(OkHttp) {
         engine {
             config {
-                sslSocketFactory(sslContext.socketFactory, trustManager)
+                sslSocketFactory(freshContextFactory, trustManager)
+                connectionPool(
+                    ConnectionPool(
+                        /* maxIdleConnections = */
+                        0,
+                        /* keepAliveDuration = */
+                        1L,
+                        /* timeUnit = */
+                        TimeUnit.SECONDS
+                    )
+                )
                 hostnameVerifier { _, _ -> true }
                 dns(LoopbackDns)
             }
@@ -486,6 +540,156 @@ private fun buildFixtureRelayHttpClient(
 }
 
 /**
+ * Load the current on-disk device cert + relay CA cert and combine them
+ * with the device private key into a PKCS12-backed [javax.net.ssl.X509KeyManager].
+ *
+ * Returns `null` when no client cert is on disk yet (pre-provisioning); the
+ * TLS engine then presents no client certificate, which is correct for
+ * unauthenticated onboarding endpoints.
+ */
+private fun buildKeyManagerFromDiskIfProvisioned(
+    context: Context,
+    deviceKeyManager: DeviceKeyManager,
+    @Suppress("UNUSED_PARAMETER") certStoreRef: com.rousecontext.tunnel.CertificateStore
+): javax.net.ssl.X509KeyManager? {
+    val clientCertFile = File(context.filesDir, "rouse_client_cert.pem")
+    val relayCaFile = File(context.filesDir, "rouse_relay_ca.pem")
+    if (!clientCertFile.exists() || !relayCaFile.exists()) return null
+
+    val factory = java.security.cert.CertificateFactory.getInstance("X.509")
+    val clientCert = factory.generateCertificate(
+        clientCertFile.inputStream()
+    ) as X509Certificate
+    val relayCa = factory.generateCertificate(
+        relayCaFile.inputStream()
+    ) as X509Certificate
+
+    val ks = KeyStore.getInstance("PKCS12")
+    ks.load(null, null)
+    ks.setKeyEntry(
+        "device",
+        deviceKeyManager.getOrCreateKeyPair().private,
+        PKCS12_PASS.toCharArray(),
+        arrayOf(clientCert, relayCa)
+    )
+    val kmf = javax.net.ssl.KeyManagerFactory.getInstance("SunX509")
+    kmf.init(ks, PKCS12_PASS.toCharArray())
+    return kmf.keyManagers.firstOrNull { it is javax.net.ssl.X509KeyManager }
+        as? javax.net.ssl.X509KeyManager
+}
+
+/**
+ * Wraps a lazily-supplied [X509KeyManager] so each TLS handshake re-consults
+ * the source. Extends [javax.net.ssl.X509ExtendedKeyManager] because
+ * Conscrypt's TLS stack (Robolectric's default) ignores plain
+ * `X509KeyManager` implementations entirely and presents no client cert.
+ *
+ * All `choose*Alias` calls are forwarded to the current snapshot; when
+ * `source` returns `null` (no cert provisioned yet) every alias call
+ * returns `null`, which tells the TLS engine to present no client cert —
+ * matching the production behaviour before `/register/certs`.
+ */
+private class DelegatingX509KeyManager(private val source: () -> javax.net.ssl.X509KeyManager?) :
+    javax.net.ssl.X509ExtendedKeyManager() {
+    override fun getClientAliases(keyType: String?, issuers: Array<java.security.Principal>?) =
+        source()?.getClientAliases(keyType, issuers)
+
+    override fun chooseClientAlias(
+        keyType: Array<String>?,
+        issuers: Array<java.security.Principal>?,
+        socket: java.net.Socket?
+    ) = source()?.chooseClientAlias(keyType, issuers, socket)
+
+    override fun chooseEngineClientAlias(
+        keyType: Array<String>?,
+        issuers: Array<java.security.Principal>?,
+        engine: javax.net.ssl.SSLEngine?
+    ) = source()?.chooseClientAlias(keyType, issuers, null)
+
+    override fun getServerAliases(keyType: String?, issuers: Array<java.security.Principal>?) =
+        source()?.getServerAliases(keyType, issuers)
+
+    override fun chooseServerAlias(
+        keyType: String?,
+        issuers: Array<java.security.Principal>?,
+        socket: java.net.Socket?
+    ) = source()?.chooseServerAlias(keyType, issuers, socket)
+
+    override fun chooseEngineServerAlias(
+        keyType: String?,
+        issuers: Array<java.security.Principal>?,
+        engine: javax.net.ssl.SSLEngine?
+    ) = source()?.chooseServerAlias(keyType, issuers, null)
+
+    override fun getCertificateChain(alias: String?) = source()?.getCertificateChain(alias)
+
+    override fun getPrivateKey(alias: String?) = source()?.getPrivateKey(alias)
+}
+
+private const val PKCS12_PASS = "harness"
+
+/**
+ * [javax.net.ssl.SSLSocketFactory] that builds a fresh [SSLContext] +
+ * [DelegatingX509KeyManager] on every `createSocket` call. This defeats
+ * Conscrypt's TLS 1.3 session-resumption cache, which on the Robolectric
+ * Android runtime will otherwise reuse a pre-cert session for subsequent
+ * calls and skip client-auth negotiation entirely — the Certificate
+ * message goes out empty and the relay returns 401.
+ *
+ * Each handshake re-consults [keyManagerSource], mirroring the per-handshake
+ * lookup production's `LazyMtlsKeyManager` performs.
+ */
+private class FreshSslContextSocketFactory(
+    private val trustManagers: Array<javax.net.ssl.TrustManager>,
+    private val keyManagerSource: () -> javax.net.ssl.X509KeyManager?
+) : javax.net.ssl.SSLSocketFactory() {
+
+    private fun freshFactory(): javax.net.ssl.SSLSocketFactory {
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(
+            arrayOf(DelegatingX509KeyManager(keyManagerSource)),
+            trustManagers,
+            null
+        )
+        sslContext.clientSessionContext?.sessionCacheSize = 1
+        sslContext.clientSessionContext?.sessionTimeout = 1
+        return sslContext.socketFactory
+    }
+
+    override fun getDefaultCipherSuites(): Array<String> = freshFactory().defaultCipherSuites
+    override fun getSupportedCipherSuites(): Array<String> = freshFactory().supportedCipherSuites
+
+    override fun createSocket(): java.net.Socket = freshFactory().createSocket()
+
+    override fun createSocket(
+        s: java.net.Socket?,
+        host: String?,
+        port: Int,
+        autoClose: Boolean
+    ): java.net.Socket = freshFactory().createSocket(s, host, port, autoClose)
+
+    override fun createSocket(host: String?, port: Int): java.net.Socket =
+        freshFactory().createSocket(host, port)
+
+    override fun createSocket(
+        host: String?,
+        port: Int,
+        localHost: java.net.InetAddress?,
+        localPort: Int
+    ): java.net.Socket = freshFactory().createSocket(host, port, localHost, localPort)
+
+    override fun createSocket(host: java.net.InetAddress?, port: Int): java.net.Socket =
+        freshFactory().createSocket(host, port)
+
+    override fun createSocket(
+        address: java.net.InetAddress?,
+        port: Int,
+        localAddress: java.net.InetAddress?,
+        localPort: Int
+    ): java.net.Socket = freshFactory().createSocket(address, port, localAddress, localPort)
+}
+
+/**
  * Collapse every DNS lookup to 127.0.0.1. Safe because the harness only ever
  * runs one relay and the hostname-based TLS SNI is separately validated via
  * the test CA.
@@ -493,14 +697,13 @@ private fun buildFixtureRelayHttpClient(
  * Collocated with the integration tests in `:core:tunnel` that already use
  * an identical loopback DNS (see `Ipv4OnlyDns` there).
  */
-private object LoopbackDns : Dns {
+private object LoopbackDns : okhttp3.Dns {
     override fun lookup(hostname: String): List<InetAddress> =
         listOf(InetAddress.getByName("127.0.0.1"))
 }
 
-// Shorter than production timeouts — integration tests hitting a local
-// subprocess should complete in seconds, not minutes, and a long timeout
-// here would mask hangs instead of surfacing them.
+// Shorter than production timeouts — integration tests hit a local subprocess
+// so multi-minute waits would only mask hangs.
 private const val FIXTURE_REQUEST_TIMEOUT_MS = 30_000L
 private const val FIXTURE_CONNECT_TIMEOUT_MS = 10_000L
 private const val FIXTURE_SOCKET_TIMEOUT_MS = 30_000L
