@@ -168,7 +168,14 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     // Order matters: insert into registry FIRST so try_open_stream() works,
     // THEN signal waiters via register_mux_connection(). Otherwise, FCM
     // waiters wake up but find no session entry and get StreamRefused.
-    session_registry.insert(&subdomain, open_stream_tx, kill_tx);
+    //
+    // `frame_tx` is a clone of the session's outbound channel (same one the
+    // write loop consumes from). Exposed on the registry so the test-mode
+    // admin endpoints in `test_mode.rs` (`/test/emit-stream-error`,
+    // `/test/open-stream`) can inject synthetic frames without a real AI
+    // client — see issue #266.
+    let registry_frame_tx = session.handle().frame_tx.clone();
+    session_registry.insert(&subdomain, open_stream_tx, kill_tx, registry_frame_tx);
     relay_state.register_mux_connection(&subdomain);
 
     info!(subdomain = %subdomain, "Mux session registered");

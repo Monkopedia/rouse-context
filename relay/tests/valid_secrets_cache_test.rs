@@ -48,10 +48,11 @@ fn setup_device(
 ) -> mpsc::Receiver<Frame> {
     let mut session = MuxSession::new(subdomain.to_string(), 8);
     let frame_rx = session.take_frame_rx().unwrap();
+    let frame_tx = session.handle().frame_tx.clone();
     let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
     let (kill_tx, _kill_rx) = mpsc::channel::<()>(1);
     relay_state.register_mux_connection(subdomain);
-    registry.insert(subdomain, open_tx, kill_tx);
+    registry.insert(subdomain, open_tx, kill_tx, frame_tx);
     tokio::spawn(async move {
         while let Some(req) = open_rx.recv().await {
             let result = session

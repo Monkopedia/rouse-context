@@ -36,12 +36,13 @@ fn setup_device(
 ) -> mpsc::Receiver<Frame> {
     let mut session = MuxSession::new(subdomain.to_string(), max_streams);
     let frame_rx = session.take_frame_rx().unwrap();
+    let frame_tx = session.handle().frame_tx.clone();
 
     let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
     let (kill_tx, _kill_rx) = mpsc::channel::<()>(1);
 
     relay_state.register_mux_connection(subdomain);
-    registry.insert(subdomain, open_tx, kill_tx);
+    registry.insert(subdomain, open_tx, kill_tx, frame_tx);
 
     // Spawn a task to handle open-stream requests
     tokio::spawn(async move {
@@ -363,9 +364,10 @@ async fn cold_client_fcm_then_device_connects() {
         tokio::time::sleep(Duration::from_millis(50)).await;
         // Device wakes up and establishes mux
         let mut session = MuxSession::new("cold-dev".to_string(), 8);
+        let frame_tx = session.handle().frame_tx.clone();
         let (open_tx, mut open_rx) = mpsc::channel::<OpenStreamRequest>(16);
         let (kill_tx, _kill_rx) = mpsc::channel::<()>(1);
-        reg.insert("cold-dev", open_tx, kill_tx);
+        reg.insert("cold-dev", open_tx, kill_tx, frame_tx);
         rs.register_mux_connection("cold-dev");
         // Handle open-stream requests
         while let Some(req) = open_rx.recv().await {
@@ -692,6 +694,7 @@ fn spawn_delayed_device(
     let sub = subdomain.to_string();
     let mut session = MuxSession::new(sub.clone(), max_streams);
     let frame_rx = session.take_frame_rx().unwrap();
+    let frame_tx = session.handle().frame_tx.clone();
 
     let rs = relay_state;
     let reg = registry;
@@ -701,7 +704,7 @@ fn spawn_delayed_device(
         let (kill_tx, _kill_rx) = mpsc::channel::<()>(1);
         // Insert into registry BEFORE register_mux_connection so that
         // when subscribe_connect fires, the session is already available.
-        reg.insert(&sub, open_tx, kill_tx);
+        reg.insert(&sub, open_tx, kill_tx, frame_tx);
         rs.register_mux_connection(&sub);
         while let Some(req) = open_rx.recv().await {
             let result = session

@@ -421,6 +421,43 @@ class TestRelayManager(
         requireAdmin().killActiveWebsocket(subdomain)
 
     /**
+     * Push a synthetic mux OPEN frame to the device on the mux session for
+     * [subdomain]. Used by the batch-C "stream failure" scenarios that need an
+     * already-open inbound stream before injecting failure — see issue #266.
+     *
+     * `streamId` must not collide with an existing stream on the session. The
+     * relay's `MuxDemux` on the device side will surface the new stream on
+     * `TunnelClient.incomingSessions`.
+     *
+     * Requires [enableTestMode] = true. Returns true if the relay accepted the
+     * request; false means no mux session is currently registered for the
+     * subdomain.
+     */
+    fun openStream(subdomain: String, streamId: Int, sniHostname: String = ""): Boolean =
+        requireAdmin().openStream(subdomain, streamId, sniHostname)
+
+    /**
+     * Push a synthetic mux ERROR frame onto an already-open stream. Tests use
+     * this to exercise the "stream-level failure does not tear down the
+     * tunnel" regression (issue #266). The device-side `MuxDemux` will tear
+     * down the stream and propagate the error but MUST leave the tunnel
+     * itself in [com.rousecontext.tunnel.TunnelState.CONNECTED] (or ACTIVE
+     * if other streams are still open).
+     *
+     * [errorCode] is a `MuxErrorCode` value (1..=4); the default
+     * `STREAM_RESET` (2) mirrors the most common relay-originated failure.
+     *
+     * Requires [enableTestMode] = true. Returns true if the relay accepted
+     * the request.
+     */
+    fun emitStreamError(
+        subdomain: String,
+        streamId: Int,
+        errorCode: Int = STREAM_RESET_CODE,
+        message: String = ""
+    ): Boolean = requireAdmin().emitStreamError(subdomain, streamId, errorCode, message)
+
+    /**
      * Record a synthetic FCM wake for [subdomain] on the relay. This does NOT
      * actually wake a device — it populates the relay-side test metrics so
      * assertions in integration tests can confirm a wake was requested. The
@@ -563,6 +600,14 @@ class TestRelayManager(
 
     companion object {
         private const val RELAY_STARTUP_TIMEOUT_MS = 10_000L
+
+        /**
+         * `MuxErrorCode.STREAM_RESET`, mirrored from the relay / Kotlin tunnel
+         * side so tests don't have to import the tunnel module (the fixture
+         * lives in `:core:testfixtures`, which intentionally does not depend
+         * on `:core:tunnel`).
+         */
+        const val STREAM_RESET_CODE: Int = 2
     }
 }
 
@@ -630,6 +675,68 @@ class TestRelayAdmin(private val port: Int) {
      */
     fun sendFcmWake(subdomain: String) {
         post("/test/fcm-wake?subdomain=${subdomain.urlEncoded()}", "")
+    }
+
+    /**
+     * Push a synthetic OPEN frame to the device on the mux session for
+     * [subdomain]. Wraps `POST /test/open-stream`. See the [TestRelayManager]
+     * counterpart for scenario notes.
+     *
+     * Returns true if the relay enqueued the frame, false if no session is
+     * registered for the subdomain.
+     */
+    fun openStream(subdomain: String, streamId: Int, sniHostname: String): Boolean {
+        val path = buildString {
+            append("/test/open-stream?subdomain=")
+            append(subdomain.urlEncoded())
+            append("&stream_id=")
+            append(streamId)
+            if (sniHostname.isNotEmpty()) {
+                append("&sni=")
+                append(sniHostname.urlEncoded())
+            }
+        }
+        val (code, body) = postExpectingAny(path)
+        return when (code) {
+            HTTP_OK -> parseBoolField(body, "opened")
+            HTTP_NOT_FOUND -> false
+            else -> fail("test-mode admin returned HTTP $code on open-stream: $body")
+        }
+    }
+
+    /**
+     * Push a synthetic ERROR frame onto an already-open mux stream. Wraps
+     * `POST /test/emit-stream-error`.
+     *
+     * Returns true if the relay enqueued the frame, false if no session is
+     * registered for the subdomain.
+     */
+    fun emitStreamError(
+        subdomain: String,
+        streamId: Int,
+        errorCode: Int,
+        message: String
+    ): Boolean {
+        val path = buildString {
+            append("/test/emit-stream-error?subdomain=")
+            append(subdomain.urlEncoded())
+            append("&stream_id=")
+            append(streamId)
+            append("&code=")
+            append(errorCode)
+            if (message.isNotEmpty()) {
+                append("&message=")
+                append(message.urlEncoded())
+            }
+        }
+        val (code, body) = postExpectingAny(path)
+        return when (code) {
+            HTTP_OK -> parseBoolField(body, "emitted")
+            HTTP_NOT_FOUND -> false
+            else -> fail(
+                "test-mode admin returned HTTP $code on emit-stream-error: $body"
+            )
+        }
     }
 
     /** Number of `/register` calls observed since the relay started. */
@@ -718,6 +825,24 @@ class TestRelayAdmin(private val port: Int) {
         return readBody(conn)
     }
 
+    /**
+     * Like [post] but returns both the HTTP status code and the response body
+     * without failing on non-2xx responses. Used by admin handlers that
+     * deliberately return 404 for "subdomain not registered" so callers can
+     * distinguish that from a protocol error.
+     */
+    private fun postExpectingAny(path: String): Pair<Int, String> {
+        val conn = openConnection(path).apply {
+            requestMethod = "POST"
+            doOutput = true
+        }
+        conn.outputStream.use { it.write(ByteArray(0)) }
+        val code = conn.responseCode
+        val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        return code to body
+    }
+
     private fun openConnection(path: String): HttpURLConnection {
         val url: URL = URI.create(baseUrl + path).toURL()
         return (url.openConnection() as HttpURLConnection).apply {
@@ -759,6 +884,8 @@ class TestRelayAdmin(private val port: Int) {
     companion object {
         private const val HTTP_TIMEOUT_MS = 3_000
         private const val READY_POLL_MS = 50L
+        private const val HTTP_OK = 200
+        private const val HTTP_NOT_FOUND = 404
     }
 }
 
