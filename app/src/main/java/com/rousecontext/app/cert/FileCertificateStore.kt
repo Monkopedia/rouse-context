@@ -10,7 +10,6 @@ import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.security.GeneralSecurityException
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
@@ -28,9 +27,9 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * Issue #200: the device identity keypair is owned by
  * [com.rousecontext.tunnel.DeviceKeyManager] (hardware-backed Android Keystore, see
- * `AndroidKeystoreDeviceKeyManager`). FileCertificateStore is no longer in the key
- * path -- it only holds PEM certs, subdomain metadata, integration secrets, and
- * fingerprints. The historical PEM-key hooks on [CertificateStore] now inherit
+ * `AndroidKeystoreDeviceKeyManager`). FileCertificateStore is not in the key path --
+ * it only holds PEM certs, subdomain metadata, integration secrets, and
+ * fingerprints. The historical PEM-key hooks on [CertificateStore] inherit
  * deprecated no-op / null defaults.
  */
 class FileCertificateStore(private val context: Context) : CertificateStore {
@@ -43,57 +42,6 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     private val fingerprintsFile get() = File(filesDir, FINGERPRINTS_FILE)
     private val fingerprintBootstrapMarkerFile get() =
         File(filesDir, FINGERPRINT_BOOTSTRAP_MARKER_FILE)
-    private val keyMigrationMarkerFile get() = File(filesDir, KEY_MIGRATION_MARKER_FILE)
-    private val keyPemFile get() = File(filesDir, KEY_PEM_FILE)
-
-    /**
-     * Issue #200: detect devices upgraded from a software-key build.
-     *
-     * Signal: the legacy `rouse_key.pem` file exists on disk AND the hardware-backed
-     * device-identity alias (`rouse_device_key`) is not yet provisioned in the Android
-     * Keystore. The upgraded code path mints its identity exclusively via
-     * [com.rousecontext.tunnel.DeviceKeyManager]; the stale PEM can never be used to
-     * sign a fresh CSR that the relay will accept because the public key it represents
-     * is now orphaned from the signing key the Keystore will produce.
-     *
-     * Action: drop all cert-related state ([clearCertificates]) so the next integration
-     * setup run triggers a fresh CSR under the Keystore key. The subdomain and
-     * onboarding state survive — we do not want to bounce the user back to the Welcome
-     * screen on the upgrade path (regression guard for issue #163).
-     *
-     * Idempotent: once the PEM is gone, subsequent calls are no-ops.
-     *
-     * Callers should invoke this at app start (before the cert provisioning / renewal
-     * flows run) so the migration completes before any code path that would otherwise
-     * try to consume the stale key bytes. Not called from init so tests that exercise
-     * the PEM file itself (pre-migration state) can assert the file's contents first.
-     */
-    suspend fun migrateLegacyPrivateKeyFileIfNeeded() {
-        val legacy = keyPemFile
-        if (!legacy.exists()) return
-        val keyStore = try {
-            androidKeyStore()
-        } catch (e: GeneralSecurityException) {
-            Log.w(TAG, "Keystore unavailable during legacy PEM migration; deferring", e)
-            return
-        } catch (e: IOException) {
-            Log.w(TAG, "Keystore unavailable during legacy PEM migration; deferring", e)
-            return
-        }
-        if (keyStore.containsAlias(KEY_ALIAS)) {
-            // A previous migration run already seeded the Keystore alongside the PEM
-            // (unlikely but defensive). Nothing to do.
-            return
-        }
-        Log.w(
-            TAG,
-            "Legacy software-key PEM detected with no Keystore alias; clearing cert " +
-                "state so issue #200 onboarding re-runs with a hardware-backed key"
-        )
-        // clearCertificates deletes keyPemFile and keyMigrationMarkerFile plus any
-        // cert files, leaves subdomain + integration secrets intact.
-        clearCertificates()
-    }
 
     override suspend fun storeCertificate(pemChain: String) {
         certFile.writeText(pemChain)
@@ -172,10 +120,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
 
     // Issue #200: the device identity key is owned by DeviceKeyManager (Android
     // Keystore, StrongBox/TEE). storePrivateKey/getPrivateKey inherit the
-    // deprecated default no-op/null implementations on the interface. We still
-    // sweep any legacy rouse_key.pem file at init time via
-    // [migrateLegacyPrivateKeyFileIfNeeded] so stale plaintext/encrypted PEMs do
-    // not linger on disk after the upgrade.
+    // deprecated default no-op/null implementations on the interface.
 
     override suspend fun getCertChain(): List<ByteArray>? {
         val pem = getCertificate() ?: return null
@@ -267,14 +212,10 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         certFile.delete()
         File(filesDir, CLIENT_CERT_PEM_FILE).delete()
         File(filesDir, RELAY_CA_PEM_FILE).delete()
-        // Issue #200: the KEY_PEM_FILE is legacy-only (pre-hardware-key software
-        // PEM). The hardware-backed device identity key lives in the Android
-        // Keystore and MUST survive cert rotation/rollback -- the relay pins its
-        // public half at registration time and rejects any CSR signed by a
-        // different key. We therefore only delete the legacy PEM file here and
-        // leave the Keystore alias intact.
-        keyPemFile.delete()
-        keyMigrationMarkerFile.delete()
+        // Issue #200: the hardware-backed device identity key lives in the
+        // Android Keystore and MUST survive cert rotation/rollback -- the relay
+        // pins its public half at registration time and rejects any CSR signed
+        // by a different key. We therefore leave the Keystore alias intact here.
         fingerprintsFile.delete()
         // The bootstrap marker is tied to the current install's fingerprint
         // state. When we roll back cert provisioning we also reset this so a
@@ -429,8 +370,6 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         private const val CERT_PEM_FILE = "rouse_cert.pem"
         private const val CLIENT_CERT_PEM_FILE = "rouse_client_cert.pem"
         private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
-        private const val KEY_PEM_FILE = "rouse_key.pem"
-        private const val KEY_MIGRATION_MARKER_FILE = "rouse_key_migrated.flag"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
         private const val INTEGRATION_SECRETS_FILE = "rouse_integration_secrets.json"
         private const val LEGACY_SECRET_PREFIX_FILE = "rouse_secret_prefix.txt"

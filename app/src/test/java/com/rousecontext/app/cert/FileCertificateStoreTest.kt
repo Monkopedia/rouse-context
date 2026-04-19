@@ -11,7 +11,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,11 +19,10 @@ import org.robolectric.RobolectricTestRunner
 /**
  * FileCertificateStore unit tests (Robolectric).
  *
- * Issue #200: the store no longer holds private-key material -- the device identity key
+ * Issue #200: the store does not hold private-key material -- the device identity key
  * is owned by `AndroidKeystoreDeviceKeyManager` and lives in the hardware-backed Android
  * Keystore. These tests cover the remaining responsibilities: cert PEM storage,
- * fingerprint tracking, subdomain/integration-secrets atomic writes, and the legacy-key
- * migration hook.
+ * fingerprint tracking, and subdomain/integration-secrets atomic writes.
  */
 @RunWith(RobolectricTestRunner::class)
 class FileCertificateStoreTest {
@@ -303,84 +301,6 @@ class FileCertificateStoreTest {
             tmps.isEmpty()
         )
         assertEquals(mapOf("foo" to "bar"), store.getIntegrationSecrets())
-    }
-
-    @Test
-    fun `migrateLegacyPrivateKeyFileIfNeeded wipes cert state when PEM present, alias missing`() =
-        runBlocking {
-            assumeTrue(
-                "AndroidKeyStore provider not available in this Robolectric runtime",
-                isAndroidKeyStoreAvailable()
-            )
-            // Issue #200: the pre-hardware-key software PEM is orphaned when the user upgrades
-            // to the hardware-key build -- the stored public key on the relay will no longer
-            // match any key the new Keystore alias can sign with. Migration detects this state
-            // (PEM file present, rouse_device_key alias absent) and wipes cert-related files so
-            // the next integration setup run triggers a clean re-provision.
-            //
-            // Write files directly (bypassing storeCertificate) so the test does not depend on
-            // the PEM parser accepting stub contents.
-            val keyFile = File(context.filesDir, "rouse_key.pem")
-            keyFile.writeText(
-                "-----BEGIN PRIVATE KEY-----\nlegacy-plaintext\n-----END PRIVATE KEY-----\n"
-            )
-            val certFile = File(context.filesDir, "rouse_cert.pem")
-            certFile.writeText("stub-server-cert")
-            val clientCertFile = File(context.filesDir, "rouse_client_cert.pem")
-            clientCertFile.writeText("stub-client-cert")
-            val relayCaFile = File(context.filesDir, "rouse_relay_ca.pem")
-            relayCaFile.writeText("stub-ca-cert")
-            // Onboarding state must survive migration (regression guard for issue #163).
-            store.storeSubdomain("abc123")
-            store.storeIntegrationSecrets(mapOf("health" to "swift-health"))
-
-            // Sanity check: AndroidKeyStore is available in Robolectric and has no alias yet.
-            val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            assertFalse(
-                "Precondition: device key alias must NOT exist before migration",
-                ks.containsAlias("rouse_device_key")
-            )
-
-            store.migrateLegacyPrivateKeyFileIfNeeded()
-
-            assertFalse(
-                "Legacy PEM file must be deleted after migration",
-                keyFile.exists()
-            )
-            assertFalse("Cert file must be cleared", certFile.exists())
-            assertFalse("Client cert file must be cleared", clientCertFile.exists())
-            assertFalse("Relay CA file must be cleared", relayCaFile.exists())
-            assertEquals(
-                "Subdomain must survive migration",
-                "abc123",
-                store.getSubdomain()
-            )
-            assertEquals(
-                "Integration secrets must survive migration",
-                mapOf("health" to "swift-health"),
-                store.getIntegrationSecrets()
-            )
-        }
-
-    @Test
-    fun `migrateLegacyPrivateKeyFileIfNeeded is a no-op when no legacy PEM exists`() = runBlocking {
-        // Fresh install path: nothing to migrate. Write the cert file directly so the
-        // assertion below is not coupled to the PEM parser accepting stub contents.
-        store.storeSubdomain("abc123")
-        val certFile = File(context.filesDir, "rouse_cert.pem")
-        certFile.writeText("stub-server-cert")
-
-        store.migrateLegacyPrivateKeyFileIfNeeded()
-
-        assertEquals("abc123", store.getSubdomain())
-        assertEquals("stub-server-cert", store.getCertificate())
-    }
-
-    private fun isAndroidKeyStoreAvailable(): Boolean = try {
-        KeyStore.getInstance("AndroidKeyStore").load(null)
-        true
-    } catch (_: Throwable) {
-        false
     }
 
     private fun derToPem(der: ByteArray): String {
