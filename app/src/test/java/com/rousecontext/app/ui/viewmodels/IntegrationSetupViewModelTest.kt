@@ -1,10 +1,12 @@
 package com.rousecontext.app.ui.viewmodels
 
 import android.app.Application
+import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertProvisioningResult
 import com.rousecontext.tunnel.CertificateStore
@@ -545,6 +547,124 @@ class IntegrationSetupViewModelTest {
             assertEquals(IntegrationSetupState.Complete, vm.state.value)
             coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
         }
+
+    @Test
+    fun `onboarded device with stale registration status skips Registering state`() =
+        runTest(testDispatcher) {
+            // Issue #242: DeviceRegistrationStatus starts `false` and flips
+            // async. If the subdomain is already on disk the VM must short-
+            // circuit rather than flashing "Registering" on a returning user.
+            val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = false)
+            val vm = buildVm(
+                registrationStatus = registrationStatus,
+                subdomain = "cool-penguin"
+            )
+
+            vm.state.test {
+                assertEquals(IntegrationSetupState.Idle, awaitItem())
+                vm.startSetup("health")
+                awaitNoRegisteringUntilComplete()
+            }
+
+            assertTrue(
+                "awaitRegistrationIfNeeded must sync DeviceRegistrationStatus via markComplete",
+                registrationStatus.complete.value
+            )
+        }
+
+    @Test
+    fun `not-onboarded device with false registration still shows Registering`() =
+        runTest(testDispatcher) {
+            // Guardrail for the #242 fix: when the cert store has no
+            // subdomain AND DeviceRegistrationStatus is false, the VM must
+            // still display Registering and wait for markComplete().
+            var subdomainOnDisk: String? = null
+            val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = false)
+            val vm = buildVm(
+                registrationStatus = registrationStatus,
+                subdomainProvider = { subdomainOnDisk }
+            )
+
+            vm.state.test {
+                assertEquals(IntegrationSetupState.Idle, awaitItem())
+                vm.startSetup("health")
+                awaitRegistering()
+                // Onboarding completes asynchronously: subdomain lands on disk
+                // and DeviceRegistrationStatus flips, VM proceeds to Complete.
+                subdomainOnDisk = "cool-penguin"
+                registrationStatus.markComplete()
+                advanceUntilIdle()
+                while (vm.state.value != IntegrationSetupState.Complete) awaitItem()
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertEquals(IntegrationSetupState.Complete, vm.state.value)
+        }
+
+    /** Asserts the VM never emits Provisioning(Registering) on its way to Complete. */
+    private suspend fun ReceiveTurbine<IntegrationSetupState>.awaitNoRegisteringUntilComplete() {
+        while (true) {
+            val next = awaitItem()
+            if (next is IntegrationSetupState.Provisioning) {
+                assertTrue(
+                    "Must not pass through Registering for onboarded device; got $next",
+                    next.settingUpState.variant != SettingUpVariant.Registering
+                )
+            }
+            if (next == IntegrationSetupState.Complete) {
+                cancelAndIgnoreRemainingEvents()
+                return
+            }
+        }
+    }
+
+    /** Waits until the VM emits Provisioning(Registering). Fails on terminal state first. */
+    private suspend fun ReceiveTurbine<IntegrationSetupState>.awaitRegistering() {
+        while (true) {
+            val next = awaitItem()
+            if (next is IntegrationSetupState.Provisioning &&
+                next.settingUpState.variant == SettingUpVariant.Registering
+            ) {
+                return
+            }
+            assertTrue(
+                "Must pass through Registering when no subdomain + false registration; got $next",
+                next !is IntegrationSetupState.Complete && next !is IntegrationSetupState.Failed
+            )
+        }
+    }
+
+    private fun buildVm(
+        registrationStatus: DeviceRegistrationStatus,
+        subdomain: String? = null,
+        subdomainProvider: suspend () -> String? = { subdomain }
+    ): IntegrationSetupViewModel {
+        val certStore = mockk<CertificateStore> {
+            coEvery { getSubdomain() } coAnswers { subdomainProvider() }
+            coEvery { getIntegrationSecrets() } returns mapOf("health" to "brave-health")
+            coEvery { storeIntegrationSecrets(any()) } just Runs
+        }
+        val relayApiClient = mockk<RelayApiClient> {
+            coEvery { updateSecrets(any(), any()) } returns RelayApiResult.Success(
+                UpdateSecretsResponse(
+                    success = true,
+                    secrets = mapOf("health" to "brave-health")
+                )
+            )
+        }
+        val certProvisioningFlow = mockk<CertProvisioningFlow> {
+            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+        }
+        return IntegrationSetupViewModel(
+            stateStore = mockk(relaxed = true),
+            certProvisioningFlow = certProvisioningFlow,
+            lazyWebSocketFactory = mockk(relaxed = true),
+            registrationStatus = registrationStatus,
+            relayApiClient = relayApiClient,
+            certStore = certStore,
+            integrationIds = listOf("health"),
+            firebaseTokenProvider = { "test-firebase-token" }
+        )
+    }
 
     @Test
     fun `updateSecrets succeeds on second attempt`() = runTest(testDispatcher) {
