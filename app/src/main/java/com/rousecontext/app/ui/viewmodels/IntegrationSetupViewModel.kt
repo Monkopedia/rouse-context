@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.state.DeviceRegistrationStatus
@@ -72,7 +73,8 @@ class IntegrationSetupViewModel(
     private val relayApiClient: RelayApiClient,
     private val certStore: CertificateStore,
     private val integrationIds: List<String>,
-    private val firebaseTokenProvider: suspend () -> String? = { defaultFirebaseToken() }
+    private val firebaseTokenProvider: suspend () -> String? = { defaultFirebaseToken() },
+    private val crashReporter: CrashReporter = CrashReporter.NoOp
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<IntegrationSetupState>(IntegrationSetupState.Idle)
@@ -181,6 +183,9 @@ class IntegrationSetupViewModel(
             }
             is CertProvisioningResult.RelayError -> {
                 Log.e(TAG, "Relay error: ${result.statusCode} - ${result.message}")
+                crashReporter.log(
+                    "CertProvisioning relay error status=${result.statusCode} msg=${result.message}"
+                )
                 setFailed("Server error: ${result.message}")
             }
             is CertProvisioningResult.NetworkError -> {
@@ -189,10 +194,16 @@ class IntegrationSetupViewModel(
             }
             is CertProvisioningResult.KeyGenerationFailed -> {
                 Log.e(TAG, "Key generation failed", result.cause)
+                // Key generation failures are terminal — surface them so we
+                // can tell Keystore regressions apart from normal onboarding.
+                crashReporter.logCaughtException(result.cause)
                 setFailed("Failed to generate device keys.")
             }
             is CertProvisioningResult.StorageFailed -> {
                 Log.e(TAG, "Storage failed", result.cause)
+                // Local storage failure is rare and silently drops the cert;
+                // always worth surfacing.
+                crashReporter.logCaughtException(result.cause)
                 setFailed("Failed to save certificate.")
             }
         }
@@ -229,6 +240,7 @@ class IntegrationSetupViewModel(
                         certStore.storeIntegrationSecrets(newSecrets)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to persist integration secrets from relay", e)
+                        crashReporter.logCaughtException(e)
                         setFailed(
                             SECRETS_PUSH_FAILED_MESSAGE,
                             IntegrationSetupFailureStage.SecretsPush

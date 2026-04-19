@@ -3,6 +3,7 @@ package com.rousecontext.app.di
 import android.app.NotificationManager
 import android.os.PowerManager
 import android.util.Log
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
@@ -37,6 +38,7 @@ import com.rousecontext.app.state.PreferencesSnapshotHolder
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.support.BugReportUriBuilder
+import com.rousecontext.app.support.FirebaseCrashReporter
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
@@ -177,13 +179,16 @@ val appModule = module {
     // --- Bug report URI builder ---
     single { BugReportUriBuilder(androidContext()) }
 
+    // --- Crash reporting (Firebase Crashlytics). Issue #233. ---
+    single<CrashReporter> { FirebaseCrashReporter() }
+
     // --- Certificate store ---
     single {
         FileCertificateStore(androidContext())
     } bind CertificateStore::class
 
     // --- Device identity key (Android Keystore, StrongBox/TEE) ---
-    single<DeviceKeyManager> { AndroidKeystoreDeviceKeyManager() }
+    single<DeviceKeyManager> { AndroidKeystoreDeviceKeyManager(crashReporter = get()) }
 
     // --- URL provider ---
     single { McpUrlProvider(get(), BuildConfig.BASE_DOMAIN) }
@@ -595,7 +600,8 @@ val appModule = module {
             registrationStatus = get(),
             relayApiClient = get(),
             certStore = get(),
-            integrationIds = get<List<McpIntegration>>().map { it.id }
+            integrationIds = get<List<McpIntegration>>().map { it.id },
+            crashReporter = get()
         )
     }
     viewModel { OnboardingViewModel(get(), get(), get(), get(), get(), get(named("appScope"))) }

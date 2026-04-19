@@ -2,6 +2,7 @@ package com.rousecontext.work
 
 import android.app.Notification
 import android.os.Looper
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.bridge.SessionHandler
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.ForegroundNotifier
@@ -84,6 +85,7 @@ class TunnelForegroundServiceLifecycleTest {
                     single { mockk<SessionSummaryNotifier>(relaxed = true) }
                     single { mockk<SecurityCheckPreferences>(relaxed = true) }
                     single<String>(named("relayUrl")) { "wss://test.rousecontext.com" }
+                    single<CrashReporter> { CrashReporter.NoOp }
                 }
             )
         }

@@ -6,6 +6,7 @@ import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import android.security.keystore.StrongBoxUnavailableException
 import android.util.Log
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.tunnel.DeviceKeyManager
 import java.security.KeyFactory
 import java.security.KeyPair
@@ -30,7 +31,9 @@ import java.security.PublicKey
  * and the one [com.rousecontext.work.AndroidKeystoreSigner] already reads. That keeps
  * the on-device renewal signing path working without a second migration.
  */
-class AndroidKeystoreDeviceKeyManager : DeviceKeyManager {
+class AndroidKeystoreDeviceKeyManager(
+    private val crashReporter: CrashReporter = CrashReporter.NoOp
+) : DeviceKeyManager {
 
     override fun getOrCreateKeyPair(): KeyPair {
         val keyStore = androidKeyStore()
@@ -118,6 +121,11 @@ class AndroidKeystoreDeviceKeyManager : DeviceKeyManager {
             )
         } catch (e: Exception) {
             Log.w(TAG, "Failed to inspect KeyInfo for $KEY_ALIAS", e)
+            // Keystore provider reflection is best-effort for logging, but a
+            // failure here often signals a deeper provider misconfiguration —
+            // surface it so we can tell StrongBox/TEE weirdness apart in the
+            // field.
+            crashReporter.logCaughtException(e)
         }
     }
 

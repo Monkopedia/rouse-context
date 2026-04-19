@@ -5,6 +5,7 @@ import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.app.state.AppStatePreferences
@@ -64,8 +65,25 @@ class RouseApplication :
         }
 
         NotificationChannels.createAll(this)
+        configureCrashReporting()
         scheduleSecurityChecks()
         CertRenewalScheduler.enqueuePeriodic(this)
+    }
+
+    /**
+     * Wire Firebase Crashlytics (issue #233) collection to the build variant:
+     * debug builds never phone home so local repros don't pollute the
+     * dashboard, release builds collect by default. A user-facing toggle can
+     * call [CrashReporter.setCollectionEnabled] later to honour opt-out.
+     *
+     * Separated from [onCreate] so tests can mock [CrashReporter] and assert
+     * the initialization call without invoking Firebase's real runtime.
+     */
+    internal fun configureCrashReporting(
+        crashReporter: CrashReporter = GlobalContext.get().get(),
+        isDebugBuild: Boolean = BuildConfig.DEBUG
+    ) {
+        crashReporter.setCollectionEnabled(!isDebugBuild)
     }
 
     /**

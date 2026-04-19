@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.FirebaseRenewalCredentials
@@ -118,11 +119,22 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
     private val injectedBaseDomain: String by inject(named(KOIN_BASE_DOMAIN_NAME))
     private val injectedPreferences: CertRenewalPreferences by inject()
 
+    /**
+     * Lazy, nullable inject so tests that don't stand up Koin (see
+     * `CertRenewalWorkerTest`) don't have to register a [CrashReporter].
+     * In production Koin always returns [FirebaseCrashReporter]; in tests
+     * this stays null and the getter falls through to [CrashReporter.NoOp].
+     */
+    private val injectedCrashReporter: CrashReporter? by lazy {
+        runCatching { getKoin().get<CrashReporter>() }.getOrNull()
+    }
+
     var renewer: CertRenewer? = null
     var certificateStore: CertificateStore? = null
     var authProvider: RenewalAuthProvider? = null
     var baseDomain: String? = null
     var preferences: CertRenewalPreferences? = null
+    var crashReporter: CrashReporter? = null
 
     var clock: () -> Long = { System.currentTimeMillis() }
     var renewalWindowDays: Long = DEFAULT_RENEWAL_WINDOW_DAYS
@@ -205,20 +217,46 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
             recordLastAttempt(Outcome.NETWORK_ERROR)
             Result.retry()
         }
-        is RenewalResult.KeyGenerationFailed -> {
-            Log.e(TAG, "Cert renewal key generation failed", result.cause)
-            recordLastAttempt(Outcome.KEY_GEN_FAILED)
-            Result.success() // Terminal: retry on next periodic tick.
-        }
-        is RenewalResult.CnMismatch -> {
-            Log.e(
-                TAG,
-                "Cert renewal CN mismatch: expected=${result.expected} actual=${result.actual}"
-            )
-            recordLastAttempt(Outcome.CN_MISMATCH)
-            Result.success() // Terminal: do not retry-storm.
-        }
+        is RenewalResult.KeyGenerationFailed -> handleKeyGenerationFailed(result)
+        is RenewalResult.CnMismatch -> handleCnMismatch(result)
     }
+
+    /**
+     * Terminal: Keystore signing / key-gen regression. Reports the cause to
+     * Crashlytics so we notice if a device-OS update is bricking renewals in
+     * the field, and returns `success` so the periodic worker schedule picks
+     * it up again on the next tick rather than tight-looping via `retry`.
+     */
+    private suspend fun handleKeyGenerationFailed(
+        result: RenewalResult.KeyGenerationFailed
+    ): Result {
+        Log.e(TAG, "Cert renewal key generation failed", result.cause)
+        resolvedCrashReporter().logCaughtException(result.cause)
+        recordLastAttempt(Outcome.KEY_GEN_FAILED)
+        return Result.success()
+    }
+
+    /**
+     * Terminal: on-device cert identity disagrees with what the relay has.
+     * Reports as a Crashlytics breadcrumb (not an exception — this isn't a
+     * throwable condition) so we can diagnose the mismatch. Returns success
+     * to avoid a retry-storm since re-running the same request will produce
+     * the same mismatch.
+     */
+    private suspend fun handleCnMismatch(result: RenewalResult.CnMismatch): Result {
+        Log.e(
+            TAG,
+            "Cert renewal CN mismatch: expected=${result.expected} actual=${result.actual}"
+        )
+        resolvedCrashReporter().log(
+            "CertRenewal CN mismatch expected=${result.expected} actual=${result.actual}"
+        )
+        recordLastAttempt(Outcome.CN_MISMATCH)
+        return Result.success()
+    }
+
+    private fun resolvedCrashReporter(): CrashReporter =
+        crashReporter ?: injectedCrashReporter ?: CrashReporter.NoOp
 
     private suspend fun recordLastAttempt(outcome: Outcome) {
         (preferences ?: injectedPreferences).recordAttempt(
