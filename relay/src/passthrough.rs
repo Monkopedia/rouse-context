@@ -77,6 +77,15 @@ pub struct SessionEntry {
     /// simulate a relay-side network drop (see issue #249). In production the
     /// sender is never fired; the channel sits idle.
     pub kill_tx: mpsc::Sender<()>,
+    /// Clone of the mux session's outbound frame channel. The write loop
+    /// forwards each frame to the device's WebSocket. Used by test-mode admin
+    /// endpoints (`POST /test/emit-stream-error`, `POST /test/open-stream`) to
+    /// inject synthetic frames onto an already-registered session without
+    /// going through the passthrough/SNI path. See issue #266 for the batch-C
+    /// scenario that forced this hook (Conscrypt's SNI suppression under
+    /// Robolectric blocked driving a real AI-client handshake). In production
+    /// this sender is used exclusively by the session's own write loop.
+    pub frame_tx: mpsc::Sender<Frame>,
 }
 
 /// Registry of active mux sessions, keyed by subdomain.
@@ -105,14 +114,33 @@ impl SessionRegistry {
         subdomain: &str,
         open_stream_tx: mpsc::Sender<OpenStreamRequest>,
         kill_tx: mpsc::Sender<()>,
+        frame_tx: mpsc::Sender<Frame>,
     ) {
         self.sessions.insert(
             subdomain.to_string(),
             SessionEntry {
                 open_stream_tx,
                 kill_tx,
+                frame_tx,
             },
         );
+    }
+
+    /// Send a frame directly to the device's mux WebSocket. Test-only hook
+    /// used by `POST /test/emit-stream-error` and `POST /test/open-stream` to
+    /// inject synthetic frames (ERROR for an existing stream, OPEN for a new
+    /// one) onto a registered session. Returns `Ok(true)` if the frame was
+    /// enqueued, `Ok(false)` if no session is registered for the subdomain,
+    /// and `Err(())` if the session exists but its outbound channel was
+    /// already closed (a racing teardown). See issue #266.
+    pub async fn emit_frame(&self, subdomain: &str, frame: Frame) -> Result<bool, ()> {
+        let frame_tx = match self.sessions.get(subdomain) {
+            Some(entry) => entry.frame_tx.clone(),
+            None => return Ok(false),
+        };
+        // Drop the DashMap ref before the await to avoid holding it across
+        // suspension, matching the pattern in `try_open_stream`.
+        frame_tx.send(frame).await.map(|_| true).map_err(|_| ())
     }
 
     /// Signal the mux session for `subdomain` to abort without sending a close

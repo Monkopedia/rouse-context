@@ -11,6 +11,17 @@
 //!   or network drop so the device-side half-open detector fires.
 //! - `POST /test/fcm-wake?subdomain=<sub>` — record a synthetic FCM wake in
 //!   the in-memory fake. The test harness reads this via `/test/stats`.
+//! - `POST /test/open-stream?subdomain=<sub>&stream_id=<id>&sni=<host>` —
+//!   push a mux OPEN frame to the device as if the relay's passthrough code
+//!   had routed an inbound AI-client connection for `stream_id`. Used by
+//!   `:app` integration tests to drive inbound mux streams without having to
+//!   perform a real SNI-routed TLS handshake (Conscrypt suppresses SNI under
+//!   Robolectric — see issue #262). The device-side `MuxDemux` will surface
+//!   the new stream on `TunnelClient.incomingSessions`.
+//! - `POST /test/emit-stream-error?subdomain=<sub>&stream_id=<id>&code=<n>&message=<s>` —
+//!   push a mux ERROR frame onto an already-open stream so tests can assert
+//!   that stream-level failures do not tear down the tunnel. `code` is a
+//!   `MuxErrorCode` value (1..=4); `message` is an optional UTF-8 diagnostic.
 //! - `GET  /test/stats` — per-endpoint request counters + synthetic-wake log.
 //!
 //! See issue #249 for the motivating scenarios (#247 integration tier).
@@ -32,6 +43,7 @@ use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tracing::{info, warn};
 
+use crate::mux::frame::{ErrorCode, Frame, FrameType};
 use crate::passthrough::SessionRegistry;
 
 /// Per-endpoint request counters and captured synthetic wake events.
@@ -192,10 +204,175 @@ pub async fn handle_stats(State(state): State<AdminState>) -> Response {
     (StatusCode::OK, Json(snapshot)).into_response()
 }
 
+/// Query parameters for `/test/open-stream`: subdomain + stream id + SNI hostname.
+///
+/// `sni` is surfaced as the OPEN frame payload so the device side sees the
+/// same bytes a real passthrough would carry (the device currently ignores
+/// the payload, but keeping the shape identical avoids divergence if it ever
+/// starts validating).
+#[derive(Deserialize)]
+pub struct OpenStreamQuery {
+    subdomain: String,
+    stream_id: u32,
+    #[serde(default)]
+    sni: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct OpenStreamResponse {
+    opened: bool,
+    subdomain: String,
+    stream_id: u32,
+}
+
+/// Push a synthetic OPEN frame to the device. See module docs.
+pub async fn handle_open_stream(
+    State(state): State<AdminState>,
+    Query(q): Query<OpenStreamQuery>,
+) -> Response {
+    let payload = q.sni.as_deref().unwrap_or_default().as_bytes().to_vec();
+    let frame = Frame {
+        frame_type: FrameType::Open,
+        stream_id: q.stream_id,
+        payload,
+    };
+    match state.session_registry.emit_frame(&q.subdomain, frame).await {
+        Ok(true) => {
+            info!(
+                subdomain = %q.subdomain,
+                stream_id = q.stream_id,
+                "test-mode: synthetic OPEN frame emitted"
+            );
+            (
+                StatusCode::OK,
+                Json(OpenStreamResponse {
+                    opened: true,
+                    subdomain: q.subdomain,
+                    stream_id: q.stream_id,
+                }),
+            )
+                .into_response()
+        }
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(OpenStreamResponse {
+                opened: false,
+                subdomain: q.subdomain,
+                stream_id: q.stream_id,
+            }),
+        )
+            .into_response(),
+        Err(()) => (
+            StatusCode::CONFLICT,
+            Json(OpenStreamResponse {
+                opened: false,
+                subdomain: q.subdomain,
+                stream_id: q.stream_id,
+            }),
+        )
+            .into_response(),
+    }
+}
+
+/// Query parameters for `/test/emit-stream-error`.
+#[derive(Deserialize)]
+pub struct EmitStreamErrorQuery {
+    subdomain: String,
+    stream_id: u32,
+    /// Mux error code (1..=4). Defaults to `STREAM_RESET` (2) if omitted.
+    #[serde(default)]
+    code: Option<u32>,
+    /// Optional diagnostic message appended to the ERROR payload.
+    #[serde(default)]
+    message: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct EmitStreamErrorResponse {
+    emitted: bool,
+    subdomain: String,
+    stream_id: u32,
+}
+
+/// Push a synthetic ERROR frame onto an already-open stream. See module docs.
+pub async fn handle_emit_stream_error(
+    State(state): State<AdminState>,
+    Query(q): Query<EmitStreamErrorQuery>,
+) -> Response {
+    let code_raw = q.code.unwrap_or(ErrorCode::StreamReset as u32);
+    let code = match ErrorCode::from_u32(code_raw) {
+        Ok(c) => c,
+        Err(_) => {
+            warn!(
+                subdomain = %q.subdomain,
+                code = code_raw,
+                "test-mode: invalid error code on emit-stream-error"
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(EmitStreamErrorResponse {
+                    emitted: false,
+                    subdomain: q.subdomain,
+                    stream_id: q.stream_id,
+                }),
+            )
+                .into_response();
+        }
+    };
+    let payload = code.encode_payload(q.message.as_deref());
+    let frame = Frame {
+        frame_type: FrameType::Error,
+        stream_id: q.stream_id,
+        payload,
+    };
+    match state.session_registry.emit_frame(&q.subdomain, frame).await {
+        Ok(true) => {
+            info!(
+                subdomain = %q.subdomain,
+                stream_id = q.stream_id,
+                code = code_raw,
+                "test-mode: synthetic ERROR frame emitted"
+            );
+            (
+                StatusCode::OK,
+                Json(EmitStreamErrorResponse {
+                    emitted: true,
+                    subdomain: q.subdomain,
+                    stream_id: q.stream_id,
+                }),
+            )
+                .into_response()
+        }
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(EmitStreamErrorResponse {
+                emitted: false,
+                subdomain: q.subdomain,
+                stream_id: q.stream_id,
+            }),
+        )
+            .into_response(),
+        Err(()) => (
+            StatusCode::CONFLICT,
+            Json(EmitStreamErrorResponse {
+                emitted: false,
+                subdomain: q.subdomain,
+                stream_id: q.stream_id,
+            }),
+        )
+            .into_response(),
+    }
+}
+
 pub fn build_admin_router(admin_state: AdminState) -> axum::Router {
     axum::Router::new()
         .route("/test/kill-ws", axum::routing::post(handle_kill_ws))
         .route("/test/fcm-wake", axum::routing::post(handle_fcm_wake))
+        .route("/test/open-stream", axum::routing::post(handle_open_stream))
+        .route(
+            "/test/emit-stream-error",
+            axum::routing::post(handle_emit_stream_error),
+        )
         .route("/test/stats", axum::routing::get(handle_stats))
         .with_state(admin_state)
 }
@@ -225,4 +402,139 @@ pub async fn spawn_admin_server(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mux::frame::{ErrorCode, FrameType};
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tokio::sync::mpsc;
+    use tower::ServiceExt;
+
+    /// Register a fake session entry on the registry and hand back the
+    /// receiver end of its `frame_tx`, so tests can observe what the admin
+    /// handler actually enqueued.
+    fn register_fake_session(registry: &SessionRegistry, subdomain: &str) -> mpsc::Receiver<Frame> {
+        let (open_tx, _open_rx) = mpsc::channel(4);
+        let (kill_tx, _kill_rx) = mpsc::channel(1);
+        let (frame_tx, frame_rx) = mpsc::channel(16);
+        registry.insert(subdomain, open_tx, kill_tx, frame_tx);
+        frame_rx
+    }
+
+    fn admin_state() -> (AdminState, Arc<SessionRegistry>) {
+        let registry = Arc::new(SessionRegistry::new());
+        let state = AdminState {
+            metrics: Arc::new(TestMetrics::new()),
+            session_registry: registry.clone(),
+        };
+        (state, registry)
+    }
+
+    async fn post(router: axum::Router, uri: &str) -> axum::response::Response {
+        router
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn emit_stream_error_writes_error_frame_to_registered_session() {
+        let (state, registry) = admin_state();
+        let mut frame_rx = register_fake_session(&registry, "dev-1");
+
+        let router = build_admin_router(state);
+        let resp = post(
+            router,
+            "/test/emit-stream-error?subdomain=dev-1&stream_id=7&code=2&message=boom",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let frame = frame_rx.try_recv().expect("ERROR frame should be enqueued");
+        assert_eq!(frame.frame_type, FrameType::Error);
+        assert_eq!(frame.stream_id, 7);
+        let (code, msg) = ErrorCode::decode_payload(&frame.payload).unwrap();
+        assert_eq!(code, ErrorCode::StreamReset);
+        assert_eq!(msg.as_deref(), Some("boom"));
+    }
+
+    #[tokio::test]
+    async fn emit_stream_error_default_code_is_stream_reset() {
+        let (state, registry) = admin_state();
+        let mut frame_rx = register_fake_session(&registry, "dev-2");
+
+        let router = build_admin_router(state);
+        let resp = post(
+            router,
+            "/test/emit-stream-error?subdomain=dev-2&stream_id=3",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let frame = frame_rx.try_recv().expect("frame expected");
+        let (code, msg) = ErrorCode::decode_payload(&frame.payload).unwrap();
+        assert_eq!(code, ErrorCode::StreamReset);
+        assert!(msg.is_none());
+    }
+
+    #[tokio::test]
+    async fn emit_stream_error_rejects_unknown_subdomain() {
+        let (state, _registry) = admin_state();
+        let router = build_admin_router(state);
+        let resp = post(
+            router,
+            "/test/emit-stream-error?subdomain=nope&stream_id=1&code=2",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn emit_stream_error_rejects_invalid_code() {
+        let (state, registry) = admin_state();
+        let _frame_rx = register_fake_session(&registry, "dev-3");
+        let router = build_admin_router(state);
+        let resp = post(
+            router,
+            "/test/emit-stream-error?subdomain=dev-3&stream_id=1&code=999",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn open_stream_writes_open_frame_with_sni_payload() {
+        let (state, registry) = admin_state();
+        let mut frame_rx = register_fake_session(&registry, "dev-4");
+
+        let router = build_admin_router(state);
+        let resp = post(
+            router,
+            "/test/open-stream?subdomain=dev-4&stream_id=5&sni=ai.example.com",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let frame = frame_rx.try_recv().expect("OPEN frame should be enqueued");
+        assert_eq!(frame.frame_type, FrameType::Open);
+        assert_eq!(frame.stream_id, 5);
+        assert_eq!(frame.payload, b"ai.example.com");
+    }
+
+    #[tokio::test]
+    async fn open_stream_rejects_unknown_subdomain() {
+        let (state, _registry) = admin_state();
+        let router = build_admin_router(state);
+        let resp = post(router, "/test/open-stream?subdomain=missing&stream_id=1").await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
 }
