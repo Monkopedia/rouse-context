@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -23,11 +24,12 @@ import org.robolectric.RobolectricTestRunner
  * Issue #276 — re-enabling a previously disabled integration must push the
  * integration back into the relay's valid-secrets cache.
  *
- * Unlike the initial-enable path, the integration already has a stored
- * secret: the relay's `/rotate-secret` handler is merge-missing, so when the
- * ID re-appears in the request it reuses the existing secret rather than
- * generating a fresh one. This test locks down that the device-side secret
- * is preserved verbatim across the disable/re-enable cycle.
+ * Since #285, the relay's `/rotate-secret` handler is replace-wholesale:
+ * when the device pushes `[test]` after disabling `test2`, the relay DROPS
+ * `test2`'s secret. When `test2` is re-enabled and the device pushes
+ * `[test, test2]`, the relay mints a FRESH secret for `test2` — the old
+ * one stays dead so any URL that leaked while it was live is permanently
+ * invalidated. This test locks down the new behavior.
  *
  * Scenario:
  *  1. Provision with two integrations configured.
@@ -35,8 +37,9 @@ import org.robolectric.RobolectricTestRunner
  *  3. Disable `test2`, push `[test]` only.
  *  4. Re-enable `test2`, push `[test, test2]`.
  *  5. Assert the final captured payload includes `test2`, the relay
- *     returned the SAME `test2` secret as the initial enable (merge-missing
- *     preserves it), and the device's local secret map matches.
+ *     issued a NEW `test2` secret different from the initial enable
+ *     (replace-wholesale, #285), and the device's local secret map
+ *     matches the fresh value.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -104,10 +107,10 @@ class ReEnableDisabledIntegrationTest {
                 captured[2]
             )
 
-            // Merge-missing: relay preserves the existing `test2` secret
-            // rather than generating a fresh one on re-enable. Verifying
-            // this pins down current design (issue #276 scope: "If existing
-            // design reuses the prior stored secret, assert that").
+            // Replace-wholesale (#285): the relay drops `test2`'s secret
+            // when the disable-push carries only `[test]`, then mints a
+            // FRESH secret for `test2` on re-enable. The original secret
+            // must stay dead so any leaked URL is permanently invalidated.
             val finalSecrets = certStore.getIntegrationSecrets()
             assertNotNull("final secrets map must be populated", finalSecrets)
             requireNotNull(finalSecrets)
@@ -115,9 +118,9 @@ class ReEnableDisabledIntegrationTest {
                 "final secrets map must contain the re-enabled integration",
                 finalSecrets.containsKey(TestSecondMcpIntegration.ID)
             )
-            assertEquals(
-                "relay's merge-missing behaviour must preserve the existing secret " +
-                    "across a disable/re-enable cycle (regression guard for #276)",
+            assertNotEquals(
+                "replace-wholesale (#285): re-enable after disable must mint " +
+                    "a fresh secret; the pre-disable value must stay invalid",
                 initialSecondSecret,
                 finalSecrets[TestSecondMcpIntegration.ID]
             )
