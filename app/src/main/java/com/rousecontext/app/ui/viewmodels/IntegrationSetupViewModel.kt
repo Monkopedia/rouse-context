@@ -132,6 +132,18 @@ class IntegrationSetupViewModel(
      * tapped "Get Started"), show a registering indicator and wait.
      */
     private suspend fun awaitRegistrationIfNeeded() {
+        // Issue #242: The DeviceRegistrationStatus StateFlow is initialized
+        // with `false` and only flipped to `true` asynchronously after the
+        // Koin graph reads the subdomain from disk. On an already-onboarded
+        // device there's a small window where `complete.value == false`
+        // despite the subdomain being present. Consult the cert store
+        // directly as the authoritative source of truth so we don't flash
+        // the "Registering" indicator on launches of a registered device.
+        if (certStore.getSubdomain() != null) {
+            // Keep StateFlow consumers in sync with the authoritative check.
+            registrationStatus.markComplete()
+            return
+        }
         if (!registrationStatus.complete.value) {
             _state.value = IntegrationSetupState.Provisioning(
                 SettingUpState(variant = SettingUpVariant.Registering)
