@@ -27,6 +27,8 @@ android {
 dependencies {
     implementation(project(":api"))
     implementation(project(":core:tunnel"))
+    // Crash reporting contract (issue #233). Prod impl lives in :app; :work
+    // uses the interface so the service + worker can report terminal errors.
     implementation(project(":core:bridge"))
     implementation(project(":notifications"))
 

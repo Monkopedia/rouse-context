@@ -14,6 +14,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessaging
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.bridge.SessionHandler
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.FgsLimitNotifier
@@ -54,6 +55,7 @@ class TunnelForegroundService : LifecycleService() {
     private val sessionSummaryNotifier: SessionSummaryNotifier by inject()
     private val securityCheckPreferences: SecurityCheckPreferences by inject()
     private val relayUrl: String by inject(named("relayUrl"))
+    private val crashReporter: CrashReporter by inject()
 
     /** Set true when idle timeout fires or user explicitly stops - suppresses reconnect. */
     @Volatile
@@ -188,6 +190,10 @@ class TunnelForegroundService : LifecycleService() {
             triggerOpportunisticSecurityCheck()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect to relay", e)
+            // The reconnect loop handles recovery; we still surface the first
+            // connect failure because it often points at cert/provisioning
+            // bugs that never self-heal.
+            crashReporter.logCaughtException(e)
         }
     }
 
@@ -227,6 +233,10 @@ class TunnelForegroundService : LifecycleService() {
                     sessionHandler.handleStream(stream)
                 } catch (e: Exception) {
                     Log.e(TAG, "Session handler failed for stream ${stream.id}", e)
+                    // Session-level exceptions are normally caught upstream so
+                    // a single tool call crashing doesn't kill the tunnel. Log
+                    // here as non-fatal so the error still reaches Crashlytics.
+                    crashReporter.logCaughtException(e)
                 } finally {
                     Log.i(TAG, "Session ended for stream ${stream.id}")
                 }

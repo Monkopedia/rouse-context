@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.roborazzi)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.kover)
 }
 
@@ -103,6 +104,13 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
+            // No mapping upload in debug — the Crashlytics plugin runs even here
+            // because the library is linked in every variant. We still skip the
+            // slow symbol upload work to keep `assembleDebug` fast for iteration.
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = false
+                nativeSymbolUploadEnabled = false
+            }
         }
         release {
             signingConfig = signingConfigs.getByName("release")
@@ -111,6 +119,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Release builds ship R8-obfuscated code; upload the mapping so
+            // Crashlytics deobfuscates stacks. We have no NDK code, so native
+            // symbol upload stays off.
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = true
+                nativeSymbolUploadEnabled = false
+            }
         }
     }
 
@@ -185,6 +200,7 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.crashlytics)
 
     // Health Connect (for HealthConnectIntegration availability check)
     implementation(libs.health.connect)
