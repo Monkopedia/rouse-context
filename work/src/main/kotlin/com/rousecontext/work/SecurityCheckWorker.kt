@@ -28,6 +28,13 @@ interface SecurityCheckSource {
  * Alerts and warnings are posted by [SecurityCheckNotifier] using stable ids per
  * (check, severity) pair, so repeated runs replace the existing notification rather
  * than stacking or clobbering prior runs' unrelated notifications.
+ *
+ * Issue #256: a [SecurityCheckResult.Warning] now debounces across runs -- a
+ * notification only surfaces when the SAME source returns Warning on
+ * [WARNING_NOTIFICATION_THRESHOLD] consecutive runs. Any non-Warning result
+ * (Verified, Alert, Skipped) resets the counter for that source. Alerts still
+ * fire immediately: the debounce applies only to Warning.
+ *
  * Always returns [Result.success] since the checks handle their own graceful degradation.
  */
 class SecurityCheckWorker(context: Context, params: WorkerParameters) :
@@ -53,39 +60,75 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
 
         val selfCertResult = selfCertVerifier.check()
         val ctResult = ctLogMonitor.check()
+        val prefs = preferences ?: injectedPreferences
 
-        (preferences ?: injectedPreferences).recordCheck(
+        prefs.recordCheck(
             lastCheckAt = System.currentTimeMillis(),
             selfCertResult = resultToString(selfCertResult),
             ctLogResult = resultToString(ctResult)
         )
 
-        handleResult(SecurityCheck.SELF_CERT, "Self-cert verification", selfCertResult)
-        handleResult(SecurityCheck.CT_LOG, "CT log check", ctResult)
+        handleResult(
+            prefs,
+            SecurityCheck.SELF_CERT,
+            SecurityCheckPreferences.SOURCE_SELF_CERT,
+            "Self-cert verification",
+            selfCertResult
+        )
+        handleResult(
+            prefs,
+            SecurityCheck.CT_LOG,
+            SecurityCheckPreferences.SOURCE_CT_LOG,
+            "CT log check",
+            ctResult
+        )
 
         Log.d(TAG, "Security checks complete: self=$selfCertResult, ct=$ctResult")
         return Result.success()
     }
 
-    private fun handleResult(check: SecurityCheck, checkName: String, result: SecurityCheckResult) {
+    private suspend fun handleResult(
+        prefs: SecurityCheckPreferences,
+        check: SecurityCheck,
+        sourceName: String,
+        checkName: String,
+        result: SecurityCheckResult
+    ) {
         when (result) {
             is SecurityCheckResult.Verified -> {
                 Log.d(TAG, "$checkName: verified")
+                prefs.resetWarningStreak(sourceName)
             }
 
             is SecurityCheckResult.Skipped -> {
                 // Issue #228: pre-onboarding / "not yet configured" states log
                 // for diagnostics but MUST NOT fire a user notification.
                 Log.d(TAG, "$checkName: skipped - ${result.reason}")
+                prefs.resetWarningStreak(sourceName)
             }
 
             is SecurityCheckResult.Warning -> {
-                Log.w(TAG, "$checkName: warning - ${result.reason}")
-                notifier.postInfo(check, result.reason)
+                val streak = prefs.incrementWarningStreak(sourceName)
+                if (streak >= WARNING_NOTIFICATION_THRESHOLD) {
+                    Log.w(TAG, "$checkName: warning (streak=$streak) - ${result.reason}")
+                    notifier.postInfo(check, result.reason)
+                } else {
+                    // Below threshold -- single/transient flaps are absorbed
+                    // silently. Issue #256: crt.sh 5xx hiccups should not
+                    // notify on first occurrence.
+                    Log.d(
+                        TAG,
+                        "$checkName: warning (streak=$streak, below threshold) - " +
+                            result.reason
+                    )
+                }
             }
 
             is SecurityCheckResult.Alert -> {
                 Log.e(TAG, "$checkName: ALERT - ${result.reason}")
+                // Alerts bypass debouncing entirely, but any accumulated
+                // warning streak is no longer meaningful.
+                prefs.resetWarningStreak(sourceName)
                 notifier.postAlert(check, result.reason)
             }
         }
@@ -94,6 +137,14 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
     companion object {
         const val TAG = "SecurityCheckWorker"
         const val WORK_NAME = "security_check"
+
+        /**
+         * Minimum consecutive Warning runs from the same source before a user
+         * notification fires. Issue #256: covers persistent-but-intermittent
+         * outages that the per-request retry in [com.rousecontext.tunnel.HttpCtLogFetcher]
+         * cannot absorb on its own.
+         */
+        const val WARNING_NOTIFICATION_THRESHOLD = 3
 
         private fun resultToString(result: SecurityCheckResult): String = when (result) {
             is SecurityCheckResult.Verified -> "verified"
