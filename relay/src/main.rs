@@ -377,6 +377,14 @@ async fn handle_connection(
             // Build the SNI hostname for the OPEN frame
             let sni_hostname = format!("{integration_secret}.{subdomain}.{}", ctx.base_domain);
 
+            // Record the routed SNI for test-mode observers. `--test-mode` off
+            // (release builds) leaves `test_metrics` as None so this is a
+            // single nullable check on the hot path.
+            #[cfg(feature = "test-mode")]
+            if let Some(metrics) = &ctx.app_state.test_metrics {
+                metrics.record_routed_passthrough(&sni_hostname);
+            }
+
             let pt_ctx = PassthroughContext {
                 relay_state: ctx.relay_state,
                 session_registry: ctx.session_registry,
