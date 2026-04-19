@@ -108,7 +108,10 @@ class OnboardingInterruptedResumableTest {
             firebaseToken = TEST_FIREBASE_TOKEN,
             fcmToken = TEST_FCM_TOKEN
         )
-        assertTrue("first-run onboarding must succeed, got: $result", result is OnboardingResult.Success)
+        assertTrue(
+            "first-run onboarding must succeed, got: $result",
+            result is OnboardingResult.Success
+        )
         return (result as OnboardingResult.Success).subdomain
     }
 
@@ -167,9 +170,18 @@ class OnboardingInterruptedResumableTest {
     }
 
     private suspend fun assertStoreFullyProvisioned(store: CertificateStore) {
-        assertNotNull("resumed run must persist the ACME server cert", store.getCertificate())
-        assertNotNull("resumed run must persist the relay CA client cert", store.getClientCertificate())
-        assertNotNull("resumed run must persist the relay CA cert", store.getRelayCaCert())
+        assertNotNull(
+            "resumed run must persist the ACME server cert",
+            store.getCertificate()
+        )
+        assertNotNull(
+            "resumed run must persist the relay CA client cert",
+            store.getClientCertificate()
+        )
+        assertNotNull(
+            "resumed run must persist the relay CA cert",
+            store.getRelayCaCert()
+        )
     }
 
     private companion object {
