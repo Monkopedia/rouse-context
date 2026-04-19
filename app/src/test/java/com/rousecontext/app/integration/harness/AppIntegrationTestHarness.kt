@@ -30,6 +30,7 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
+import java.util.Collections
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -39,7 +40,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.ConnectionPool
+import okhttp3.Interceptor
+import okhttp3.Response
+import okio.Buffer
 import org.junit.Assume.assumeTrue
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.Koin
@@ -143,6 +150,23 @@ class AppIntegrationTestHarness(
     private var harnessScope: CoroutineScope? = null
     private var fakeHealth: HarnessFakeHealthConnectRepository? = null
 
+    /**
+     * Thread-safe list of `/rotate-secret` request bodies observed by the
+     * OkHttp interceptor installed on the harness [RelayApiClient] ([buildFixtureMtlsHttpClient]).
+     *
+     * Each entry is the `integrations` array from the POST body — the ordered
+     * list of integration IDs the app pushed in that call. Tests for issues
+     * #274/#275/#276 consult this to assert which integrations were included
+     * in each rotate payload; the relay's test-mode admin only surfaces call
+     * counts, not bodies, so payload-level assertions need this client-side
+     * capture instead.
+     *
+     * Backed by a synchronized list so reads from the test thread see writes
+     * from the OkHttp dispatcher threads without extra locking.
+     */
+    private val capturedRotateSecretPayloads: MutableList<List<String>> =
+        Collections.synchronizedList(mutableListOf())
+
     // ---- Public inspectors ----
 
     /** Koin instance booted with `appModule` + test overrides. */
@@ -176,6 +200,24 @@ class AppIntegrationTestHarness(
     /** Shortcut to the overridden [RelayApiClient]. */
     val relayApiClient: RelayApiClient
         get() = koin.get<RelayApiClient>()
+
+    /**
+     * Snapshot of the `integrations` payloads observed on every `/rotate-secret`
+     * request, in arrival order. Issue #274/#275/#276 tests use this to verify
+     * the exact list the app pushed (the relay's `/test/stats` only surfaces
+     * counts, not bodies).
+     */
+    fun capturedRotateSecretPayloads(): List<List<String>> =
+        synchronized(capturedRotateSecretPayloads) {
+            capturedRotateSecretPayloads.map { it.toList() }
+        }
+
+    /** Clear any previously captured `/rotate-secret` payloads. */
+    fun clearCapturedRotateSecretPayloads() {
+        synchronized(capturedRotateSecretPayloads) {
+            capturedRotateSecretPayloads.clear()
+        }
+    }
 
     // ---- Lifecycle ----
 
@@ -234,6 +276,11 @@ class AppIntegrationTestHarness(
         val newFakeHealth = HarnessFakeHealthConnectRepository()
         fakeHealth = newFakeHealth
 
+        synchronized(capturedRotateSecretPayloads) { capturedRotateSecretPayloads.clear() }
+        val captureSink: (List<String>) -> Unit = { ids ->
+            synchronized(capturedRotateSecretPayloads) { capturedRotateSecretPayloads.add(ids) }
+        }
+
         val appContext: Context = ApplicationProvider.getApplicationContext<Application>()
         koinInstance = startKoin {
             androidContext(appContext)
@@ -246,7 +293,8 @@ class AppIntegrationTestHarness(
                     baseDomain = baseDomain,
                     harnessScope = newHarnessScope,
                     fakeHealth = newFakeHealth,
-                    integrations = integrationsFactory()
+                    integrations = integrationsFactory(),
+                    rotateSecretCapture = captureSink
                 )
             )
         }.koin
@@ -304,7 +352,8 @@ private fun buildTestOverrides(
     baseDomain: String,
     harnessScope: CoroutineScope,
     fakeHealth: HarnessFakeHealthConnectRepository,
-    integrations: List<McpIntegration>
+    integrations: List<McpIntegration>,
+    rotateSecretCapture: (List<String>) -> Unit
 ) = module {
     // --- appScope override ---
     // Production supplies a main-dispatcher scope from RouseApplication. We
@@ -372,7 +421,8 @@ private fun buildTestOverrides(
             caCert = ca.caCert,
             keyManagerSource = {
                 buildKeyManagerFromDiskIfProvisioned(ctx, deviceKeyManager, certStoreRef)
-            }
+            },
+            rotateSecretCapture = rotateSecretCapture
         )
         RelayApiClient(
             baseUrl = "https://$relayHostname:$relayPort",
@@ -511,7 +561,8 @@ private class SoftwareDeviceKeyManager : DeviceKeyManager {
  */
 private fun buildFixtureMtlsHttpClient(
     caCert: X509Certificate,
-    keyManagerSource: () -> javax.net.ssl.X509KeyManager?
+    keyManagerSource: () -> javax.net.ssl.X509KeyManager?,
+    rotateSecretCapture: (List<String>) -> Unit
 ): HttpClient {
     val trustStore = KeyStore.getInstance(KeyStore.getDefaultType())
     trustStore.load(null, null)
@@ -545,6 +596,7 @@ private fun buildFixtureMtlsHttpClient(
                 )
                 hostnameVerifier { _, _ -> true }
                 dns(LoopbackDns)
+                addInterceptor(RotateSecretBodyCaptureInterceptor(rotateSecretCapture))
             }
         }
         install(ContentNegotiation) {
@@ -724,6 +776,45 @@ private class FreshSslContextSocketFactory(
 private object LoopbackDns : okhttp3.Dns {
     override fun lookup(hostname: String): List<InetAddress> =
         listOf(InetAddress.getByName("127.0.0.1"))
+}
+
+/**
+ * OkHttp interceptor that peeks at `POST /rotate-secret` request bodies and
+ * feeds the `integrations` array into [sink]. Every other request is passed
+ * through unchanged. Runs before the network layer so the captured list is
+ * exactly what the device attempted to push, independent of whether the
+ * relay accepted it.
+ *
+ * The relay's test-mode admin surfaces `/rotate-secret` call counts but not
+ * bodies. Scenarios in issues #274/#275/#276 need to assert which integrations
+ * were included in each payload; capturing here is cheaper than extending the
+ * relay admin protocol and keeps the coupling inside the harness.
+ */
+private class RotateSecretBodyCaptureInterceptor(private val sink: (List<String>) -> Unit) :
+    Interceptor {
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        if (request.method.equals("POST", ignoreCase = true) &&
+            request.url.encodedPath.endsWith("/rotate-secret")
+        ) {
+            val body = request.body
+            if (body != null) {
+                val buffer = Buffer()
+                body.writeTo(buffer)
+                val raw = buffer.readUtf8()
+                val parsed = runCatching {
+                    val root = Json.parseToJsonElement(raw)
+                    root.jsonObject["integrations"]?.jsonArray
+                        ?.map { it.jsonPrimitive.content }
+                        ?: emptyList()
+                }.getOrElse { emptyList() }
+                sink(parsed)
+            } else {
+                sink(emptyList())
+            }
+        }
+        return chain.proceed(request)
+    }
 }
 
 // Shorter than production timeouts — integration tests hit a local subprocess
