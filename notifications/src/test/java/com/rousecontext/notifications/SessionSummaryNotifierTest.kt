@@ -257,6 +257,89 @@ class SessionSummaryNotifierTest {
         coroutineContext.cancelChildren()
     }
 
+    /**
+     * Regression test for issue #324.
+     *
+     * Symptom: a user had tool uses in the morning but no session-summary
+     * notification fired. The post-#244 suspend-insert fix had closed the
+     * audit-insert race, so rows were present; something else was dropping
+     * the notification.
+     *
+     * Root cause: when a stream drained with zero audit entries (e.g. an
+     * AI client opened a probe stream, listed tools/resources via
+     * `tools/list` — which does NOT write to the audit-tool-call table —
+     * and closed), [SessionSummaryNotifier] still set the per-cycle
+     * `posted` gate to true. Any subsequent stream within the SAME tunnel
+     * connection cycle (no full tunnel DISCONNECTED in between) would see
+     * `posted = true` and skip arming its cursor, so real tool-call
+     * activity in later streams never produced a summary notification.
+     *
+     * Fix: only burn the `posted` gate when we actually posted a
+     * notification. An empty drain (no audit rows since the cursor) must
+     * leave `posted = false` so the next ACTIVE can re-arm.
+     *
+     * Scenario modelled here: one full tunnel cycle, two ACTIVE → CONNECTED
+     * drains inside it; the first drain has no entries, the second has
+     * entries. Post-fix: one summary notification fires on the second
+     * drain. Pre-fix: the probe drain silently burns the gate and no
+     * summary ever fires.
+     */
+    @Test
+    fun `Summary posts on later drain when first drain of cycle has no entries`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val postedSignal = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = {
+            // Second drain of the cycle is the one we expect to post.
+            if (dao.queryCreatedAfterCount >= 2 && !postedSignal.isCompleted) {
+                postedSignal.complete(Unit)
+            }
+        }
+
+        val job = launch { notifier.observe(states) }
+
+        // Cycle start. First stream opens...
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+
+        // ...and drains with no tool-call rows. This is the "probe" stream
+        // (e.g. tools/list only, which doesn't insert into audit_entries).
+        states.emit(TunnelState.CONNECTED)
+
+        // Give the observer a turn to process the empty drain. We can't rely
+        // on awaitLatestId() here because that's only hit on a cursor arm,
+        // and the whole question of this test is whether the next ACTIVE
+        // re-arms.
+        kotlinx.coroutines.yield()
+
+        // Second stream opens within the same tunnel cycle — no
+        // DISCONNECTED in between. Pre-fix, `posted = true` from the empty
+        // drain blocks the cursor arm here.
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps"))
+
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { postedSignal.await() }
+
+        val shadow = Shadows.shadowOf(manager)
+        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        assertNotNull(
+            "Summary should post on the second drain when the first drain " +
+                "had no entries (issue #324 — empty drain must not burn the " +
+                "per-cycle gate)",
+            notification
+        )
+        val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
+        val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
+        val all = "$title $text"
+        assertTrue("Expected 1 tool call in summary text, was: $all", all.contains("1"))
+        assertTrue("Expected health provider in summary text, was: $all", all.contains("health"))
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
     @Test
     fun `Summary mode posts once per connection cycle even with repeated drains`() = runBlocking {
         settings.mode = PostSessionMode.SUMMARY
