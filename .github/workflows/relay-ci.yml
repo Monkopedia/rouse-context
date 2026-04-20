@@ -35,7 +35,11 @@ jobs:
         # an LCOV file. We deliberately do NOT also run `cargo test` — llvm-cov
         # re-runs the suite so a plain `cargo test` step would just duplicate
         # work for no added signal. Test failures here fail the job as usual.
-        run: cargo llvm-cov --lcov --output-path coverage.lcov
+        # --ignore-filename-regex excludes src/main.rs: it's the binary entry
+        # point (540 lines) which cargo-llvm-cov cannot instrument — integration
+        # tests exercise it via subprocess, so coverage isn't attributable at
+        # the library crate level. Same shape as the Kotlin #298 exclusions.
+        run: cargo llvm-cov --lcov --output-path coverage.lcov --ignore-filename-regex "main\.rs"
       - name: Coverage summary
         working-directory: relay
         run: |
@@ -52,7 +56,7 @@ jobs:
           #
           # We care about: filename (col 1), total lines (col 8), missed lines
           # (col 9), and line-cover % (col 10).
-          cargo llvm-cov report --summary-only | tee coverage.txt
+          cargo llvm-cov report --summary-only --ignore-filename-regex "main\.rs" | tee coverage.txt
           {
             echo "## Relay Rust coverage"
             echo
