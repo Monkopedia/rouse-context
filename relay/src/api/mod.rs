@@ -7,7 +7,6 @@ pub mod renew;
 pub mod request_subdomain;
 pub mod rotate_secret;
 pub mod status;
-pub mod wake;
 pub mod ws;
 
 use axum::extract::Request;
@@ -244,8 +243,6 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
             axum::routing::post(request_subdomain::handle_request_subdomain),
         )
         .route("/renew", axum::routing::post(renew::handle_renew))
-        // /wake disabled — passthrough handles FCM wake implicitly on client connect
-        // .route("/wake/{subdomain}", axum::routing::post(wake::handle_wake))
         .route("/status", axum::routing::get(status::handle_status));
 
     let authed_router = axum::Router::new()
