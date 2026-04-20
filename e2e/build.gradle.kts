@@ -18,7 +18,7 @@ tasks.test {
     useJUnitPlatform()
 }
 
-// Run with: ./gradlew :e2e:e2eTest
+// Run with: ./gradlew :e2e:e2eTest -Dadb.host=<your-dev-host> [-Dadb.serial=<your-device-serial>]
 tasks.register<Test>("e2eTest") {
     group = "verification"
     description = "Run end-to-end MCP tests against a real device"
@@ -26,10 +26,23 @@ tasks.register<Test>("e2eTest") {
     classpath = sourceSets.test.get().runtimeClasspath
     useJUnitPlatform()
 
+    // Fail fast if adb.host is not provided. The e2e tests need to talk to a real
+    // device over adb; there is no sensible default. See README for usage.
+    doFirst {
+        val adbHost = System.getProperty("adb.host", "")
+        if (adbHost.isBlank()) {
+            throw GradleException(
+                "adb.host system property is required. " +
+                    "Example: ./gradlew :e2e:e2eTest -Dadb.host=<your-dev-host> " +
+                    "[-Dadb.serial=<your-device-serial>]"
+            )
+        }
+    }
+
     // Pass device URL via system property
     // ./gradlew :e2e:e2eTest -Dmcp.url=https://foo-test.device.rousecontext.com/mcp
     systemProperty("mcp.url", System.getProperty("mcp.url", ""))
     systemProperty("mcp.integration", System.getProperty("mcp.integration", "test"))
-    systemProperty("adb.host", System.getProperty("adb.host", "adolin.lan"))
+    systemProperty("adb.host", System.getProperty("adb.host", ""))
     systemProperty("adb.serial", System.getProperty("adb.serial", ""))
 }

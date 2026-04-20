@@ -31,13 +31,14 @@ import org.junit.jupiter.api.TestFactory
  *
  * Run with:
  * ```
- * ./gradlew :e2e:e2eTest -Dadb.host=adolin.lan
+ * ./gradlew :e2e:e2eTest -Dadb.host=<your-dev-host>
  * ```
  */
 class IntegrationToolsTest {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val adbHost = System.getProperty("adb.host", "adolin.lan")
+    private val adbHost = System.getProperty("adb.host")
+        ?: error("adb.host system property required, e.g. -Dadb.host=<your-dev-host>")
 
     /**
      * Expected tools per integration. Integrations not listed here still get a

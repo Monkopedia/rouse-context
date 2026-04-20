@@ -1,7 +1,7 @@
 # Device Integration Test Report
 
 **Date:** 2026-04-07
-**Device:** Pixel 3 XL (serial: 84TY004PW, Android 12, SDK 31)
+**Device:** Pixel 3 XL (serial: `<your-device-serial>`, Android 12, SDK 31)
 **Build:** `app-debug.apk` built from commit `a3a0c1a` (main)
 **Package:** `com.rousecontext.debug`
 **Relay:** `relay.rousecontext.com` (uptime ~14h at test start)

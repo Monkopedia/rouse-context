@@ -37,13 +37,13 @@ import org.junit.jupiter.api.TestMethodOrder
  *
  * Requires:
  * - A debug build installed and onboarded on a device
- * - Device connected via adb through adolin.lan
+ * - Device connected via adb through <your-dev-host>
  * - The relay running at relay.rousecontext.com
  * - FCM configured (real Firebase project, not test)
  *
  * Run with:
  * ```
- * ./gradlew :e2e:e2eTest -Dadb.host=adolin.lan
+ * ./gradlew :e2e:e2eTest -Dadb.host=<your-dev-host>
  * ```
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -51,7 +51,8 @@ import org.junit.jupiter.api.TestMethodOrder
 class ColdStartEndToEndTest {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val adbHost = System.getProperty("adb.host", "adolin.lan")
+    private val adbHost = System.getProperty("adb.host")
+        ?: error("adb.host system property required, e.g. -Dadb.host=<your-dev-host>")
     private val integrationId = System.getProperty("mcp.integration", "test")
 
     private val client = OkHttpClient.Builder()
