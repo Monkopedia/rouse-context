@@ -45,10 +45,18 @@ import kotlinx.coroutines.flow.Flow
  * ## Repeated drains in one connection cycle
  *
  * We post at most once per connection cycle (from DISCONNECTED to DISCONNECTED).
- * If an AI client reopens streams after draining, we do NOT re-capture a cursor
- * and do NOT re-post. The cursor is re-armed only after the tunnel fully
- * disconnects and reconnects. This prevents notification spam when clients
+ * If an AI client reopens streams after a *posted* drain, we do NOT re-capture
+ * a cursor and do NOT re-post. The cursor is re-armed only after the tunnel
+ * fully disconnects and reconnects. This prevents notification spam when clients
  * churn streams and matches the user-visible notion of "one session".
+ *
+ * An *empty* drain — a stream that opened and closed without producing any
+ * audit-tool-call rows (for example a probe client that calls only
+ * `tools/list` or `resources/list`, which go to `mcp_request_entries` not
+ * `audit_entries`) — does NOT burn the per-cycle gate. The next ACTIVE
+ * transition re-arms the cursor so any real tool-call activity in later
+ * streams still surfaces a summary. See issue #324 for the regression this
+ * distinction closes.
  */
 class SessionSummaryNotifier(
     private val context: Context,
@@ -88,9 +96,19 @@ class SessionSummaryNotifier(
                     val startCursor = cursorId!!
                     val sessionEndMillis = System.currentTimeMillis()
                     val entries = auditDao.queryCreatedAfter(startCursor)
-                    postForMode(entries, sessionStartMillis, sessionEndMillis)
+                    val didPost = postForMode(entries, sessionStartMillis, sessionEndMillis)
                     cursorId = null
-                    posted = true
+                    // Only burn the per-cycle gate when we actually posted.
+                    // An empty drain (no audit rows since the cursor) can
+                    // happen when an AI client opens a probe stream that
+                    // only calls tools/list or resources/list — those go to
+                    // mcp_request_entries, not audit_entries. Burning the
+                    // gate on an empty drain would silently drop summaries
+                    // for any subsequent stream in the same connection
+                    // cycle that DOES have tool calls. See issue #324.
+                    if (didPost) {
+                        posted = true
+                    }
                 }
                 // Reset when the tunnel fully disconnects. Defensive: if we
                 // went ACTIVE -> DISCONNECTED without a CONNECTED drain, we
@@ -105,14 +123,31 @@ class SessionSummaryNotifier(
         }
     }
 
-    private suspend fun postForMode(entries: List<AuditEntry>, startMillis: Long, endMillis: Long) {
+    /**
+     * Post a session-end notification for [entries] according to the user's
+     * current [PostSessionMode] preference.
+     *
+     * Returns `true` when a notification was actually posted, `false`
+     * otherwise. The caller uses this to decide whether to burn the
+     * per-connection-cycle `posted` gate — see [observe]'s handling of the
+     * ACTIVE → CONNECTED branch.
+     */
+    private suspend fun postForMode(
+        entries: List<AuditEntry>,
+        startMillis: Long,
+        endMillis: Long
+    ): Boolean {
         val mode = settingsProvider.settings().postSessionMode
-        when (mode) {
-            PostSessionMode.SUPPRESS -> return
-            PostSessionMode.EACH_USAGE -> return
+        return when (mode) {
+            PostSessionMode.SUPPRESS -> false
+            PostSessionMode.EACH_USAGE -> false
             PostSessionMode.SUMMARY -> {
-                if (entries.isEmpty()) return
-                postSummary(entries, startMillis, endMillis)
+                if (entries.isEmpty()) {
+                    false
+                } else {
+                    postSummary(entries, startMillis, endMillis)
+                    true
+                }
             }
         }
     }
