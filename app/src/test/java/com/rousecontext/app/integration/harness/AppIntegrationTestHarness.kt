@@ -354,11 +354,86 @@ class AppIntegrationTestHarness(
     }
 
     /**
-     * Shared Koin-startup path used by both [start] (fresh relay) and
-     * [restartKoinPreservingState] (existing relay). Builds a new scope, new
-     * fake health repo, and re-runs `startKoin { modules(appModule + overrides) }`.
+     * Simulate an Android cold start: process died, framework spawned a fresh
+     * one via FCM, on-disk state survives, **and the Android Keystore key
+     * survives** (because the AOSP Keystore HAL persists keys across process
+     * lifetimes).
+     *
+     * Use this for cold-start-via-FCM scenarios (issue #317) where a
+     * provisioned device must come back to `CONNECTED` without re-provisioning.
+     * The previously-provisioned client cert on disk is bound to a specific
+     * device public key — if we rebuilt the [DeviceKeyManager] with a fresh
+     * keypair the mTLS handshake would fail (cert's SPKI no longer matches the
+     * private key), which is *not* what happens on a real cold start: the
+     * `rouse_device_key` alias in the Android Keystore resolves to the same
+     * hardware-backed key as before.
+     *
+     * Contrast [restartKoinPreservingState], which mints a fresh
+     * [DeviceKeyManager] and is deliberately stricter — the "onboarding
+     * interrupted mid-`/register/certs`" scenario (#272) re-runs cert
+     * provisioning against the fresh key, so a fresh key is correct there.
+     *
+     * Everything else behaves identically to [restartKoinPreservingState]:
+     *   - Koin is stopped and rebooted.
+     *   - The harness coroutine scope is cancelled and replaced.
+     *   - The fake health repo is re-instantiated.
+     *   - `context.filesDir`, the relay subprocess, and captured
+     *     `/rotate-secret` payloads all persist.
+     *
+     * Callers must have a currently-running harness (call on an instance where
+     * [start] was invoked and [stop] was not). The harness does NOT retain a
+     * reference across a full [stop]/[start] pair — the keystore analogy only
+     * holds within the same relay lifetime.
      */
-    private fun bootKoin(ca: TestCertificateAuthority, relayPort: Int) {
+    fun simulateColdStart() {
+        checkNotNull(koinInstance) {
+            "simulateColdStart() requires a running harness (call start() first)"
+        }
+        val currentCa = checkNotNull(ca) { "harness CA missing" }
+        val currentPort = relayPortOrNegative
+        check(currentPort > 0) { "harness relay port invalid" }
+
+        // Capture the live DeviceKeyManager BEFORE stopping Koin — once Koin
+        // is stopped its singletons are GC-eligible and `koin.get()` would
+        // fail. The captured instance survives as a local here and is fed
+        // back into the replacement override module below.
+        val preservedDeviceKeyManager: DeviceKeyManager = koin.get()
+
+        runCatching { stopKoin() }
+        koinInstance = null
+
+        harnessScope?.cancel()
+        harnessScope = null
+        fakeHealth = null
+
+        // Same intentional skip as restartKoinPreservingState: the accumulated
+        // `/rotate-secret` capture reflects the relay's own accumulated state,
+        // which didn't restart.
+
+        bootKoin(
+            ca = currentCa,
+            relayPort = currentPort,
+            deviceKeyManagerOverride = preservedDeviceKeyManager
+        )
+    }
+
+    /**
+     * Shared Koin-startup path used by [start] (fresh relay),
+     * [restartKoinPreservingState] (existing relay, fresh DeviceKeyManager),
+     * and [simulateColdStart] (existing relay, preserved DeviceKeyManager).
+     * Builds a new scope, new fake health repo, and re-runs
+     * `startKoin { modules(appModule + overrides) }`.
+     *
+     * [deviceKeyManagerOverride], when non-null, replaces the default fresh
+     * [SoftwareDeviceKeyManager] in the override module — used by
+     * [simulateColdStart] to carry the provisioned keypair across the Koin
+     * reboot (matching the Android Keystore's persistence semantics).
+     */
+    private fun bootKoin(
+        ca: TestCertificateAuthority,
+        relayPort: Int,
+        deviceKeyManagerOverride: DeviceKeyManager? = null
+    ) {
         val newHarnessScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         harnessScope = newHarnessScope
 
@@ -382,7 +457,8 @@ class AppIntegrationTestHarness(
                     harnessScope = newHarnessScope,
                     fakeHealth = newFakeHealth,
                     integrations = integrationsFactory(),
-                    rotateSecretCapture = captureSink
+                    rotateSecretCapture = captureSink,
+                    deviceKeyManagerOverride = deviceKeyManagerOverride
                 )
             )
         }.koin
@@ -604,7 +680,8 @@ private fun buildTestOverrides(
     harnessScope: CoroutineScope,
     fakeHealth: HarnessFakeHealthConnectRepository,
     integrations: List<McpIntegration>,
-    rotateSecretCapture: (List<String>) -> Unit
+    rotateSecretCapture: (List<String>) -> Unit,
+    deviceKeyManagerOverride: DeviceKeyManager? = null
 ) = module {
     // --- appScope override ---
     // Production supplies a main-dispatcher scope from RouseApplication. We
@@ -637,7 +714,12 @@ private fun buildTestOverrides(
     // provider (not available on JVM/Robolectric). Swap in a software EC
     // keypair that speaks the same interface; production code paths never
     // notice because the interface contract is "return a KeyPair".
-    single<DeviceKeyManager> { SoftwareDeviceKeyManager() }
+    //
+    // When [deviceKeyManagerOverride] is non-null, reuse the passed-in
+    // instance instead of minting a new one — [simulateColdStart] uses this
+    // to carry the provisioned keypair across a Koin reboot, matching the
+    // Android Keystore's persistence across process lifetimes. Issue #317.
+    single<DeviceKeyManager> { deviceKeyManagerOverride ?: SoftwareDeviceKeyManager() }
 
     // --- RelayApiClient override ---
     // Production [appModule] builds one of these with BuildConfig.RELAY_HOST.
