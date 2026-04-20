@@ -2,7 +2,9 @@ package com.rousecontext.integrations.notifications
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -151,6 +153,25 @@ class NotificationDaoTest {
         assertTrue(dao.search().isEmpty())
         assertEquals(0, dao.countInRange(0L, Long.MAX_VALUE))
         assertTrue(dao.countByPackage(0L, Long.MAX_VALUE).isEmpty())
+    }
+
+    @Test
+    fun `create builds a real file-backed database`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val fileDb = NotificationDatabase.create(context)
+        try {
+            val fileDao = fileDb.notificationDao()
+            // File-backed Room disallows main-thread queries, so hop to IO.
+            withContext(Dispatchers.IO) {
+                fileDao.insert(record(title = "persisted"))
+                val results = fileDao.search()
+                assertEquals(1, results.size)
+                assertEquals("persisted", results[0].title)
+            }
+        } finally {
+            fileDb.close()
+            context.deleteDatabase("rouse_notifications.db")
+        }
     }
 
     private fun record(
