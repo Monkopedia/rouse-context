@@ -90,6 +90,20 @@ kover {
                 // Room generated DAOs / databases
                 classes("*_Impl")
                 classes("*_Impl\$*")
+                // Debug-only ContentProvider exposing adb-driven test hooks. Built
+                // only in debug variants; not exercised by unit/integration tests.
+                classes("com.rousecontext.app.testing.*")
+                // `debug` flavor source set — debug-only receivers, Koin modules,
+                // and stubs. Not present in release builds.
+                classes("com.rousecontext.app.debug.*")
+                // Compose screen destination glue. Testing requires an Espresso /
+                // Paparazzi / Roborazzi harness, out of scope for JVM-tier coverage.
+                classes("com.rousecontext.app.ui.navigation.destinations.*")
+                // Trivial Firebase static-call wrappers introduced solely to make
+                // callers testable by hiding FirebaseAuth / FirebaseMessaging
+                // singletons behind interfaces. The wrappers themselves are the
+                // Firebase boundary and can't be meaningfully tested at the JVM tier.
+                classes("com.rousecontext.app.auth.Firebase*")
             }
         }
     }
