@@ -3,9 +3,13 @@ name: Relay CI
 on:
   push:
     branches: [main]
-    paths: ['relay/**']
+    paths:
+      - 'relay/**'
+      - '.github/workflows/relay-ci.yml'
   pull_request:
-    paths: ['relay/**']
+    paths:
+      - 'relay/**'
+      - '.github/workflows/relay-ci.yml'
 
 jobs:
   test:
@@ -13,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
       - name: Cache
         uses: actions/cache@v4
         with:
@@ -21,9 +27,69 @@ jobs:
             ~/.cargo/git
             relay/target
           key: relay-ci-${{ hashFiles('relay/Cargo.lock') }}
-      - name: Test
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Test with coverage
         working-directory: relay
-        run: cargo test
+        # cargo llvm-cov runs the test suite under instrumentation and emits
+        # an LCOV file. We deliberately do NOT also run `cargo test` — llvm-cov
+        # re-runs the suite so a plain `cargo test` step would just duplicate
+        # work for no added signal. Test failures here fail the job as usual.
+        run: cargo llvm-cov --lcov --output-path coverage.lcov
+      - name: Coverage summary
+        working-directory: relay
+        run: |
+          # Per-file + aggregate line coverage, written to the job step summary
+          # as a readable markdown table. Parses the fixed-width output of
+          # `cargo llvm-cov report --summary-only`, which looks like:
+          #
+          #   Filename            Regions  Missed Regions  Cover  Functions  ...  Lines  Missed Lines  Cover  ...
+          #   ------------------- ...
+          #   acme/account.rs         231              17 92.64%         12  ...    117            14 88.03% ...
+          #   ...
+          #   -------------------
+          #   TOTAL                  9091            2566 71.77%        731  ...   6052          1851 69.42% ...
+          #
+          # We care about: filename (col 1), total lines (col 8), missed lines
+          # (col 9), and line-cover % (col 10).
+          cargo llvm-cov report --summary-only | tee coverage.txt
+          {
+            echo "## Relay Rust coverage"
+            echo
+            echo "| File | Line cover | Missed / Total |"
+            echo "| --- | ---: | ---: |"
+            awk '
+              /^-+$/ { next }
+              /^Filename/ { next }
+              /^TOTAL/ {
+                total_line = $0
+                next
+              }
+              NF >= 10 {
+                file = $1
+                lines = $(NF-5)
+                missed = $(NF-4)
+                cover = $(NF-3)
+                printf "| `%s` | %s | %s / %s |\n", file, cover, missed, lines
+              }
+              END {
+                if (total_line != "") {
+                  n = split(total_line, f, /[ \t]+/)
+                  # Same columns relative to end.
+                  lines = f[n-5]
+                  missed = f[n-4]
+                  cover = f[n-3]
+                  printf "| **TOTAL** | **%s** | **%s / %s** |\n", cover, missed, lines
+                }
+              }
+            ' coverage.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: relay/coverage.lcov
+          if-no-files-found: error
       - name: Clippy
         working-directory: relay
         run: cargo clippy -- -D warnings
