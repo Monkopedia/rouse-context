@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.junit.After
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -245,6 +246,33 @@ class TunnelForegroundServiceLifecycleTest {
         assertTrue(
             "Should not attempt reconnect when intentionalDisconnect is set",
             fakeTunnelClient.connectCount <= 1
+        )
+    }
+
+    // -- Test 6: startForeground is called immediately in onCreate (issue #325) --
+
+    @Test
+    fun `startForeground is called immediately in onCreate before main looper drains`() {
+        fakeTunnelClient.stateFlow.value = TunnelState.DISCONNECTED
+
+        val controller = Robolectric.buildService(TunnelForegroundService::class.java)
+        val service = controller.get()
+
+        // Call create() WITHOUT draining the main looper afterwards.
+        // If startForeground is deferred to a coroutine or posted message,
+        // the notification will not be present yet.
+        controller.create()
+
+        // Robolectric's shadow tracks the last notification passed to
+        // startForeground(). It should be non-null immediately after
+        // onCreate, proving that startForeground was called synchronously
+        // — not deferred to a coroutine or handler post.
+        val shadow = shadowOf(service)
+        val fgNotification = shadow.lastForegroundNotification
+        assertNotNull(
+            "startForeground must be called synchronously in onCreate " +
+                "before any coroutine or handler work runs (issue #325)",
+            fgNotification
         )
     }
 

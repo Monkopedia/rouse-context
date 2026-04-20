@@ -65,8 +65,17 @@ class TunnelForegroundService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        NotificationChannels.createAll(this)
 
+        // CRITICAL: startForeground() must be the very first non-trivial call.
+        // Android's ForegroundServiceDidNotStartInTimeException kills the process
+        // if startForeground() isn't called within ~5s of startForegroundService().
+        // On cold-start FCM wakes, Application.onCreate (Koin, Firebase, etc.)
+        // consumes most of that budget, leaving minimal time here. Issue #325.
+        //
+        // NotificationChannels.createAll() is already called in
+        // RouseApplication.onCreate(), so the foreground channel exists by the
+        // time we reach this point. We call createAll() again below as a
+        // defensive no-op for warm-start edge cases, but AFTER startForeground.
         if (!startForegroundSafely()) {
             // FGS daily time-limit exhausted. User notification already posted;
             // stop the service. The next FCM wake will naturally retry
@@ -74,6 +83,8 @@ class TunnelForegroundService : LifecycleService() {
             stopSelf()
             return
         }
+
+        NotificationChannels.createAll(this)
 
         // Launch observer coroutines exactly once. These collect StateFlows and
         // SharedFlows, so they run for the lifetime of the service. Launching them

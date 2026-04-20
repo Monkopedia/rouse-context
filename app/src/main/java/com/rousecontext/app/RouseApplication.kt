@@ -1,6 +1,8 @@
 package com.rousecontext.app
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -65,11 +67,24 @@ class RouseApplication :
             )
         }
 
+        // Notification channels MUST be created before any foreground service
+        // calls startForeground(). On cold-start FCM wakes, the service's
+        // onCreate fires on the next main-looper message after this returns,
+        // so the channel must exist by then. Issue #325.
         NotificationChannels.createAll(this)
-        configureCrashReporting()
-        scheduleSecurityChecks()
-        CertRenewalScheduler.enqueuePeriodic(this)
-        enqueueImmediateCertRenewalIfNeeded()
+
+        // Defer non-critical init to a posted message so that cold-start FCM
+        // wakes reach TunnelForegroundService.startForeground() as fast as
+        // possible. The 5s FGS timer starts when startForegroundService() is
+        // called; Application.onCreate runs BEFORE the service's onCreate, so
+        // every millisecond saved here reduces the risk of
+        // ForegroundServiceDidNotStartInTimeException. Issue #325.
+        Handler(Looper.getMainLooper()).post {
+            configureCrashReporting()
+            scheduleSecurityChecks()
+            CertRenewalScheduler.enqueuePeriodic(this)
+            enqueueImmediateCertRenewalIfNeeded()
+        }
     }
 
     /**
