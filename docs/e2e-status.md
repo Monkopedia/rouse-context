@@ -50,6 +50,6 @@ No log entries about the AI client connection arriving or being routed.
 
 ## Device info
 - Pixel 3 XL, API 31, package `com.rousecontext.debug`
-- Wireless ADB: `192.168.68.112:38285`
+- Wireless ADB: `<your-lan-ip>:<port>`
 - Subdomain: `main-board`
 - Relay: `relay.rousecontext.com` (35.209.161.222)

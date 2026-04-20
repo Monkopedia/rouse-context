@@ -93,6 +93,28 @@ cd relay
 cargo build --release
 ```
 
+### End-to-end tests
+
+The e2e tests drive a real device over `adb` via a (typically LAN-local) host
+running `adb`. The `adb.host` system property is required and defaults to empty
+— the `:e2e:e2eTest` task fails fast if unset. Device serial is optional and
+only needed if multiple devices are connected to that host.
+
+```bash
+./gradlew :e2e:e2eTest \
+    -Dadb.host=<your-dev-host> \
+    -Dadb.serial=<your-device-serial>
+```
+
+The `:device-tests` module has a separate runner that builds an APK pointed at a
+locally-running relay. It also requires a LAN IP reachable from the device:
+
+```bash
+./gradlew :device-tests:test -Dlan.ip=<your-lan-ip>
+```
+
+Without `lan.ip`, the device-tests skip cleanly via JUnit assumptions.
+
 ## Status
 
 Active development. The core flow works end-to-end: Claude can connect, wake the phone, authorize via OAuth, and call MCP tools. See `docs/design/` for detailed design documents.

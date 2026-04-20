@@ -76,9 +76,9 @@ Each integration needs: module, MCP provider, setup UI, permission handling, tes
 **5b. Lower minSdk** — Investigate what breaks below API 28, add feature flags.
 
 ### Phase 6: Device Integration Testing
-Run after all implementation is complete. Uses the Pixel 3 XL attached to adolin.lan via ADB (`~/Android/Sdk/platform-tools/adb -s 84TY004PW`).
+Run after all implementation is complete. Uses the Pixel 3 XL attached to `<your-dev-host>` via ADB (`~/Android/Sdk/platform-tools/adb -s <your-device-serial>`).
 
-**6a. Build, deploy, and smoke test** — `./gradlew :app:assembleDebug`, scp to adolin, adb install. Launch app, verify it starts without crash.
+**6a. Build, deploy, and smoke test** — `./gradlew :app:assembleDebug`, scp to `<your-dev-host>`, adb install. Launch app, verify it starts without crash.
 
 **6b. Onboarding flow** — If not already onboarded, walk through: Firebase auth → relay registration → cert issuance → subdomain assignment. Verify dashboard shows after.
 

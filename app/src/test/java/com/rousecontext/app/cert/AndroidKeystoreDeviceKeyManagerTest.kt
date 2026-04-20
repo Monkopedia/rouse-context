@@ -24,8 +24,8 @@ import org.robolectric.RobolectricTestRunner
  * - the returned private key can produce SHA256withECDSA signatures that verify under
  *   the returned public key -- i.e. the `KeyPair` is self-consistent
  *
- * The StrongBox-vs-TEE fallback path is exercised by hand on real hardware (see adolin
- * smoke-test instructions in issue #200). Robolectric does not simulate the
+ * The StrongBox-vs-TEE fallback path is exercised by hand on real hardware (see the
+ * device smoke-test instructions in issue #200). Robolectric does not simulate the
  * StrongBoxUnavailableException code path faithfully.
  */
 @RunWith(RobolectricTestRunner::class)

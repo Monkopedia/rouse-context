@@ -31,14 +31,14 @@ import org.junit.jupiter.api.TestMethodOrder
  *
  * Requires:
  * - A debug build installed on a device with test integration available
- * - Device connected via adb through adolin.lan
+ * - Device connected via adb through <your-dev-host>
  * - The relay running at relay.rousecontext.com
  *
  * Run with:
  * ```
  * ./gradlew :e2e:e2eTest \
  *   -Dmcp.url=https://foo-test.wet-scone.rousecontext.com/mcp \
- *   -Dadb.host=adolin.lan
+ *   -Dadb.host=<your-dev-host>
  * ```
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -71,7 +71,8 @@ class McpEndToEndTest {
 
     @BeforeAll
     fun setup() {
-        adbHost = System.getProperty("adb.host", "adolin.lan")
+        adbHost = System.getProperty("adb.host")
+            ?: error("adb.host system property required, e.g. -Dadb.host=<your-dev-host>")
         integrationId = System.getProperty("mcp.integration", "test")
 
         // Ensure app is running and Koin is initialized

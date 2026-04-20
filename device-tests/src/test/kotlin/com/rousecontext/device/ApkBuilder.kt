@@ -19,7 +19,7 @@ class ApkBuilder(private val repoRoot: File) {
     /**
      * Build the debug APK configured to connect to the given relay host and port.
      *
-     * @param relayHost The IP/hostname the device should connect to (e.g., "192.168.68.92")
+     * @param relayHost The IP/hostname the device should connect to (e.g., "<your-lan-ip>")
      * @param relayPort The port the relay is listening on
      * @param relayScheme WebSocket scheme: "ws" for plain, "wss" for TLS (default: "ws")
      * @return The path to the built APK file

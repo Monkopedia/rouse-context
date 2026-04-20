@@ -22,8 +22,13 @@ import org.junit.Test
 class DeviceIntegrationTest {
 
     companion object {
-        /** LAN IP that the device can reach this machine on. */
-        private const val LAN_IP = "192.168.68.92"
+        /**
+         * LAN IP that the device can reach this machine on. Must be provided via the
+         * `lan.ip` system property (or `LAN_IP` env var). Example:
+         * `./gradlew :device-tests:deviceTest -Dlan.ip=<your-lan-ip>`.
+         */
+        private val LAN_IP: String? =
+            System.getProperty("lan.ip") ?: System.getenv("LAN_IP")
 
         /** How long to wait for the device to connect to the relay after a wake broadcast. */
         private const val WAKE_TIMEOUT_MS = 30_000L
@@ -41,6 +46,12 @@ class DeviceIntegrationTest {
     @Before
     fun setUp() {
         repoRoot = findRepoRoot()
+
+        assumeTrue(
+            "lan.ip system property (or LAN_IP env var) not set; " +
+                "pass -Dlan.ip=<your-lan-ip> reachable from the connected device",
+            LAN_IP != null
+        )
 
         device = DeviceController()
         assumeTrue(
@@ -100,7 +111,7 @@ class DeviceIntegrationTest {
         println("Fake FCM server started on port ${fcmServer.port}")
 
         // 2. Build APK pointing at local relay
-        val apk = apkBuilder.build(relayHost = LAN_IP, relayPort = relay.port)
+        val apk = apkBuilder.build(relayHost = requireNotNull(LAN_IP), relayPort = relay.port)
 
         // Install on device
         device.installApk(apk.absolutePath).requireSuccess("APK install")
@@ -161,7 +172,7 @@ class DeviceIntegrationTest {
      */
     @Test
     fun `apk builds and installs with custom relay config`() {
-        val apk = apkBuilder.build(relayHost = LAN_IP, relayPort = 9999)
+        val apk = apkBuilder.build(relayHost = requireNotNull(LAN_IP), relayPort = 9999)
         assertTrue("APK should exist after build", apk.exists())
         assertTrue("APK should not be empty", apk.length() > 0)
 
