@@ -25,14 +25,17 @@ import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.tunnel.TunnelState
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
+import org.junit.ClassRule
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.ExternalResource
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
@@ -88,14 +91,26 @@ class NotificationScreenshotTest {
      */
     private fun lastPosted(): Notification = shadow().allNotifications.last()
 
-    private fun captureLight(name: String, notification: Notification) {
+    private fun captureLight(
+        name: String,
+        notifier: String,
+        variantLabel: String,
+        notification: Notification
+    ) {
+        CapturedNotifications.record(name, notifier, variantLabel, notification)
         composeRule.setContent {
             NotificationCard(notification = notification, isDark = false)
         }
         composeRule.onRoot().captureRoboImage("screenshots/${name}_light.png")
     }
 
-    private fun captureDark(name: String, notification: Notification) {
+    private fun captureDark(
+        name: String,
+        notifier: String,
+        variantLabel: String,
+        notification: Notification
+    ) {
+        CapturedNotifications.record(name, notifier, variantLabel, notification)
         composeRule.setContent {
             NotificationCard(notification = notification, isDark = true)
         }
@@ -108,47 +123,84 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun foregroundConnectingLight() =
-        captureLight("01_foreground_connecting", foreground("Connecting"))
+    fun foregroundConnectingLight() = captureLight(
+        "01_foreground_connecting",
+        FGS,
+        "Connecting",
+        foreground("Connecting")
+    )
 
     @Test
-    fun foregroundConnectingDark() =
-        captureDark("01_foreground_connecting", foreground("Connecting"))
+    fun foregroundConnectingDark() = captureDark(
+        "01_foreground_connecting",
+        FGS,
+        "Connecting",
+        foreground("Connecting")
+    )
 
     @Test
-    fun foregroundConnectedLight() =
-        captureLight("02_foreground_connected", foreground("Connected"))
+    fun foregroundConnectedLight() = captureLight(
+        "02_foreground_connected",
+        FGS,
+        "Connected",
+        foreground("Connected")
+    )
 
     @Test
-    fun foregroundConnectedDark() = captureDark("02_foreground_connected", foreground("Connected"))
+    fun foregroundConnectedDark() = captureDark(
+        "02_foreground_connected",
+        FGS,
+        "Connected",
+        foreground("Connected")
+    )
 
     @Test
     fun foregroundActiveSessionLight() = captureLight(
         "03_foreground_active_session",
+        FGS,
+        "Active session",
         foreground("Connected \u2022 2 active streams")
     )
 
     @Test
     fun foregroundActiveSessionDark() = captureDark(
         "03_foreground_active_session",
+        FGS,
+        "Active session",
         foreground("Connected \u2022 2 active streams")
     )
 
     @Test
-    fun foregroundDisconnectingLight() =
-        captureLight("04_foreground_disconnecting", foreground("Disconnecting"))
+    fun foregroundDisconnectingLight() = captureLight(
+        "04_foreground_disconnecting",
+        FGS,
+        "Disconnecting",
+        foreground("Disconnecting")
+    )
 
     @Test
-    fun foregroundDisconnectingDark() =
-        captureDark("04_foreground_disconnecting", foreground("Disconnecting"))
+    fun foregroundDisconnectingDark() = captureDark(
+        "04_foreground_disconnecting",
+        FGS,
+        "Disconnecting",
+        foreground("Disconnecting")
+    )
 
     @Test
-    fun foregroundDisconnectedLight() =
-        captureLight("05_foreground_disconnected", foreground("Disconnected"))
+    fun foregroundDisconnectedLight() = captureLight(
+        "05_foreground_disconnected",
+        FGS,
+        "Disconnected",
+        foreground("Disconnected")
+    )
 
     @Test
-    fun foregroundDisconnectedDark() =
-        captureDark("05_foreground_disconnected", foreground("Disconnected"))
+    fun foregroundDisconnectedDark() = captureDark(
+        "05_foreground_disconnected",
+        FGS,
+        "Disconnected",
+        foreground("Disconnected")
+    )
 
     private fun foreground(status: String): Notification = ForegroundNotifier.build(context, status)
 
@@ -157,10 +209,20 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun authRequestLight() = captureLight("06_auth_request", postAuthRequest())
+    fun authRequestLight() = captureLight(
+        "06_auth_request",
+        "AuthRequestNotifier",
+        "New auth request",
+        postAuthRequest()
+    )
 
     @Test
-    fun authRequestDark() = captureDark("06_auth_request", postAuthRequest())
+    fun authRequestDark() = captureDark(
+        "06_auth_request",
+        "AuthRequestNotifier",
+        "New auth request",
+        postAuthRequest()
+    )
 
     private fun postAuthRequest(): Notification {
         val notifier = AuthRequestNotifier(
@@ -179,10 +241,20 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun perToolCallLight() = captureLight("07_per_tool_call", postPerToolCall())
+    fun perToolCallLight() = captureLight(
+        "07_per_tool_call",
+        "PerToolCallNotifier",
+        "Each usage",
+        postPerToolCall()
+    )
 
     @Test
-    fun perToolCallDark() = captureDark("07_per_tool_call", postPerToolCall())
+    fun perToolCallDark() = captureDark(
+        "07_per_tool_call",
+        "PerToolCallNotifier",
+        "Each usage",
+        postPerToolCall()
+    )
 
     private fun postPerToolCall(): Notification = runBlocking {
         val notifier = PerToolCallNotifier(
@@ -201,10 +273,20 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun sessionSummaryLight() = captureLight("08_session_summary", postSessionSummary())
+    fun sessionSummaryLight() = captureLight(
+        "08_session_summary",
+        "SessionSummaryNotifier",
+        "Session summary",
+        postSessionSummary()
+    )
 
     @Test
-    fun sessionSummaryDark() = captureDark("08_session_summary", postSessionSummary())
+    fun sessionSummaryDark() = captureDark(
+        "08_session_summary",
+        "SessionSummaryNotifier",
+        "Session summary",
+        postSessionSummary()
+    )
 
     private fun postSessionSummary(): Notification = runBlocking {
         val dao = FakeAuditDao(
@@ -242,10 +324,20 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun launchAppLight() = captureLight("09_launch_app", postLaunchApp())
+    fun launchAppLight() = captureLight(
+        "09_launch_app",
+        "LaunchRequestNotifier",
+        "Launch app",
+        postLaunchApp()
+    )
 
     @Test
-    fun launchAppDark() = captureDark("09_launch_app", postLaunchApp())
+    fun launchAppDark() = captureDark(
+        "09_launch_app",
+        "LaunchRequestNotifier",
+        "Launch app",
+        postLaunchApp()
+    )
 
     private fun postLaunchApp(): Notification {
         val notifier = LaunchRequestNotifier(context)
@@ -261,10 +353,20 @@ class NotificationScreenshotTest {
     }
 
     @Test
-    fun launchOpenLinkLight() = captureLight("10_launch_open_link", postLaunchOpenLink())
+    fun launchOpenLinkLight() = captureLight(
+        "10_launch_open_link",
+        "LaunchRequestNotifier",
+        "Open link",
+        postLaunchOpenLink()
+    )
 
     @Test
-    fun launchOpenLinkDark() = captureDark("10_launch_open_link", postLaunchOpenLink())
+    fun launchOpenLinkDark() = captureDark(
+        "10_launch_open_link",
+        "LaunchRequestNotifier",
+        "Open link",
+        postLaunchOpenLink()
+    )
 
     private fun postLaunchOpenLink(): Notification {
         val notifier = LaunchRequestNotifier(context)
@@ -283,10 +385,20 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun fgsLimitLight() = captureLight("11_fgs_limit", postFgsLimit())
+    fun fgsLimitLight() = captureLight(
+        "11_fgs_limit",
+        "FgsLimitNotifier",
+        "6hr FGS limit",
+        postFgsLimit()
+    )
 
     @Test
-    fun fgsLimitDark() = captureDark("11_fgs_limit", postFgsLimit())
+    fun fgsLimitDark() = captureDark(
+        "11_fgs_limit",
+        "FgsLimitNotifier",
+        "6hr FGS limit",
+        postFgsLimit()
+    )
 
     private fun postFgsLimit(): Notification {
         FgsLimitNotifier.postLimitReachedNotification(context)
@@ -299,10 +411,20 @@ class NotificationScreenshotTest {
     // =========================================================================
 
     @Test
-    fun securitySelfCertAlertLight() = captureLight("12_security_self_cert", postSelfCertAlert())
+    fun securitySelfCertAlertLight() = captureLight(
+        "12_security_self_cert",
+        "AndroidSecurityCheckNotifier",
+        "Self-cert alert",
+        postSelfCertAlert()
+    )
 
     @Test
-    fun securitySelfCertAlertDark() = captureDark("12_security_self_cert", postSelfCertAlert())
+    fun securitySelfCertAlertDark() = captureDark(
+        "12_security_self_cert",
+        "AndroidSecurityCheckNotifier",
+        "Self-cert alert",
+        postSelfCertAlert()
+    )
 
     private fun postSelfCertAlert(): Notification {
         val notifier = AndroidSecurityCheckNotifier(context)
@@ -314,10 +436,20 @@ class NotificationScreenshotTest {
     }
 
     @Test
-    fun securityCtLogAlertLight() = captureLight("13_security_ct_log", postCtLogAlert())
+    fun securityCtLogAlertLight() = captureLight(
+        "13_security_ct_log",
+        "AndroidSecurityCheckNotifier",
+        "CT log alert",
+        postCtLogAlert()
+    )
 
     @Test
-    fun securityCtLogAlertDark() = captureDark("13_security_ct_log", postCtLogAlert())
+    fun securityCtLogAlertDark() = captureDark(
+        "13_security_ct_log",
+        "AndroidSecurityCheckNotifier",
+        "CT log alert",
+        postCtLogAlert()
+    )
 
     private fun postCtLogAlert(): Notification {
         val notifier = AndroidSecurityCheckNotifier(context)
@@ -409,5 +541,29 @@ class NotificationScreenshotTest {
         // Fixed timestamp so per-tool-call "time text" is stable across runs.
         // 2026-04-17T12:34:56Z expressed in millis since epoch.
         private const val FIXED_TIMESTAMP_MILLIS = 1_776_602_096_000L
+
+        // Short alias for the foreground-notifier variant column.
+        private const val FGS = "ForegroundNotifier"
+
+        /**
+         * After all tests in this class have run, write the captured
+         * metadata out as [docs/notifications/index.html]. The test working
+         * directory is the `:notifications` module, so the doc path is
+         * resolved relative to that.
+         */
+        @ClassRule
+        @JvmField
+        val htmlCatalogWriter: ExternalResource = object : ExternalResource() {
+            override fun before() {
+                CapturedNotifications.clear()
+            }
+
+            override fun after() {
+                val cases = CapturedNotifications.snapshot()
+                if (cases.isEmpty()) return
+                val output = File("../docs/notifications/index.html")
+                NotificationCatalogHtmlWriter.write(output, cases)
+            }
+        }
     }
 }
