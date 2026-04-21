@@ -1,6 +1,7 @@
 package com.rousecontext.notifications.preview
 
 import android.app.Notification
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,13 +21,18 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 
 private data class ShadeColors(
     val background: Color,
@@ -90,7 +96,7 @@ fun NotificationCard(
             )
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                NotificationHeader(appName, subText, colors)
+                NotificationHeader(appName, subText, colors, notification)
                 Spacer(Modifier.height(8.dp))
                 NotificationContent(title, text, colors)
                 NotificationActions(actions, colors)
@@ -100,17 +106,40 @@ fun NotificationCard(
 }
 
 @Composable
-private fun NotificationHeader(appName: String, subText: String?, colors: ShadeColors) {
+private fun NotificationHeader(
+    appName: String,
+    subText: String?,
+    colors: ShadeColors,
+    notification: Notification
+) {
+    val context = LocalContext.current
+    val iconBitmap = remember(notification) {
+        runCatching {
+            notification.smallIcon
+                ?.loadDrawable(context)
+                ?.toBitmap(width = 48, height = 48)
+                ?.asImageBitmap()
+        }.getOrNull()
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .clip(CircleShape)
-                .background(colors.accent)
-        )
+        if (iconBitmap != null) {
+            Image(
+                bitmap = iconBitmap,
+                contentDescription = null,
+                colorFilter = ColorFilter.tint(colors.accent),
+                modifier = Modifier.size(14.dp)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(colors.accent)
+            )
+        }
         Spacer(Modifier.width(6.dp))
         Text(
             text = appName,
