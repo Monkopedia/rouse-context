@@ -1,5 +1,6 @@
 pub mod acme;
 pub mod api;
+pub mod caa_check;
 pub mod cloudflare_dns;
 pub mod config;
 pub mod device_ca;

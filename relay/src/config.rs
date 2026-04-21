@@ -257,6 +257,17 @@ pub struct AcmeConfig {
     /// HMAC-SHA256 key for the External Account Binding. Paired with
     /// `external_account_binding_kid_env`.
     pub external_account_binding_hmac_env: String,
+    /// If true, the relay exits with a non-zero status when the startup CAA
+    /// check finds the configured ACME provider missing from the base
+    /// domain's CAA `issue` allowlist. When false (default), a mismatch is
+    /// logged as an ERROR but the relay continues to run.
+    ///
+    /// A CAA mismatch is a latent cert-renewal failure: the cert in use is
+    /// fine, but the next renewal at +60-90 days will be refused by the CA.
+    /// Strict mode is opt-in because a transient DNS glitch at startup
+    /// should not crash-loop production — see issue #322.
+    #[serde(default)]
+    pub fail_on_caa_mismatch: bool,
 }
 
 impl Default for AcmeConfig {
@@ -272,6 +283,7 @@ impl Default for AcmeConfig {
             require_existing_account: false,
             external_account_binding_kid_env: "GTS_EAB_KID".to_string(),
             external_account_binding_hmac_env: "GTS_EAB_HMAC".to_string(),
+            fail_on_caa_mismatch: false,
         }
     }
 }
