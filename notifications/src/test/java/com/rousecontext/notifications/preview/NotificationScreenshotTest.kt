@@ -56,11 +56,18 @@ import org.robolectric.annotation.GraphicsMode
  * Mapping (notifier -> screenshots):
  *   ForegroundNotifier          -> 01..05 foreground_*
  *   AuthRequestNotifier         -> 06 auth_request
- *   PerToolCallNotifier         -> 07 per_tool_call
- *   SessionSummaryNotifier      -> 08 session_summary
- *   LaunchRequestNotifier       -> 09 launch_app, 10 launch_open_link
+ *   PerToolCallNotifier         -> 07 per_tool_call, 07a long tool name,
+ *                                  07b other integration
+ *   SessionSummaryNotifier      -> 08 session_summary (multi-integration),
+ *                                  08a one call / one integration,
+ *                                  08b many calls / one integration
+ *   LaunchRequestNotifier       -> 09 launch_app, 10 launch_open_link,
+ *                                  10a launch_open_link_long
  *   FgsLimitNotifier            -> 11 fgs_limit
- *   AndroidSecurityCheckNotifier -> 12 security_self_cert, 13 security_ct_log
+ *   AndroidSecurityCheckNotifier -> 12 security_self_cert,
+ *                                    13 security_ct_log (single issuer alert),
+ *                                    13a security_ct_log_multi_issuer (alert),
+ *                                    13b security_ct_log_warning (postInfo)
  *
  * Run with:
  * ```
@@ -206,6 +213,11 @@ class NotificationScreenshotTest {
 
     // =========================================================================
     // AuthRequestNotifier
+    //
+    // Only one notification shape: `AuthRequestNotifier.post()` always routes
+    // through the same NotificationCompat builder (title / body / sub-text /
+    // Approve + Deny actions). No branching on flow type, so a single variant
+    // captures the production copy faithfully.
     // =========================================================================
 
     @Test
@@ -267,36 +279,159 @@ class NotificationScreenshotTest {
         lastPosted()
     }
 
+    @Test
+    fun perToolCallLongToolNameLight() = captureLight(
+        "07a_per_tool_call_long_name",
+        "PerToolCallNotifier",
+        "Long tool name",
+        postPerToolCallLongName()
+    )
+
+    @Test
+    fun perToolCallLongToolNameDark() = captureDark(
+        "07a_per_tool_call_long_name",
+        "PerToolCallNotifier",
+        "Long tool name",
+        postPerToolCallLongName()
+    )
+
+    private fun postPerToolCallLongName(): Notification = runBlocking {
+        val notifier = PerToolCallNotifier(
+            context = context,
+            settingsProvider = FakeSettingsProvider(PostSessionMode.EACH_USAGE),
+            integrationDisplayNames = mapOf("health-connect" to "Health Connect"),
+            activityClass = DummyActivity::class.java
+        )
+        notifier.onToolCallRecorded(
+            sampleToolCallEvent().copy(
+                toolName = "query_heart_rate_variability_rolling_window_statistics"
+            )
+        )
+        lastPosted()
+    }
+
+    @Test
+    fun perToolCallOtherIntegrationLight() = captureLight(
+        "07b_per_tool_call_other_integration",
+        "PerToolCallNotifier",
+        "Other integration (display-name substitution)",
+        postPerToolCallOtherIntegration()
+    )
+
+    @Test
+    fun perToolCallOtherIntegrationDark() = captureDark(
+        "07b_per_tool_call_other_integration",
+        "PerToolCallNotifier",
+        "Other integration (display-name substitution)",
+        postPerToolCallOtherIntegration()
+    )
+
+    private fun postPerToolCallOtherIntegration(): Notification = runBlocking {
+        val notifier = PerToolCallNotifier(
+            context = context,
+            settingsProvider = FakeSettingsProvider(PostSessionMode.EACH_USAGE),
+            integrationDisplayNames = mapOf(
+                "health-connect" to "Health Connect",
+                "notifications" to "Notifications"
+            ),
+            activityClass = DummyActivity::class.java
+        )
+        notifier.onToolCallRecorded(
+            sampleToolCallEvent().copy(
+                providerId = "notifications",
+                toolName = "dismiss"
+            )
+        )
+        lastPosted()
+    }
+
     // =========================================================================
     // SessionSummaryNotifier (drive via observe(states) transitioning
     // ACTIVE -> CONNECTED, with the fake DAO returning three audit entries.)
     // =========================================================================
 
     @Test
-    fun sessionSummaryLight() = captureLight(
+    fun sessionSummaryMultiIntegrationLight() = captureLight(
         "08_session_summary",
         "SessionSummaryNotifier",
-        "Session summary",
-        postSessionSummary()
-    )
-
-    @Test
-    fun sessionSummaryDark() = captureDark(
-        "08_session_summary",
-        "SessionSummaryNotifier",
-        "Session summary",
-        postSessionSummary()
-    )
-
-    private fun postSessionSummary(): Notification = runBlocking {
-        val dao = FakeAuditDao(
-            latest = 0L,
-            afterCursor = listOf(
+        "Multi-integration (N calls across M integrations)",
+        postSessionSummary(
+            listOf(
                 sampleEntry(id = 1, toolName = "get_steps", provider = "health-connect"),
                 sampleEntry(id = 2, toolName = "get_heart_rate", provider = "health-connect"),
                 sampleEntry(id = 3, toolName = "send_notification", provider = "notifications")
             )
         )
+    )
+
+    @Test
+    fun sessionSummaryMultiIntegrationDark() = captureDark(
+        "08_session_summary",
+        "SessionSummaryNotifier",
+        "Multi-integration (N calls across M integrations)",
+        postSessionSummary(
+            listOf(
+                sampleEntry(id = 1, toolName = "get_steps", provider = "health-connect"),
+                sampleEntry(id = 2, toolName = "get_heart_rate", provider = "health-connect"),
+                sampleEntry(id = 3, toolName = "send_notification", provider = "notifications")
+            )
+        )
+    )
+
+    @Test
+    fun sessionSummarySingleCallLight() = captureLight(
+        "08a_session_summary_single_call",
+        "SessionSummaryNotifier",
+        "Single call, single integration (\"1 tool call\")",
+        postSessionSummary(
+            listOf(
+                sampleEntry(id = 1, toolName = "get_steps", provider = "health-connect")
+            )
+        )
+    )
+
+    @Test
+    fun sessionSummarySingleCallDark() = captureDark(
+        "08a_session_summary_single_call",
+        "SessionSummaryNotifier",
+        "Single call, single integration (\"1 tool call\")",
+        postSessionSummary(
+            listOf(
+                sampleEntry(id = 1, toolName = "get_steps", provider = "health-connect")
+            )
+        )
+    )
+
+    @Test
+    fun sessionSummarySingleIntegrationLight() = captureLight(
+        "08b_session_summary_single_integration",
+        "SessionSummaryNotifier",
+        "Many calls, single integration (\"3 tool calls\", no \"across\")",
+        postSessionSummary(
+            listOf(
+                sampleEntry(id = 1, toolName = "get_steps", provider = "health-connect"),
+                sampleEntry(id = 2, toolName = "get_heart_rate", provider = "health-connect"),
+                sampleEntry(id = 3, toolName = "get_sleep", provider = "health-connect")
+            )
+        )
+    )
+
+    @Test
+    fun sessionSummarySingleIntegrationDark() = captureDark(
+        "08b_session_summary_single_integration",
+        "SessionSummaryNotifier",
+        "Many calls, single integration (\"3 tool calls\", no \"across\")",
+        postSessionSummary(
+            listOf(
+                sampleEntry(id = 1, toolName = "get_steps", provider = "health-connect"),
+                sampleEntry(id = 2, toolName = "get_heart_rate", provider = "health-connect"),
+                sampleEntry(id = 3, toolName = "get_sleep", provider = "health-connect")
+            )
+        )
+    )
+
+    private fun postSessionSummary(entries: List<AuditEntry>): Notification = runBlocking {
+        val dao = FakeAuditDao(latest = 0L, afterCursor = entries)
         val notifier = SessionSummaryNotifier(
             context = context,
             auditDao = dao,
@@ -380,6 +515,39 @@ class NotificationScreenshotTest {
         return lastPosted()
     }
 
+    @Test
+    fun launchOpenLinkLongLight() = captureLight(
+        "10a_launch_open_link_long",
+        "LaunchRequestNotifier",
+        "Open link (long title + long URL)",
+        postLaunchOpenLinkLong()
+    )
+
+    @Test
+    fun launchOpenLinkLongDark() = captureDark(
+        "10a_launch_open_link_long",
+        "LaunchRequestNotifier",
+        "Open link (long title + long URL)",
+        postLaunchOpenLinkLong()
+    )
+
+    private fun postLaunchOpenLinkLong(): Notification {
+        val notifier = LaunchRequestNotifier(context)
+        // Long caller name exercises the title template; long URL exercises the
+        // body wrapping in NotificationCard. Both values are what real outreach
+        // integrations produce (outreach emails often resolve to long
+        // verification links; AI clients can pass arbitrary display names).
+        val url = "https://rousecontext.com/reports/2026-04-17/workouts/" +
+            "weekly-summary?window=7d&include=heart_rate,sleep,steps,stand_hours"
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        notifier.postOpenLink(
+            viewIntent = intent,
+            url = url,
+            clientName = "Claude via Outreach Integration"
+        )
+        return lastPosted()
+    }
+
     // =========================================================================
     // FgsLimitNotifier — the gap the issue calls out explicitly.
     // =========================================================================
@@ -456,6 +624,64 @@ class NotificationScreenshotTest {
         notifier.postAlert(
             check = SecurityCheckNotifier.SecurityCheck.CT_LOG,
             reason = "Unauthorized certificate issued for device subdomain"
+        )
+        return lastPosted()
+    }
+
+    @Test
+    fun securityCtLogMultiIssuerAlertLight() = captureLight(
+        "13a_security_ct_log_multi_issuer",
+        "AndroidSecurityCheckNotifier",
+        "CT log alert (multiple unexpected issuers)",
+        postCtLogMultiIssuerAlert()
+    )
+
+    @Test
+    fun securityCtLogMultiIssuerAlertDark() = captureDark(
+        "13a_security_ct_log_multi_issuer",
+        "AndroidSecurityCheckNotifier",
+        "CT log alert (multiple unexpected issuers)",
+        postCtLogMultiIssuerAlert()
+    )
+
+    private fun postCtLogMultiIssuerAlert(): Notification {
+        val notifier = AndroidSecurityCheckNotifier(context)
+        // Matches the exact reason string produced by CtLogMonitor.check() when
+        // crt.sh returns certificates from multiple unexpected issuers.
+        notifier.postAlert(
+            check = SecurityCheckNotifier.SecurityCheck.CT_LOG,
+            reason = "Unexpected certificate issuer(s) for abc123.rousecontext.com: " +
+                "[DigiCert Inc, GlobalSign nv-sa, Sectigo Limited]"
+        )
+        return lastPosted()
+    }
+
+    @Test
+    fun securityCtLogWarningLight() = captureLight(
+        "13b_security_ct_log_warning",
+        "AndroidSecurityCheckNotifier",
+        "CT log warning (postInfo after 3-run debounce)",
+        postCtLogWarning()
+    )
+
+    @Test
+    fun securityCtLogWarningDark() = captureDark(
+        "13b_security_ct_log_warning",
+        "AndroidSecurityCheckNotifier",
+        "CT log warning (postInfo after 3-run debounce)",
+        postCtLogWarning()
+    )
+
+    private fun postCtLogWarning(): Notification {
+        // The 3-consecutive-Warning debounce lives in SecurityCheckWorker, not
+        // the notifier. The worker calls postInfo() once the streak trips; we
+        // invoke that same entry point directly with a representative reason
+        // string from CtLogMonitor.check()'s Warning branch. This renders the
+        // production notification a user would actually see after the streak.
+        val notifier = AndroidSecurityCheckNotifier(context)
+        notifier.postInfo(
+            check = SecurityCheckNotifier.SecurityCheck.CT_LOG,
+            reason = "Could not reach CT log service: connection reset by peer"
         )
         return lastPosted()
     }
