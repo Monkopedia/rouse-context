@@ -62,6 +62,28 @@ async fn main() {
         cfg
     };
 
+    // Startup CAA verification (#322). We do this early, before binding
+    // sockets, so the log line lands at the top of systemd status output
+    // where operators will actually see it.
+    //
+    // The check is best-effort: a DNS glitch must not crash-loop the relay,
+    // so by default a mismatch is logged ERROR but not fatal. Operators who
+    // want strict enforcement set `acme.fail_on_caa_mismatch = true`.
+    {
+        use rouse_relay::caa_check::{
+            effective_directory_url, verify_caa, CaaCheckResult, PublicResolverCaaLookup,
+        };
+        let base_domain = config.server.resolved_base_domain();
+        let directory_url = effective_directory_url(&config.acme.directory_url).to_string();
+        let result = verify_caa(&PublicResolverCaaLookup, &base_domain, &directory_url).await;
+        if let CaaCheckResult::Mismatch { .. } = result {
+            if config.acme.fail_on_caa_mismatch {
+                error!("fail_on_caa_mismatch=true: exiting due to CAA mismatch");
+                std::process::exit(1);
+            }
+        }
+    }
+
     // Load or create the device CA for mTLS client certificates
     let device_ca = {
         let ca_cfg = &config.device_ca;

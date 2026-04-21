@@ -45,6 +45,13 @@ require_existing_account = false
 # and populate /etc/rouse-relay/env with GTS_EAB_KID and GTS_EAB_HMAC.
 external_account_binding_kid_env = "GTS_EAB_KID"
 external_account_binding_hmac_env = "GTS_EAB_HMAC"
+#
+# Startup CAA verification (#322). At boot the relay queries CAA records for
+# `base_domain` and verifies the configured ACME provider is authorised.
+# A mismatch means renewal will fail at +60-90 days silently. When false
+# (default), a mismatch is logged ERROR and the relay keeps running. Set
+# true for strict production deploys — the relay exits with code 1 instead.
+# fail_on_caa_mismatch = false
 
 [limits]
 max_streams_per_device = 32

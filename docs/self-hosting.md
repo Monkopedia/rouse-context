@@ -28,6 +28,23 @@ Create a Cloudflare API token with **DNS:Edit** scope, restricted to the one zon
 
 Note the zone ID from the Cloudflare dashboard (the hex string on the zone's overview page).
 
+### DNS CAA records
+
+CAA (Certification Authority Authorization) records are a DNS-level allowlist that tells CAs which issuers are permitted to sign certificates for your domain (see [RFC 8659](https://datatracker.ietf.org/doc/html/rfc8659)). If CAA is set and your configured ACME provider is not listed, cert issuance — including renewals — will be silently refused by the CA. This is a latent failure: the current cert keeps working until its 90-day clock runs out, then every device subdomain breaks at once.
+
+Add a CAA `issue` record on your base domain matching the ACME provider in `relay.toml`:
+
+| Your `acme.directory_url` points at | Add CAA record |
+|---|---|
+| Google Trust Services (default) | `coolapp.example.  CAA  0 issue "pki.goog"` |
+| Let's Encrypt | `coolapp.example.  CAA  0 issue "letsencrypt.org"` |
+
+If you use both providers (e.g. LE for the apex website, GTS for the device subdomains, as the upstream `rousecontext.com` does), add both records.
+
+The relay performs a startup CAA check and logs a loud `CAA MISMATCH` error to journalctl when the configured provider is missing from the record set. Check `systemctl status rouse-relay` after first boot. If you want the relay to exit on mismatch instead of just warning, set `fail_on_caa_mismatch = true` under `[acme]` in `relay.toml`.
+
+If you choose not to publish CAA records at all, the check passes — RFC 8659 treats absent CAA as permissive.
+
 ## 2. Firebase
 
 Create a Firebase project. Enable:
