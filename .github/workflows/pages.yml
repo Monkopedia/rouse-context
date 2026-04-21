@@ -3,7 +3,7 @@ name: Deploy docs to GitHub Pages
 on:
   push:
     branches: [main]
-    paths: ['docs/user/**']
+    paths: ['docs/user/**', 'docs/notifications/**', 'notifications/screenshots/**']
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,11 @@ jobs:
         with:
           source: docs/user
           destination: ./_site
+      - name: Include notification catalog
+        run: |
+          mkdir -p _site/internal/notifications _site/notifications/screenshots
+          cp -r docs/notifications/. _site/internal/notifications/
+          cp -r notifications/screenshots/. _site/notifications/screenshots/
       - uses: actions/upload-pages-artifact@v3
 
   deploy:
