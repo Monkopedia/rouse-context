@@ -307,11 +307,53 @@
       </figure>
     </div>
   </article>
+  <article class="variant">
+    <h3>Long tool name</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>Tool call: query_heart_rate_variability_rolling_window_statistics</code></dd>
+      <dt>Body</dt>
+      <dd><code>Health Connect · 8:34 AM</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_session_summary</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/07a_per_tool_call_long_name_light.png" alt="Long tool name light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/07a_per_tool_call_long_name_dark.png" alt="Long tool name dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
+  <article class="variant">
+    <h3>Other integration (display-name substitution)</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>Tool call: dismiss</code></dd>
+      <dt>Body</dt>
+      <dd><code>Notifications · 8:34 AM</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_session_summary</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/07b_per_tool_call_other_integration_light.png" alt="Other integration (display-name substitution) light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/07b_per_tool_call_other_integration_dark.png" alt="Other integration (display-name substitution) dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
 </section>
 <section class="notifier-section">
   <h2>SessionSummaryNotifier</h2>
   <article class="variant">
-    <h3>Session summary</h3>
+    <h3>Multi-integration (N calls across M integrations)</h3>
     <dl class="fields">
       <dt>Title</dt>
       <dd><code>3 tool calls across 2 integrations</code></dd>
@@ -322,11 +364,53 @@
     </dl>
     <div class="screenshot-pair">
       <figure>
-        <img src="../../notifications/screenshots/08_session_summary_light.png" alt="Session summary light">
+        <img src="../../notifications/screenshots/08_session_summary_light.png" alt="Multi-integration (N calls across M integrations) light">
         <figcaption>Light</figcaption>
       </figure>
       <figure>
-        <img src="../../notifications/screenshots/08_session_summary_dark.png" alt="Session summary dark">
+        <img src="../../notifications/screenshots/08_session_summary_dark.png" alt="Multi-integration (N calls across M integrations) dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
+  <article class="variant">
+    <h3>Single call, single integration (&quot;1 tool call&quot;)</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>1 tool call</code></dd>
+      <dt>Body</dt>
+      <dd><code>health-connect 1</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_session_summary</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/08a_session_summary_single_call_light.png" alt="Single call, single integration (&quot;1 tool call&quot;) light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/08a_session_summary_single_call_dark.png" alt="Single call, single integration (&quot;1 tool call&quot;) dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
+  <article class="variant">
+    <h3>Many calls, single integration (&quot;3 tool calls&quot;, no &quot;across&quot;)</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>3 tool calls</code></dd>
+      <dt>Body</dt>
+      <dd><code>health-connect 3</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_session_summary</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/08b_session_summary_single_integration_light.png" alt="Many calls, single integration (&quot;3 tool calls&quot;, no &quot;across&quot;) light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/08b_session_summary_single_integration_dark.png" alt="Many calls, single integration (&quot;3 tool calls&quot;, no &quot;across&quot;) dark">
         <figcaption>Dark</figcaption>
       </figure>
     </div>
@@ -372,6 +456,27 @@
       </figure>
       <figure>
         <img src="../../notifications/screenshots/10_launch_open_link_dark.png" alt="Open link dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
+  <article class="variant">
+    <h3>Open link (long title + long URL)</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>Claude via Outreach Integration wants to open a webpage</code></dd>
+      <dt>Body</dt>
+      <dd><code>https://rousecontext.com/reports/2026-04-17/workouts/weekly-summary?window=7d&amp;include=heart_rate,sleep,steps,stand_hours</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_outreach_launch</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/10a_launch_open_link_long_light.png" alt="Open link (long title + long URL) light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/10a_launch_open_link_long_dark.png" alt="Open link (long title + long URL) dark">
         <figcaption>Dark</figcaption>
       </figure>
     </div>
@@ -441,6 +546,48 @@
       </figure>
       <figure>
         <img src="../../notifications/screenshots/13_security_ct_log_dark.png" alt="CT log alert dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
+  <article class="variant">
+    <h3>CT log alert (multiple unexpected issuers)</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>Security Alert</code></dd>
+      <dt>Body</dt>
+      <dd><code>CT log check: Unexpected certificate issuer(s) for abc123.rousecontext.com: [DigiCert Inc, GlobalSign nv-sa, Sectigo Limited]</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_alert</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/13a_security_ct_log_multi_issuer_light.png" alt="CT log alert (multiple unexpected issuers) light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/13a_security_ct_log_multi_issuer_dark.png" alt="CT log alert (multiple unexpected issuers) dark">
+        <figcaption>Dark</figcaption>
+      </figure>
+    </div>
+  </article>
+  <article class="variant">
+    <h3>CT log warning (postInfo after 3-run debounce)</h3>
+    <dl class="fields">
+      <dt>Title</dt>
+      <dd><code>Security Check</code></dd>
+      <dt>Body</dt>
+      <dd><code>CT log check: Could not reach CT log service: connection reset by peer</code></dd>
+      <dt>Channel</dt>
+      <dd><code>rouse_session</code></dd>
+    </dl>
+    <div class="screenshot-pair">
+      <figure>
+        <img src="../../notifications/screenshots/13b_security_ct_log_warning_light.png" alt="CT log warning (postInfo after 3-run debounce) light">
+        <figcaption>Light</figcaption>
+      </figure>
+      <figure>
+        <img src="../../notifications/screenshots/13b_security_ct_log_warning_dark.png" alt="CT log warning (postInfo after 3-run debounce) dark">
         <figcaption>Dark</figcaption>
       </figure>
     </div>
