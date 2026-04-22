@@ -19,7 +19,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * Captures Roborazzi screenshots of six candidate client-label placement
+ * Captures Roborazzi screenshots of seven candidate client-label placement
  * options for the audit history's `ToolCallRow` (issue #343). Each variant
  * is rendered in both light and dark theme against the three sample client
  * labels (short, long, unknown) declared in [VariantSamples], writing PNGs
@@ -215,6 +215,30 @@ class AuditRowVariantsScreenshotTest {
         VariantSessionsCard(VariantSamples.sessions) { Variant6RowLabelAndSessionHeader(it) }
     }
 
+    // =========================================================================
+    // Variant 7 — Right-aligned pill with time stacked below
+    // =========================================================================
+
+    @Test
+    fun variant7Light() = capture(
+        base = VARIANT_7,
+        label = LABEL_7,
+        description = DESC_7,
+        darkTheme = false
+    ) {
+        VariantRowsCard(VariantSamples.allRows) { Variant7TimeBelowPill(it) }
+    }
+
+    @Test
+    fun variant7Dark() = capture(
+        base = VARIANT_7,
+        label = LABEL_7,
+        description = DESC_7,
+        darkTheme = true
+    ) {
+        VariantRowsCard(VariantSamples.allRows) { Variant7TimeBelowPill(it) }
+    }
+
     companion object {
         private const val VARIANT_1 = "01_third_row"
         private const val VARIANT_2 = "02_second_row_prefix"
@@ -222,6 +246,7 @@ class AuditRowVariantsScreenshotTest {
         private const val VARIANT_4 = "04_leading_initial"
         private const val VARIANT_5 = "05_session_grouped_header"
         private const val VARIANT_6 = "06_row_label_plus_session_header"
+        private const val VARIANT_7 = "07_time_below_pill"
 
         private const val LABEL_1 = "1. Third row, full-width"
         private const val LABEL_2 = "2. Second-row prefix"
@@ -229,6 +254,7 @@ class AuditRowVariantsScreenshotTest {
         private const val LABEL_4 = "4. Leading initial chip"
         private const val LABEL_5 = "5. Session-grouped header"
         private const val LABEL_6 = "6. Row label + session header"
+        private const val LABEL_7 = "7. Right-aligned pill with time below"
 
         private const val DESC_1 =
             "Client shown as a labelSmall line beneath the existing duration+args row. " +
@@ -248,6 +274,10 @@ class AuditRowVariantsScreenshotTest {
         private const val DESC_6 =
             "Variant 1 + Variant 5: session header AND per-row client label. " +
                 "Redundant on purpose for scan-by-row scenarios."
+        private const val DESC_7 =
+            "Client pill sits alone at the top-right of row 1; the timestamp " +
+                "right-aligns on row 2 directly beneath it. Keeps the pill " +
+                "prominent without crowding the time next to it."
 
         /**
          * After every test in this class has run, write the catalog HTML to

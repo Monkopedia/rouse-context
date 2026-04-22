@@ -436,6 +436,56 @@ internal fun Variant6RowLabelAndSessionHeader(session: VariantSessionSample) {
 }
 
 // =============================================================================
+// Variant 7 — Right-aligned pill (row 1) with time stacked directly below.
+// =============================================================================
+
+@Composable
+internal fun Variant7TimeBelowPill(sample: VariantRowSample) {
+    ListRow {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    sample.toolName,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
+                ClientPill(sample.clientLabel)
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "${sample.durationMs}ms",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+                    Text(
+                        sample.arguments,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
+                Text(
+                    sample.time,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+// =============================================================================
 // Card wrappers — each variant's screenshot renders three rows in one Card so
 // the reviewer can compare short/long/unknown placements side by side.
 // =============================================================================
