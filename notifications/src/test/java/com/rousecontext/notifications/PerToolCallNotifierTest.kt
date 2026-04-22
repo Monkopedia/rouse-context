@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -181,9 +182,16 @@ class PerToolCallNotifierTest {
         }
 
         // Simulate cold start: release the first DataStore (only one active
-        // instance per file is permitted), then open a fresh one from the
-        // same backing file as a new process would.
-        scope.cancel()
+        // instance per file is permitted, enforced by a static `activeFiles`
+        // set in FileStorage), then open a fresh one from the same backing
+        // file as a new process would. Cancellation is asynchronous — the
+        // connection's invokeOnCompletion handler removes the file from
+        // `activeFiles`, so we must join the scope's job before opening a
+        // new DataStore pointed at the same path.
+        runBlocking {
+            scope.cancel()
+            scopeJob.join()
+        }
         val coldStartScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         try {
             val reopenedStore = PreferenceDataStoreFactory.create(scope = coldStartScope) {
@@ -225,7 +233,10 @@ class PerToolCallNotifierTest {
                 titles.any { it.contains("get_sleep") }
             )
         } finally {
-            coldStartScope.cancel()
+            runBlocking {
+                coldStartScope.cancel()
+                coldStartScope.coroutineContext.job.join()
+            }
         }
     }
 
