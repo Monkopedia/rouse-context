@@ -128,10 +128,15 @@ class ToolCallHappyPathTest {
         val nm = ApplicationProvider.getApplicationContext<android.app.Application>()
             .getSystemService(NotificationManager::class.java)
         val posted = shadowOf(nm).activeNotifications
+        // #347: summary notifications are now per-client, keyed by the
+        // clientLabel hash. The test harness creates its token pair with
+        // clientName = "Test Client", which becomes the event's
+        // clientLabel.
+        val expectedId = SessionSummaryNotifier.idForClient("Test Client")
         assertTrue(
             "session summary notification must be posted on ACTIVE→CONNECTED transition; " +
-                "posted ids=${posted.map { it.id }}",
-            posted.any { it.id == SessionSummaryNotifier.NOTIFICATION_ID }
+                "posted ids=${posted.map { it.id }} (expected $expectedId)",
+            posted.any { it.id == expectedId }
         )
     }
 

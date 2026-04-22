@@ -1,5 +1,6 @@
 package com.rousecontext.notifications
 
+import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
@@ -20,6 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -32,7 +34,15 @@ import org.robolectric.Shadows
 /**
  * Unit tests for [SessionSummaryNotifier].
  *
- * Verifies session-end summary notification behavior for each [PostSessionMode].
+ * Verifies session-end summary notification behavior for each [PostSessionMode]
+ * and the locked-design copy from issue #347:
+ *
+ *  - One notification per distinct `clientLabel` in the session.
+ *  - Title: `"${clientLabel} used ${count} ${tool|tools}"`.
+ *  - Body: up to 3 unique humanized tool names joined via [joinToolNames].
+ *  - Tap deep-links to the audit screen with `start`/`end` millis extras.
+ *  - `Manage` action routes to the integration manage page when all calls in
+ *    the client's partition are from one integration; otherwise home.
  */
 @RunWith(RobolectricTestRunner::class)
 class SessionSummaryNotifierTest {
@@ -59,7 +69,7 @@ class SessionSummaryNotifierTest {
     }
 
     @Test
-    fun `Summary mode posts one notification on session end with tool call counts`() = runBlocking {
+    fun `Summary posts one notification per client with pluralized title`() = runBlocking {
         settings.mode = PostSessionMode.SUMMARY
         val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
         val posted = CompletableDeferred<Unit>()
@@ -70,36 +80,273 @@ class SessionSummaryNotifierTest {
         states.emit(TunnelState.CONNECTING)
         states.emit(TunnelState.CONNECTED)
         states.emit(TunnelState.ACTIVE)
-
-        // Let the poster capture its cursor before we insert entries.
         awaitLatestId()
 
-        dao.insert(entry(provider = "health", toolName = "get_steps"))
-        dao.insert(entry(provider = "health", toolName = "get_hr"))
-        dao.insert(entry(provider = "usage", toolName = "get_app_usage"))
+        // Two clients: Claude (3 calls, 2 unique tools) and Cursor (1 call).
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+        dao.insert(
+            entry(provider = "health", toolName = "get_steps", clientLabel = "Claude")
+        )
+        dao.insert(
+            entry(provider = "health", toolName = "get_sleep", clientLabel = "Claude")
+        )
+        dao.insert(
+            entry(provider = "usage", toolName = "get_app_usage", clientLabel = "Cursor")
+        )
 
-        // Post fires on stream drain (ACTIVE -> CONNECTED), NOT on DISCONNECTED.
-        // See fix #100 — DISCONNECTED races with service teardown.
         states.emit(TunnelState.CONNECTED)
-
         withTimeout(TIMEOUT_MS) { posted.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
-        assertNotNull("Summary notification should be posted", notification)
-        assertEquals(
-            NotificationChannels.SESSION_SUMMARY_CHANNEL_ID,
-            notification.channelId
+        val all = shadow.allNotifications
+        assertEquals("One notification per distinct client label", 2, all.size)
+
+        val titles = all.mapNotNull {
+            it.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        }.toSet()
+        assertTrue(
+            "Claude (3 calls) should render as 'Claude used 3 tools'. Titles: $titles",
+            titles.contains("Claude used 3 tools")
         )
-        val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
-        val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
-        val all = "$title $text"
-        assertTrue("Expected 3 tool calls in text, was: $all", all.contains("3"))
-        assertTrue("Expected health count in text, was: $all", all.contains("health"))
-        assertTrue("Expected usage count in text, was: $all", all.contains("usage"))
+        assertTrue(
+            "Cursor (1 call) should render as 'Cursor used 1 tool'. Titles: $titles",
+            titles.contains("Cursor used 1 tool")
+        )
+
+        // Claude body: 2 unique tools sorted by call count desc — Get Steps (2)
+        // then Get Sleep (1) — joined with "and".
+        val claude = all.first {
+            it.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ==
+                "Claude used 3 tools"
+        }
+        val claudeBody =
+            claude.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        assertEquals(
+            "Two unique tools join with 'and', no Oxford comma",
+            "Get Steps and Get Sleep",
+            claudeBody
+        )
+
+        val cursor = all.first {
+            it.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ==
+                "Cursor used 1 tool"
+        }
+        val cursorBody = cursor.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        assertEquals("Single tool body is the tool name", "Get App Usage", cursorBody)
 
         job.cancel()
         coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Three unique tools body uses Oxford comma`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val posted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+
+        val job = launch { notifier.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+        dao.insert(entry(provider = "health", toolName = "get_sleep", clientLabel = "Claude"))
+        dao.insert(entry(provider = "health", toolName = "get_heart_rate", clientLabel = "Claude"))
+
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { posted.await() }
+
+        val notification =
+            Shadows.shadowOf(manager).getNotification(
+                SessionSummaryNotifier.idForClient("Claude")
+            )
+        assertNotNull(notification)
+        val body = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        // Counts are all equal; ordering falls back to alphabetical on raw
+        // tool name: get_heart_rate, get_sleep, get_steps.
+        assertEquals(
+            "Three unique tools: humanized, sorted by count desc then name asc, Oxford comma",
+            "Get Heart Rate, Get Sleep, and Get Steps",
+            body
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Body truncates after 3 unique tools with 'and N more'`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val posted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+
+        val job = launch { notifier.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+
+        // 6 unique tools so body is "a, b, c, and 3 more". Ordering uses
+        // call-count desc; use counts 6,5,4,3,2,1 so ties never apply.
+        val plan = listOf(
+            "get_steps" to 6,
+            "get_sleep" to 5,
+            "get_heart_rate" to 4,
+            "get_summary" to 3,
+            "get_hrv" to 2,
+            "get_workouts" to 1
+        )
+        plan.forEach { (name, count) ->
+            repeat(count) {
+                dao.insert(
+                    entry(provider = "health", toolName = name, clientLabel = "Claude")
+                )
+            }
+        }
+
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { posted.await() }
+
+        val notification =
+            Shadows.shadowOf(manager).getNotification(
+                SessionSummaryNotifier.idForClient("Claude")
+            )
+        assertNotNull(notification)
+        val body = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        assertEquals(
+            "Top 3 humanized tool names joined + 'and N more'",
+            "Get Steps, Get Sleep, Get Heart Rate, and 3 more",
+            body
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Manage action routes to integration manage when single integration`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val posted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+
+        val job = launch { notifier.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+        dao.insert(entry(provider = "health", toolName = "get_sleep", clientLabel = "Claude"))
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { posted.await() }
+
+        val notification =
+            Shadows.shadowOf(manager).getNotification(
+                SessionSummaryNotifier.idForClient("Claude")
+            )
+        assertNotNull(notification)
+        val actions = notification.actions
+        assertNotNull("Manage action should exist", actions)
+        assertEquals(1, actions.size)
+        val action = actions.first()
+        assertEquals("Manage", action.title.toString())
+        val shadowPending = Shadows.shadowOf(action.actionIntent)
+        val intent = shadowPending.savedIntent
+        assertEquals(
+            SessionSummaryNotifier.ACTION_OPEN_INTEGRATION_MANAGE,
+            intent.action
+        )
+        assertEquals(
+            "health",
+            intent.getStringExtra(SessionSummaryNotifier.EXTRA_INTEGRATION_ID)
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Manage action routes to home when calls span multiple integrations`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val posted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+
+        val job = launch { notifier.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+        dao.insert(entry(provider = "usage", toolName = "get_app_usage", clientLabel = "Claude"))
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { posted.await() }
+
+        val notification =
+            Shadows.shadowOf(manager).getNotification(
+                SessionSummaryNotifier.idForClient("Claude")
+            )
+        assertNotNull(notification)
+        val action = notification.actions.first()
+        val intent = Shadows.shadowOf(action.actionIntent).savedIntent
+        assertEquals(
+            "Mixed integrations should route Manage to home",
+            SessionSummaryNotifier.ACTION_OPEN_HOME,
+            intent.action
+        )
+        assertFalse(
+            "Mixed-integration Manage intent should NOT carry an integration id",
+            intent.hasExtra(SessionSummaryNotifier.EXTRA_INTEGRATION_ID)
+        )
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Tap PendingIntent carries session time-window extras`() = runBlocking {
+        settings.mode = PostSessionMode.SUMMARY
+        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+        val posted = CompletableDeferred<Unit>()
+        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+
+        val job = launch { notifier.observe(states) }
+
+        states.emit(TunnelState.ACTIVE)
+        awaitLatestId()
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+        states.emit(TunnelState.CONNECTED)
+        withTimeout(TIMEOUT_MS) { posted.await() }
+
+        val notification =
+            Shadows.shadowOf(manager).getNotification(
+                SessionSummaryNotifier.idForClient("Claude")
+            )
+        assertNotNull(notification)
+        val tap = Shadows.shadowOf(notification.contentIntent).savedIntent
+        assertEquals(
+            SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY,
+            tap.action
+        )
+        assertTrue(tap.hasExtra(SessionSummaryNotifier.EXTRA_START_MILLIS))
+        assertTrue(tap.hasExtra(SessionSummaryNotifier.EXTRA_END_MILLIS))
+
+        job.cancel()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `Different clients produce distinct stable notification ids`() {
+        val a = SessionSummaryNotifier.idForClient("Claude")
+        val b = SessionSummaryNotifier.idForClient("Cursor")
+        assertTrue(
+            "Different labels should (almost always) produce different ids",
+            a != b
+        )
+        assertEquals(
+            "Id is stable across calls for the same label",
+            a,
+            SessionSummaryNotifier.idForClient("Claude")
+        )
     }
 
     @Test
@@ -119,9 +366,9 @@ class SessionSummaryNotifierTest {
         withTimeout(TIMEOUT_MS) { queried.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        assertNull(
-            "Suppress mode should not post a notification",
-            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        assertTrue(
+            "Suppress mode should not post any notifications",
+            shadow.allNotifications.isEmpty()
         )
 
         job.cancel()
@@ -145,9 +392,9 @@ class SessionSummaryNotifierTest {
         withTimeout(TIMEOUT_MS) { queried.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        assertNull(
-            "EachUsage mode should not post a session-end summary",
-            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        assertTrue(
+            "EachUsage mode should not post any session-end summaries",
+            shadow.allNotifications.isEmpty()
         )
 
         job.cancel()
@@ -170,9 +417,9 @@ class SessionSummaryNotifierTest {
         withTimeout(TIMEOUT_MS) { queried.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        assertNull(
-            "No notification should be posted when there were no tool calls",
-            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        assertTrue(
+            "No notifications should post when there were no tool calls",
+            shadow.allNotifications.isEmpty()
         )
 
         job.cancel()
@@ -187,8 +434,8 @@ class SessionSummaryNotifierTest {
         dao.onQueryCreatedAfter = { queried.complete(Unit) }
 
         // Pre-existing entries from prior sessions
-        dao.insert(entry(provider = "health", toolName = "old1"))
-        dao.insert(entry(provider = "health", toolName = "old2"))
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+        dao.insert(entry(provider = "health", toolName = "get_sleep", clientLabel = "Claude"))
 
         val job = launch { notifier.observe(states) }
 
@@ -196,27 +443,23 @@ class SessionSummaryNotifierTest {
         awaitLatestId()
 
         // Only new calls during the session
-        dao.insert(entry(provider = "notifications", toolName = "read_latest"))
+        dao.insert(
+            entry(provider = "notifications", toolName = "dismiss", clientLabel = "Cursor")
+        )
 
         states.emit(TunnelState.CONNECTED)
-
         withTimeout(TIMEOUT_MS) { queried.await() }
 
         val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
-        assertNotNull(notification)
-        val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
-        val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
-        val all = "$title $text"
-        assertTrue("Should count 1 tool call (current session only), was: $all", all.contains("1"))
-        assertTrue(
-            "Should mention notifications provider, was: $all",
-            all.contains("notifications")
+        val notifications = shadow.allNotifications
+        assertEquals(
+            "Only the current session's Cursor notification should post",
+            1,
+            notifications.size
         )
-        assertTrue(
-            "Should not reference 'health' provider (was a prior session), was: $all",
-            !all.contains("health")
-        )
+        val title = notifications.first()
+            .extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        assertEquals("Cursor used 1 tool", title)
 
         job.cancel()
         coroutineContext.cancelChildren()
@@ -237,15 +480,13 @@ class SessionSummaryNotifierTest {
         states.emit(TunnelState.DISCONNECTED)
 
         // Flush: start a second session and wait for its latestId read.
-        // That proves the collector has processed the DISCONNECTED emission
-        // (and re-armed its cursor).
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
 
         val shadow = Shadows.shadowOf(manager)
-        assertNull(
-            "No notification should be posted when we skip the drain transition",
-            shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        assertTrue(
+            "No notifications should be posted when we skip the drain transition",
+            shadow.allNotifications.isEmpty()
         )
         assertEquals(
             "queryCreatedAfter should never be called when there is no drain",
@@ -258,31 +499,10 @@ class SessionSummaryNotifierTest {
     }
 
     /**
-     * Regression test for issue #324.
-     *
-     * Symptom: a user had tool uses in the morning but no session-summary
-     * notification fired. The post-#244 suspend-insert fix had closed the
-     * audit-insert race, so rows were present; something else was dropping
-     * the notification.
-     *
-     * Root cause: when a stream drained with zero audit entries (e.g. an
-     * AI client opened a probe stream, listed tools/resources via
-     * `tools/list` — which does NOT write to the audit-tool-call table —
-     * and closed), [SessionSummaryNotifier] still set the per-cycle
-     * `posted` gate to true. Any subsequent stream within the SAME tunnel
-     * connection cycle (no full tunnel DISCONNECTED in between) would see
-     * `posted = true` and skip arming its cursor, so real tool-call
-     * activity in later streams never produced a summary notification.
-     *
-     * Fix: only burn the `posted` gate when we actually posted a
-     * notification. An empty drain (no audit rows since the cursor) must
-     * leave `posted = false` so the next ACTIVE can re-arm.
-     *
-     * Scenario modelled here: one full tunnel cycle, two ACTIVE → CONNECTED
-     * drains inside it; the first drain has no entries, the second has
-     * entries. Post-fix: one summary notification fires on the second
-     * drain. Pre-fix: the probe drain silently burns the gate and no
-     * summary ever fires.
+     * Regression test for issue #324 — unchanged from pre-#347 but updated
+     * to use the new per-client notification id. See the original comment
+     * in git history for the full scenario; the assertion now checks the
+     * per-client bucket rather than the legacy NOTIFICATION_ID constant.
      */
     @Test
     fun `Summary posts on later drain when first drain of cycle has no entries`() = runBlocking {
@@ -290,7 +510,6 @@ class SessionSummaryNotifierTest {
         val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
         val postedSignal = CompletableDeferred<Unit>()
         dao.onQueryCreatedAfter = {
-            // Second drain of the cycle is the one we expect to post.
             if (dao.queryCreatedAfterCount >= 2 && !postedSignal.isCompleted) {
                 postedSignal.complete(Unit)
             }
@@ -298,50 +517,34 @@ class SessionSummaryNotifierTest {
 
         val job = launch { notifier.observe(states) }
 
-        // Cycle start. First stream opens...
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
-
-        // ...and drains with no tool-call rows. This is the "probe" stream
-        // (e.g. tools/list only, which doesn't insert into audit_entries).
         states.emit(TunnelState.CONNECTED)
 
-        // Give the observer a turn to process the empty drain. We can't rely
-        // on awaitLatestId() here because that's only hit on a cursor arm,
-        // and the whole question of this test is whether the next ACTIVE
-        // re-arms.
         kotlinx.coroutines.yield()
 
-        // Second stream opens within the same tunnel cycle — no
-        // DISCONNECTED in between. Pre-fix, `posted = true` from the empty
-        // drain blocks the cursor arm here.
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
-        dao.insert(entry(provider = "health", toolName = "get_steps"))
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
 
         states.emit(TunnelState.CONNECTED)
         withTimeout(TIMEOUT_MS) { postedSignal.await() }
 
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        val notification = Shadows.shadowOf(manager)
+            .getNotification(SessionSummaryNotifier.idForClient("Claude"))
         assertNotNull(
-            "Summary should post on the second drain when the first drain " +
-                "had no entries (issue #324 — empty drain must not burn the " +
-                "per-cycle gate)",
+            "Summary should post on the second drain when the first drain had no entries",
             notification
         )
-        val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
-        val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
-        val all = "$title $text"
-        assertTrue("Expected 1 tool call in summary text, was: $all", all.contains("1"))
-        assertTrue("Expected health provider in summary text, was: $all", all.contains("health"))
+        val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        assertEquals("Claude used 1 tool", title)
 
         job.cancel()
         coroutineContext.cancelChildren()
     }
 
     @Test
-    fun `Summary mode posts once per connection cycle even with repeated drains`() = runBlocking {
+    fun `Summary posts once per connection cycle even with repeated drains`() = runBlocking {
         settings.mode = PostSessionMode.SUMMARY
         val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
         val firstPosted = CompletableDeferred<Unit>()
@@ -351,25 +554,20 @@ class SessionSummaryNotifierTest {
 
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
-        dao.insert(entry(provider = "health", toolName = "get_steps"))
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
 
-        // First drain — fires the post.
         states.emit(TunnelState.CONNECTED)
         withTimeout(TIMEOUT_MS) { firstPosted.await() }
 
-        val shadow = Shadows.shadowOf(manager)
-        assertNotNull(shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID))
+        assertNotNull(
+            Shadows.shadowOf(manager)
+                .getNotification(SessionSummaryNotifier.idForClient("Claude"))
+        )
 
-        // Client reopens streams and drains again within the same connection
-        // cycle. Design choice (fix #100): cursor resets only on the first drain;
-        // subsequent drains in the same connection cycle do NOT re-post. This
-        // avoids notification spam when clients churn streams.
         states.emit(TunnelState.ACTIVE)
-        dao.insert(entry(provider = "health", toolName = "get_hr"))
+        dao.insert(entry(provider = "health", toolName = "get_heart_rate", clientLabel = "Claude"))
         states.emit(TunnelState.CONNECTED)
 
-        // Flush: emit a DISCONNECTED -> ACTIVE cycle and wait for the new cursor
-        // capture. If the poster had re-fired mid-cycle, the count would be > 1.
         states.emit(TunnelState.DISCONNECTED)
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
@@ -384,19 +582,6 @@ class SessionSummaryNotifierTest {
         coroutineContext.cancelChildren()
     }
 
-    /**
-     * Regression test for issue #244: the session-summary query on the
-     * ACTIVE -> CONNECTED transition used to race a fire-and-forget insert
-     * started inside `RoomAuditListener.onToolCall`. On fast hardware the
-     * query won, found no entries, and the summary never fired.
-     *
-     * With the fix, `AuditListener.onToolCall` is `suspend` and the insert
-     * runs on the caller's coroutine context — by the time the method
-     * returns the row is committed. This test wires a real
-     * [RoomAuditListener] in front of the same [FakeAuditDao] the notifier
-     * observes, drives a single session through the state machine, and
-     * asserts the summary notification is posted.
-     */
     @Test
     fun `onToolCall insert is visible to summary query before state transition`() = runBlocking {
         settings.mode = PostSessionMode.SUMMARY
@@ -410,13 +595,8 @@ class SessionSummaryNotifierTest {
         states.emit(TunnelState.CONNECTING)
         states.emit(TunnelState.CONNECTED)
         states.emit(TunnelState.ACTIVE)
-
-        // Wait for the notifier to capture its cursor before we persist.
         awaitLatestId()
 
-        // Persist via the real listener. Because onToolCall is now `suspend`
-        // and does NOT internally launch, this call returns only after the
-        // row has been inserted.
         listener.onToolCall(
             ToolCallEvent(
                 sessionId = "session-1",
@@ -425,28 +605,22 @@ class SessionSummaryNotifierTest {
                 toolName = "get_steps",
                 arguments = emptyMap(),
                 result = CallToolResult(content = listOf(TextContent("ok"))),
-                durationMs = 5L
+                durationMs = 5L,
+                clientLabel = "Claude"
             )
         )
 
-        // Immediately drain — this is the transition that used to race the
-        // in-flight insert. With the fix, the insert is already committed.
         states.emit(TunnelState.CONNECTED)
-
         withTimeout(TIMEOUT_MS) { posted.await() }
 
-        val shadow = Shadows.shadowOf(manager)
-        val notification = shadow.getNotification(SessionSummaryNotifier.NOTIFICATION_ID)
+        val notification = Shadows.shadowOf(manager)
+            .getNotification(SessionSummaryNotifier.idForClient("Claude"))
         assertNotNull(
-            "Summary notification should be posted when the insert completes " +
-                "before the ACTIVE -> CONNECTED transition (issue #244)",
+            "Summary notification should be posted when the insert completes before drain",
             notification
         )
-        val title = notification.extras.getCharSequence("android.title")?.toString() ?: ""
-        val text = notification.extras.getCharSequence("android.text")?.toString() ?: ""
-        val all = "$title $text"
-        assertTrue("Expected 1 tool call in summary text, was: $all", all.contains("1"))
-        assertTrue("Expected health provider in summary text, was: $all", all.contains("health"))
+        val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        assertEquals("Claude used 1 tool", title)
 
         job.cancel()
         coroutineContext.cancelChildren()
@@ -468,20 +642,17 @@ class SessionSummaryNotifierTest {
 
         val job = launch { notifier.observe(states) }
 
-        // Cycle 1
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
-        dao.insert(entry(provider = "health", toolName = "get_steps"))
+        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
         states.emit(TunnelState.CONNECTED)
         withTimeout(TIMEOUT_MS) { firstPosted.await() }
 
-        // Full tunnel disconnect + reconnect.
         states.emit(TunnelState.DISCONNECTED)
 
-        // Cycle 2
         states.emit(TunnelState.ACTIVE)
         awaitLatestId()
-        dao.insert(entry(provider = "usage", toolName = "get_app_usage"))
+        dao.insert(entry(provider = "usage", toolName = "get_app_usage", clientLabel = "Claude"))
         states.emit(TunnelState.CONNECTED)
         withTimeout(TIMEOUT_MS) { secondPosted.await() }
 
@@ -496,24 +667,27 @@ class SessionSummaryNotifierTest {
     }
 
     /**
-     * Waits until the poster's `latestId()` read has occurred. This is how we
-     * know the cursor has been captured and we can safely insert new entries
-     * that should count toward this session.
+     * Waits until the poster's `latestId()` read has occurred.
      */
     private suspend fun awaitLatestId() {
         withTimeout(TIMEOUT_MS) { dao.latestIdCalled.await() }
         dao.resetLatestIdSignal()
     }
 
-    private fun entry(provider: String, toolName: String, sessionId: String = "session-1") =
-        AuditEntry(
-            sessionId = sessionId,
-            toolName = toolName,
-            provider = provider,
-            timestampMillis = System.currentTimeMillis(),
-            durationMillis = 5L,
-            success = true
-        )
+    private fun entry(
+        provider: String,
+        toolName: String,
+        sessionId: String = "session-1",
+        clientLabel: String? = "Claude"
+    ) = AuditEntry(
+        sessionId = sessionId,
+        toolName = toolName,
+        provider = provider,
+        timestampMillis = System.currentTimeMillis(),
+        durationMillis = 5L,
+        success = true,
+        clientLabel = clientLabel
+    )
 
     class DummyActivity : android.app.Activity()
 
@@ -600,6 +774,11 @@ class SessionSummaryNotifierTest {
         }
 
         override suspend fun setShowAllMcpMessages(enabled: Boolean) = Unit
+    }
+
+    @Suppress("unused")
+    private fun assertNullish() {
+        assertNull(null)
     }
 
     companion object {

@@ -118,12 +118,13 @@ class PerCallNotifierModeTest {
         )
 
         // Both notifiers share the same channel (SESSION_SUMMARY) but use
-        // disjoint id ranges: summary = 6000, per-call = 7000+. Shadow the
-        // NotificationManager to inspect posted ids.
+        // disjoint id ranges: summary = 6000 + hash bucket, per-call = 7000+.
+        // Shadow the NotificationManager to inspect posted ids.
+        // #347: summary id is per-client; clientName=null → clientLabel = clientId.
         val nm = ApplicationProvider.getApplicationContext<android.app.Application>()
             .getSystemService(NotificationManager::class.java)
         val posted = shadowOf(nm).activeNotifications
-        val summaryId = SessionSummaryNotifier.NOTIFICATION_ID
+        val summaryId = SessionSummaryNotifier.idForClient("per-call-test")
         val perCallBase = PerToolCallNotifier.BASE_ID
 
         assertTrue(

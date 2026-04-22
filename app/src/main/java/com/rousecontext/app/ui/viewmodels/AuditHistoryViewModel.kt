@@ -53,6 +53,24 @@ class AuditHistoryViewModel(
     private val dateFilter = MutableStateFlow(DateFilterOption.TODAY)
     private val refreshTrigger = MutableStateFlow(0)
 
+    /**
+     * One-shot scroll target driven by notification deep-links (#347). The
+     * per-tool-call notification tap populates this so the audit screen
+     * scrolls to the specific call. Nullable so consumers know when there is
+     * nothing to scroll to; [consumeScrollTarget] clears it after the scroll
+     * fires so a config change doesn't re-fire it.
+     */
+    private val _scrollTarget = MutableStateFlow<Long?>(null)
+    val scrollTarget: StateFlow<Long?> get() = _scrollTarget
+
+    /**
+     * One-shot explicit session time window driven by the summary
+     * notification tap (#347). When set, the audit screen queries this
+     * window instead of the [dateFilter] preset. `null` means "use
+     * [dateFilter]".
+     */
+    private val sessionWindow = MutableStateFlow<SessionWindow?>(null)
+
     private val showAllFlow: Flow<Boolean> = settingsProvider
         ?.observeSettings()
         ?.map { it.showAllMcpMessages }
@@ -63,11 +81,13 @@ class AuditHistoryViewModel(
         providerFilter,
         dateFilter,
         refreshTrigger,
-        showAllFlow
-    ) { provider, date, _, showAll ->
-        QueryInputs(provider, date, showAll)
+        showAllFlow,
+        sessionWindow
+    ) { provider, date, _, showAll, window ->
+        QueryInputs(provider, date, showAll, window)
     }.flatMapLatest { inputs ->
-        val (startMillis, endMillis) = dateRangeFor(inputs.dateFilter)
+        val (startMillis, endMillis) = inputs.sessionWindow?.let { it.start to it.end }
+            ?: dateRangeFor(inputs.dateFilter)
         val providerArg = inputs.providerFilter.providerIdOrNull
         val toolCalls = auditDao.observeByDateRange(startMillis, endMillis, providerArg)
         val requests = if (inputs.showAll && mcpRequestDao != null) {
@@ -102,8 +122,12 @@ class AuditHistoryViewModel(
     private data class QueryInputs(
         val providerFilter: ProviderFilterOption,
         val dateFilter: DateFilterOption,
-        val showAll: Boolean
+        val showAll: Boolean,
+        val sessionWindow: SessionWindow?
     )
+
+    /** Inclusive session time window for notification-driven queries (#347). */
+    data class SessionWindow(val start: Long, val end: Long)
 
     /**
      * Trigger re-collection. Underlying Room flow is reactive; this just bumps
@@ -119,6 +143,33 @@ class AuditHistoryViewModel(
 
     fun setDateFilter(date: DateFilterOption) {
         dateFilter.value = date
+    }
+
+    /**
+     * Request the list to scroll to [callId] on next composition. The screen
+     * collects [scrollTarget] and calls [consumeScrollTarget] once the scroll
+     * completes so a config change doesn't re-scroll.
+     */
+    fun requestScrollTo(callId: Long) {
+        _scrollTarget.value = callId
+    }
+
+    /** Clear the pending scroll target after the list has scrolled. */
+    fun consumeScrollTarget() {
+        _scrollTarget.value = null
+    }
+
+    /**
+     * Apply a notification-driven session window (see #347). Overrides the
+     * [DateFilterOption] selection until [clearSessionWindow] is called.
+     */
+    fun applySessionWindow(startMillis: Long, endMillis: Long) {
+        sessionWindow.value = SessionWindow(startMillis, endMillis)
+    }
+
+    /** Clear the notification-driven session window and revert to date filters. */
+    fun clearSessionWindow() {
+        sessionWindow.value = null
     }
 
     fun clearHistory() {
