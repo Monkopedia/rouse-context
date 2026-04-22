@@ -41,6 +41,7 @@ import com.rousecontext.app.support.BugReportUriBuilder
 import com.rousecontext.app.support.FirebaseCrashReporter
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
+import com.rousecontext.app.token.createUnknownClientLabeler
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
@@ -64,6 +65,7 @@ import com.rousecontext.mcp.core.AuditListener
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.mcp.core.TokenStore
+import com.rousecontext.mcp.core.UnknownClientLabeler
 import com.rousecontext.notifications.AndroidSecurityCheckNotifier
 import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.FieldEncryptor
@@ -267,6 +269,9 @@ val appModule = module {
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class
 
+    // --- Unknown-client labeler (monotonic `Unknown (#N)`, see issue #345) ---
+    single<UnknownClientLabeler> { createUnknownClientLabeler(androidContext()) }
+
     // --- Integration state ---
     single<IntegrationStateStore> { DataStoreIntegrationStateStore(androidContext()) }
 
@@ -460,6 +465,7 @@ val appModule = module {
             auditListener = get(),
             hostname = initialHostname,
             integration = defaultIntegration,
+            unknownClientLabeler = get(),
             securityAlertCheck = run {
                 val securityPrefs = get<SecurityCheckPreferences>()
                 val alertFlag = combine(

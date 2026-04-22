@@ -108,6 +108,10 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         dao.deleteByClientId(integrationId, clientId)
     }
 
+    override fun upgradeClientLabel(integrationId: String, clientId: String, newLabel: String) {
+        dao.updateLabelByClientId(integrationId, clientId, newLabel)
+    }
+
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
         val hash = hashToken(refreshToken)
         val entity = dao.findByRefreshHash(integrationId, hash) ?: return null

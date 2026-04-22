@@ -69,6 +69,13 @@ data class ToolCallEvent(
 const val UNKNOWN_CLIENT_LABEL: String = "Unknown"
 
 /**
+ * Pre-#345 DCR rows without a `client_name` persisted this literal as the
+ * client label. Issue #345 swaps future writes to `Unknown (#N)`; any row
+ * still carrying this literal is lazily upgraded on first resolve.
+ */
+internal const val LEGACY_UNKNOWN_LABEL: String = "unknown"
+
+/**
  * Audit event emitted when an OAuth token is granted to a client.
  */
 data class TokenGrantEvent(
