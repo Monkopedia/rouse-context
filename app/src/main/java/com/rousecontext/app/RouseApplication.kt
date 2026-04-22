@@ -4,9 +4,6 @@ import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import androidx.work.Configuration
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
@@ -15,8 +12,7 @@ import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.work.CertRenewalScheduler
 import com.rousecontext.work.KoinWorkerFactory
-import com.rousecontext.work.SecurityCheckWorker
-import java.util.concurrent.TimeUnit
+import com.rousecontext.work.SecurityCheckScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -134,16 +130,10 @@ class RouseApplication :
             val appState = AppStatePreferences(this@RouseApplication)
             val intervalHours = appState.securityCheckIntervalHours()
             val flexHours = (intervalHours / 4).coerceAtLeast(1)
-            val request = PeriodicWorkRequestBuilder<SecurityCheckWorker>(
-                intervalHours.toLong(),
-                TimeUnit.HOURS,
-                flexHours.toLong(),
-                TimeUnit.HOURS
-            ).build()
-            WorkManager.getInstance(this@RouseApplication).enqueueUniquePeriodicWork(
-                "security-check",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                request
+            SecurityCheckScheduler.enqueuePeriodic(
+                this@RouseApplication,
+                intervalHours = intervalHours,
+                flexHours = flexHours
             )
         }
     }
