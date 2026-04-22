@@ -99,25 +99,25 @@ class MainActivity : ComponentActivity() {
          * the per-tool-call and session-summary notifiers carry actions like
          * [PerToolCallNotifier.ACTION_OPEN_AUDIT_HISTORY] and extras that are
          * encoded into the returned [Routes.audit] route so the destination's
-         * nav args carry the scroll target / session time window through to
-         * the ViewModel.
+         * nav args carry the scroll target through to the ViewModel.
          *
          * The mapping:
          *  - Per-call tap → [Routes.audit] with `scrollToCallId` populated
          *    from [PerToolCallNotifier.EXTRA_SCROLL_TO_CALL_ID].
-         *  - Summary tap → [Routes.audit] with `startMillis`/`endMillis`
-         *    populated from
-         *    [SessionSummaryNotifier.EXTRA_START_MILLIS]/[SessionSummaryNotifier.EXTRA_END_MILLIS].
+         *  - Summary tap → plain [Routes.AUDIT_BASE]. The summary tap no
+         *    longer carries a session time window (reverted as part of
+         *    #370; users pushed back on the #347 override which made the
+         *    audit date chip appear broken). Lands on the default
+         *    LAST_7_DAYS filter, which is guaranteed to enclose any row
+         *    the user saw on the dashboard teaser.
          *  - Tap with no known extras → plain [Routes.AUDIT_BASE].
          *  - `Manage` action button with a single integration id → the
          *    integration manage route.
          *  - `Manage` action button for a mixed-integration summary → home.
          *
          * Fix #368 (Bug B): previously this returned bare [Routes.AUDIT_BASE]
-         * for both notifier actions, dropping all deep-link extras. That
-         * meant per-tool-call taps never scrolled to the called row and
-         * summary taps never applied the session time window — both landed
-         * on the default TODAY filter with no scroll.
+         * for per-tool-call notifier actions, dropping the scroll target
+         * deep-link extra. The per-tool-call branch now encodes it.
          */
         internal fun destinationForNotificationIntent(intent: Intent?): String? {
             if (intent == null) return null
@@ -136,25 +136,16 @@ class MainActivity : ComponentActivity() {
         }
 
         /**
-         * Build an audit-history route that carries the deep-link extras
-         * (per-tool-call scroll target, summary time window) through to
-         * the destination's nav args. See [destinationForNotificationIntent].
+         * Build an audit-history route that carries the per-tool-call
+         * scroll-target deep-link through to the destination's nav args.
+         * Session-summary taps never carry extras (see
+         * [destinationForNotificationIntent]).
          */
         private fun auditRouteFor(intent: Intent): String {
             val scrollToCallId = intent
                 .getLongExtra(PerToolCallNotifier.EXTRA_SCROLL_TO_CALL_ID, UNSET_LONG_EXTRA)
                 .takeIf { it != UNSET_LONG_EXTRA }
-            val startMillis = intent
-                .getLongExtra(SessionSummaryNotifier.EXTRA_START_MILLIS, UNSET_LONG_EXTRA)
-                .takeIf { it != UNSET_LONG_EXTRA }
-            val endMillis = intent
-                .getLongExtra(SessionSummaryNotifier.EXTRA_END_MILLIS, UNSET_LONG_EXTRA)
-                .takeIf { it != UNSET_LONG_EXTRA }
-            return Routes.audit(
-                scrollToCallId = scrollToCallId,
-                startMillis = startMillis,
-                endMillis = endMillis
-            )
+            return Routes.audit(scrollToCallId = scrollToCallId)
         }
 
         /**

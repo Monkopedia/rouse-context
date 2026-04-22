@@ -15,7 +15,6 @@ import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
 import com.rousecontext.app.ui.screens.AuditDetailScreen
 import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditDetailUiState
-import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
 import com.rousecontext.app.ui.screens.AuditHistoryItem
@@ -886,8 +885,19 @@ class ScreenScreenshotTest {
             )
         ),
         recentActivity = listOf(
-            AuditEntry("10:32 AM", "health/get_steps", 142),
-            AuditEntry("10:31 AM", "health/get_sleep", 89)
+            AuditHistoryEntry(
+                time = "10:32 AM",
+                toolName = "health/get_steps",
+                durationMs = 142,
+                arguments = "{days: 7}",
+                clientLabel = "Claude Desktop"
+            ),
+            AuditHistoryEntry(
+                time = "10:31 AM",
+                toolName = "health/get_sleep",
+                durationMs = 89,
+                arguments = "{days: 1}"
+            )
         )
     )
 
@@ -922,8 +932,19 @@ class ScreenScreenshotTest {
         status = IntegrationStatus.ACTIVE,
         url = "https://brave-health.my-device.rousecontext.com/mcp",
         recentActivity = listOf(
-            AuditEntry("10:32 AM", "get_steps", 142),
-            AuditEntry("10:31 AM", "get_sleep", 89)
+            AuditHistoryEntry(
+                time = "10:32 AM",
+                toolName = "get_steps",
+                durationMs = 142,
+                arguments = "{days: 7}",
+                clientLabel = "Claude Desktop"
+            ),
+            AuditHistoryEntry(
+                time = "10:31 AM",
+                toolName = "get_sleep",
+                durationMs = 89,
+                arguments = "{days: 1}"
+            )
         ),
         authorizedClients = listOf(
             AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
@@ -935,9 +956,25 @@ class ScreenScreenshotTest {
         status = IntegrationStatus.ACTIVE,
         url = "https://brave-falcon.my-device.rousecontext.com/health/mcp",
         recentActivity = listOf(
-            AuditEntry("10:32 AM", "get_steps", 142),
-            AuditEntry("10:31 AM", "get_sleep", 89),
-            AuditEntry("10:30 AM", "get_heart_rate", 201)
+            AuditHistoryEntry(
+                time = "10:32 AM",
+                toolName = "get_steps",
+                durationMs = 142,
+                arguments = "{days: 7}",
+                clientLabel = "Claude"
+            ),
+            AuditHistoryEntry(
+                time = "10:31 AM",
+                toolName = "get_sleep",
+                durationMs = 89,
+                arguments = "{days: 1}"
+            ),
+            AuditHistoryEntry(
+                time = "10:30 AM",
+                toolName = "get_heart_rate",
+                durationMs = 201,
+                arguments = "{days: 7}"
+            )
         ),
         authorizedClients = listOf(
             AuthorizedClient("Claude", "Apr 2", "2 hours ago"),

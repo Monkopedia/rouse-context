@@ -303,36 +303,41 @@ class SessionSummaryNotifierTest {
     }
 
     @Test
-    fun `Tap PendingIntent carries session time-window extras`() = runBlocking {
-        settings.mode = PostSessionMode.SUMMARY
-        val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
-        val posted = CompletableDeferred<Unit>()
-        dao.onQueryCreatedAfter = { posted.complete(Unit) }
+    fun `Tap PendingIntent carries open-audit-history action with no session-window extras`() =
+        runBlocking {
+            // #370: the #347 session-window override was reverted because
+            // users pushed back on it — the extras silently overrode the
+            // date-chip filter, making the audit screen look empty. The
+            // summary tap now opens the audit screen at its default filter
+            // (LAST_7_DAYS, which encloses the dashboard's rolling-24h
+            // teaser window) with no extras.
+            settings.mode = PostSessionMode.SUMMARY
+            val states = MutableSharedFlow<TunnelState>(replay = 16, extraBufferCapacity = 16)
+            val posted = CompletableDeferred<Unit>()
+            dao.onQueryCreatedAfter = { posted.complete(Unit) }
 
-        val job = launch { notifier.observe(states) }
+            val job = launch { notifier.observe(states) }
 
-        states.emit(TunnelState.ACTIVE)
-        awaitLatestId()
-        dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
-        states.emit(TunnelState.CONNECTED)
-        withTimeout(TIMEOUT_MS) { posted.await() }
+            states.emit(TunnelState.ACTIVE)
+            awaitLatestId()
+            dao.insert(entry(provider = "health", toolName = "get_steps", clientLabel = "Claude"))
+            states.emit(TunnelState.CONNECTED)
+            withTimeout(TIMEOUT_MS) { posted.await() }
 
-        val notification =
-            Shadows.shadowOf(manager).getNotification(
-                SessionSummaryNotifier.idForClient("Claude")
+            val notification =
+                Shadows.shadowOf(manager).getNotification(
+                    SessionSummaryNotifier.idForClient("Claude")
+                )
+            assertNotNull(notification)
+            val tap = Shadows.shadowOf(notification.contentIntent).savedIntent
+            assertEquals(
+                SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY,
+                tap.action
             )
-        assertNotNull(notification)
-        val tap = Shadows.shadowOf(notification.contentIntent).savedIntent
-        assertEquals(
-            SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY,
-            tap.action
-        )
-        assertTrue(tap.hasExtra(SessionSummaryNotifier.EXTRA_START_MILLIS))
-        assertTrue(tap.hasExtra(SessionSummaryNotifier.EXTRA_END_MILLIS))
 
-        job.cancel()
-        coroutineContext.cancelChildren()
-    }
+            job.cancel()
+            coroutineContext.cancelChildren()
+        }
 
     @Test
     fun `Different clients produce distinct stable notification ids`() {

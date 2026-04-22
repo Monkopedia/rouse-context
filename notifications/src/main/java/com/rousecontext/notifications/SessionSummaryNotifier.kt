@@ -43,8 +43,11 @@ import kotlinx.coroutines.flow.Flow
  *
  * ## Tap / action routing
  *
- * - Tap: deep-links into the audit-history screen filtered to the session
- *   time window via [EXTRA_START_MILLIS] / [EXTRA_END_MILLIS].
+ * - Tap: deep-links into the audit-history screen at its default filter
+ *   (LAST_7_DAYS — the default encloses the dashboard's rolling 24 h teaser
+ *   window so the user always sees at least what they were looking at).
+ *   Previously the tap overrode the date filter with the session window
+ *   (#347); #370 reverted that because it made the audit filter look broken.
  * - `Manage` action: if all entries in this client's partition came from a
  *   single integration, deep-links into that integration's manage screen
  *   via [EXTRA_INTEGRATION_ID]; otherwise routes to the home screen.
@@ -79,8 +82,6 @@ class SessionSummaryNotifier(
     private val auditDao: AuditDao,
     private val settingsProvider: NotificationSettingsProvider,
     private val activityClass: Class<*>,
-    private val extraStartMillis: String = EXTRA_START_MILLIS,
-    private val extraEndMillis: String = EXTRA_END_MILLIS,
     private val extraIntegrationId: String = EXTRA_INTEGRATION_ID
 ) {
 
@@ -90,7 +91,6 @@ class SessionSummaryNotifier(
      */
     suspend fun observe(states: Flow<TunnelState>) {
         var cursorId: Long? = null
-        var sessionStartMillis: Long = 0
         var posted = false
         var previousState: TunnelState? = null
 
@@ -101,7 +101,6 @@ class SessionSummaryNotifier(
                 // tunnel fully disconnects.
                 state == TunnelState.ACTIVE && cursorId == null && !posted -> {
                     cursorId = auditDao.latestId() ?: 0L
-                    sessionStartMillis = System.currentTimeMillis()
                 }
                 // Post on ACTIVE -> CONNECTED (all streams drained).
                 // The foreground service is still alive at this point, so the
@@ -111,9 +110,8 @@ class SessionSummaryNotifier(
                     state == TunnelState.CONNECTED &&
                     cursorId != null -> {
                     val startCursor = cursorId!!
-                    val sessionEndMillis = System.currentTimeMillis()
                     val entries = auditDao.queryCreatedAfter(startCursor)
-                    val didPost = postForMode(entries, sessionStartMillis, sessionEndMillis)
+                    val didPost = postForMode(entries)
                     cursorId = null
                     // Only burn the per-cycle gate when we actually posted.
                     // An empty drain (no audit rows since the cursor) can
@@ -149,11 +147,7 @@ class SessionSummaryNotifier(
      * per-connection-cycle `posted` gate — see [observe]'s handling of the
      * ACTIVE → CONNECTED branch.
      */
-    private suspend fun postForMode(
-        entries: List<AuditEntry>,
-        startMillis: Long,
-        endMillis: Long
-    ): Boolean {
+    private suspend fun postForMode(entries: List<AuditEntry>): Boolean {
         val mode = settingsProvider.settings().postSessionMode
         return when (mode) {
             PostSessionMode.SUPPRESS -> false
@@ -162,7 +156,7 @@ class SessionSummaryNotifier(
                 if (entries.isEmpty()) {
                     false
                 } else {
-                    postSummary(entries, startMillis, endMillis)
+                    postSummary(entries)
                     true
                 }
             }
@@ -175,15 +169,13 @@ class SessionSummaryNotifier(
      * `"Unknown"` for defensive rendering; real unknown-client rows written
      * by the #345 labeler carry `Unknown (#N)` strings verbatim.
      */
-    private fun postSummary(entries: List<AuditEntry>, startMillis: Long, endMillis: Long) {
+    private fun postSummary(entries: List<AuditEntry>) {
         val manager = context.getSystemService(NotificationManager::class.java)
         val byClient = entries.groupBy { it.clientLabel ?: UNKNOWN_CLIENT_LABEL }
         byClient.forEach { (clientLabel, clientEntries) ->
             val notification = buildClientNotification(
                 clientLabel = clientLabel,
-                entries = clientEntries,
-                startMillis = startMillis,
-                endMillis = endMillis
+                entries = clientEntries
             )
             manager.notify(idForClient(clientLabel), notification)
         }
@@ -191,15 +183,13 @@ class SessionSummaryNotifier(
 
     private fun buildClientNotification(
         clientLabel: String,
-        entries: List<AuditEntry>,
-        startMillis: Long,
-        endMillis: Long
+        entries: List<AuditEntry>
     ): android.app.Notification {
         val count = entries.size
         val title = buildTitle(clientLabel, count)
         val body = joinToolNames(rankedHumanizedTools(entries))
         val notificationId = idForClient(clientLabel)
-        val contentIntent = buildTapIntent(notificationId, startMillis, endMillis)
+        val contentIntent = buildTapIntent(notificationId)
         val managePendingIntent = buildManageIntent(notificationId, entries)
 
         return NotificationCompat.Builder(
@@ -253,18 +243,15 @@ class SessionSummaryNotifier(
             runCatching { ToolNameHumanizer.humanize(name) }.getOrDefault(name)
         }
 
-    private fun buildTapIntent(
-        notificationId: Int,
-        startMillis: Long,
-        endMillis: Long
-    ): PendingIntent = PendingIntent.getActivity(
+    private fun buildTapIntent(notificationId: Int): PendingIntent = PendingIntent.getActivity(
         context,
         notificationId,
         Intent(context, activityClass).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // Summary tap lands at the default audit view — no session-window
+            // override (reverted as part of #370; users pushed back on #347's
+            // silent date-chip override that made filters look broken).
             action = ACTION_OPEN_AUDIT_HISTORY
-            putExtra(extraStartMillis, startMillis)
-            putExtra(extraEndMillis, endMillis)
         },
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
@@ -315,12 +302,6 @@ class SessionSummaryNotifier(
 
         /** Offset added to the tap requestCode for the Manage action PendingIntent. */
         private const val MANAGE_REQUEST_CODE_OFFSET = 100_000
-
-        /** Intent extra: session start timestamp (ms since epoch). */
-        const val EXTRA_START_MILLIS = "rouse.session_start_millis"
-
-        /** Intent extra: session end timestamp (ms since epoch). */
-        const val EXTRA_END_MILLIS = "rouse.session_end_millis"
 
         /** Intent extra: integration id for the Manage action deep-link. */
         const val EXTRA_INTEGRATION_ID: String = "rouse.integration.manage_id"

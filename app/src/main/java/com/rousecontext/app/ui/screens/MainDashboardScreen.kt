@@ -45,7 +45,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -54,9 +53,9 @@ import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.ListDivider
-import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
+import com.rousecontext.app.ui.components.ToolCallRow
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.components.navBarContainerColor
 import com.rousecontext.app.ui.components.navBarItemColors
@@ -72,14 +71,6 @@ data class IntegrationItem(
     val name: String,
     val status: IntegrationStatus,
     val url: String
-)
-
-@Immutable
-data class AuditEntry(
-    val time: String,
-    val toolName: String,
-    val durationMs: Long,
-    val id: Long = 0
 )
 
 enum class TerminalReason { KeyGenerationFailed, CnMismatch }
@@ -120,14 +111,14 @@ data object NotificationBanner
  */
 data class SpuriousWakeBanner(val rolling24hCount: Int)
 
-private const val MAX_RECENT_ITEMS = 3
+private const val MAX_RECENT_ITEMS = 5
 
 @Immutable
 data class DashboardState(
     val connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
     val activeSessionCount: Int = 0,
     val integrations: List<IntegrationItem> = emptyList(),
-    val recentActivity: List<AuditEntry> = emptyList(),
+    val recentActivity: List<AuditHistoryEntry> = emptyList(),
     val certBanner: CertBanner? = null,
     val notificationBanner: NotificationBanner? = null,
     val spuriousWakeBanner: SpuriousWakeBanner? = null,
@@ -224,7 +215,7 @@ fun HomeDashboardContent(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         visibleActivity.forEachIndexed { index, entry ->
-                            ActivityRow(entry)
+                            ToolCallRow(entry = entry)
                             if (index < visibleActivity.lastIndex) {
                                 ListDivider()
                             }
@@ -825,25 +816,6 @@ private fun EmptyRecentActivityCard() {
 }
 
 @Composable
-private fun ActivityRow(entry: AuditEntry) {
-    ListRow {
-        Text(
-            text = entry.toolName,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f)
-        )
-        Text(
-            text = entry.time,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
-        DurationText(entry.durationMs)
-    }
-}
-
-@Composable
 fun formatDuration(ms: Long): String = if (ms >= 1000) {
     stringResource(R.string.screen_dashboard_duration_seconds, ms / 1000.0)
 } else {
@@ -929,9 +901,24 @@ fun DashboardWithIntegrationsPreview() {
                     )
                 ),
                 recentActivity = listOf(
-                    AuditEntry("10:32 AM", "health/get_steps", 142),
-                    AuditEntry("10:31 AM", "health/get_sleep", 89),
-                    AuditEntry("Apr 7, 3:15 PM", "health/get_heart_rate", 1250)
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "health/get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "health/get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "Apr 7, 3:15 PM",
+                        toolName = "health/get_heart_rate",
+                        durationMs = 1250,
+                        arguments = ""
+                    )
                 )
             )
         )
@@ -1069,9 +1056,24 @@ fun DashboardWithIntegrationsLightPreview() {
                     )
                 ),
                 recentActivity = listOf(
-                    AuditEntry("10:32 AM", "health/get_steps", 142),
-                    AuditEntry("10:31 AM", "health/get_sleep", 89),
-                    AuditEntry("Apr 7, 3:15 PM", "health/get_heart_rate", 1250)
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "health/get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "health/get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "Apr 7, 3:15 PM",
+                        toolName = "health/get_heart_rate",
+                        durationMs = 1250,
+                        arguments = ""
+                    )
                 )
             )
         )

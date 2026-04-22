@@ -5,6 +5,7 @@ import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SessionSummaryNotifier
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,24 +42,27 @@ class MainActivityNotificationRoutingTest {
     }
 
     @Test
-    fun `session summary tap with time window encodes start and end in the audit route`() {
-        val startMillis = 1_700_000_000_000L
-        val endMillis = 1_700_000_123_000L
+    fun `session summary tap returns bare audit route with no session window`() {
+        // #370: summary taps no longer carry EXTRA_START_MILLIS /
+        // EXTRA_END_MILLIS — the #347 session-window override was reverted
+        // because it silently overrode the date-chip selection and made the
+        // audit filter look broken. Summary taps now land at the default
+        // LAST_7_DAYS filter with no scroll, which always encloses the
+        // dashboard's rolling-24h teaser window.
         val intent = Intent().apply {
             action = SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY
-            putExtra(SessionSummaryNotifier.EXTRA_START_MILLIS, startMillis)
-            putExtra(SessionSummaryNotifier.EXTRA_END_MILLIS, endMillis)
         }
         val route = MainActivity.destinationForNotificationIntent(intent)
         requireNotNull(route) { "expected non-null route" }
-        assertTrue(
-            "expected startMillis in route, got '$route'",
-            route.contains("startMillis=$startMillis")
+        assertFalse(
+            "summary tap route must not encode startMillis, got '$route'",
+            route.contains("startMillis")
         )
-        assertTrue(
-            "expected endMillis in route, got '$route'",
-            route.contains("endMillis=$endMillis")
+        assertFalse(
+            "summary tap route must not encode endMillis, got '$route'",
+            route.contains("endMillis")
         )
+        assertEquals(Routes.AUDIT_BASE, route)
     }
 
     @Test
