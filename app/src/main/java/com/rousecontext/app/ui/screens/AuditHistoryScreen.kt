@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.R
+import com.rousecontext.app.ui.components.ClientPill
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
@@ -120,7 +121,15 @@ data class AuditHistoryEntry(
     val arguments: String,
     val timestampMillis: Long = 0L,
     val argumentsJson: String? = null,
-    val resultJson: String? = null
+    val resultJson: String? = null,
+    /**
+     * Human-readable client label captured from the MCP OAuth Bearer token
+     * at session start (see issue #344). Nullable for rows created before
+     * the schema v3 -> v4 migration. When null the audit row omits the pill
+     * entirely per the variant 7 design (#366) — a placeholder would collide
+     * with the real `Unknown (#N)` labels produced by [UnknownClientLabeler].
+     */
+    val clientLabel: String? = null
 )
 
 /**
@@ -410,13 +419,30 @@ fun AuditHistoryScreen(
     }
 }
 
+/**
+ * Audit-history tool-call row laid out as variant 7 from the #343 preview
+ * review (final tuning in #365, shipped in #366).
+ *
+ * ```
+ * [ toolName  ─────────────────  [pill] ]
+ * [ 123 ms · {args...}  ─────── 10:32 AM ]
+ * ```
+ *
+ * Row 1 is the tool name with the optional [ClientPill] right-aligned; row 2
+ * is duration + args on the left and the call time on the right (with a
+ * 4 dp end padding to visually balance the pill above it).
+ *
+ * When [AuditHistoryEntry.clientLabel] is null the pill is omitted entirely
+ * — row 1 still renders, but without the trailing pill — per the design
+ * decision in #366 (rows predating schema v4 are rare, and a placeholder
+ * pill would collide with real `Unknown (#N)` labels).
+ */
 @Composable
 private fun ToolCallRow(entry: AuditHistoryEntry, onClick: () -> Unit) {
     ListRow(onClick = onClick) {
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
@@ -425,32 +451,45 @@ private fun ToolCallRow(entry: AuditHistoryEntry, onClick: () -> Unit) {
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f)
                 )
+                if (entry.clientLabel != null) {
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
+                    ClientPill(entry.clientLabel)
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(
+                            R.string.screen_audit_history_duration_ms,
+                            entry.durationMs
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+                    Text(
+                        entry.arguments,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_sm)))
                 Text(
                     entry.time,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Spacer(modifier = Modifier.height(2.dp))
-            Row {
-                Text(
-                    stringResource(
-                        R.string.screen_audit_history_duration_ms,
-                        entry.durationMs
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
-                Text(
-                    entry.arguments,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = TIME_END_PADDING_DP.dp)
                 )
             }
         }
     }
 }
+
+private const val TIME_END_PADDING_DP = 4
 
 @Composable
 private fun RequestRow(item: AuditHistoryItem.Request) {

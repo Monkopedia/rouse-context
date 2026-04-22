@@ -225,6 +225,32 @@ class AuditHistoryViewModelTest {
         }
 
     @Test
+    fun `clientLabel from AuditEntry surfaces through to the view entry`() =
+        runTest(testDispatcher) {
+            val now = System.currentTimeMillis()
+            val labeled = createEntry(1, now - 1_000, "get_steps")
+                .copy(clientLabel = "Claude Desktop")
+            val unlabeled = createEntry(2, now - 2_000, "get_sleep")
+                .copy(clientLabel = null)
+            val auditDao = mockk<AuditDao> {
+                every {
+                    observeByDateRange(any(), any(), any())
+                } returns flowOf(listOf(labeled, unlabeled))
+            }
+
+            val vm = AuditHistoryViewModel(auditDao)
+
+            vm.state.test {
+                awaitItem() // initial loading
+                val state = awaitItem()
+                val entries = state.groups.single().entries
+                // Order is timestamp-desc: labeled row (newer) first.
+                assertEquals("Claude Desktop", entries[0].clientLabel)
+                assertEquals(null, entries[1].clientLabel)
+            }
+        }
+
+    @Test
     fun `groupByDate groups entries by calendar date`() {
         val dayOneMs = 1750032000000L // 2025-06-16 00:00 UTC
         val dayTwoMs = dayOneMs + 24 * 60 * 60 * 1000L

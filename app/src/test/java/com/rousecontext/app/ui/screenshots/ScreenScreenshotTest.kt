@@ -965,18 +965,23 @@ class ScreenScreenshotTest {
             AuditHistoryGroup.ofEntries(
                 "Today",
                 listOf(
+                    // Short client label.
                     AuditHistoryEntry(
                         time = "10:32 AM",
                         toolName = "health/get_steps",
                         durationMs = 142,
-                        arguments = "{days: 7}"
+                        arguments = "{days: 7}",
+                        clientLabel = "Claude"
                     ),
+                    // Long client label.
                     AuditHistoryEntry(
                         time = "10:31 AM",
                         toolName = "health/get_sleep",
                         durationMs = 89,
-                        arguments = "{days: 1}"
+                        arguments = "{days: 1}",
+                        clientLabel = "Claude Desktop"
                     ),
+                    // Null client label -> pill should be omitted.
                     AuditHistoryEntry(
                         time = "10:31 AM",
                         toolName = "health/get_heart_rate",
@@ -992,7 +997,8 @@ class ScreenScreenshotTest {
                         time = "3:15 PM",
                         toolName = "health/get_steps",
                         durationMs = 156,
-                        arguments = "{days: 30}"
+                        arguments = "{days: 30}",
+                        clientLabel = "Unknown (#1)"
                     )
                 )
             )
@@ -1010,7 +1016,8 @@ class ScreenScreenshotTest {
                         time = "10:32 AM",
                         toolName = "health/get_steps",
                         durationMs = 142,
-                        arguments = "{days: 7}"
+                        arguments = "{days: 7}",
+                        clientLabel = "Claude"
                     )
                 )
             )
@@ -1038,7 +1045,8 @@ class ScreenScreenshotTest {
                             toolName = "health/get_steps",
                             durationMs = 142,
                             arguments = "{days: 7}",
-                            timestampMillis = 1_712_400_000_000L + 5_000
+                            timestampMillis = 1_712_400_000_000L + 5_000,
+                            clientLabel = "Claude"
                         )
                     ),
                     AuditHistoryItem.Request(
@@ -1056,7 +1064,8 @@ class ScreenScreenshotTest {
                             toolName = "health/get_sleep",
                             durationMs = 89,
                             arguments = "{days: 1}",
-                            timestampMillis = 1_712_400_000_000L + 3_000
+                            timestampMillis = 1_712_400_000_000L + 3_000,
+                            clientLabel = "Claude Desktop"
                         )
                     ),
                     AuditHistoryItem.Request(
