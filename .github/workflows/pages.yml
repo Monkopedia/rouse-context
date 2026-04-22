@@ -30,6 +30,11 @@ jobs:
         with:
           source: docs/user
           destination: ./_site
+      # Jekyll's container runs as a non-root user and leaves `_site` owned by
+      # that uid, so subsequent steps (running as runner) can't write into it.
+      # Chmod the tree so the catalog copy steps below can land their files.
+      - name: Make _site writable for catalog copy steps
+        run: sudo chmod -R a+w _site
       - name: Include notification catalog
         run: |
           mkdir -p _site/internal/notifications _site/notifications/screenshots
