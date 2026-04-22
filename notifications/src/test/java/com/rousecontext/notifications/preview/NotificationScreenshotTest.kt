@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.api.NotificationSettings
@@ -17,6 +18,7 @@ import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.FgsLimitNotifier
 import com.rousecontext.notifications.ForegroundNotifier
 import com.rousecontext.notifications.LaunchRequestNotifier
+import com.rousecontext.notifications.NotificationIdCounter
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SecurityCheckNotifier
 import com.rousecontext.notifications.SessionSummaryNotifier
@@ -26,6 +28,10 @@ import com.rousecontext.tunnel.TunnelState
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -273,7 +279,8 @@ class NotificationScreenshotTest {
             context = context,
             settingsProvider = FakeSettingsProvider(PostSessionMode.EACH_USAGE),
             integrationDisplayNames = mapOf("health-connect" to "Health Connect"),
-            activityClass = DummyActivity::class.java
+            activityClass = DummyActivity::class.java,
+            idCounter = freshIdCounter()
         )
         notifier.onToolCallRecorded(sampleToolCallEvent())
         lastPosted()
@@ -300,7 +307,8 @@ class NotificationScreenshotTest {
             context = context,
             settingsProvider = FakeSettingsProvider(PostSessionMode.EACH_USAGE),
             integrationDisplayNames = mapOf("health-connect" to "Health Connect"),
-            activityClass = DummyActivity::class.java
+            activityClass = DummyActivity::class.java,
+            idCounter = freshIdCounter()
         )
         notifier.onToolCallRecorded(
             sampleToolCallEvent().copy(
@@ -334,7 +342,8 @@ class NotificationScreenshotTest {
                 "health-connect" to "Health Connect",
                 "notifications" to "Notifications"
             ),
-            activityClass = DummyActivity::class.java
+            activityClass = DummyActivity::class.java,
+            idCounter = freshIdCounter()
         )
         notifier.onToolCallRecorded(
             sampleToolCallEvent().copy(
@@ -343,6 +352,18 @@ class NotificationScreenshotTest {
             )
         )
         lastPosted()
+    }
+
+    /**
+     * Build a fresh, test-local [NotificationIdCounter]. Each screenshot case
+     * uses its own counter so they don't leak state across tests; the counter's
+     * backing DataStore lives in a tmp file keyed on a random UUID.
+     */
+    private fun freshIdCounter(): NotificationIdCounter {
+        val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        val file = File(context.cacheDir, "per_tool_counter_${UUID.randomUUID()}.preferences_pb")
+        val store = PreferenceDataStoreFactory.create(scope = scope) { file }
+        return NotificationIdCounter(store)
     }
 
     // =========================================================================

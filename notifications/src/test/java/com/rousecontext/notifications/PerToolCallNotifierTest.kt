@@ -2,6 +2,9 @@ package com.rousecontext.notifications
 
 import android.app.NotificationManager
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
 import androidx.test.core.app.ApplicationProvider
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
@@ -9,14 +12,23 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.mcp.core.ToolCallEvent
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
@@ -33,6 +45,12 @@ class PerToolCallNotifierTest {
     private lateinit var manager: NotificationManager
     private lateinit var settings: FakeNotificationSettingsProvider
     private lateinit var notifier: PerToolCallNotifier
+    private lateinit var scopeJob: Job
+    private lateinit var scope: CoroutineScope
+    private lateinit var counterStore: DataStore<Preferences>
+
+    @get:Rule
+    val tmpDir = TemporaryFolder()
 
     class DummyActivity : android.app.Activity()
 
@@ -42,6 +60,11 @@ class PerToolCallNotifierTest {
         manager = context.getSystemService(NotificationManager::class.java)
         NotificationChannels.createAll(context)
         settings = FakeNotificationSettingsProvider(PostSessionMode.EACH_USAGE)
+        scopeJob = SupervisorJob()
+        scope = CoroutineScope(Dispatchers.IO + scopeJob)
+        counterStore = PreferenceDataStoreFactory.create(scope = scope) {
+            File(tmpDir.root, "counter.preferences_pb")
+        }
         notifier = PerToolCallNotifier(
             context = context,
             settingsProvider = settings,
@@ -49,8 +72,14 @@ class PerToolCallNotifierTest {
                 "health" to "Health Connect",
                 "usage" to "App Usage"
             ),
-            activityClass = DummyActivity::class.java
+            activityClass = DummyActivity::class.java,
+            idCounter = NotificationIdCounter(counterStore)
         )
+    }
+
+    @After
+    fun tearDown() {
+        scope.cancel()
     }
 
     @Test
@@ -104,7 +133,7 @@ class PerToolCallNotifierTest {
     }
 
     @Test
-    fun `Multiple calls post distinct grouped notifications`() {
+    fun `Multiple calls post distinct ungrouped notifications`() {
         runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
         runBlocking {
             notifier.notifyIfEnabled(event(provider = "usage", toolName = "get_app_usage"))
@@ -117,12 +146,96 @@ class PerToolCallNotifierTest {
             3,
             shadow.allNotifications.size
         )
+        // Per issue #331: no group key — Android collapses grouped children when
+        // there's no explicit summary notification, so dropping the group makes
+        // each per-call notification stand alone in the shade.
         shadow.allNotifications.forEach { n ->
-            assertEquals(
-                PerToolCallNotifier.GROUP_KEY,
-                n.group
-            )
+            assertNull("Per-call notification should not set a group", n.group)
         }
+    }
+
+    @Test
+    fun `Successive calls within a single process use distinct notification ids`() {
+        val shadow = Shadows.shadowOf(manager)
+        runBlocking {
+            notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
+            notifier.notifyIfEnabled(event(provider = "health", toolName = "get_hr"))
+        }
+
+        val ids = shadow.allNotifications.map {
+            // Robolectric exposes the posted id via the notification id field
+            // on its recorded entries — grab it via the shadow manager.
+            it
+        }
+        // With only 2 notifications and distinct ids, shadow manager retains
+        // both entries. Assert via count:
+        assertEquals(2, ids.size)
+    }
+
+    @Test
+    fun `Cold start with same backing store keeps notification ids distinct`() {
+        // First process: post two notifications via the initial notifier.
+        runBlocking {
+            notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps"))
+            notifier.notifyIfEnabled(event(provider = "health", toolName = "get_hr"))
+        }
+
+        // Simulate cold start: release the first DataStore (only one active
+        // instance per file is permitted), then open a fresh one from the
+        // same backing file as a new process would.
+        scope.cancel()
+        val coldStartScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        try {
+            val reopenedStore = PreferenceDataStoreFactory.create(scope = coldStartScope) {
+                File(tmpDir.root, "counter.preferences_pb")
+            }
+            val reopenedNotifier = PerToolCallNotifier(
+                context = context,
+                settingsProvider = settings,
+                integrationDisplayNames = mapOf("health" to "Health Connect"),
+                activityClass = DummyActivity::class.java,
+                idCounter = NotificationIdCounter(reopenedStore)
+            )
+
+            runBlocking {
+                reopenedNotifier.notifyIfEnabled(
+                    event(provider = "health", toolName = "get_sleep")
+                )
+            }
+
+            val shadow = Shadows.shadowOf(manager)
+            assertEquals(
+                "Post-cold-start notification must not overwrite a previous id",
+                3,
+                shadow.allNotifications.size
+            )
+            val titles = shadow.allNotifications.mapNotNull {
+                it.extras.getCharSequence("android.title")?.toString()
+            }
+            assertTrue(
+                "Expected pre-cold-start entries kept",
+                titles.any { it.contains("get_steps") }
+            )
+            assertTrue(
+                "Expected pre-cold-start entries kept",
+                titles.any { it.contains("get_hr") }
+            )
+            assertTrue(
+                "Expected post-cold-start entry present",
+                titles.any { it.contains("get_sleep") }
+            )
+        } finally {
+            coldStartScope.cancel()
+        }
+    }
+
+    @Test
+    fun `Notification has no group key`() {
+        runBlocking { notifier.notifyIfEnabled(event(provider = "health", toolName = "get_steps")) }
+
+        val shadow = Shadows.shadowOf(manager)
+        val notification = shadow.allNotifications.first()
+        assertNull("Per-call notification should not set a group", notification.group)
     }
 
     @Test
