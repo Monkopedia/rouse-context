@@ -22,15 +22,21 @@ import com.rousecontext.app.ui.screens.ProviderFilterOption
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import org.koin.androidx.compose.koinViewModel
 
+private fun nullableStringArg(name: String) = navArgument(name) {
+    type = NavType.StringType
+    nullable = true
+    defaultValue = null
+}
+
+@Suppress("LongMethod")
 fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
     composable(
         Routes.AUDIT,
         arguments = listOf(
-            navArgument("provider") {
-                type = NavType.StringType
-                nullable = true
-                defaultValue = null
-            }
+            nullableStringArg("provider"),
+            nullableStringArg("scrollToCallId"),
+            nullableStringArg("startMillis"),
+            nullableStringArg("endMillis")
         ),
         enterTransition = {
             val dir = tabSlideDirection(
@@ -56,11 +62,26 @@ fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
             showBottomBar = true
         )
         val viewModel: AuditHistoryViewModel = koinViewModel()
-        val providerArg = backStackEntry.arguments
-            ?.getString("provider")
+        val args = backStackEntry.arguments
+        val providerArg = args?.getString("provider")
+        // Notification-tap extras: scroll-to-call (per-tool-call tap) and
+        // session time window (summary tap). #347 deep-link wiring.
+        val scrollToArg = args?.getString("scrollToCallId")?.toLongOrNull()
+        val startArg = args?.getString("startMillis")?.toLongOrNull()
+        val endArg = args?.getString("endMillis")?.toLongOrNull()
         LaunchedEffect(providerArg) {
             if (providerArg != null) {
                 viewModel.setProviderFilter(ProviderFilterOption.Specific(providerArg))
+            }
+        }
+        LaunchedEffect(scrollToArg) {
+            if (scrollToArg != null) {
+                viewModel.requestScrollTo(scrollToArg)
+            }
+        }
+        LaunchedEffect(startArg, endArg) {
+            if (startArg != null && endArg != null) {
+                viewModel.applySessionWindow(startMillis = startArg, endMillis = endArg)
             }
         }
         val state by viewModel.state.collectAsState()

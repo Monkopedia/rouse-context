@@ -31,17 +31,25 @@
     <string name="notification_launch_action_open">Open</string>
     <string name="notification_launch_fallback_caller">AI client</string>
 
-    <!-- Per-tool-call notification (PerToolCallNotifier). -->
-    <string name="notification_tool_call_title">Tool call: %1$s</string>
-    <string name="notification_tool_call_text">%1$s \u00B7 %2$s</string>
+    <!-- Per-tool-call notification (PerToolCallNotifier).
+         Locked design (#342): "${clientLabel} used ${humanized(toolName)}"
+         Body is the integration display name only; the notification shade
+         renders the timestamp natively via setWhen(). -->
+    <string name="notification_tool_call_title">%1$s used %2$s</string>
 
-    <!-- Session summary notification (SessionSummaryNotifier). -->
-    <string name="notification_session_summary_single_integration">%1$d tool %2$s</string>
-    <string name="notification_session_summary_multi_integration">%1$d tool %2$s across %3$d %4$s</string>
-    <string name="notification_session_summary_calls_one">call</string>
-    <string name="notification_session_summary_calls_many">calls</string>
-    <string name="notification_session_summary_integrations_one">integration</string>
-    <string name="notification_session_summary_integrations_many">integrations</string>
+    <!-- Session summary notification (SessionSummaryNotifier).
+         Locked design (#342): "${clientLabel} used ${count} ${tool|tools}",
+         one notification per client. Never mentions integration count in the
+         title. Body uses joinToolNames() (up to 3 unique humanized tool names,
+         Oxford comma, "and N more" for the rest). -->
+    <string name="notification_session_summary_title">%1$s used %2$d %3$s</string>
+    <string name="notification_session_summary_tool_one">tool</string>
+    <string name="notification_session_summary_tool_many">tools</string>
+
+    <!-- "Manage" action button on per-call and summary notifications. Routes
+         to the integration manage page (single integration) or the home
+         screen (mixed integrations in a summary). -->
+    <string name="notification_action_manage">Manage</string>
 
     <!-- Security-check notifications (AndroidSecurityCheckNotifier). -->
     <string name="notification_security_alert_title">Security Alert</string>

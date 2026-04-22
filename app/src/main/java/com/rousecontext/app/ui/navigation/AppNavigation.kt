@@ -41,7 +41,9 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val NOTIFICATION_PREFERENCES = "onboarding/notification_preferences"
     const val HOME = "home"
-    const val AUDIT = "audit?provider={provider}"
+    const val AUDIT =
+        "audit?provider={provider}&scrollToCallId={scrollToCallId}" +
+            "&startMillis={startMillis}&endMillis={endMillis}"
     const val AUDIT_BASE = "audit"
     const val SETTINGS = "settings"
     const val ADD_INTEGRATION = "add_integration"
@@ -57,8 +59,20 @@ object Routes {
     const val AUDIT_DETAIL = "audit_detail/{entryId}"
 
     fun allClients(integrationId: String): String = "all_clients/$integrationId"
-    fun audit(provider: String? = null): String =
-        if (provider != null) "audit?provider=$provider" else "audit"
+    fun audit(
+        provider: String? = null,
+        scrollToCallId: Long? = null,
+        startMillis: Long? = null,
+        endMillis: Long? = null
+    ): String {
+        val params = buildList {
+            if (provider != null) add("provider=$provider")
+            if (scrollToCallId != null) add("scrollToCallId=$scrollToCallId")
+            if (startMillis != null) add("startMillis=$startMillis")
+            if (endMillis != null) add("endMillis=$endMillis")
+        }
+        return if (params.isEmpty()) "audit" else "audit?${params.joinToString("&")}"
+    }
     fun auditDetail(entryId: Long): String = "audit_detail/$entryId"
     fun integrationManage(id: String): String = "integration/$id"
     fun integrationSetup(id: String): String = "integration_setup/$id"

@@ -4,14 +4,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.text.format.DateFormat
 import androidx.core.app.NotificationCompat
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
 import com.rousecontext.api.R as ApiR
 import com.rousecontext.mcp.core.ToolCallEvent
+import com.rousecontext.mcp.core.ToolNameHumanizer
 import com.rousecontext.notifications.audit.PerCallObserver
-import java.util.Date
 
 /**
  * Posts a low-priority notification for each MCP tool call while the user has
@@ -25,6 +24,19 @@ import java.util.Date
  *
  * Implements [PerCallObserver] so it can be plugged into [RoomAuditListener]
  * directly without the listener depending on `android.app` types.
+ *
+ * ## Locked copy (#347, subset of the #342 design)
+ *
+ *  - Title: `"${clientLabel} used ${humanized(toolName)}"` — e.g.
+ *    `Claude used Get Steps` or `Unknown (#1) used Get Steps`.
+ *  - Body: integration display name only (e.g. `Health Connect`). The
+ *    notification shade renders the call timestamp natively via
+ *    [NotificationCompat.Builder.setWhen] with the event time, so we do NOT
+ *    append a `· HH:mm` suffix.
+ *  - Tap: deep-links to the audit-history screen scrolled to this specific
+ *    call via the [EXTRA_SCROLL_TO_CALL_ID] extra.
+ *  - Action: `Manage` button routes to the tool's integration manage page
+ *    via the [EXTRA_INTEGRATION_ID] extra.
  *
  * ## Channel
  *
@@ -41,13 +53,6 @@ import java.util.Date
  * Android will still visually cluster all notifications from this app under a
  * single app header in the shade; that is Android's default behaviour for any
  * process that posts more than one notification and cannot be disabled.
- *
- * ## Tap target
- *
- * Tapping a notification opens [activityClass] (the app's main activity); the
- * activity is expected to route to the audit history. Per-call notifications do
- * not pre-filter the history screen because the user is likely to want the
- * broader session context when they investigate a single call.
  *
  * @param context Application context used for the NotificationManager.
  * @param settingsProvider Source for the current [PostSessionMode].
@@ -78,13 +83,39 @@ class PerToolCallNotifier(
 
         val notificationId = BASE_ID + idCounter.next()
         val displayName = integrationDisplayNames[event.providerId] ?: event.providerId
-        val timeText = DateFormat.getTimeFormat(context).format(Date(event.timestamp))
+        val humanizedTool = runCatching { ToolNameHumanizer.humanize(event.toolName) }
+            .getOrDefault(event.toolName)
+
+        val title = context.getString(
+            ApiR.string.notification_tool_call_title,
+            event.clientLabel,
+            humanizedTool
+        )
 
         val contentIntent = PendingIntent.getActivity(
             context,
             notificationId,
             Intent(context, activityClass).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                action = ACTION_OPEN_AUDIT_HISTORY
+                // Make the PendingIntent unique per call so FLAG_UPDATE_CURRENT
+                // doesn't fold different call ids into the same outstanding
+                // intent (important for the action button's per-integration id).
+                putExtra(EXTRA_SCROLL_TO_CALL_ID, notificationId.toLong())
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action: Manage → integration manage page for this tool's integration.
+        val managePendingIntent = PendingIntent.getActivity(
+            context,
+            // Use notificationId + 1 as requestCode so the Manage action
+            // gets its own PendingIntent slot distinct from the tap intent.
+            notificationId + MANAGE_REQUEST_CODE_OFFSET,
+            Intent(context, activityClass).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                action = ACTION_OPEN_INTEGRATION_MANAGE
+                putExtra(EXTRA_INTEGRATION_ID, event.providerId)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -94,16 +125,22 @@ class PerToolCallNotifier(
             NotificationChannels.SESSION_SUMMARY_CHANNEL_ID
         )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
-            .setContentTitle(
-                context.getString(ApiR.string.notification_tool_call_title, event.toolName)
-            )
-            .setContentText(
-                context.getString(ApiR.string.notification_tool_call_text, displayName, timeText)
-            )
+            .setContentTitle(title)
+            .setContentText(displayName)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
+            // Render the call timestamp natively in the notification shade so
+            // the body can be the integration display name only (no
+            // "· HH:mm" suffix). See #342 / #347 locked design.
+            .setShowWhen(true)
+            .setWhen(event.timestamp)
+            .addAction(
+                ApiR.drawable.ic_stat_rouse,
+                context.getString(ApiR.string.notification_action_manage),
+                managePendingIntent
+            )
             .build()
 
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -113,5 +150,29 @@ class PerToolCallNotifier(
     companion object {
         /** Base notification id offset for per-call notifications. */
         const val BASE_ID = 7000
+
+        /** Offset added to the tap PendingIntent request code for the Manage action. */
+        private const val MANAGE_REQUEST_CODE_OFFSET = 100_000
+
+        /**
+         * Intent action signalling the activity should deep-link into the
+         * audit-history screen and scroll to the call identified by
+         * [EXTRA_SCROLL_TO_CALL_ID].
+         */
+        const val ACTION_OPEN_AUDIT_HISTORY: String = "com.rousecontext.action.OPEN_AUDIT_HISTORY"
+
+        /**
+         * Intent action signalling the activity should deep-link into the
+         * integration manage screen for the integration identified by
+         * [EXTRA_INTEGRATION_ID].
+         */
+        const val ACTION_OPEN_INTEGRATION_MANAGE: String =
+            "com.rousecontext.action.OPEN_INTEGRATION_MANAGE"
+
+        /** Intent extra: audit entry id the audit screen should scroll to. */
+        const val EXTRA_SCROLL_TO_CALL_ID: String = "rouse.audit.scroll_to_call_id"
+
+        /** Intent extra: integration id the Manage button should deep-link to. */
+        const val EXTRA_INTEGRATION_ID: String = "rouse.integration.manage_id"
     }
 }

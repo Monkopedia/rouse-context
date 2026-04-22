@@ -8,6 +8,8 @@ import androidx.core.app.NotificationCompat
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
 import com.rousecontext.api.R as ApiR
+import com.rousecontext.mcp.core.ToolNameHumanizer
+import com.rousecontext.mcp.core.UNKNOWN_CLIENT_LABEL
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.tunnel.TunnelState
@@ -22,16 +24,30 @@ import kotlinx.coroutines.flow.Flow
  * query entries inserted after that id and post a notification per
  * [PostSessionMode]:
  *
- * - [PostSessionMode.SUMMARY]: one notification summarizing counts per provider.
+ * - [PostSessionMode.SUMMARY]: one notification per distinct client label
+ *   (#342 / #347 locked design). Title is
+ *   `"${clientLabel} used ${count} ${tool|tools}"` and body lists up to 3
+ *   unique humanized tool names via [joinToolNames].
  * - [PostSessionMode.SUPPRESS]: nothing.
  * - [PostSessionMode.EACH_USAGE]: nothing — per-tool-call notifications fire
  *   from [com.rousecontext.notifications.PerToolCallNotifier], which is driven
  *   by [com.rousecontext.notifications.audit.RoomAuditListener] and fires per
  *   event rather than at session end.
  *
- * The notification taps through to the audit history, optionally filtered to the
- * session's time window (handled via intent extras keyed on [EXTRA_START_MILLIS]
- * and [EXTRA_END_MILLIS]).
+ * ## Notification ids
+ *
+ * The summary notification id is derived from the client label's hash so that
+ * multi-client sessions produce multiple independent notifications and repeat
+ * sessions for the same client replace the previous notification. See
+ * [idForClient] for the mapping.
+ *
+ * ## Tap / action routing
+ *
+ * - Tap: deep-links into the audit-history screen filtered to the session
+ *   time window via [EXTRA_START_MILLIS] / [EXTRA_END_MILLIS].
+ * - `Manage` action: if all entries in this client's partition came from a
+ *   single integration, deep-links into that integration's manage screen
+ *   via [EXTRA_INTEGRATION_ID]; otherwise routes to the home screen.
  *
  * ## Why post on ACTIVE -> CONNECTED (stream drain) rather than DISCONNECTED?
  *
@@ -64,7 +80,8 @@ class SessionSummaryNotifier(
     private val settingsProvider: NotificationSettingsProvider,
     private val activityClass: Class<*>,
     private val extraStartMillis: String = EXTRA_START_MILLIS,
-    private val extraEndMillis: String = EXTRA_END_MILLIS
+    private val extraEndMillis: String = EXTRA_END_MILLIS,
+    private val extraIntegrationId: String = EXTRA_INTEGRATION_ID
 ) {
 
     /**
@@ -152,81 +169,180 @@ class SessionSummaryNotifier(
         }
     }
 
+    /**
+     * Partition [entries] by [AuditEntry.clientLabel] and post one
+     * notification per client. Null client labels fall back to the literal
+     * `"Unknown"` for defensive rendering; real unknown-client rows written
+     * by the #345 labeler carry `Unknown (#N)` strings verbatim.
+     */
     private fun postSummary(entries: List<AuditEntry>, startMillis: Long, endMillis: Long) {
-        val total = entries.size
-        val perProvider = entries.groupingBy { it.provider }.eachCount()
-        val providerCount = perProvider.size
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val byClient = entries.groupBy { it.clientLabel ?: UNKNOWN_CLIENT_LABEL }
+        byClient.forEach { (clientLabel, clientEntries) ->
+            val notification = buildClientNotification(
+                clientLabel = clientLabel,
+                entries = clientEntries,
+                startMillis = startMillis,
+                endMillis = endMillis
+            )
+            manager.notify(idForClient(clientLabel), notification)
+        }
+    }
 
-        val title = buildSummaryTitle(total, providerCount)
-        val breakdown = perProvider.entries
-            .sortedByDescending { it.value }
-            .joinToString(", ") { (provider, count) -> "$provider $count" }
+    private fun buildClientNotification(
+        clientLabel: String,
+        entries: List<AuditEntry>,
+        startMillis: Long,
+        endMillis: Long
+    ): android.app.Notification {
+        val count = entries.size
+        val title = buildTitle(clientLabel, count)
+        val body = joinToolNames(rankedHumanizedTools(entries))
+        val notificationId = idForClient(clientLabel)
+        val contentIntent = buildTapIntent(notificationId, startMillis, endMillis)
+        val managePendingIntent = buildManageIntent(notificationId, entries)
 
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            NOTIFICATION_ID,
-            Intent(context, activityClass).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(extraStartMillis, startMillis)
-                putExtra(extraEndMillis, endMillis)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(
+        return NotificationCompat.Builder(
             context,
             NotificationChannels.SESSION_SUMMARY_CHANNEL_ID
         )
             .setSmallIcon(ApiR.drawable.ic_stat_rouse)
             .setContentTitle(title)
-            .setContentText(breakdown)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(breakdown))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(contentIntent)
+            .addAction(
+                ApiR.drawable.ic_stat_rouse,
+                context.getString(ApiR.string.notification_action_manage),
+                managePendingIntent
+            )
             .build()
-
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun buildSummaryTitle(total: Int, providerCount: Int): String {
-        val callsLabel = context.getString(
-            if (total == 1) {
-                ApiR.string.notification_session_summary_calls_one
+    /** Title: `"${clientLabel} used ${count} ${tool|tools}"`. */
+    private fun buildTitle(clientLabel: String, count: Int): String {
+        val toolLabel = context.getString(
+            if (count == 1) {
+                ApiR.string.notification_session_summary_tool_one
             } else {
-                ApiR.string.notification_session_summary_calls_many
+                ApiR.string.notification_session_summary_tool_many
             }
         )
-        return if (providerCount == 1) {
-            context.getString(
-                ApiR.string.notification_session_summary_single_integration,
-                total,
-                callsLabel
-            )
-        } else {
-            val integrationsLabel = context.getString(
-                ApiR.string.notification_session_summary_integrations_many
-            )
-            context.getString(
-                ApiR.string.notification_session_summary_multi_integration,
-                total,
-                callsLabel,
-                providerCount,
-                integrationsLabel
-            )
+        return context.getString(
+            ApiR.string.notification_session_summary_title,
+            clientLabel,
+            count,
+            toolLabel
+        )
+    }
+
+    /**
+     * Unique humanized tool names ordered by call-count descending, with
+     * ties broken alphabetically on the raw (snake_case) tool name so the
+     * output is deterministic.
+     */
+    private fun rankedHumanizedTools(entries: List<AuditEntry>): List<String> = entries
+        .groupingBy { it.toolName }
+        .eachCount()
+        .entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .map { (name, _) ->
+            runCatching { ToolNameHumanizer.humanize(name) }.getOrDefault(name)
         }
+
+    private fun buildTapIntent(
+        notificationId: Int,
+        startMillis: Long,
+        endMillis: Long
+    ): PendingIntent = PendingIntent.getActivity(
+        context,
+        notificationId,
+        Intent(context, activityClass).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            action = ACTION_OPEN_AUDIT_HISTORY
+            putExtra(extraStartMillis, startMillis)
+            putExtra(extraEndMillis, endMillis)
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    /**
+     * Build the `Manage` action's [PendingIntent]. Routes to the integration
+     * manage page when every call in [entries] came from a single integration;
+     * otherwise drops the user at home where they can pick the integration
+     * they care about.
+     */
+    private fun buildManageIntent(notificationId: Int, entries: List<AuditEntry>): PendingIntent {
+        val distinctIntegrations = entries.map { it.provider }.distinct()
+        val intent = Intent(context, activityClass).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            if (distinctIntegrations.size == 1) {
+                action = ACTION_OPEN_INTEGRATION_MANAGE
+                putExtra(extraIntegrationId, distinctIntegrations.first())
+            } else {
+                action = ACTION_OPEN_HOME
+            }
+        }
+        return PendingIntent.getActivity(
+            context,
+            notificationId + MANAGE_REQUEST_CODE_OFFSET,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     companion object {
-        /** Notification id used for the summary notification. */
+        /** Legacy single-summary notification id; kept for back-compat in tests. */
         const val NOTIFICATION_ID = 6000
+
+        /** Base for per-client summary notification ids (see [idForClient]). */
+        const val BASE_NOTIFICATION_ID: Int = 6000
+
+        /**
+         * Reserve 10k consecutive ids after [BASE_NOTIFICATION_ID] for the
+         * per-client hash bucket. Keeps us clear of [PerToolCallNotifier.BASE_ID]
+         * at 7000 while still giving enough spread to avoid collisions on
+         * typical client-label hashes.
+         *
+         * NOTE: collisions are not catastrophic — a collision just means two
+         * distinct clients with hash-equal labels replace each other's
+         * notifications. Given `String.hashCode()` and reasonable label
+         * cardinality (<100 clients on a single device), this is acceptable
+         * and matches the locked design's "stable hash of clientLabel" guidance.
+         */
+        private const val CLIENT_ID_BUCKET: Int = 10_000
+
+        /** Offset added to the tap requestCode for the Manage action PendingIntent. */
+        private const val MANAGE_REQUEST_CODE_OFFSET = 100_000
 
         /** Intent extra: session start timestamp (ms since epoch). */
         const val EXTRA_START_MILLIS = "rouse.session_start_millis"
 
         /** Intent extra: session end timestamp (ms since epoch). */
         const val EXTRA_END_MILLIS = "rouse.session_end_millis"
+
+        /** Intent extra: integration id for the Manage action deep-link. */
+        const val EXTRA_INTEGRATION_ID: String = "rouse.integration.manage_id"
+
+        /** Intent action signalling the activity should open the audit-history screen. */
+        const val ACTION_OPEN_AUDIT_HISTORY: String = "com.rousecontext.action.OPEN_AUDIT_HISTORY"
+
+        /** Intent action signalling the activity should open an integration manage screen. */
+        const val ACTION_OPEN_INTEGRATION_MANAGE: String =
+            "com.rousecontext.action.OPEN_INTEGRATION_MANAGE"
+
+        /** Intent action signalling the activity should open the home screen. */
+        const val ACTION_OPEN_HOME: String = "com.rousecontext.action.OPEN_HOME"
+
+        /**
+         * Stable notification id derived from a client label. Used so multi-
+         * client sessions produce distinct notifications and repeat sessions
+         * for the same client replace their previous notification.
+         */
+        fun idForClient(clientLabel: String): Int =
+            BASE_NOTIFICATION_ID + (clientLabel.hashCode().mod(CLIENT_ID_BUCKET))
     }
 }
