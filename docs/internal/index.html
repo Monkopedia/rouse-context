@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rouse Context &mdash; Internal Design Review</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface-hover: #1e2a4e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --text-muted: #a0a0b0;
+    --accent: #e94560;
+    --accent-dim: #b33349;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  header {
+    padding: 1.25rem 2rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    flex: 0 0 auto;
+  }
+  header h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.25rem;
+  }
+  header p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .tabs {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+  }
+  .tab {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    color: var(--text-muted);
+    padding: 0.55rem 1.1rem;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-family: inherit;
+    margin-bottom: -1px;
+    transition: background 0.12s, color 0.12s;
+  }
+  .tab:hover {
+    background: var(--surface);
+    color: var(--text);
+  }
+  .tab.active {
+    background: var(--surface);
+    color: #fff;
+    border-color: var(--accent);
+    border-bottom-color: var(--surface);
+  }
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  main {
+    flex: 1 1 auto;
+    display: flex;
+    position: relative;
+    background: var(--surface);
+  }
+  .pane {
+    display: none;
+    width: 100%;
+    height: 100%;
+  }
+  .pane.active { display: block; }
+  .pane iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: #fff;
+  }
+  .deep-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    margin-left: auto;
+    align-self: flex-end;
+    padding: 0.55rem 0.75rem;
+  }
+  .deep-link:hover { color: var(--accent); }
+  .tabs-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 640px) {
+    header { padding: 1rem 1rem 0.5rem; }
+    header h1 { font-size: 1.15rem; }
+    .tab { padding: 0.45rem 0.75rem; font-size: 0.85rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Rouse Context &mdash; Internal Design Review</h1>
+  <p>Unified catalog of hand-maintained and auto-generated design-review surfaces. Each tab is the standalone catalog at its canonical URL.</p>
+  <div class="tabs-row">
+    <div class="tabs" role="tablist" aria-label="Design review catalogs">
+      <button class="tab" role="tab" id="tab-notifications" data-tab="notifications" aria-controls="pane-notifications">Notifications</button>
+      <button class="tab" role="tab" id="tab-app-ui" data-tab="app-ui" aria-controls="pane-app-ui">App UI</button>
+      <button class="tab" role="tab" id="tab-oauth" data-tab="oauth" aria-controls="pane-oauth">OAuth pages</button>
+      <button class="tab" role="tab" id="tab-audit-row-variants" data-tab="audit-row-variants" aria-controls="pane-audit-row-variants">Audit row variants</button>
+    </div>
+    <a class="deep-link" id="deep-link" href="notifications/" target="_blank" rel="noopener">Open in new tab &#8599;</a>
+  </div>
+</header>
+
+<main>
+  <section class="pane" id="pane-notifications" role="tabpanel" aria-labelledby="tab-notifications">
+    <iframe data-src="notifications/" title="Notifications catalog" loading="lazy"></iframe>
+  </section>
+  <section class="pane" id="pane-app-ui" role="tabpanel" aria-labelledby="tab-app-ui">
+    <iframe data-src="app/" title="App UI screenshots" loading="lazy"></iframe>
+  </section>
+  <section class="pane" id="pane-oauth" role="tabpanel" aria-labelledby="tab-oauth">
+    <iframe data-src="auth/" title="OAuth authorization pages" loading="lazy"></iframe>
+  </section>
+  <section class="pane" id="pane-audit-row-variants" role="tabpanel" aria-labelledby="tab-audit-row-variants">
+    <iframe data-src="audit-row-variants/" title="Audit row variants" loading="lazy"></iframe>
+  </section>
+</main>
+
+<script>
+  (function () {
+    var TABS = ['notifications', 'app-ui', 'oauth', 'audit-row-variants'];
+    var DEFAULT_TAB = 'notifications';
+    var TAB_URLS = {
+      'notifications': 'notifications/',
+      'app-ui': 'app/',
+      'oauth': 'auth/',
+      'audit-row-variants': 'audit-row-variants/'
+    };
+
+    var loaded = {};
+
+    function currentTab() {
+      var hash = (window.location.hash || '').replace(/^#/, '');
+      if (TABS.indexOf(hash) !== -1) return hash;
+      return DEFAULT_TAB;
+    }
+
+    function activate(name) {
+      if (TABS.indexOf(name) === -1) name = DEFAULT_TAB;
+
+      TABS.forEach(function (t) {
+        var button = document.getElementById('tab-' + t);
+        var pane = document.getElementById('pane-' + t);
+        var isActive = t === name;
+        if (button) {
+          button.classList.toggle('active', isActive);
+          button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          button.setAttribute('tabindex', isActive ? '0' : '-1');
+        }
+        if (pane) {
+          pane.classList.toggle('active', isActive);
+        }
+      });
+
+      // Lazy-load iframes only when first activated.
+      if (!loaded[name]) {
+        var pane = document.getElementById('pane-' + name);
+        if (pane) {
+          var iframe = pane.querySelector('iframe');
+          if (iframe && !iframe.getAttribute('src') && iframe.getAttribute('data-src')) {
+            iframe.setAttribute('src', iframe.getAttribute('data-src'));
+          }
+        }
+        loaded[name] = true;
+      }
+
+      var link = document.getElementById('deep-link');
+      if (link) link.setAttribute('href', TAB_URLS[name] || '#');
+    }
+
+    function onHashChange() {
+      activate(currentTab());
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      TABS.forEach(function (t) {
+        var button = document.getElementById('tab-' + t);
+        if (!button) return;
+        button.addEventListener('click', function () {
+          if (window.location.hash !== '#' + t) {
+            window.location.hash = t;
+          } else {
+            activate(t);
+          }
+        });
+      });
+      window.addEventListener('hashchange', onHashChange);
+      activate(currentTab());
+    });
+  })();
+</script>
+
+</body>
+</html>
