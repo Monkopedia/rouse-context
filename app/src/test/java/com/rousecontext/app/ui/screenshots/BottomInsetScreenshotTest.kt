@@ -42,7 +42,7 @@ import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.LocalNavBarController
 import com.rousecontext.app.ui.navigation.NavBarControllerImpl
-import com.rousecontext.app.ui.screens.AuditEntry
+import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.HealthConnectSetupContent
 import com.rousecontext.app.ui.screens.IntegrationManageContent
@@ -191,7 +191,12 @@ class BottomInsetScreenshotTest {
     private fun integrationManageActiveState() = IntegrationManageState(
         status = IntegrationStatus.ACTIVE,
         recentActivity = listOf(
-            AuditEntry("10:32 AM", "get_steps", 142)
+            AuditHistoryEntry(
+                time = "10:32 AM",
+                toolName = "get_steps",
+                durationMs = 142,
+                arguments = "{days: 7}"
+            )
         ),
         authorizedClients = listOf(
             AuthorizedClient("Claude", "Apr 2", "2 hours ago")

@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
-import com.rousecontext.app.ui.screens.AuditEntry
+import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
@@ -61,9 +61,24 @@ class ManageScreenQuickRender {
                     )
                 ),
                 recentActivity = listOf(
-                    AuditEntry("10:32 AM", "health/get_steps", 142),
-                    AuditEntry("10:31 AM", "health/get_sleep", 89),
-                    AuditEntry("Apr 7, 3:15 PM", "health/get_heart_rate", 1250)
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "health/get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "health/get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "Apr 7, 3:15 PM",
+                        toolName = "health/get_heart_rate",
+                        durationMs = 1250,
+                        arguments = ""
+                    )
                 )
             )
         )
@@ -75,9 +90,24 @@ class ManageScreenQuickRender {
             state = IntegrationManageState(
                 status = IntegrationStatus.ACTIVE,
                 recentActivity = listOf(
-                    AuditEntry("10:32 AM", "get_steps", 142),
-                    AuditEntry("10:31 AM", "get_sleep", 89),
-                    AuditEntry("Apr 7, 3:15 PM", "get_heart_rate", 1250)
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "Apr 7, 3:15 PM",
+                        toolName = "get_heart_rate",
+                        durationMs = 1250,
+                        arguments = ""
+                    )
                 ),
                 authorizedClients = listOf(
                     AuthorizedClient("Claude", "Apr 2", "2 hours ago"),
@@ -102,9 +132,24 @@ class ManageScreenQuickRender {
             state = IntegrationManageState(
                 status = IntegrationStatus.ACTIVE,
                 recentActivity = listOf(
-                    AuditEntry("10:32 AM", "get_steps", 142),
-                    AuditEntry("10:31 AM", "get_sleep", 89),
-                    AuditEntry("Apr 7, 3:15 PM", "get_heart_rate", 1250)
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "Apr 7, 3:15 PM",
+                        toolName = "get_heart_rate",
+                        durationMs = 1250,
+                        arguments = ""
+                    )
                 ),
                 authorizedClients = listOf(
                     AuthorizedClient("Claude", "Apr 2", "2 hours ago"),

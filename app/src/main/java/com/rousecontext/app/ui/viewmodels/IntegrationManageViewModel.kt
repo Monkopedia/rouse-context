@@ -6,14 +6,13 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
 import com.rousecontext.app.McpUrlProvider
-import com.rousecontext.app.ui.screens.AuditEntry
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.IntegrationManageState
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.TokenInfo
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.audit.AuditDao
-import com.rousecontext.notifications.audit.AuditEntry as AuditEntryEntity
+import com.rousecontext.notifications.audit.AuditEntry
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -86,7 +85,7 @@ class IntegrationManageViewModel(
         id: String,
         integration: McpIntegration,
         tokenList: List<TokenInfo>,
-        auditEntries: List<AuditEntryEntity>
+        auditEntries: List<AuditEntry>
     ): IntegrationManageState {
         val derived = deriveIntegrationState(
             userEnabled = stateStore.isUserEnabled(id),
@@ -96,12 +95,7 @@ class IntegrationManageViewModel(
         )
 
         val recent = auditEntries.take(RECENT_LIMIT).map { entry ->
-            AuditEntry(
-                id = entry.id,
-                time = TIME_FORMAT.format(Date(entry.timestampMillis)),
-                toolName = entry.toolName,
-                durationMs = entry.durationMillis
-            )
+            AuditHistoryViewModel.toHistoryEntry(entry)
         }
 
         val clients = tokenList.map { token ->
@@ -160,7 +154,6 @@ class IntegrationManageViewModel(
     companion object {
         private const val RECENT_LIMIT = 20
         private const val STOP_TIMEOUT_MS = 5_000L
-        private val TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
         private val DATE_FORMAT = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     }
 }

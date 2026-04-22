@@ -50,7 +50,7 @@ class AuditHistoryViewModel(
 
     private val providerFilter =
         MutableStateFlow<ProviderFilterOption>(ProviderFilterOption.All)
-    private val dateFilter = MutableStateFlow(DateFilterOption.TODAY)
+    private val dateFilter = MutableStateFlow(DEFAULT_DATE_FILTER)
     private val refreshTrigger = MutableStateFlow(0)
 
     /**
@@ -63,14 +63,6 @@ class AuditHistoryViewModel(
     private val _scrollTarget = MutableStateFlow<Long?>(null)
     val scrollTarget: StateFlow<Long?> get() = _scrollTarget
 
-    /**
-     * One-shot explicit session time window driven by the summary
-     * notification tap (#347). When set, the audit screen queries this
-     * window instead of the [dateFilter] preset. `null` means "use
-     * [dateFilter]".
-     */
-    private val sessionWindow = MutableStateFlow<SessionWindow?>(null)
-
     private val showAllFlow: Flow<Boolean> = settingsProvider
         ?.observeSettings()
         ?.map { it.showAllMcpMessages }
@@ -81,13 +73,11 @@ class AuditHistoryViewModel(
         providerFilter,
         dateFilter,
         refreshTrigger,
-        showAllFlow,
-        sessionWindow
-    ) { provider, date, _, showAll, window ->
-        QueryInputs(provider, date, showAll, window)
+        showAllFlow
+    ) { provider, date, _, showAll ->
+        QueryInputs(provider, date, showAll)
     }.flatMapLatest { inputs ->
-        val (startMillis, endMillis) = inputs.sessionWindow?.let { it.start to it.end }
-            ?: dateRangeFor(inputs.dateFilter)
+        val (startMillis, endMillis) = dateRangeFor(inputs.dateFilter)
         val providerArg = inputs.providerFilter.providerIdOrNull
         val toolCalls = auditDao.observeByDateRange(startMillis, endMillis, providerArg)
         val requests = if (inputs.showAll && mcpRequestDao != null) {
@@ -124,18 +114,14 @@ class AuditHistoryViewModel(
         // a zero grace every re-subscribe runs a fresh query and the newly
         // inserted row is returned immediately.
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
-        initialValue = AuditHistoryState(isLoading = true)
+        initialValue = AuditHistoryState(isLoading = true, dateFilter = DEFAULT_DATE_FILTER)
     )
 
     private data class QueryInputs(
         val providerFilter: ProviderFilterOption,
         val dateFilter: DateFilterOption,
-        val showAll: Boolean,
-        val sessionWindow: SessionWindow?
+        val showAll: Boolean
     )
-
-    /** Inclusive session time window for notification-driven queries (#347). */
-    data class SessionWindow(val start: Long, val end: Long)
 
     /**
      * Trigger re-collection. Underlying Room flow is reactive; this just bumps
@@ -167,19 +153,6 @@ class AuditHistoryViewModel(
         _scrollTarget.value = null
     }
 
-    /**
-     * Apply a notification-driven session window (see #347). Overrides the
-     * [DateFilterOption] selection until [clearSessionWindow] is called.
-     */
-    fun applySessionWindow(startMillis: Long, endMillis: Long) {
-        sessionWindow.value = SessionWindow(startMillis, endMillis)
-    }
-
-    /** Clear the notification-driven session window and revert to date filters. */
-    fun clearSessionWindow() {
-        sessionWindow.value = null
-    }
-
     fun clearHistory() {
         viewModelScope.launch {
             auditDao.deleteOlderThan(System.currentTimeMillis() + 1)
@@ -189,7 +162,46 @@ class AuditHistoryViewModel(
 
     companion object {
         private const val STOP_TIMEOUT_MS = 0L
+
+        /**
+         * Default audit-history date filter. Chosen as [DateFilterOption.LAST_7_DAYS]
+         * (issue #370) so it always encloses the rolling 24 h window the
+         * dashboard "Recent Activity" teaser uses — clicking "View all" from
+         * a dashboard row is guaranteed to land on a filter that includes
+         * the row the user just saw.
+         */
+        val DEFAULT_DATE_FILTER: DateFilterOption = DateFilterOption.LAST_7_DAYS
+
         private val TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
+
+        /**
+         * Map a persisted [AuditEntry] Room row to the view-layer
+         * [AuditHistoryEntry] used by the shared `ToolCallRow` widget. Shared
+         * across the three surfaces that render tool-call rows (dashboard
+         * "Recent Activity", integration manage "Recent Activity", and the
+         * audit screen itself — see issue #370).
+         */
+        internal fun toHistoryEntry(
+            entry: AuditEntry,
+            fieldEncryptor: FieldEncryptor? = null
+        ): AuditHistoryEntry {
+            val decryptedArgs = fieldEncryptor?.decrypt(entry.argumentsJson)
+                ?: entry.argumentsJson
+            val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
+                ?: entry.resultJson
+            return AuditHistoryEntry(
+                id = entry.id,
+                time = TIME_FORMAT.format(Date(entry.timestampMillis)),
+                toolName = entry.toolName,
+                provider = entry.provider,
+                durationMs = entry.durationMillis,
+                arguments = decryptedArgs ?: "",
+                timestampMillis = entry.timestampMillis,
+                argumentsJson = decryptedArgs,
+                resultJson = decryptedResult,
+                clientLabel = entry.clientLabel
+            )
+        }
 
         internal fun dateRangeFor(filter: DateFilterOption): Pair<Long, Long> {
             val now = System.currentTimeMillis()
@@ -225,24 +237,7 @@ class AuditHistoryViewModel(
             fieldEncryptor: FieldEncryptor? = null
         ): List<AuditHistoryGroup> {
             val toolCallItems: List<AuditHistoryItem> = toolCallEntries.map { entry ->
-                val decryptedArgs = fieldEncryptor?.decrypt(entry.argumentsJson)
-                    ?: entry.argumentsJson
-                val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
-                    ?: entry.resultJson
-                AuditHistoryItem.ToolCall(
-                    AuditHistoryEntry(
-                        id = entry.id,
-                        time = TIME_FORMAT.format(Date(entry.timestampMillis)),
-                        toolName = entry.toolName,
-                        provider = entry.provider,
-                        durationMs = entry.durationMillis,
-                        arguments = decryptedArgs ?: "",
-                        timestampMillis = entry.timestampMillis,
-                        argumentsJson = decryptedArgs,
-                        resultJson = decryptedResult,
-                        clientLabel = entry.clientLabel
-                    )
-                )
+                AuditHistoryItem.ToolCall(toHistoryEntry(entry, fieldEncryptor))
             }
             val requestItems: List<AuditHistoryItem> = requestEntries.map { req ->
                 AuditHistoryItem.Request(

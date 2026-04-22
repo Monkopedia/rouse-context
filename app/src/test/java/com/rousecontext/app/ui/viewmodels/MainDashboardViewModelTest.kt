@@ -18,6 +18,8 @@ import com.rousecontext.tunnel.TunnelState
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -455,6 +457,62 @@ class MainDashboardViewModelTest {
             tunnelStateFlow.value = TunnelState.DISCONNECTED
             assertEquals(ConnectionStatus.DISCONNECTED, awaitItem().connectionStatus)
         }
+    }
+
+    @Test
+    fun `rolling-24h window advances when the ticker re-emits`() = runTest(testDispatcher) {
+        // #370 regression: previously the "Recent Activity" cutoff was
+        // captured once at VM init so the window was pinned to the
+        // subscription time for the entire dashboard lifetime.
+        //
+        // We drive the VM with a caller-supplied ticker flow. Emitting a
+        // later timestamp must restart the DAO query with a later
+        // lower-bound cutoff, proving the window rolls forward.
+        val baseTime = 1_700_000_000_000L
+        val ticker = MutableStateFlow(baseTime)
+        val stateStore = mockk<IntegrationStateStore> {
+            coEvery { isUserEnabled(any()) } returns false
+            coEvery { wasEverEnabled(any()) } returns false
+            every { observeChanges() } returns flowOf(Unit)
+        }
+        val tokenStore = mockk<TokenStore> {
+            every { hasTokens(any()) } returns false
+        }
+        val startSlot = slot<Long>()
+        val auditDao = mockk<AuditDao> {
+            every { observeRecent(capture(startSlot), any(), any()) } returns flowOf(emptyList())
+        }
+
+        val vm = MainDashboardViewModel(
+            integrations = emptyList(),
+            stateStore = stateStore,
+            tokenStore = tokenStore,
+            auditDao = auditDao,
+            urlProvider = fakeUrlProvider,
+            tunnelClient = fakeTunnelClient,
+            cutoffTicker = ticker
+        )
+
+        vm.state.test {
+            awaitItem() // loading
+            awaitItem() // first loaded with baseTime cutoff
+            val firstCutoff = startSlot.captured
+            assertEquals(baseTime - 24 * 60 * 60 * 1000L, firstCutoff)
+
+            // Advance the ticker by two minutes; the DAO must be re-queried
+            // with a later lower-bound cutoff.
+            ticker.value = baseTime + 120_000L
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val laterCutoff = startSlot.captured
+            assertTrue(
+                "rolling cutoff must advance with ticker (was $firstCutoff, now $laterCutoff)",
+                laterCutoff > firstCutoff
+            )
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        verify(atLeast = 2) { auditDao.observeRecent(any(), any(), any()) }
     }
 
     private fun createViewModel(

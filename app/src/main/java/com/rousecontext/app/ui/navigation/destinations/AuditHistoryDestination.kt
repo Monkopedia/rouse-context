@@ -34,9 +34,7 @@ fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
         Routes.AUDIT,
         arguments = listOf(
             nullableStringArg("provider"),
-            nullableStringArg("scrollToCallId"),
-            nullableStringArg("startMillis"),
-            nullableStringArg("endMillis")
+            nullableStringArg("scrollToCallId")
         ),
         enterTransition = {
             val dir = tabSlideDirection(
@@ -64,11 +62,10 @@ fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
         val viewModel: AuditHistoryViewModel = koinViewModel()
         val args = backStackEntry.arguments
         val providerArg = args?.getString("provider")
-        // Notification-tap extras: scroll-to-call (per-tool-call tap) and
-        // session time window (summary tap). #347 deep-link wiring.
+        // Notification-tap extra: per-tool-call scroll target (#347).
+        // The session-window override on summary taps was removed in #370 —
+        // summary taps now land at the default audit view.
         val scrollToArg = args?.getString("scrollToCallId")?.toLongOrNull()
-        val startArg = args?.getString("startMillis")?.toLongOrNull()
-        val endArg = args?.getString("endMillis")?.toLongOrNull()
         LaunchedEffect(providerArg) {
             if (providerArg != null) {
                 viewModel.setProviderFilter(ProviderFilterOption.Specific(providerArg))
@@ -77,11 +74,6 @@ fun NavGraphBuilder.auditHistoryDestination(navController: NavController) {
         LaunchedEffect(scrollToArg) {
             if (scrollToArg != null) {
                 viewModel.requestScrollTo(scrollToArg)
-            }
-        }
-        LaunchedEffect(startArg, endArg) {
-            if (startArg != null && endArg != null) {
-                viewModel.applySessionWindow(startMillis = startArg, endMillis = endArg)
             }
         }
         val state by viewModel.state.collectAsState()

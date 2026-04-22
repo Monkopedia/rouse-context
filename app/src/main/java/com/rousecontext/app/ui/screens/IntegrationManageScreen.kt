@@ -32,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -40,6 +39,7 @@ import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.ListRow
 import com.rousecontext.app.ui.components.SectionHeader
+import com.rousecontext.app.ui.components.ToolCallRow
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.theme.RouseContextTheme
@@ -52,7 +52,7 @@ data class IntegrationManageState(
     val integrationName: String = "Health Connect",
     val status: IntegrationStatus = IntegrationStatus.ACTIVE,
     val url: String = "",
-    val recentActivity: List<AuditEntry> = emptyList(),
+    val recentActivity: List<AuditHistoryEntry> = emptyList(),
     val authorizedClients: List<AuthorizedClient> = emptyList()
 )
 
@@ -172,7 +172,7 @@ private fun IntegrationManageBody(
     modifier: Modifier = Modifier
 ) {
     val maxVisibleClients = 4
-    val maxVisibleActivity = 5
+    val maxVisibleActivity = 20
 
     Column(
         modifier = modifier
@@ -322,25 +322,10 @@ private fun IntegrationManageBody(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column {
                         visibleActivity.forEachIndexed { index, entry ->
-                            ListRow(
+                            ToolCallRow(
+                                entry = entry,
                                 onClick = { onEntryClick(entry.id) }
-                            ) {
-                                Text(
-                                    entry.toolName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    entry.time,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(
-                                    modifier = Modifier.width(dimensionResource(R.dimen.spacing_md))
-                                )
-                                DurationText(entry.durationMs)
-                            }
+                            )
                             if (index < visibleActivity.lastIndex) {
                                 ListDivider()
                             }
@@ -389,9 +374,24 @@ private fun IntegrationManageActivePreview() {
             state = IntegrationManageState(
                 status = IntegrationStatus.ACTIVE,
                 recentActivity = listOf(
-                    AuditEntry("10:32 AM", "get_steps", 142),
-                    AuditEntry("10:31 AM", "get_sleep", 89),
-                    AuditEntry("Apr 7, 3:15 PM", "get_heart_rate", 1250)
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "get_sleep",
+                        durationMs = 89,
+                        arguments = "{days: 1}"
+                    ),
+                    AuditHistoryEntry(
+                        time = "Apr 7, 3:15 PM",
+                        toolName = "get_heart_rate",
+                        durationMs = 1250,
+                        arguments = ""
+                    )
                 ),
                 authorizedClients = listOf(
                     AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
