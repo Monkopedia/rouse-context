@@ -10,7 +10,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,7 +48,8 @@ class NotificationCaptureServiceTest {
 
     private lateinit var context: Context
     private lateinit var database: NotificationDatabase
-    private lateinit var dao: NotificationDao
+    private lateinit var realDao: NotificationDao
+    private lateinit var dao: SignalingDao
     private lateinit var encryptor: FieldEncryptor
     private lateinit var controller: ServiceController<NotificationCaptureService>
     private lateinit var service: NotificationCaptureService
@@ -55,7 +58,8 @@ class NotificationCaptureServiceTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         database = NotificationDatabase.createInMemory(context)
-        dao = database.notificationDao()
+        realDao = database.notificationDao()
+        dao = SignalingDao(realDao)
 
         // Encryptor stubbed to a pass-through so we can assert on raw values
         encryptor = mockk(relaxed = true)
@@ -133,10 +137,10 @@ class NotificationCaptureServiceTest {
         )
 
         service.onNotificationPosted(sbn)
-        // Blocking DAO call in in-memory Room happens on the test thread via
-        // allowMainThreadQueries(), but the service launches via Dispatchers.IO.
-        // Poll until the record appears.
-        waitForRecordCount(1)
+        // The service launches its DAO write on Dispatchers.IO. SignalingDao
+        // completes the `inserts` deferred from inside the write, so assertion
+        // failures surface immediately rather than as polling timeouts.
+        dao.awaitInsert()
 
         val records = dao.search()
         assertEquals(1, records.size)
@@ -164,12 +168,12 @@ class NotificationCaptureServiceTest {
     fun `onNotificationRemoved marks existing record removed`() = runBlocking {
         val sbn = mockSbn(pkg = "com.slack.android", postTime = 1_000L)
         service.onNotificationPosted(sbn)
-        waitForRecordCount(1)
+        dao.awaitInsert()
         val before = dao.search()
         assertNull(before[0].removedAt)
 
         service.onNotificationRemoved(sbn)
-        waitForRecordRemoved(before[0].id)
+        dao.awaitMarkRemoved()
 
         val after = dao.search()
         assertNotNull(after[0].removedAt)
@@ -319,7 +323,7 @@ class NotificationCaptureServiceTest {
             postTime = 42L
         )
         encService.onNotificationPosted(sbn)
-        waitForRecordCount(1)
+        runBlocking { dao.awaitInsert() }
 
         val record = runBlocking { dao.search() }[0]
         assertEquals("enc(plainTitle)", record.title)
@@ -327,31 +331,53 @@ class NotificationCaptureServiceTest {
 
         encController.destroy()
     }
+}
 
-    // ---------- helpers ----------
+/**
+ * DAO decorator that completes [CompletableDeferred]s when writes finish, so
+ * tests can await the service's background coroutine deterministically instead
+ * of polling. Each call to [awaitInsert] / [awaitMarkRemoved] consumes the
+ * current deferred and resets it, enabling back-to-back awaits across multiple
+ * writes within a single test.
+ */
+private class SignalingDao(private val delegate: NotificationDao) : NotificationDao by delegate {
 
-    private fun waitForRecordCount(expected: Int, timeoutMillis: Long = 2_000L) {
-        val deadline = System.currentTimeMillis() + timeoutMillis
-        while (System.currentTimeMillis() < deadline) {
-            val count = runBlocking { dao.countInRange(0L, Long.MAX_VALUE) }
-            if (count >= expected) return
-            Thread.sleep(10)
-        }
-        error(
-            "Timed out waiting for $expected records (have ${runBlocking {
-                dao.countInRange(0L, Long.MAX_VALUE)
-            }})"
-        )
+    private val lock = Any()
+
+    @Volatile
+    private var insertSignal: CompletableDeferred<Unit> = CompletableDeferred()
+
+    @Volatile
+    private var markRemovedSignal: CompletableDeferred<Unit> = CompletableDeferred()
+
+    override suspend fun insert(record: NotificationRecord): Long {
+        val result = delegate.insert(record)
+        synchronized(lock) { insertSignal.complete(Unit) }
+        return result
     }
 
-    private fun waitForRecordRemoved(id: Long, timeoutMillis: Long = 2_000L) {
-        val deadline = System.currentTimeMillis() + timeoutMillis
-        while (System.currentTimeMillis() < deadline) {
-            val records = runBlocking { dao.search() }
-            val record = records.find { it.id == id }
-            if (record?.removedAt != null) return
-            Thread.sleep(10)
+    override suspend fun markRemoved(id: Long, removedAt: Long) {
+        delegate.markRemoved(id, removedAt)
+        synchronized(lock) { markRemovedSignal.complete(Unit) }
+    }
+
+    suspend fun awaitInsert(timeoutMillis: Long = AWAIT_TIMEOUT_MILLIS) {
+        val signal = synchronized(lock) { insertSignal }
+        withTimeout(timeoutMillis) { signal.await() }
+        synchronized(lock) {
+            if (insertSignal === signal) insertSignal = CompletableDeferred()
         }
-        error("Timed out waiting for record $id to be removed")
+    }
+
+    suspend fun awaitMarkRemoved(timeoutMillis: Long = AWAIT_TIMEOUT_MILLIS) {
+        val signal = synchronized(lock) { markRemovedSignal }
+        withTimeout(timeoutMillis) { signal.await() }
+        synchronized(lock) {
+            if (markRemovedSignal === signal) markRemovedSignal = CompletableDeferred()
+        }
+    }
+
+    private companion object {
+        const val AWAIT_TIMEOUT_MILLIS = 5_000L
     }
 }
