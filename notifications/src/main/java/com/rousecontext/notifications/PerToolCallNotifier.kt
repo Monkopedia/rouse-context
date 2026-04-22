@@ -12,7 +12,6 @@ import com.rousecontext.api.R as ApiR
 import com.rousecontext.mcp.core.ToolCallEvent
 import com.rousecontext.notifications.audit.PerCallObserver
 import java.util.Date
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Posts a low-priority notification for each MCP tool call while the user has
@@ -34,8 +33,14 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * ## Grouping
  *
- * All per-call notifications share [GROUP_KEY] so Android collapses them into
- * a single stack in the shade when more than one accumulates.
+ * Per-call notifications intentionally do NOT set a group key. Android
+ * visually collapses same-group children when there is no explicit group
+ * summary notification, which hid most per-call notifications from the user
+ * (issue #331). Dropping the group means each call appears as its own row.
+ *
+ * Android will still visually cluster all notifications from this app under a
+ * single app header in the shade; that is Android's default behaviour for any
+ * process that posts more than one notification and cannot be disabled.
  *
  * ## Tap target
  *
@@ -49,15 +54,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * @param integrationDisplayNames Map from integration id -> human-readable name;
  *   falls back to the raw id when absent.
  * @param activityClass Activity to launch when the notification is tapped.
+ * @param idCounter Persistent counter used to allocate unique notification ids
+ *   across process cold starts. See [NotificationIdCounter] and issue #331.
  */
 class PerToolCallNotifier(
     private val context: Context,
     private val settingsProvider: NotificationSettingsProvider,
     private val integrationDisplayNames: Map<String, String>,
-    private val activityClass: Class<*>
+    private val activityClass: Class<*>,
+    private val idCounter: NotificationIdCounter
 ) : PerCallObserver {
-
-    private val idCounter = AtomicInteger(0)
 
     override suspend fun onToolCallRecorded(event: ToolCallEvent) {
         notifyIfEnabled(event)
@@ -70,7 +76,7 @@ class PerToolCallNotifier(
     suspend fun notifyIfEnabled(event: ToolCallEvent) {
         if (settingsProvider.settings().postSessionMode != PostSessionMode.EACH_USAGE) return
 
-        val notificationId = BASE_ID + idCounter.getAndIncrement()
+        val notificationId = BASE_ID + idCounter.next()
         val displayName = integrationDisplayNames[event.providerId] ?: event.providerId
         val timeText = DateFormat.getTimeFormat(context).format(Date(event.timestamp))
 
@@ -97,7 +103,6 @@ class PerToolCallNotifier(
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
-            .setGroup(GROUP_KEY)
             .setContentIntent(contentIntent)
             .build()
 
@@ -108,8 +113,5 @@ class PerToolCallNotifier(
     companion object {
         /** Base notification id offset for per-call notifications. */
         const val BASE_ID = 7000
-
-        /** Group key used to stack per-call notifications in the shade. */
-        const val GROUP_KEY = "rouse_tool_calls_per_usage"
     }
 }

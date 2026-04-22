@@ -68,12 +68,14 @@ import com.rousecontext.notifications.AndroidSecurityCheckNotifier
 import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.LaunchRequestNotifier
+import com.rousecontext.notifications.NotificationIdCounter
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SecurityCheckNotifier
 import com.rousecontext.notifications.SessionSummaryNotifier
 import com.rousecontext.notifications.audit.AuditDatabase
 import com.rousecontext.notifications.audit.PerCallObserver
 import com.rousecontext.notifications.audit.RoomAuditListener
+import com.rousecontext.notifications.create
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore
@@ -354,6 +356,9 @@ val appModule = module {
         )
     }
 
+    // --- Per-tool-call notification id counter (persisted — see issue #331) ---
+    single { NotificationIdCounter.create(androidContext()) }
+
     // --- Per-tool-call notifier (EACH_USAGE mode) ---
     single {
         val integrations: List<McpIntegration> = get()
@@ -361,7 +366,8 @@ val appModule = module {
             context = androidContext(),
             settingsProvider = get(),
             integrationDisplayNames = integrations.associate { it.id to it.displayName },
-            activityClass = MainActivity::class.java
+            activityClass = MainActivity::class.java,
+            idCounter = get()
         )
     } bind PerCallObserver::class
 

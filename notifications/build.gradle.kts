@@ -46,6 +46,7 @@ dependencies {
     implementation(project(":api"))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.room.runtime)
