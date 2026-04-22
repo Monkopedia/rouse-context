@@ -152,7 +152,7 @@ class IntegrationManageViewModel(
     }
 
     companion object {
-        private const val RECENT_LIMIT = 20
+        private const val RECENT_LIMIT = 5
         private const val STOP_TIMEOUT_MS = 5_000L
         private val DATE_FORMAT = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     }
