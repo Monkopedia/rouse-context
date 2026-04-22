@@ -38,6 +38,14 @@ android {
     }
 }
 
+// Room schema exports land under notifications/schemas/<db-class-fqn>/<version>.json.
+// Migration tests and the migration-review workflow in issue #344 read these
+// schema snapshots to validate that each ALTER TABLE / CREATE INDEX matches
+// the @Entity definition at the corresponding version.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
 

@@ -107,6 +107,20 @@ class RoomAuditListenerTest {
     }
 
     @Test
+    fun `onToolCall persists clientLabel on the audit entry`() = runBlocking {
+        val dao = FakeAuditDao()
+        val listener = RoomAuditListener(dao = dao)
+
+        listener.onToolCall(
+            makeEvent(provider = "health", toolName = "get_steps")
+                .copy(clientLabel = "Claude Desktop")
+        )
+
+        assertEquals(1, dao.entries.size)
+        assertEquals("Claude Desktop", dao.entries.first().clientLabel)
+    }
+
+    @Test
     fun `onRequest persists to mcp request dao`() = runBlocking {
         val dao = FakeAuditDao()
         val requestDao = FakeMcpRequestDao()

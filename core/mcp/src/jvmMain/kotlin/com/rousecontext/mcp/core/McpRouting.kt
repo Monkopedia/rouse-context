@@ -49,13 +49,16 @@ private val mcpJson = Json {
 /**
  * Per-session MCP server state: the SDK Server, its HTTP transport, the
  * integration name, the OAuth client id that initialized the session (see
- * issue #206), and a timestamp used for idle-timeout eviction.
+ * issue #206), a cached human-readable client label captured from the
+ * Bearer token at session creation (see issue #344), and a timestamp used
+ * for idle-timeout eviction.
  */
 private data class SessionEntry(
     val server: Server,
     val transport: HttpTransport,
     val integration: String,
     val clientId: String,
+    val clientLabel: String,
     @Volatile var lastAccessedAt: Long
 )
 
@@ -698,6 +701,16 @@ internal class McpRoutes(
         val sessionId: String
         val session: SessionEntry
 
+        // Capture the client label once at session creation so every
+        // subsequent tool-call audit event in this session carries the same
+        // stable, human-readable identifier (issue #344). Falls back to the
+        // literal "Unknown" if the token store has no label for this token,
+        // which in practice shouldn't happen for authenticated tool calls
+        // but is handled defensively here. Issue #345 replaces the literal
+        // with monotonic `Unknown (#N)` numbering.
+        val resolvedClientLabel = tokenStore.resolveClientLabel(ri, token)
+            ?: UNKNOWN_CLIENT_LABEL
+
         if (method == "initialize" && incomingSessionId == null) {
             // Create a new session
             val newSessionId = UUID.randomUUID().toString()
@@ -708,6 +721,7 @@ internal class McpRoutes(
                 transport = newTransport,
                 integration = ri,
                 clientId = callerClientId,
+                clientLabel = resolvedClientLabel,
                 lastAccessedAt = clock.currentTimeMillis()
             )
             val evicted = sessionsMutex.withLock {
@@ -767,6 +781,7 @@ internal class McpRoutes(
                     parsed,
                     responseJson,
                     ri,
+                    session.clientLabel,
                     startMs,
                     clock,
                     log
@@ -1044,6 +1059,7 @@ private suspend fun emitAuditEvent(
     request: JsonObject,
     responseJson: String,
     integration: String,
+    clientLabel: String,
     startMs: Long,
     clock: Clock,
     log: (LogLevel, String) -> Unit
@@ -1073,6 +1089,7 @@ private suspend fun emitAuditEvent(
             request,
             responseJson,
             integration,
+            clientLabel,
             startMs,
             durationMs,
             log
@@ -1116,6 +1133,7 @@ private suspend fun emitToolCallEvent(
     request: JsonObject,
     responseJson: String,
     integration: String,
+    clientLabel: String,
     startMs: Long,
     durationMs: Long,
     log: (LogLevel, String) -> Unit
@@ -1137,7 +1155,8 @@ private suspend fun emitToolCallEvent(
                 toolName = toolName,
                 arguments = arguments,
                 result = result,
-                durationMs = durationMs
+                durationMs = durationMs,
+                clientLabel = clientLabel
             )
         )
     } catch (e: Exception) {
