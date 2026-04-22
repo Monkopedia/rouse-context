@@ -478,7 +478,8 @@ internal fun Variant7TimeBelowPill(sample: VariantRowSample) {
                 Text(
                     sample.time,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 4.dp)
                 )
             }
         }
