@@ -97,28 +97,33 @@ class MainActivity : ComponentActivity() {
          * Resolve a notification-tap [Intent] to a nav route, or null if the
          * intent does not carry a notification deep-link. Notifications from
          * the per-tool-call and session-summary notifiers carry actions like
-         * [PerToolCallNotifier.ACTION_OPEN_AUDIT_HISTORY] and extras we can
-         * convert into one of the [Routes] entries.
+         * [PerToolCallNotifier.ACTION_OPEN_AUDIT_HISTORY] and extras that are
+         * encoded into the returned [Routes.audit] route so the destination's
+         * nav args carry the scroll target / session time window through to
+         * the ViewModel.
          *
          * The mapping:
-         *  - Per-call tap / summary tap → [Routes.AUDIT_BASE] (intent extras
-         *    like scrollToCallId / start+end millis are carried through for
-         *    the destination composable to pick up).
+         *  - Per-call tap → [Routes.audit] with `scrollToCallId` populated
+         *    from [PerToolCallNotifier.EXTRA_SCROLL_TO_CALL_ID].
+         *  - Summary tap → [Routes.audit] with `startMillis`/`endMillis`
+         *    populated from
+         *    [SessionSummaryNotifier.EXTRA_START_MILLIS]/[SessionSummaryNotifier.EXTRA_END_MILLIS].
+         *  - Tap with no known extras → plain [Routes.AUDIT_BASE].
          *  - `Manage` action button with a single integration id → the
          *    integration manage route.
          *  - `Manage` action button for a mixed-integration summary → home.
          *
-         * We return a plain route string so the [RouseContextApp] start
-         * destination can be chosen without a live NavController. Intent
-         * extras are left on the Activity intent so destinations can read
-         * them via `LocalActivityIntent` / `LocalContext.findActivity()`
-         * helpers already in the codebase.
+         * Fix #368 (Bug B): previously this returned bare [Routes.AUDIT_BASE]
+         * for both notifier actions, dropping all deep-link extras. That
+         * meant per-tool-call taps never scrolled to the called row and
+         * summary taps never applied the session time window — both landed
+         * on the default TODAY filter with no scroll.
          */
         internal fun destinationForNotificationIntent(intent: Intent?): String? {
             if (intent == null) return null
             return when (intent.action) {
                 PerToolCallNotifier.ACTION_OPEN_AUDIT_HISTORY,
-                SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY -> Routes.AUDIT_BASE
+                SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY -> auditRouteFor(intent)
                 PerToolCallNotifier.ACTION_OPEN_INTEGRATION_MANAGE,
                 SessionSummaryNotifier.ACTION_OPEN_INTEGRATION_MANAGE -> {
                     val id = intent.getStringExtra(PerToolCallNotifier.EXTRA_INTEGRATION_ID)
@@ -129,5 +134,34 @@ class MainActivity : ComponentActivity() {
                 else -> null
             }
         }
+
+        /**
+         * Build an audit-history route that carries the deep-link extras
+         * (per-tool-call scroll target, summary time window) through to
+         * the destination's nav args. See [destinationForNotificationIntent].
+         */
+        private fun auditRouteFor(intent: Intent): String {
+            val scrollToCallId = intent
+                .getLongExtra(PerToolCallNotifier.EXTRA_SCROLL_TO_CALL_ID, UNSET_LONG_EXTRA)
+                .takeIf { it != UNSET_LONG_EXTRA }
+            val startMillis = intent
+                .getLongExtra(SessionSummaryNotifier.EXTRA_START_MILLIS, UNSET_LONG_EXTRA)
+                .takeIf { it != UNSET_LONG_EXTRA }
+            val endMillis = intent
+                .getLongExtra(SessionSummaryNotifier.EXTRA_END_MILLIS, UNSET_LONG_EXTRA)
+                .takeIf { it != UNSET_LONG_EXTRA }
+            return Routes.audit(
+                scrollToCallId = scrollToCallId,
+                startMillis = startMillis,
+                endMillis = endMillis
+            )
+        }
+
+        /**
+         * Sentinel for absent long extras. `-1` is legitimate for a
+         * not-yet-populated audit entry id and for pre-epoch millis, so pick
+         * a value neither will ever take on in practice.
+         */
+        private const val UNSET_LONG_EXTRA = Long.MIN_VALUE
     }
 }
