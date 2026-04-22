@@ -296,13 +296,14 @@ class SessionSummaryNotifier(
 
     companion object {
         /** Base for per-client summary notification ids (see [idForClient]). */
-        const val BASE_NOTIFICATION_ID: Int = 6000
+        const val BASE_NOTIFICATION_ID: Int = 4000
 
         /**
-         * Reserve 10k consecutive ids after [BASE_NOTIFICATION_ID] for the
-         * per-client hash bucket. Keeps us clear of [PerToolCallNotifier.BASE_ID]
-         * at 7000 while still giving enough spread to avoid collisions on
-         * typical client-label hashes.
+         * Reserve 1000 consecutive ids starting at [BASE_NOTIFICATION_ID] for
+         * the per-client hash bucket. Kept deliberately below
+         * [PerToolCallNotifier.BASE_ID] (=7000) so existing
+         * "`id >= PerToolCallNotifier.BASE_ID`" probes in integration tests
+         * keep distinguishing summary notifications from per-call ones.
          *
          * NOTE: collisions are not catastrophic — a collision just means two
          * distinct clients with hash-equal labels replace each other's
@@ -310,7 +311,7 @@ class SessionSummaryNotifier(
          * cardinality (<100 clients on a single device), this is acceptable
          * and matches the locked design's "stable hash of clientLabel" guidance.
          */
-        private const val CLIENT_ID_BUCKET: Int = 10_000
+        private const val CLIENT_ID_BUCKET: Int = 1000
 
         /** Offset added to the tap requestCode for the Manage action PendingIntent. */
         private const val MANAGE_REQUEST_CODE_OFFSET = 100_000
