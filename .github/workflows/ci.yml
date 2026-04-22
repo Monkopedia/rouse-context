@@ -36,7 +36,6 @@ jobs:
         run: ./gradlew ktlintCheck
       - name: detekt
         run: ./gradlew detekt
-        continue-on-error: true
       - name: Block production runBlocking (issue #136)
         run: |
           set -e

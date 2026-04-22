@@ -1,0 +1,71 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:OutreachQueryInstalledAppsTest.kt$OutreachQueryInstalledAppsTest$inIntent &amp;&amp; foundAction &amp;&amp; foundCategory &amp;&amp; foundData</ID>
+    <ID>CyclomaticComplexMethod:ClaudeFullFlowEndToEndTest.kt$ClaudeFullFlowEndToEndTest$@Suppress("LongParameterList") private fun httpRequest( input: java.io.InputStream, output: java.io.OutputStream, method: String, path: String, body: String? = null, bearerToken: String? = null, contentType: String = "application/json" ): HttpResponse</ID>
+    <ID>CyclomaticComplexMethod:ClientPassthroughTest.kt$ClientPassthroughTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, sessionId: String? = null ): HttpResult</ID>
+    <ID>CyclomaticComplexMethod:OAuthEndToEndTest.kt$OAuthEndToEndTest$@Suppress("LongParameterList") private fun httpRequest( input: java.io.InputStream, output: java.io.OutputStream, method: String, path: String, body: String? = null, bearerToken: String? = null, contentType: String = "application/json", sessionId: String? = null ): HttpResponse</ID>
+    <ID>CyclomaticComplexMethod:OutreachQueryInstalledAppsTest.kt$OutreachQueryInstalledAppsTest$private fun assertManifestQueryIntent( manifestXml: String, action: String, category: String? = null, dataScheme: String? = null )</ID>
+    <ID>CyclomaticComplexMethod:SessionHandlerTest.kt$SessionHandlerTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, host: String = "test.rousecontext.com", sessionId: String? = null ): HttpResult</ID>
+    <ID>CyclomaticComplexMethod:TestCommandProvider.kt$TestCommandProvider$override fun call(method: String, arg: String?, extras: Bundle?): Bundle?</ID>
+    <ID>CyclomaticComplexMethod:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, sessionId: String? = null ): HttpResult</ID>
+    <ID>CyclomaticComplexMethod:TunnelSessionManagerTest.kt$TunnelSessionManagerTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, sessionId: String? = null ): HttpResult</ID>
+    <ID>EmptyFunctionBlock:SelfCertVerifierTest.kt$FailingCertificateStore${}</ID>
+    <ID>EmptyFunctionBlock:SelfCertVerifierTest.kt$SecurityCertificateStore${}</ID>
+    <ID>LargeClass:ScreenScreenshotTest.kt$ScreenScreenshotTest</ID>
+    <ID>LongMethod:AuthPageCspTest.kt$AuthPageCspTest$@Test fun `authorize page returns CSP header allowing inline styles`()</ID>
+    <ID>LongMethod:ClaudeFullFlowEndToEndTest.kt$ClaudeFullFlowEndToEndTest$@Suppress("LongParameterList") private fun httpRequest( input: java.io.InputStream, output: java.io.OutputStream, method: String, path: String, body: String? = null, bearerToken: String? = null, contentType: String = "application/json" ): HttpResponse</ID>
+    <ID>LongMethod:ClaudeFullFlowEndToEndTest.kt$ClaudeFullFlowEndToEndTest$@Test @Order(8) fun `step 9 - refresh token rotation issues new tokens`()</ID>
+    <ID>LongMethod:ClientPassthroughTest.kt$ClientPassthroughTest$@Test fun `concurrent passthrough sessions are independent`()</ID>
+    <ID>LongMethod:ClientPassthroughTest.kt$ClientPassthroughTest$@Test fun `full client to device passthrough with tool call`()</ID>
+    <ID>LongMethod:ColdStartEndToEndTest.kt$ColdStartEndToEndTest$@Test @Order(1) fun `01 - cold start via FCM wake succeeds within latency budget`()</ID>
+    <ID>LongMethod:ColdStartEndToEndTest.kt$ColdStartEndToEndTest$private fun performOAuthFlow(): String</ID>
+    <ID>LongMethod:IntegrationToolsTest.kt$IntegrationToolsTest$private fun performOAuthFlow( client: OkHttpClient, baseUrl: String, integrationId: String ): String</ID>
+    <ID>LongMethod:IntegrationToolsTest.kt$IntegrationToolsTest$private fun runIntegrationTest(integrationId: String, secret: String)</ID>
+    <ID>LongMethod:McpProtocolTest.kt$McpProtocolTest$@Test fun `concurrent requests from different clients use independent sessions`()</ID>
+    <ID>LongMethod:OAuthEndToEndTest.kt$OAuthEndToEndTest$@Suppress("LongParameterList") private fun httpRequest( input: java.io.InputStream, output: java.io.OutputStream, method: String, path: String, body: String? = null, bearerToken: String? = null, contentType: String = "application/json", sessionId: String? = null ): HttpResponse</ID>
+    <ID>LongMethod:OutreachQueryInstalledAppsTest.kt$OutreachQueryInstalledAppsTest$private fun assertManifestQueryIntent( manifestXml: String, action: String, category: String? = null, dataScheme: String? = null )</ID>
+    <ID>LongMethod:SessionHandlerTest.kt$SessionHandlerTest$@Test fun `OAuth device code flow through bridge`()</ID>
+    <ID>LongMethod:SessionHandlerTest.kt$SessionHandlerTest$@Test fun `multiple providers routed by path prefix`()</ID>
+    <ID>LongMethod:TestCommandProvider.kt$TestCommandProvider$override fun call(method: String, arg: String?, extras: Bundle?): Bundle?</ID>
+    <ID>LongMethod:TlsAcceptTest.kt$TlsAcceptTest$@Test fun `TLS handshake completes and plaintext flows through`()</ID>
+    <ID>LongMethod:TlsAcceptorTest.kt$TlsAcceptorTest$@Test fun `TLS handshake completes when multiple TLS records arrive in single DATA frame`()</ID>
+    <ID>LongMethod:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$@Test fun `concurrent streams serve independent MCP sessions through tunnel`()</ID>
+    <ID>LongMethod:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$@Test fun `full tool call flow through TLS tunnel`()</ID>
+    <ID>LongMethod:TunnelSessionManagerTest.kt$TunnelSessionManagerTest$@Test fun `concurrent streams handled independently`()</ID>
+    <ID>LongMethod:WebSocketMuxTest.kt$WebSocketMuxTest$@Test fun `multiple streams multiplex over single WebSocket`()</ID>
+    <ID>LoopWithTooManyJumpStatements:ClaudeFullFlowEndToEndTest.kt$ClaudeFullFlowEndToEndTest$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ClientPassthroughTest.kt$ClientPassthroughTest$while</ID>
+    <ID>LoopWithTooManyJumpStatements:HalfOpenDetectionTest.kt$TcpDropProxy$while</ID>
+    <ID>LoopWithTooManyJumpStatements:OAuthEndToEndTest.kt$OAuthEndToEndTest$while</ID>
+    <ID>LoopWithTooManyJumpStatements:SessionHandlerTest.kt$SessionHandlerTest$while</ID>
+    <ID>LoopWithTooManyJumpStatements:TestCertHelper.kt$while</ID>
+    <ID>LoopWithTooManyJumpStatements:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$while</ID>
+    <ID>LoopWithTooManyJumpStatements:TunnelSessionManagerTest.kt$TunnelSessionManagerTest$while</ID>
+    <ID>NestedBlockDepth:ColdStartEndToEndTest.kt$ColdStartEndToEndTest$private fun performOAuthFlow(): String</ID>
+    <ID>NestedBlockDepth:IntegrationOrthogonalityTest.kt$IntegrationOrthogonalityTest$@Test fun `no integration package imports from a sibling integration package`()</ID>
+    <ID>NestedBlockDepth:IntegrationToolsTest.kt$IntegrationToolsTest$private fun performOAuthFlow( client: OkHttpClient, baseUrl: String, integrationId: String ): String</ID>
+    <ID>NestedBlockDepth:McpEndToEndTest.kt$McpEndToEndTest$@Test @Order(4) fun `04 - authorize and approve via adb`()</ID>
+    <ID>NestedBlockDepth:OutreachQueryInstalledAppsTest.kt$OutreachQueryInstalledAppsTest$private fun assertManifestQueryIntent( manifestXml: String, action: String, category: String? = null, dataScheme: String? = null )</ID>
+    <ID>ReturnCount:CtLogMonitor.kt$CtLogMonitor$suspend fun check(): SecurityCheckResult</ID>
+    <ID>ReturnCount:TestCommandProvider.kt$TestCommandProvider$override fun call(method: String, arg: String?, extras: Bundle?): Bundle?</ID>
+    <ID>ReturnCount:TlsAcceptTest.kt$TlsClientInputStream$override fun read(b: ByteArray, off: Int, len: Int): Int</ID>
+    <ID>SpreadOperator:RouseApplication.kt$RouseApplication$( scopeModule(), appModule, *debugModules().toTypedArray() )</ID>
+    <ID>SwallowedException:HalfOpenDetectionTest.kt$TcpDropProxy$e: Exception</ID>
+    <ID>ThrowsCount:MuxCodec.kt$MuxCodec$fun decode(data: ByteArray): MuxFrame</ID>
+    <ID>UnusedParameter:Ipv4OnlyMtlsWebSocketFactory.kt$Ipv4OnlyMtlsWebSocketFactory.Companion$ctx: SSLContext</ID>
+    <ID>UnusedParameter:McpRouting.kt$integration: String</ID>
+    <ID>UnusedParameter:MuxStreamImpl.kt$MuxStreamImpl$errorCode: UInt</ID>
+    <ID>UnusedParameter:MuxStreamImpl.kt$MuxStreamImpl$message: String</ID>
+    <ID>UnusedParameter:NotificationPreferencesScreen.kt$onContinue: () -&gt; Unit = {}</ID>
+    <ID>UnusedParameter:ParamExtractionTest.kt$ParamExtractionTest$default: Nothing? = null</ID>
+    <ID>UnusedParameter:SettingsViewModel.kt$SettingsViewModel$minutes: Int</ID>
+    <ID>UnusedPrivateMember:AllClientsScreen.kt$@Preview(showBackground = true, showSystemUi = true) @Composable private fun AllClientsPreview()</ID>
+    <ID>UnusedPrivateMember:IntegrationManageScreen.kt$@Preview(showBackground = true, showSystemUi = true) @Composable private fun IntegrationManageActivePreview()</ID>
+    <ID>UnusedPrivateProperty:ColdStartEndToEndTest.kt$ColdStartEndToEndTest$i</ID>
+    <ID>UnusedPrivateProperty:IntegrationToolsTest.kt$IntegrationToolsTest$val authServerUrl = client.newCall(prRequest).execute().use { response -&gt; val body = json.parseToJsonElement(response.body!!.string()).jsonObject body["authorization_servers"]!!.jsonArray[0].jsonPrimitive.content }</ID>
+    <ID>UnusedPrivateProperty:MtlsWebSocketFactory.kt$MtlsWebSocketFactory$private const val KEYSTORE_ALIAS = "rouse_device_key"</ID>
+    <ID>UnusedPrivateProperty:SchemaGenerationTest.kt$SchemaGenerationTest$private val json = Json { prettyPrint = false }</ID>
+  </CurrentIssues>
+</SmellBaseline>
