@@ -80,6 +80,14 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
         }
     }
 
+    override fun resolveClientLabel(integrationId: String, token: String): String? {
+        synchronized(this) {
+            val stored = tokens.find { it.token == token && !it.revoked } ?: return null
+            if (stored.integrationId != integrationId) return null
+            return stored.clientName ?: stored.clientId
+        }
+    }
+
     override fun createTokenPair(
         integrationId: String,
         clientId: String,

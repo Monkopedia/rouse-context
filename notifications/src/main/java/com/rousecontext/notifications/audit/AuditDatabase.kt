@@ -12,8 +12,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [AuditEntry::class, McpRequestEntry::class],
-    version = 3,
-    exportSchema = false
+    version = 4,
+    exportSchema = true
 )
 abstract class AuditDatabase : RoomDatabase() {
 
@@ -52,9 +52,21 @@ abstract class AuditDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the nullable `clientLabel` column to `audit_entries` so every
+         * persisted tool call can be attributed to the AI client that
+         * invoked it. Nullable because pre-migration rows predate
+         * session-level capture. See issue #344.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE audit_entries ADD COLUMN clientLabel TEXT")
+            }
+        }
+
         fun create(context: Context): AuditDatabase =
             Room.databaseBuilder(context.applicationContext, AuditDatabase::class.java, DB_NAME)
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         /**

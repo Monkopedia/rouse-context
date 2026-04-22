@@ -39,6 +39,16 @@ interface AuditListener {
     suspend fun onRequest(event: McpRequestEvent) {}
 }
 
+/**
+ * Audit event emitted for a single `tools/call` completion.
+ *
+ * @property clientLabel Human-readable label for the AI client that invoked
+ *   the tool, captured once per MCP session from the OAuth Bearer token
+ *   (see issue #344). Defaults to the literal `"Unknown"` for unauthenticated
+ *   sessions or callers that have not yet wired label capture. The
+ *   `Unknown (#N)` monotonic numbering for anonymous clients is tracked
+ *   separately in issue #345.
+ */
 data class ToolCallEvent(
     val sessionId: String,
     val providerId: String,
@@ -46,8 +56,17 @@ data class ToolCallEvent(
     val toolName: String,
     val arguments: Map<String, JsonElement>,
     val result: CallToolResult,
-    val durationMs: Long
+    val durationMs: Long,
+    val clientLabel: String = UNKNOWN_CLIENT_LABEL
 )
+
+/**
+ * Fallback client label used when an MCP session has no OAuth token (which
+ * should not happen for tool calls, but is handled defensively) or a
+ * pre-existing caller has not yet wired label capture. Issue #345 replaces
+ * this literal with monotonic `Unknown (#N)` numbering.
+ */
+const val UNKNOWN_CLIENT_LABEL: String = "Unknown"
 
 /**
  * Audit event emitted when an OAuth token is granted to a client.

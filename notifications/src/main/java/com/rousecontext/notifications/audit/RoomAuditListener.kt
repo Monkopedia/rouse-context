@@ -52,7 +52,8 @@ class RoomAuditListener(
                 success = true,
                 errorMessage = fieldEncryptor?.encrypt(null),
                 argumentsJson = fieldEncryptor?.encrypt(argsJson) ?: argsJson,
-                resultJson = fieldEncryptor?.encrypt(resultJson) ?: resultJson
+                resultJson = fieldEncryptor?.encrypt(resultJson) ?: resultJson,
+                clientLabel = event.clientLabel
             )
         )
         perCallObserver?.onToolCallRecorded(event)

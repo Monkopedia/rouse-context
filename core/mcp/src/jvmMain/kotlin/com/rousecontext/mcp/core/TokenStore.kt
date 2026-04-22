@@ -36,6 +36,20 @@ interface TokenStore {
     fun resolveClientId(integrationId: String, token: String): String?
 
     /**
+     * Resolves the audit-facing label for [token] within [integrationId]:
+     * the DCR-supplied `client_name` when present, otherwise the
+     * DCR-assigned `client_id`. Returns null if the token is invalid /
+     * unknown / revoked / scoped to a different integration.
+     *
+     * Unlike [resolveClientName], this never returns null when the token is
+     * valid — callers that persist audit rows need a stable non-empty
+     * identifier per tool call (see issue #344). The `Unknown (#N)`
+     * monotonic fallback for anonymous sessions is follow-up work in
+     * issue #345.
+     */
+    fun resolveClientLabel(integrationId: String, token: String): String?
+
+    /**
      * Creates a new access token + refresh token pair for [integrationId], associated
      * with the given [clientId]. The optional [clientName] is a human-readable label
      * for display in the authorized clients UI.

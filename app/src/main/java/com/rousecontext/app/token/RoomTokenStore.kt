@@ -45,6 +45,16 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         return entity.clientId
     }
 
+    override fun resolveClientLabel(integrationId: String, token: String): String? {
+        val hash = hashToken(token)
+        val entity = dao.findByHash(integrationId, hash) ?: return null
+        // TokenEntity.label is set to `clientName ?: clientId` at insert time,
+        // so this always returns a stable non-empty identifier for valid
+        // tokens (see issue #344). Audit rows need this to attribute every
+        // tool call to a client even when DCR did not supply a client_name.
+        return entity.label
+    }
+
     override fun createTokenPair(
         integrationId: String,
         clientId: String,
