@@ -112,6 +112,7 @@ kover {
 detekt {
     buildUponDefaultConfig = true
     config.setFrom("$rootDir/config/detekt/detekt.yml")
+    baseline = file("$rootDir/config/detekt/baseline.xml")
     source.setFrom(
         subprojects.map { "${it.projectDir}/src" }
     )
