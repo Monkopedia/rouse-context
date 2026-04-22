@@ -251,6 +251,42 @@ class AuditHistoryViewModelTest {
         }
 
     @Test
+    fun `requestScrollTo updates scrollTarget and consume clears it`() = runTest(testDispatcher) {
+        val auditDao = mockk<AuditDao> {
+            every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
+        }
+        val vm = AuditHistoryViewModel(auditDao)
+        assertEquals(null, vm.scrollTarget.value)
+        vm.requestScrollTo(42L)
+        assertEquals(42L, vm.scrollTarget.value)
+        vm.consumeScrollTarget()
+        assertEquals(null, vm.scrollTarget.value)
+    }
+
+    @Test
+    fun `applySessionWindow queries that window in preference to the date filter`() =
+        runTest(testDispatcher) {
+            val auditDao = mockk<AuditDao> {
+                every { observeByDateRange(any(), any(), any()) } returns flowOf(emptyList())
+            }
+            val vm = AuditHistoryViewModel(auditDao)
+            vm.state.test {
+                awaitItem() // loading
+                awaitItem() // initial empty with default date filter
+                vm.applySessionWindow(startMillis = 1_000L, endMillis = 2_000L)
+                // Let the combine/flatMapLatest pick up the new
+                // sessionWindow and actually run a DAO query against the
+                // new bounds. The state value itself doesn't change
+                // (still empty groups) so StateFlow deduplicates and no
+                // new turbine item appears — instead we check that the
+                // DAO saw the windowed query.
+                testDispatcher.scheduler.advanceUntilIdle()
+                cancelAndIgnoreRemainingEvents()
+            }
+            verify { auditDao.observeByDateRange(1_000L, 2_000L, null) }
+        }
+
+    @Test
     fun `groupByDate groups entries by calendar date`() {
         val dayOneMs = 1750032000000L // 2025-06-16 00:00 UTC
         val dayTwoMs = dayOneMs + 24 * 60 * 60 * 1000L

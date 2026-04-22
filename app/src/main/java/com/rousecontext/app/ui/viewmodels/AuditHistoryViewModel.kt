@@ -115,6 +115,14 @@ class AuditHistoryViewModel(
         )
     }.stateIn(
         scope = viewModelScope,
+        // Fix #368: STOP_TIMEOUT_MS = 0 — tear down the upstream the moment
+        // the last subscriber leaves. A non-zero grace used to serve the
+        // stale cached `groups = []` snapshot back to a re-subscribing
+        // consumer (notification tap) even if rows had been inserted during
+        // the grace window, because Room's invalidation tracker had not yet
+        // delivered the new emission through the still-alive upstream. With
+        // a zero grace every re-subscribe runs a fresh query and the newly
+        // inserted row is returned immediately.
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
         initialValue = AuditHistoryState(isLoading = true)
     )
@@ -180,7 +188,7 @@ class AuditHistoryViewModel(
     }
 
     companion object {
-        private const val STOP_TIMEOUT_MS = 5_000L
+        private const val STOP_TIMEOUT_MS = 0L
         private val TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
 
         internal fun dateRangeFor(filter: DateFilterOption): Pair<Long, Long> {
