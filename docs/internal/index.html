@@ -125,7 +125,6 @@
       <button class="tab" role="tab" id="tab-notifications" data-tab="notifications" aria-controls="pane-notifications">Notifications</button>
       <button class="tab" role="tab" id="tab-app-ui" data-tab="app-ui" aria-controls="pane-app-ui">App UI</button>
       <button class="tab" role="tab" id="tab-oauth" data-tab="oauth" aria-controls="pane-oauth">OAuth pages</button>
-      <button class="tab" role="tab" id="tab-audit-row-variants" data-tab="audit-row-variants" aria-controls="pane-audit-row-variants">Audit row variants</button>
     </div>
     <a class="deep-link" id="deep-link" href="notifications/" target="_blank" rel="noopener">Open in new tab &#8599;</a>
   </div>
@@ -141,20 +140,16 @@
   <section class="pane" id="pane-oauth" role="tabpanel" aria-labelledby="tab-oauth">
     <iframe data-src="auth/" title="OAuth authorization pages" loading="lazy"></iframe>
   </section>
-  <section class="pane" id="pane-audit-row-variants" role="tabpanel" aria-labelledby="tab-audit-row-variants">
-    <iframe data-src="audit-row-variants/" title="Audit row variants" loading="lazy"></iframe>
-  </section>
 </main>
 
 <script>
   (function () {
-    var TABS = ['notifications', 'app-ui', 'oauth', 'audit-row-variants'];
+    var TABS = ['notifications', 'app-ui', 'oauth'];
     var DEFAULT_TAB = 'notifications';
     var TAB_URLS = {
       'notifications': 'notifications/',
       'app-ui': 'app/',
-      'oauth': 'auth/',
-      'audit-row-variants': 'audit-row-variants/'
+      'oauth': 'auth/'
     };
 
     var loaded = {};

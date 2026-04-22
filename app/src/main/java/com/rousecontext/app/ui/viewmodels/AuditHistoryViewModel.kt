@@ -231,7 +231,8 @@ class AuditHistoryViewModel(
                         arguments = decryptedArgs ?: "",
                         timestampMillis = entry.timestampMillis,
                         argumentsJson = decryptedArgs,
-                        resultJson = decryptedResult
+                        resultJson = decryptedResult,
+                        clientLabel = entry.clientLabel
                     )
                 )
             }
