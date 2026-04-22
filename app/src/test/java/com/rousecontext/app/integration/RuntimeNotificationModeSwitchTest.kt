@@ -49,7 +49,8 @@ import org.robolectric.Shadows.shadowOf
  *
  * 1. Start in [PostSessionMode.SUMMARY]. Provision + enable the echo
  *    integration. Drive ACTIVE → callTool → CONNECTED. Assert: summary
- *    posted on id = [SessionSummaryNotifier.NOTIFICATION_ID].
+ *    posted on id = [SessionSummaryNotifier.idForClient] for this
+ *    session's clientLabel.
  * 2. Without restarting the harness, flip provider to
  *    [PostSessionMode.EACH_USAGE]. Full cycle DISCONNECTED → ACTIVE →
  *    callTool → CONNECTED. Assert: a NEW per-call notification (id >=
@@ -132,10 +133,15 @@ class RuntimeNotificationModeSwitchTest {
         )
         delay(OBSERVER_SETTLE_MS)
 
+        // #347: summary notifications are now per-client, keyed by the
+        // clientLabel hash. clientName=null resolves to the clientId,
+        // so this session's summary posts at idForClient("runtime-mode-switch").
+        val summaryId = SessionSummaryNotifier.idForClient("runtime-mode-switch")
         val phase1Ids = shadowNm.activeNotifications.map { it.id }
         assertTrue(
-            "phase 1 (SUMMARY) must post session summary; got ids=$phase1Ids",
-            phase1Ids.contains(SessionSummaryNotifier.NOTIFICATION_ID)
+            "phase 1 (SUMMARY) must post session summary; " +
+                "got ids=$phase1Ids (expected $summaryId)",
+            phase1Ids.contains(summaryId)
         )
         assertFalse(
             "phase 1 (SUMMARY) must NOT post any per-call notifications; got ids=$phase1Ids",
@@ -167,7 +173,7 @@ class RuntimeNotificationModeSwitchTest {
         )
         assertFalse(
             "phase 2 (EACH_USAGE) must NOT post a session summary; got ids=$phase2Ids",
-            phase2Ids.contains(SessionSummaryNotifier.NOTIFICATION_ID)
+            phase2Ids.contains(summaryId)
         )
         assertEquals("phase 2 audit count", 2, auditDao.count())
         nm.cancelAll()
@@ -189,7 +195,7 @@ class RuntimeNotificationModeSwitchTest {
 
         val phase3Ids = shadowNm.activeNotifications.map { it.id }
         val offending = phase3Ids.filter {
-            it == SessionSummaryNotifier.NOTIFICATION_ID || it >= PerToolCallNotifier.BASE_ID
+            it == summaryId || it >= PerToolCallNotifier.BASE_ID
         }
         assertTrue(
             "phase 3 (SUPPRESS) must NOT post summary or per-call notifications; " +

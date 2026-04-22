@@ -295,9 +295,6 @@ class SessionSummaryNotifier(
     }
 
     companion object {
-        /** Legacy single-summary notification id; kept for back-compat in tests. */
-        const val NOTIFICATION_ID = 6000
-
         /** Base for per-client summary notification ids (see [idForClient]). */
         const val BASE_NOTIFICATION_ID: Int = 6000
 

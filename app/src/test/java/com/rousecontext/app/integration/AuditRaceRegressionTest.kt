@@ -121,10 +121,14 @@ class AuditRaceRegressionTest {
             val nm = ApplicationProvider.getApplicationContext<android.app.Application>()
                 .getSystemService(NotificationManager::class.java)
             val posted = shadowOf(nm).activeNotifications
+            // #347: summary notifications are now per-client. InMemoryTokenStore
+            // resolves a null clientName to the clientId ("race-test"), which
+            // flows through as the audit clientLabel.
+            val expectedId = SessionSummaryNotifier.idForClient("race-test")
             assertTrue(
                 "session summary must be posted on the same cycle the tool call returned; " +
-                    "posted ids=${posted.map { it.id }}",
-                posted.any { it.id == SessionSummaryNotifier.NOTIFICATION_ID }
+                    "posted ids=${posted.map { it.id }} (expected $expectedId)",
+                posted.any { it.id == expectedId }
             )
         }
 

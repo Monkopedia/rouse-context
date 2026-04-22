@@ -103,7 +103,8 @@ class SuppressedModeTest {
         val nm = ApplicationProvider.getApplicationContext<android.app.Application>()
             .getSystemService(NotificationManager::class.java)
         val posted = shadowOf(nm).activeNotifications
-        val summaryId = SessionSummaryNotifier.NOTIFICATION_ID
+        // #347: summary id is per-client; clientName=null → clientLabel = clientId.
+        val summaryId = SessionSummaryNotifier.idForClient("suppressed-test")
         val perCallBase = PerToolCallNotifier.BASE_ID
         val offending = posted.filter {
             it.id == summaryId || it.id >= perCallBase

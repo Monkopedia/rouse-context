@@ -105,18 +105,24 @@ class MultiToolSessionTest {
         val nm = ApplicationProvider.getApplicationContext<android.app.Application>()
             .getSystemService(NotificationManager::class.java)
         val posted = shadowOf(nm).activeNotifications
-        val summary = posted.firstOrNull { it.id == SessionSummaryNotifier.NOTIFICATION_ID }
+        // #347: summary notifications are per-client. clientName=null →
+        // clientLabel = clientId ("multi-test").
+        val expectedId = SessionSummaryNotifier.idForClient("multi-test")
+        val summary = posted.firstOrNull { it.id == expectedId }
         assertTrue(
-            "session summary must be posted; got ids=${posted.map { it.id }}",
+            "session summary must be posted; got ids=${posted.map {
+                it.id
+            }} (expected $expectedId)",
             summary != null
         )
-        // Title shape is "3 calls in 1 integration". The per-provider breakdown
-        // goes in the content text ("test 3"). Assert count reflects per-provider
-        // aggregation — one provider, three calls.
-        val text = summary!!.notification.extras.getCharSequence("android.text")?.toString() ?: ""
+        // Post-#347 title: "${clientLabel} used 3 tools". Assert the count
+        // makes it into the title — the per-provider breakdown is no longer
+        // part of the summary copy.
+        val title =
+            summary!!.notification.extras.getCharSequence("android.title")?.toString() ?: ""
         assertTrue(
-            "summary text should include the per-provider count; got '$text'",
-            text.contains("test") && text.contains("3")
+            "summary title should include the tool-call count; got '$title'",
+            title.contains("3 tools")
         )
     }
 
