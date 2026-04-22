@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.rousecontext.app.TestApplication
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -120,5 +121,59 @@ class RoomTokenStoreTest {
 
         // Original access token still valid — wrong-integration attempts are not reuse.
         assertTrue(store.validateToken("health", pair.accessToken))
+    }
+
+    // --- issue #345 ---
+
+    @Test
+    fun `upgradeClientLabel rewrites label for every row with matching clientId`() {
+        // Two token pairs for the same legacy "unknown" client, to verify
+        // the upgrade rewrites both rows atomically rather than only the
+        // first one the store happens to return.
+        val first = store.createTokenPair("health", "legacy-client", clientName = "unknown")
+        val second = store.createTokenPair("health", "legacy-client", clientName = "unknown")
+
+        // Sanity: both start with the legacy literal.
+        assertEquals("unknown", store.resolveClientLabel("health", first.accessToken))
+        assertEquals("unknown", store.resolveClientLabel("health", second.accessToken))
+
+        store.upgradeClientLabel("health", "legacy-client", "Unknown (#7)")
+
+        assertEquals("Unknown (#7)", store.resolveClientLabel("health", first.accessToken))
+        assertEquals("Unknown (#7)", store.resolveClientLabel("health", second.accessToken))
+
+        val listed = store.listTokens("health")
+        assertEquals(2, listed.size)
+        assertTrue(
+            "Upgrade must not leave any row with the legacy literal",
+            listed.none { it.label == "unknown" }
+        )
+        assertTrue(
+            "All rows for the upgraded client share the new label",
+            listed.all { it.label == "Unknown (#7)" }
+        )
+    }
+
+    @Test
+    fun `upgradeClientLabel is scoped to the integration`() {
+        val inHealth = store.createTokenPair("health", "shared-id", clientName = "unknown")
+        val inNotes = store.createTokenPair("notifications", "shared-id", clientName = "unknown")
+
+        store.upgradeClientLabel("health", "shared-id", "Unknown (#3)")
+
+        assertEquals("Unknown (#3)", store.resolveClientLabel("health", inHealth.accessToken))
+        // Other integration for the same clientId is untouched.
+        assertEquals("unknown", store.resolveClientLabel("notifications", inNotes.accessToken))
+    }
+
+    @Test
+    fun `upgradeClientLabel is a no-op when no rows match`() {
+        // A clean call for an unknown clientId must not throw or affect
+        // unrelated rows.
+        val pair = store.createTokenPair("health", "present", clientName = "Real Name")
+
+        store.upgradeClientLabel("health", "does-not-exist", "Unknown (#99)")
+
+        assertEquals("Real Name", store.resolveClientLabel("health", pair.accessToken))
     }
 }

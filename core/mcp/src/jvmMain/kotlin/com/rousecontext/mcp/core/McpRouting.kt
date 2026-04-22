@@ -97,6 +97,7 @@ fun Application.configureMcpRouting(
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0",
     internalToken: String? = null,
+    unknownClientLabeler: UnknownClientLabeler? = null,
     log: (LogLevel, String) -> Unit = { _, _ -> }
 ) {
     // Installed BEFORE ContentNegotiation so it intercepts well-known and
@@ -125,6 +126,7 @@ fun Application.configureMcpRouting(
         securityAlertCheck = securityAlertCheck,
         serverName = serverName,
         serverVersion = serverVersion,
+        unknownClientLabeler = unknownClientLabeler,
         log = log
     )
 
@@ -168,6 +170,7 @@ internal class McpRoutes(
     private val securityAlertCheck: (() -> Boolean)?,
     private val serverName: String,
     private val serverVersion: String,
+    private val unknownClientLabeler: UnknownClientLabeler? = null,
     private val log: (LogLevel, String) -> Unit
 ) {
     // Per-session MCP servers, keyed by "$integration:$sessionId"
@@ -311,8 +314,6 @@ internal class McpRoutes(
             return
         }
 
-        val clientName = body["client_name"]?.jsonPrimitive?.content ?: "unknown"
-
         // Validate redirect_uris: only http/https schemes allowed
         val rawUris = (body["redirect_uris"] as? JsonArray)
             ?.mapNotNull { it.jsonPrimitive.content }
@@ -338,6 +339,14 @@ internal class McpRoutes(
         val redirectUris = validUris
 
         val clientId = UUID.randomUUID().toString()
+        // Per issue #345: when DCR omits `client_name`, assign a monotonic
+        // `Unknown (#N)` label keyed on the freshly-minted `client_id` so
+        // the client is still attributable in audit rows and the authorized
+        // clients list. Falls back to the literal "unknown" only when no
+        // labeler is configured (older tests / embed paths).
+        val clientName = body["client_name"]?.jsonPrimitive?.content
+            ?: unknownClientLabeler?.labelFor(clientId)
+            ?: "unknown"
         try {
             authorizationCodeManager.registerClient(clientId, clientName, redirectUris)
         } catch (e: IllegalArgumentException) {
@@ -704,12 +713,23 @@ internal class McpRoutes(
         // Capture the client label once at session creation so every
         // subsequent tool-call audit event in this session carries the same
         // stable, human-readable identifier (issue #344). Falls back to the
-        // literal "Unknown" if the token store has no label for this token,
-        // which in practice shouldn't happen for authenticated tool calls
-        // but is handled defensively here. Issue #345 replaces the literal
-        // with monotonic `Unknown (#N)` numbering.
-        val resolvedClientLabel = tokenStore.resolveClientLabel(ri, token)
-            ?: UNKNOWN_CLIENT_LABEL
+        // literal "Unknown" only when the bearer is anonymous / unresolvable —
+        // authenticated clients always get a concrete label, either the DCR
+        // `client_name` or an `Unknown (#N)` labeler assignment (issue #345).
+        val storedLabel = tokenStore.resolveClientLabel(ri, token)
+        val resolvedClientLabel = when {
+            storedLabel == null -> UNKNOWN_CLIENT_LABEL
+            // Lazy migration (#345): pre-#345 DCR rows persisted the literal
+            // "unknown" when `client_name` was missing. Upgrade in place on
+            // first resolve so both this session's audit rows and the
+            // authorized-clients list see the new `Unknown (#N)` label.
+            storedLabel == LEGACY_UNKNOWN_LABEL && unknownClientLabeler != null -> {
+                val upgraded = unknownClientLabeler.labelFor(callerClientId)
+                tokenStore.upgradeClientLabel(ri, callerClientId, upgraded)
+                upgraded
+            }
+            else -> storedLabel
+        }
 
         if (method == "initialize" && incomingSessionId == null) {
             // Create a new session

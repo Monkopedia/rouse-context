@@ -43,6 +43,7 @@ class McpSession(
     private val securityAlertCheck: (() -> Boolean)? = null,
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0",
+    private val unknownClientLabeler: UnknownClientLabeler? = null,
     private val log: (LogLevel, String) -> Unit = { _, _ -> }
 ) {
 
@@ -104,6 +105,7 @@ class McpSession(
                 serverName = serverName,
                 serverVersion = serverVersion,
                 internalToken = token,
+                unknownClientLabeler = unknownClientLabeler,
                 log = log
             )
         }

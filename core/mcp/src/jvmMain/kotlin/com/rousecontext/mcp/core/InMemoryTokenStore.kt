@@ -17,7 +17,9 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
     private data class StoredToken(
         val integrationId: String,
         val clientId: String,
-        val clientName: String?,
+        // Mutable so issue #345 migration can upgrade legacy "unknown" labels
+        // to `Unknown (#N)` in place via [upgradeClientLabel].
+        var clientName: String?,
         val familyId: String,
         val token: String,
         val createdAt: Long,
@@ -29,7 +31,8 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
     private data class StoredRefreshToken(
         val integrationId: String,
         val clientId: String,
-        val clientName: String?,
+        // Mutable: see note on [StoredToken.clientName].
+        var clientName: String?,
         val familyId: String,
         val refreshToken: String,
         val createdAt: Long,
@@ -86,6 +89,18 @@ class InMemoryTokenStore(private val clock: Clock = SystemClock) : TokenStore {
             if (stored.integrationId != integrationId) return null
             return stored.clientName ?: stored.clientId
         }
+    }
+
+    override fun upgradeClientLabel(integrationId: String, clientId: String, newLabel: String) {
+        synchronized(this) {
+            tokens.filter {
+                it.integrationId == integrationId && it.clientId == clientId
+            }.forEach { it.clientName = newLabel }
+            refreshTokens.filter {
+                it.integrationId == integrationId && it.clientId == clientId
+            }.forEach { it.clientName = newLabel }
+        }
+        notifyChanged()
     }
 
     override fun createTokenPair(

@@ -54,6 +54,17 @@ interface TokenDao {
     fun deleteByClientId(integrationId: String, clientId: String)
 
     /**
+     * Rewrites the display [label] for every row whose `(integrationId,
+     * clientId)` matches. Used by the issue #345 one-shot upgrade from the
+     * literal `"unknown"` label to the monotonic `Unknown (#N)` label.
+     */
+    @Query(
+        "UPDATE tokens SET label = :label " +
+            "WHERE integrationId = :integrationId AND clientId = :clientId"
+    )
+    fun updateLabelByClientId(integrationId: String, clientId: String, label: String)
+
+    /**
      * Revokes an entire token family by deleting every row with the given
      * [familyId]. Used when a rotated refresh token is replayed, per OAuth
      * 2.1 §4.14.

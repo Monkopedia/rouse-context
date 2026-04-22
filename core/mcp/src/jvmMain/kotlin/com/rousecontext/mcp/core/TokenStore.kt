@@ -50,6 +50,15 @@ interface TokenStore {
     fun resolveClientLabel(integrationId: String, token: String): String?
 
     /**
+     * Rewrites the stored client label for every row whose `clientId` equals
+     * [clientId] within [integrationId]. Used by the one-shot migration that
+     * upgrades pre-#345 rows with the literal `"unknown"` label to the new
+     * `Unknown (#N)` labeler output. Implementations MUST be idempotent: a
+     * no-op write of the same value is safe.
+     */
+    fun upgradeClientLabel(integrationId: String, clientId: String, newLabel: String)
+
+    /**
      * Creates a new access token + refresh token pair for [integrationId], associated
      * with the given [clientId]. The optional [clientName] is a human-readable label
      * for display in the authorized clients UI.
