@@ -103,7 +103,17 @@ class OnboardingInterruptedResumableTest {
     }
 
     private suspend fun runOnboardingOnly(): String {
-        val onboardingFlow: OnboardingFlow = harness.koin.get()
+        // The Koin-supplied OnboardingFlow chains cert provisioning (#389) so
+        // we build a fresh instance without a provisioning flow to faithfully
+        // simulate a crash between `/register` and `/register/certs`. Everything
+        // else (relay client, certificate store, integration IDs) is pulled from
+        // the same graph the resume half of the test will consult.
+        val onboardingFlow = OnboardingFlow(
+            relayApiClient = harness.koin.get(),
+            certificateStore = harness.koin.get(),
+            integrationIds = emptyList(),
+            certProvisioningFlow = null
+        )
         val result = onboardingFlow.execute(
             firebaseToken = TEST_FIREBASE_TOKEN,
             fcmToken = TEST_FCM_TOKEN

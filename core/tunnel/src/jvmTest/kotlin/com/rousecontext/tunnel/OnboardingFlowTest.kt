@@ -274,4 +274,117 @@ class OnboardingFlowTest {
         assertTrue(result is OnboardingResult.RelayError)
         assertEquals(500, result.statusCode)
     }
+
+    // --- #389: onboarding chains cert provisioning so fresh installs land
+    //           with all three PEMs persisted, not just the subdomain.
+
+    private fun flowWithCerts(): OnboardingFlow {
+        val client = RelayApiClient(baseUrl = mockServer.baseUrl)
+        val certFlow = CertProvisioningFlow(
+            csrGenerator = CsrGenerator(),
+            relayApiClient = client,
+            certificateStore = store,
+            deviceKeyManager = InMemoryDeviceKeyManager()
+        )
+        return OnboardingFlow(
+            relayApiClient = client,
+            certificateStore = store,
+            integrationIds = listOf("health", "notifications"),
+            certProvisioningFlow = certFlow
+        )
+    }
+
+    @Test
+    fun `onboarding with cert provisioning persists all three PEMs on success`(): Unit =
+        runBlocking {
+            val chained = flowWithCerts()
+
+            val result = chained.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+            assertTrue(
+                result is OnboardingResult.Success,
+                "expected Success, got: $result"
+            )
+            assertEquals("test123", (result as OnboardingResult.Success).subdomain)
+            assertEquals("test123", store.getSubdomain())
+            assertNotNull(store.getCertificate())
+            assertNotNull(store.getClientCertificate())
+            assertNotNull(store.getRelayCaCert())
+        }
+
+    @Test
+    fun `onboarding surfaces CertRateLimited when cert issuance is rate limited`(): Unit =
+        runBlocking {
+            mockServer.certHandler = { _ ->
+                MockCertResponse(status = 429, retryAfter = 120)
+            }
+
+            val chained = flowWithCerts()
+            val result = chained.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+            assertTrue(
+                result is OnboardingResult.CertRateLimited,
+                "expected CertRateLimited, got: $result"
+            )
+            val rateLimited = result as OnboardingResult.CertRateLimited
+            assertEquals(120L, rateLimited.retryAfterSeconds)
+            assertEquals("test123", rateLimited.subdomain)
+            // Subdomain must survive a cert failure (#163) so the user can
+            // retry cert issuance without re-registering.
+            assertEquals("test123", store.getSubdomain())
+            assertNull(store.getCertificate())
+            assertNull(store.getClientCertificate())
+        }
+
+    @Test
+    fun `onboarding surfaces CertRelayError on non-429 cert failure`(): Unit = runBlocking {
+        mockServer.certHandler = { _ ->
+            MockCertResponse(status = 503)
+        }
+
+        val chained = flowWithCerts()
+        val result = chained.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(
+            result is OnboardingResult.CertRelayError,
+            "expected CertRelayError, got: $result"
+        )
+        assertEquals(503, (result as OnboardingResult.CertRelayError).statusCode)
+        assertEquals("test123", store.getSubdomain())
+    }
+
+    @Test
+    fun `onboarding surfaces CertStorageFailed when persisting certs throws`(): Unit = runBlocking {
+        // Need to store subdomain successfully first, then fail on cert write.
+        // InMemoryCertificateStore.throwOnStore throws on all writes, so we
+        // trip it only after onboarding's subdomain write has landed: wrap
+        // the store so the cert-only writes see the exception.
+        val storeWithCertFailure = object : CertificateStore by store {
+            override suspend fun storeCertificate(pemChain: String): Unit =
+                throw java.io.IOException("disk full")
+        }
+        val client = RelayApiClient(baseUrl = mockServer.baseUrl)
+        val certFlow = CertProvisioningFlow(
+            csrGenerator = CsrGenerator(),
+            relayApiClient = client,
+            certificateStore = storeWithCertFailure,
+            deviceKeyManager = InMemoryDeviceKeyManager()
+        )
+        val chained = OnboardingFlow(
+            relayApiClient = client,
+            certificateStore = storeWithCertFailure,
+            integrationIds = emptyList(),
+            certProvisioningFlow = certFlow
+        )
+
+        val result = chained.execute(FAKE_FIREBASE_TOKEN, FAKE_FCM_TOKEN)
+
+        assertTrue(
+            result is OnboardingResult.CertStorageFailed,
+            "expected CertStorageFailed, got: $result"
+        )
+        // Subdomain must still be there — only cert state should be
+        // rolled back (#163).
+        assertEquals("test123", store.getSubdomain())
+    }
 }

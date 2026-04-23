@@ -763,25 +763,12 @@ private fun buildTestOverrides(
         )
     }
 
-    // --- OnboardingFlow override ---
-    // appModule pins `OnboardingFlow.integrationIds` from the Koin
-    // List<McpIntegration>, which still resolves correctly through the
-    // base module. We just need to re-declare it so the override module
-    // wins for the `RelayApiClient` dep (Koin picks the *last* definition
-    // per type, and re-declaring ensures the overridden RelayApiClient is
-    // threaded through).
-    single {
-        OnboardingFlow(
-            relayApiClient = get(),
-            certificateStore = get(),
-            integrationIds = get<List<McpIntegration>>().map { it.id }
-        )
-    }
-
     // --- CertProvisioningFlow override ---
     // Pins defaultBaseDomain to the fixture base domain; the production
     // definition reads BuildConfig.BASE_DOMAIN which is always the real
     // `rousecontext.com` (or whatever -Pdomain was passed at build time).
+    // Declared before OnboardingFlow so the chained dep resolves through
+    // this override (Koin picks the *last* definition per type).
     single {
         CertProvisioningFlow(
             csrGenerator = get(),
@@ -789,6 +776,22 @@ private fun buildTestOverrides(
             certificateStore = get(),
             deviceKeyManager = get(),
             defaultBaseDomain = baseDomain
+        )
+    }
+
+    // --- OnboardingFlow override ---
+    // Mirrors production wiring (#389): chains CertProvisioningFlow so
+    // onboarding lands with all three PEMs. Tests that want to simulate a
+    // crash between `/register` and `/register/certs` (e.g.
+    // OnboardingInterruptedResumableTest) construct their own OnboardingFlow
+    // without a provisioning flow instead of leaning on the Koin-supplied
+    // one.
+    single {
+        OnboardingFlow(
+            relayApiClient = get(),
+            certificateStore = get(),
+            integrationIds = get<List<McpIntegration>>().map { it.id },
+            certProvisioningFlow = get<CertProvisioningFlow>()
         )
     }
 

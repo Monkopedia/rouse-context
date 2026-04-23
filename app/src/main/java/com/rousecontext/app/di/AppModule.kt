@@ -236,19 +236,23 @@ val appModule = module {
         )
     }
     single {
-        OnboardingFlow(
-            relayApiClient = get<RelayApiClient>(),
-            certificateStore = get<CertificateStore>(),
-            integrationIds = get<List<McpIntegration>>().map { it.id }
-        )
-    }
-    single {
         CertProvisioningFlow(
             csrGenerator = get(),
             relayApiClient = get(),
             certificateStore = get(),
             deviceKeyManager = get(),
             defaultBaseDomain = BuildConfig.BASE_DOMAIN
+        )
+    }
+    single {
+        // Issue #389: OnboardingFlow chains cert provisioning so a fresh
+        // install lands with all three PEMs on disk rather than a
+        // half-configured state (subdomain present, certs missing).
+        OnboardingFlow(
+            relayApiClient = get<RelayApiClient>(),
+            certificateStore = get<CertificateStore>(),
+            integrationIds = get<List<McpIntegration>>().map { it.id },
+            certProvisioningFlow = get<CertProvisioningFlow>()
         )
     }
 
