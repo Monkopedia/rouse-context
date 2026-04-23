@@ -94,11 +94,14 @@ class OnboardingViewModel(
             return logError("Failed to obtain FCM token: ${e.message}")
         }
 
+        // scrub: previously logged 20-char token prefixes (see #379). Firebase ID
+        // tokens and FCM tokens are bearer credentials -- even prefixes are
+        // sensitive because logcat is reachable via adb / READ_LOGS, and FCM
+        // tokens can be used to replay wake events against the relay.
         Log.i(
             TAG,
-            "Starting onboarding, firebaseToken=${firebaseToken.take(
-                TOKEN_LOG_PREFIX
-            )}..., fcmToken=${fcmToken.take(TOKEN_LOG_PREFIX)}..."
+            "Starting onboarding, firebaseToken=${firebaseToken.length} chars, " +
+                "fcmToken=${fcmToken.length} chars"
         )
 
         handleResult(
@@ -145,7 +148,6 @@ class OnboardingViewModel(
 
     companion object {
         private const val TAG = "Onboarding"
-        private const val TOKEN_LOG_PREFIX = 20
         private const val MILLIS_PER_SECOND = 1000L
         private val DATE_FORMAT = SimpleDateFormat("MMM d", Locale.getDefault())
     }

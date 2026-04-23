@@ -343,6 +343,21 @@ struct ConnectionContext {
     conn_rate_limiter: Arc<ConnectionRateLimiter>,
 }
 
+/// Render a [`RouteDecision`] for logging without leaking the integration secret.
+///
+/// The `integration_secret` field on `DevicePassthrough` is a bearer credential;
+/// we log only the variant and (for passthrough) the subdomain, which is the
+/// relay's public routing identity for the device.
+fn route_decision_log(decision: &RouteDecision) -> String {
+    match decision {
+        RouteDecision::RelayApi => "RelayApi".to_string(),
+        RouteDecision::DevicePassthrough { subdomain, .. } => {
+            format!("DevicePassthrough {{ subdomain: {subdomain} }}")
+        }
+        RouteDecision::Reject => "Reject".to_string(),
+    }
+}
+
 async fn handle_connection(
     mut stream: tokio::net::TcpStream,
     peer_addr: std::net::SocketAddr,
@@ -354,7 +369,15 @@ async fn handle_connection(
     let initial_bytes = &buf[..n];
 
     let decision = route_connection(initial_bytes, &ctx.relay_hostname);
-    info!(peer = %peer_addr, ?decision, "Routing decision");
+    // scrub: previously logged full RouteDecision via `?decision` (see #379).
+    // RouteDecision::DevicePassthrough carries `integration_secret`, which is
+    // the bearer secret an AI client presents in SNI to route to a specific
+    // integration -- logging it defeats the whole point of the secret.
+    info!(
+        peer = %peer_addr,
+        decision = route_decision_log(&decision),
+        "Routing decision"
+    );
 
     // When TLS is not configured, non-TLS traffic (plain HTTP) should be
     // routed to the relay API instead of being rejected. SNI parsing only
