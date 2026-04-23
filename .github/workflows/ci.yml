@@ -65,6 +65,51 @@ jobs:
             exit 1
           fi
 
+      - name: Block sensitive production log sites (issue #379)
+        run: |
+          set -e
+          # Fail if known-bad patterns appear in Kotlin production sources.
+          # Scope is the same as #136 above: production-only trees. See
+          # docs/internal/logging.md for the full policy and rationale.
+          #
+          # Patterns we flag (all look for Kotlin string-template interpolation
+          # of a named variable, so literal uses like "rotate-secret" as an
+          # endpoint name are not false positives):
+          #   Log.<level>(... "$token"            -- logging a token variable
+          #   Log.<level>(... "$bearer"           -- ditto
+          #   Log.<level>(... "$fcmToken"         -- FCM push token
+          #   Log.<level>(... "$firebaseToken"    -- Firebase ID token
+          #   Log.<level>(... "$verifier"         -- PKCE verifier
+          #   Log.<level>(... "$accessToken"      -- OAuth access token
+          #   Log.<level>(... "$refreshToken"     -- OAuth refresh token
+          #   Log.<level>(... "$clientSecret"     -- OAuth client secret
+          #   Log.<level>(... "$privateKey"       -- key material
+          #   Log.<level>(... "args: $..."        -- tool-call arguments
+          #
+          # The grep is line-level; multi-line log calls may slip through. The
+          # gate is a cheap first line of defence; code review is what we rely
+          # on for anything it misses. See docs/internal/logging.md.
+          pattern='Log\.[dievw].*\$(token|bearer|fcmToken|firebaseToken|verifier|accessToken|refreshToken|clientSecret|privateKey|pkceVerifier)\b|Log\.[dievw].*args:[[:space:]]*\$'
+          matches=$(grep -rnE "$pattern" --include='*.kt' \
+            app/src/main \
+            work/src/main \
+            notifications/src/main \
+            api/src/main \
+            integrations/src/main \
+            core/*/src/main \
+            core/*/src/commonMain \
+            core/*/src/jvmMain \
+            2>/dev/null \
+            | grep -v ':[[:space:]]*\*' \
+            || true)
+          if [ -n "$matches" ]; then
+            echo "Found sensitive production log sites (issue #379 regression):"
+            echo "$matches"
+            echo ""
+            echo "See docs/internal/logging.md for how to log these values safely."
+            exit 1
+          fi
+
   build:
     name: Build & Test
     runs-on: ubuntu-latest
