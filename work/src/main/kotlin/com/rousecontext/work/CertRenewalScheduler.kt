@@ -27,19 +27,25 @@ import java.util.concurrent.TimeUnit
  */
 object CertRenewalScheduler {
 
+    /**
+     * Shared constraints for every renewal request. The cert MUST be renewed even if the
+     * device never charges inside the window, so charging is NOT required; battery-not-low
+     * is required so a dying phone doesn't spin on a doomed renewal.
+     */
+    private fun renewalConstraints(): Constraints = Constraints.Builder()
+        .setRequiredNetworkType(NetworkType.CONNECTED)
+        .setRequiresBatteryNotLow(true)
+        .build()
+
     /** Enqueue the periodic daily renewal check. Safe to call every app startup. */
     fun enqueuePeriodic(context: Context) {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .build()
         val request = PeriodicWorkRequestBuilder<CertRenewalWorker>(
             PERIODIC_INTERVAL_HOURS,
             TimeUnit.HOURS,
             PERIODIC_FLEX_HOURS,
             TimeUnit.HOURS
         )
-            .setConstraints(constraints)
+            .setConstraints(renewalConstraints())
             .setBackoffCriteria(BackoffPolicy.LINEAR, BACKOFF_MINUTES, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
@@ -54,16 +60,34 @@ object CertRenewalScheduler {
      * provides a specific `retry_after`.
      */
     fun enqueueDelayed(context: Context, delaySeconds: Long) {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .build()
         val request = OneTimeWorkRequestBuilder<CertRenewalWorker>()
             .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
-            .setConstraints(constraints)
+            .setConstraints(renewalConstraints())
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             CertRenewalWorker.WORK_NAME_DELAYED,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
+    /**
+     * Enqueue a one-time renewal immediately (no delay). Used by the debug-only
+     * "Renew cert now" Settings button (issue #381).
+     *
+     * Distinct unique-work slot from [CertRenewalWorker.WORK_NAME] and
+     * [CertRenewalWorker.WORK_NAME_DELAYED] so it does not clobber the periodic
+     * schedule or the rate-limit reschedule. Uses [ExistingWorkPolicy.REPLACE]
+     * so repeated taps collapse to a single pending request instead of
+     * enqueueing a backlog of identical requests.
+     */
+    fun enqueueOneShot(context: Context) {
+        val request = OneTimeWorkRequestBuilder<CertRenewalWorker>()
+            .setConstraints(renewalConstraints())
+            .setBackoffCriteria(BackoffPolicy.LINEAR, BACKOFF_MINUTES, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            WORK_NAME_ONE_SHOT,
             ExistingWorkPolicy.REPLACE,
             request
         )
@@ -102,12 +126,8 @@ object CertRenewalScheduler {
         if (millisUntilExpiry > thresholdMillis) {
             return false
         }
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .setRequiresBatteryNotLow(true)
-            .build()
         val request = OneTimeWorkRequestBuilder<CertRenewalWorker>()
-            .setConstraints(constraints)
+            .setConstraints(renewalConstraints())
             .setBackoffCriteria(BackoffPolicy.LINEAR, BACKOFF_MINUTES, TimeUnit.MINUTES)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
@@ -131,6 +151,13 @@ object CertRenewalScheduler {
      * regress the scheduling contracts covered by #277.
      */
     const val WORK_NAME_IMMEDIATE = "cert_renewal_immediate"
+
+    /**
+     * Unique-work slot for the debug "Renew cert now" Settings button (issue #381).
+     * Distinct from the periodic, delayed, and immediate (near-expiry) slots so
+     * the manual request has its own lifecycle and REPLACE semantics.
+     */
+    const val WORK_NAME_ONE_SHOT = "cert_renewal_one_shot"
 
     /** Mirrors [CertRenewalWorker.DEFAULT_RENEWAL_WINDOW_DAYS] in millis. */
     const val DEFAULT_IMMEDIATE_THRESHOLD_MS =

@@ -714,11 +714,19 @@ class ScreenScreenshotTest {
     // Settings
     // =========================================================================
 
+    // Goldens render the release-shape Settings layout: the developer section
+    // (debug-only "Renew cert now" button) is suppressed so a signed release
+    // build and the recorded golden match. Explicit override to keep the
+    // golden-diff surface tight regardless of BuildConfig.DEBUG in tests.
     @Test
-    fun settingsDark() = captureDark("37_settings") { SettingsScreen() }
+    fun settingsDark() = captureDark("37_settings") {
+        SettingsScreen(showDeveloperSection = false)
+    }
 
     @Test
-    fun settingsLight() = captureLight("37_settings") { SettingsScreen() }
+    fun settingsLight() = captureLight("37_settings") {
+        SettingsScreen(showDeveloperSection = false)
+    }
 
     @Test
     fun settingsNoBatteryWarningDark() = captureDark("38_settings_no_battery") {
@@ -726,7 +734,8 @@ class ScreenScreenshotTest {
             state = SettingsState(
                 showBatteryWarning = false,
                 batteryOptimizationExempt = true
-            )
+            ),
+            showDeveloperSection = false
         )
     }
 
@@ -736,38 +745,57 @@ class ScreenScreenshotTest {
             state = SettingsState(
                 showBatteryWarning = false,
                 batteryOptimizationExempt = true
-            )
+            ),
+            showDeveloperSection = false
         )
     }
 
     @Test
     fun settingsTrustVerifiedDark() = captureDark("39_settings_trust_verified") {
-        SettingsScreen(state = settingsTrustState(TrustOverallStatus.VERIFIED, "verified"))
+        SettingsScreen(
+            state = settingsTrustState(TrustOverallStatus.VERIFIED, "verified"),
+            showDeveloperSection = false
+        )
     }
 
     @Test
     fun settingsTrustVerifiedLight() = captureLight("39_settings_trust_verified") {
-        SettingsScreen(state = settingsTrustState(TrustOverallStatus.VERIFIED, "verified"))
+        SettingsScreen(
+            state = settingsTrustState(TrustOverallStatus.VERIFIED, "verified"),
+            showDeveloperSection = false
+        )
     }
 
     @Test
     fun settingsTrustWarningDark() = captureDark("40_settings_trust_warning") {
-        SettingsScreen(state = settingsTrustState(TrustOverallStatus.WARNING, "warning"))
+        SettingsScreen(
+            state = settingsTrustState(TrustOverallStatus.WARNING, "warning"),
+            showDeveloperSection = false
+        )
     }
 
     @Test
     fun settingsTrustWarningLight() = captureLight("40_settings_trust_warning") {
-        SettingsScreen(state = settingsTrustState(TrustOverallStatus.WARNING, "warning"))
+        SettingsScreen(
+            state = settingsTrustState(TrustOverallStatus.WARNING, "warning"),
+            showDeveloperSection = false
+        )
     }
 
     @Test
     fun settingsTrustAlertDark() = captureDark("41_settings_trust_alert") {
-        SettingsScreen(state = settingsTrustState(TrustOverallStatus.ALERT, "alert"))
+        SettingsScreen(
+            state = settingsTrustState(TrustOverallStatus.ALERT, "alert"),
+            showDeveloperSection = false
+        )
     }
 
     @Test
     fun settingsTrustAlertLight() = captureLight("41_settings_trust_alert") {
-        SettingsScreen(state = settingsTrustState(TrustOverallStatus.ALERT, "alert"))
+        SettingsScreen(
+            state = settingsTrustState(TrustOverallStatus.ALERT, "alert"),
+            showDeveloperSection = false
+        )
     }
 
     // Isolated trust-card renderings for the user-facing docs site. Each

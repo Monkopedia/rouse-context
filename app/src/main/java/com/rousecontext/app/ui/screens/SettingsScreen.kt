@@ -57,6 +57,7 @@ import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
@@ -180,6 +181,9 @@ fun SettingsContent(
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
     onReportBug: () -> Unit = {},
+    onOpenPrivacy: () -> Unit = {},
+    onRenewCertNow: () -> Unit = {},
+    showDeveloperSection: Boolean = BuildConfig.DEBUG,
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -432,6 +436,33 @@ fun SettingsContent(
                     stringResource(R.string.screen_settings_license),
                     style = MaterialTheme.typography.bodyMedium
                 )
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = dimensionResource(R.dimen.spacing_sm)),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpenPrivacy),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.screen_settings_privacy),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = stringResource(R.string.screen_settings_privacy_subtitle),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
@@ -473,7 +504,67 @@ fun SettingsContent(
             }
         }
 
+        if (showDeveloperSection) {
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+            DeveloperSection(onRenewCertNow = onRenewCertNow)
+        }
+
         Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
+    }
+}
+
+/**
+ * Developer-only tools. Compiled into the UI only when [SettingsContent] is
+ * rendered with `showDeveloperSection = true`, which in production wiring is
+ * gated on [BuildConfig.DEBUG]. Intentionally minimal — this is not meant to
+ * ship to release users, so it does not get the full polish of the rest of
+ * Settings.
+ *
+ * The one-shot renewal goes through [com.rousecontext.work.CertRenewalScheduler]
+ * so the scheduler owns the `WorkManager` coupling instead of the UI layer.
+ */
+@Composable
+private fun DeveloperSection(onRenewCertNow: () -> Unit) {
+    SectionHeader(stringResource(R.string.screen_settings_section_developer))
+    SettingsSectionCard {
+        Column(modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg))) {
+            var enqueuedLabelVisible by remember { mutableStateOf(false) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.screen_settings_renew_cert_now),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = stringResource(R.string.screen_settings_renew_cert_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                TextButton(
+                    onClick = {
+                        onRenewCertNow()
+                        enqueuedLabelVisible = true
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text(stringResource(R.string.screen_settings_renew_cert_now))
+                }
+            }
+            if (enqueuedLabelVisible) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_sm)))
+                Text(
+                    text = stringResource(R.string.screen_settings_renew_cert_enqueued),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
 
@@ -494,6 +585,9 @@ fun SettingsScreen(
     onFixBatteryOptimization: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
     onReportBug: () -> Unit = {},
+    onOpenPrivacy: () -> Unit = {},
+    onRenewCertNow: () -> Unit = {},
+    showDeveloperSection: Boolean = BuildConfig.DEBUG,
     onRetry: () -> Unit = {},
     onTabSelected: (Int) -> Unit = {}
 ) {
@@ -564,6 +658,9 @@ fun SettingsScreen(
             onFixBatteryOptimization = onFixBatteryOptimization,
             onAcknowledgeAlert = onAcknowledgeAlert,
             onReportBug = onReportBug,
+            onOpenPrivacy = onOpenPrivacy,
+            onRenewCertNow = onRenewCertNow,
+            showDeveloperSection = showDeveloperSection,
             onRetry = onRetry,
             modifier = Modifier.padding(padding)
         )
