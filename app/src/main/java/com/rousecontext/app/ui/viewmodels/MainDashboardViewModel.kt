@@ -15,6 +15,7 @@ import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.app.ui.screens.NotificationBanner
 import com.rousecontext.app.ui.screens.SpuriousWakeBanner
 import com.rousecontext.mcp.core.TokenStore
+import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
@@ -45,6 +46,14 @@ class MainDashboardViewModel(
     private val auditDao: AuditDao,
     private val urlProvider: McpUrlProvider,
     tunnelClient: TunnelClient,
+    /**
+     * Decrypts the `argumentsJson` / `resultJson` columns on audit entries
+     * rendered in the Recent Activity teaser. Nullable so test harnesses and
+     * future non-encrypting call sites can opt out, but production MUST pass
+     * a real instance — without it, `toHistoryEntry` renders an empty args
+     * string rather than the ciphertext (#383).
+     */
+    private val fieldEncryptor: FieldEncryptor? = null,
     certRenewalBanner: Flow<CertBanner?> = flowOf(null),
     notificationsEnabled: Flow<Boolean> = flowOf(true),
     spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY),
@@ -126,7 +135,7 @@ class MainDashboardViewModel(
         }
 
         val recent = recentEntries.map { entry ->
-            AuditHistoryViewModel.toHistoryEntry(entry)
+            AuditHistoryViewModel.toHistoryEntry(entry, fieldEncryptor)
         }
 
         val hasMoreToAdd = integrations.any { integration ->

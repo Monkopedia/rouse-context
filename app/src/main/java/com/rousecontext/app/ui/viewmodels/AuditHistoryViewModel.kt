@@ -185,10 +185,13 @@ class AuditHistoryViewModel(
             entry: AuditEntry,
             fieldEncryptor: FieldEncryptor? = null
         ): AuditHistoryEntry {
+            // #383: NEVER fall back to the raw argumentsJson/resultJson columns.
+            // Those columns contain ciphertext at rest. If we have no encryptor
+            // (surface wired without one) or decrypt returns null (malformed
+            // row, key rotation, etc.) the safe choice is to render nothing;
+            // anything else leaks ciphertext into the UI or across the MCP wire.
             val decryptedArgs = fieldEncryptor?.decrypt(entry.argumentsJson)
-                ?: entry.argumentsJson
             val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
-                ?: entry.resultJson
             return AuditHistoryEntry(
                 id = entry.id,
                 time = TIME_FORMAT.format(Date(entry.timestampMillis)),

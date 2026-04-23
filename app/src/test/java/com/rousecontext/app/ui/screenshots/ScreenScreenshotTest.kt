@@ -679,6 +679,16 @@ class ScreenScreenshotTest {
     }
 
     @Test
+    fun auditHistoryLongArgsDark() = captureDark("34b_audit_history_long_args") {
+        AuditHistoryScreen(state = auditHistoryLongArgsState())
+    }
+
+    @Test
+    fun auditHistoryLongArgsLight() = captureLight("34b_audit_history_long_args") {
+        AuditHistoryScreen(state = auditHistoryLongArgsState())
+    }
+
+    @Test
     fun auditHistoryEmptyDark() = captureDark("35_audit_history_empty") {
         AuditHistoryScreen()
     }
@@ -1064,6 +1074,42 @@ class ScreenScreenshotTest {
                         durationMs = 156,
                         arguments = "{days: 30}",
                         clientLabel = "Unknown (#1)"
+                    )
+                )
+            )
+        )
+    )
+
+    /**
+     * #383 regression: long `arguments` JSON wraps to multiple lines. Locks in
+     * the shared-row vertical padding and the `Alignment.Top` fix so the time
+     * stays pinned to the first wrapped line and the row itself has breathing
+     * room top/bottom.
+     */
+    private fun auditHistoryLongArgsState() = AuditHistoryState(
+        groups = listOf(
+            AuditHistoryGroup.ofEntries(
+                "Today",
+                listOf(
+                    AuditHistoryEntry(
+                        time = "10:32 AM",
+                        toolName = "health/get_exercise_sessions",
+                        durationMs = 287,
+                        arguments = "{ \"type\": \"ExerciseSessionRecord\", " +
+                            "\"start\": \"2026-04-15T09:00:00Z\", " +
+                            "\"end\": \"2026-04-15T10:30:00Z\", " +
+                            "\"limit\": 100, \"filters\": { " +
+                            "\"activities\": [\"running\", \"walking\"], " +
+                            "\"min_duration_minutes\": 15, " +
+                            "\"include_metadata\": true } }",
+                        clientLabel = "Claude Desktop"
+                    ),
+                    AuditHistoryEntry(
+                        time = "10:31 AM",
+                        toolName = "health/get_steps",
+                        durationMs = 142,
+                        arguments = "{days: 7}",
+                        clientLabel = "Claude"
                     )
                 )
             )

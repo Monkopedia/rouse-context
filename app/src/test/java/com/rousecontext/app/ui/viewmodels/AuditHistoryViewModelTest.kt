@@ -7,6 +7,7 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.ui.screens.AuditHistoryItem
 import com.rousecontext.app.ui.screens.DateFilterOption
 import com.rousecontext.app.ui.screens.ProviderFilterOption
+import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.notifications.audit.McpRequestDao
@@ -284,6 +285,76 @@ class AuditHistoryViewModelTest {
         val (start, end) = AuditHistoryViewModel.dateRangeFor(DateFilterOption.TODAY)
         assertTrue(start <= System.currentTimeMillis())
         assertTrue(end >= start)
+    }
+
+    @Test
+    fun `toHistoryEntry returns empty arguments when fieldEncryptor is null`() {
+        // Regression for #383: when no FieldEncryptor is provided (for example in
+        // surfaces that haven't been wired yet), the raw argumentsJson column
+        // contains ciphertext and MUST NOT be rendered as the plain-text args.
+        val entry = AuditEntry(
+            id = 1,
+            sessionId = "s1",
+            toolName = "get_steps",
+            provider = "health",
+            timestampMillis = 1_000L,
+            durationMillis = 42,
+            success = true,
+            argumentsJson = "Base64EncryptedBlob==",
+            resultJson = "AnotherCipherBlob=="
+        )
+        val view = AuditHistoryViewModel.toHistoryEntry(entry, fieldEncryptor = null)
+        assertEquals("", view.arguments)
+        assertEquals(null, view.argumentsJson)
+        assertEquals(null, view.resultJson)
+    }
+
+    @Test
+    fun `toHistoryEntry returns empty arguments when decrypt returns null`() {
+        // Regression for #383: FieldEncryptor.decrypt returns null on malformed
+        // ciphertext, key rotation, etc. The view MUST render "" rather than
+        // the raw ciphertext from the DB row.
+        val encryptor = mockk<FieldEncryptor> {
+            every { decrypt(any()) } returns null
+        }
+        val entry = AuditEntry(
+            id = 1,
+            sessionId = "s1",
+            toolName = "get_steps",
+            provider = "health",
+            timestampMillis = 1_000L,
+            durationMillis = 42,
+            success = true,
+            argumentsJson = "Base64EncryptedBlob==",
+            resultJson = "AnotherCipherBlob=="
+        )
+        val view = AuditHistoryViewModel.toHistoryEntry(entry, fieldEncryptor = encryptor)
+        assertEquals("", view.arguments)
+        assertEquals(null, view.argumentsJson)
+        assertEquals(null, view.resultJson)
+    }
+
+    @Test
+    fun `toHistoryEntry uses decrypted plaintext when available`() {
+        val encryptor = mockk<FieldEncryptor> {
+            every { decrypt("cipherArgs") } returns """{"days":7}"""
+            every { decrypt("cipherResult") } returns """{"total":5}"""
+        }
+        val entry = AuditEntry(
+            id = 1,
+            sessionId = "s1",
+            toolName = "get_steps",
+            provider = "health",
+            timestampMillis = 1_000L,
+            durationMillis = 42,
+            success = true,
+            argumentsJson = "cipherArgs",
+            resultJson = "cipherResult"
+        )
+        val view = AuditHistoryViewModel.toHistoryEntry(entry, fieldEncryptor = encryptor)
+        assertEquals("""{"days":7}""", view.arguments)
+        assertEquals("""{"days":7}""", view.argumentsJson)
+        assertEquals("""{"total":5}""", view.resultJson)
     }
 
     private fun createEntry(id: Long, timestampMillis: Long, toolName: String): AuditEntry =

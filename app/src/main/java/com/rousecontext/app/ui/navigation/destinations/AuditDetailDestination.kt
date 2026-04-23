@@ -51,12 +51,12 @@ fun NavGraphBuilder.auditDetailDestination(navController: NavController) {
                         provider = entry.provider,
                         timestampMillis = entry.timestampMillis,
                         durationMs = entry.durationMillis,
-                        argumentsJson = fieldEncryptor.decrypt(
-                            entry.argumentsJson
-                        ) ?: entry.argumentsJson,
-                        resultJson = fieldEncryptor.decrypt(
-                            entry.resultJson
-                        ) ?: entry.resultJson
+                        // #383: NEVER fall back to the raw columns — they hold
+                        // ciphertext at rest. When decrypt returns null (key
+                        // rotation, corrupt row, etc.) render nothing instead
+                        // of leaking the encrypted blob into the detail UI.
+                        argumentsJson = fieldEncryptor.decrypt(entry.argumentsJson),
+                        resultJson = fieldEncryptor.decrypt(entry.resultJson)
                     )
                 )
             } else {

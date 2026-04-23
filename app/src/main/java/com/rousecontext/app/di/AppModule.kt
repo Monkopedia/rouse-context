@@ -590,6 +590,7 @@ val appModule = module {
             auditDao = get(),
             urlProvider = get(),
             tunnelClient = get(),
+            fieldEncryptor = get(),
             certRenewalBanner = com.rousecontext.app.cert.certRenewalBannerFlow(get()),
             notificationsEnabled = notificationPermissionFlow(
                 context = androidContext(),
@@ -599,7 +600,7 @@ val appModule = module {
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
-    viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get()) }
+    viewModel { IntegrationManageViewModel(get(), get(), get(), get(), get(), get()) }
     viewModel { AuditHistoryViewModel(get(), get(), get(), get()) }
     viewModel {
         SettingsViewModel(

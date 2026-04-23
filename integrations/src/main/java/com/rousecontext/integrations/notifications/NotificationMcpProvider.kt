@@ -266,8 +266,11 @@ private fun recordToJson(record: NotificationRecord, fieldEncryptor: FieldEncryp
     buildJsonObject {
         put("id", JsonPrimitive(record.id))
         put("package", JsonPrimitive(record.packageName))
-        val title = fieldEncryptor?.decrypt(record.title) ?: record.title
-        val text = fieldEncryptor?.decrypt(record.text) ?: record.text
+        // #383: NEVER fall back to record.title / record.text — those columns
+        // hold ciphertext at rest. Returning ciphertext over MCP would leak
+        // base64 blobs into the AI response and burn tokens for nothing.
+        val title = fieldEncryptor?.decrypt(record.title)
+        val text = fieldEncryptor?.decrypt(record.text)
         put("title", JsonPrimitive(title ?: ""))
         put("text", JsonPrimitive(text ?: ""))
         put("time", JsonPrimitive(record.postedAt))

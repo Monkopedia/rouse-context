@@ -11,6 +11,7 @@ import com.rousecontext.app.ui.screens.IntegrationManageState
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.TokenInfo
 import com.rousecontext.mcp.core.TokenStore
+import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import java.text.SimpleDateFormat
@@ -45,7 +46,14 @@ class IntegrationManageViewModel(
     private val stateStore: IntegrationStateStore,
     private val tokenStore: TokenStore,
     private val auditDao: AuditDao,
-    private val urlProvider: McpUrlProvider
+    private val urlProvider: McpUrlProvider,
+    /**
+     * Decrypts the `argumentsJson` / `resultJson` columns on audit entries
+     * shown in the integration-manage Recent Activity list. Nullable for the
+     * same reason as [MainDashboardViewModel.fieldEncryptor]; production MUST
+     * pass a real instance so rows are not rendered as ciphertext (#383).
+     */
+    private val fieldEncryptor: FieldEncryptor? = null
 ) : ViewModel() {
 
     private val integrationId = MutableStateFlow("")
@@ -95,7 +103,7 @@ class IntegrationManageViewModel(
         )
 
         val recent = auditEntries.take(RECENT_LIMIT).map { entry ->
-            AuditHistoryViewModel.toHistoryEntry(entry)
+            AuditHistoryViewModel.toHistoryEntry(entry, fieldEncryptor)
         }
 
         val clients = tokenList.map { token ->

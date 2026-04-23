@@ -87,8 +87,16 @@ class NotificationMcpToolExecutionTest {
         database.close()
     }
 
+    /**
+     * Default to a passthrough encryptor so tests that insert plaintext
+     * records via [record] continue to see that text surface in the MCP tool
+     * output. The production code path no longer falls back to the raw
+     * column when the encryptor is null (#383): production always has a
+     * real encryptor, and a test that wants the "no encryptor" shape can
+     * explicitly pass [fieldEncryptor] = null.
+     */
     private fun registerProvider(
-        fieldEncryptor: FieldEncryptor? = null,
+        fieldEncryptor: FieldEncryptor? = passthroughEncryptor(),
         allowActions: Boolean = true
     ): NotificationMcpProvider = NotificationMcpProvider(
         dao = dao,
@@ -104,6 +112,11 @@ class NotificationMcpToolExecutionTest {
         fieldEncryptor = fieldEncryptor,
         allowActions = allowActions
     ).also { it.register(server) }
+
+    private fun passthroughEncryptor(): FieldEncryptor = mockk {
+        every { decrypt(any()) } answers { firstArg() }
+        every { decrypt(null) } returns null
+    }
 
     private suspend fun call(name: String, args: Map<String, Any> = emptyMap()): CallToolResult {
         val handler = toolHandlers[name] ?: error("Tool not registered: $name")
