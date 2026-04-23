@@ -763,12 +763,27 @@ private fun buildTestOverrides(
         )
     }
 
+    // --- OnboardingFlow override ---
+    // Integration tests that touch onboarding+cert provisioning drive both
+    // flows explicitly (see `ProvisioningExtensions.provisionDevice`) so the
+    // harness supplies an OnboardingFlow WITHOUT the chained cert step. This
+    // keeps per-test call counts (registerCertsCalls == 1) meaningful and
+    // lets `OnboardingInterruptedResumableTest` simulate a mid-flow crash
+    // between `/register` and `/register/certs` against the Koin-supplied
+    // flow. Production always wires both halves — see `appModule`.
+    single {
+        OnboardingFlow(
+            relayApiClient = get(),
+            certificateStore = get(),
+            integrationIds = get<List<McpIntegration>>().map { it.id },
+            certProvisioningFlow = null
+        )
+    }
+
     // --- CertProvisioningFlow override ---
     // Pins defaultBaseDomain to the fixture base domain; the production
     // definition reads BuildConfig.BASE_DOMAIN which is always the real
     // `rousecontext.com` (or whatever -Pdomain was passed at build time).
-    // Declared before OnboardingFlow so the chained dep resolves through
-    // this override (Koin picks the *last* definition per type).
     single {
         CertProvisioningFlow(
             csrGenerator = get(),
@@ -776,22 +791,6 @@ private fun buildTestOverrides(
             certificateStore = get(),
             deviceKeyManager = get(),
             defaultBaseDomain = baseDomain
-        )
-    }
-
-    // --- OnboardingFlow override ---
-    // Mirrors production wiring (#389): chains CertProvisioningFlow so
-    // onboarding lands with all three PEMs. Tests that want to simulate a
-    // crash between `/register` and `/register/certs` (e.g.
-    // OnboardingInterruptedResumableTest) construct their own OnboardingFlow
-    // without a provisioning flow instead of leaning on the Koin-supplied
-    // one.
-    single {
-        OnboardingFlow(
-            relayApiClient = get(),
-            certificateStore = get(),
-            integrationIds = get<List<McpIntegration>>().map { it.id },
-            certProvisioningFlow = get<CertProvisioningFlow>()
         )
     }
 
