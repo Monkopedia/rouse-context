@@ -74,6 +74,16 @@ fun SectionHeader(text: String) {
     )
 }
 
+/**
+ * Vertical padding applied to every list row. Replaces the prior
+ * `defaultMinSize(minHeight = 56.dp)` floor so multi-line content (e.g.
+ * wrapping tool-call arguments in the audit history) no longer presses flush
+ * against the row's top and bottom edges (#383). Single-line rows still
+ * look right: a 24 dp body text plus 12 dp padding top/bottom comes out
+ * around 48 dp, close to the prior 56 dp floor without the flush wrap.
+ */
+private val LIST_ROW_VERTICAL_PADDING = 12.dp
+
 @Composable
 fun ListRow(
     modifier: Modifier = Modifier,
@@ -85,8 +95,10 @@ fun ListRow(
         modifier = modifier
             .fillMaxWidth()
             .then(clickMod)
-            .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = dimensionResource(R.dimen.spacing_lg)),
+            .padding(
+                horizontal = dimensionResource(R.dimen.spacing_lg),
+                vertical = LIST_ROW_VERTICAL_PADDING
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         content()
@@ -106,8 +118,10 @@ fun ListRowWithIcon(
         modifier = modifier
             .fillMaxWidth()
             .then(clickMod)
-            .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = dimensionResource(R.dimen.spacing_lg)),
+            .padding(
+                horizontal = dimensionResource(R.dimen.spacing_lg),
+                vertical = LIST_ROW_VERTICAL_PADDING
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -133,8 +147,10 @@ fun ListRowWithTrailing(
         modifier = modifier
             .fillMaxWidth()
             .then(clickMod)
-            .defaultMinSize(minHeight = 56.dp)
-            .padding(horizontal = dimensionResource(R.dimen.spacing_lg)),
+            .padding(
+                horizontal = dimensionResource(R.dimen.spacing_lg),
+                vertical = LIST_ROW_VERTICAL_PADDING
+            ),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {

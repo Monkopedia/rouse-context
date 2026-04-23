@@ -65,7 +65,11 @@ fun ToolCallRow(entry: AuditHistoryEntry, onClick: (() -> Unit)? = null) {
             Spacer(modifier = Modifier.height(2.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                // #383: top-align so when the args text wraps to multiple
+                // lines the timestamp on the right stays pinned to row two's
+                // first line rather than floating to the vertical center of
+                // the wrapped block.
+                verticalAlignment = Alignment.Top
             ) {
                 Row(modifier = Modifier.weight(1f)) {
                     Text(
