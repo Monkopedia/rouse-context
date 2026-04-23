@@ -179,6 +179,68 @@ class CertRenewalSchedulerTest {
             )
         }
 
+    @Test
+    fun `enqueueOneShot adds a one-time request to the one-shot slot`() = runBlocking {
+        CertRenewalScheduler.enqueueOneShot(context)
+
+        val infos = workManager
+            .getWorkInfosForUniqueWork(CertRenewalScheduler.WORK_NAME_ONE_SHOT)
+            .get()
+        assertEquals(1, infos.size)
+        assertEquals(WorkInfo.State.ENQUEUED, infos.single().state)
+    }
+
+    @Test
+    fun `enqueueOneShot REPLACE collapses repeated taps to one pending request`() = runBlocking {
+        CertRenewalScheduler.enqueueOneShot(context)
+        val firstId = workManager
+            .getWorkInfosForUniqueWork(CertRenewalScheduler.WORK_NAME_ONE_SHOT)
+            .get()
+            .single()
+            .id
+
+        // User spams the "Renew cert now" button. REPLACE means the second request
+        // supersedes the first rather than queueing a backlog.
+        CertRenewalScheduler.enqueueOneShot(context)
+        val infos = workManager
+            .getWorkInfosForUniqueWork(CertRenewalScheduler.WORK_NAME_ONE_SHOT)
+            .get()
+
+        assertEquals(
+            "REPLACE must leave exactly one request in the slot after a re-enqueue",
+            1,
+            infos.size
+        )
+        assertTrue(
+            "REPLACE must produce a new work id, not preserve the original",
+            firstId != infos.single().id
+        )
+    }
+
+    @Test
+    fun `enqueueOneShot slot is distinct from periodic and immediate slots`() = runBlocking {
+        val now = 1_000_000L
+        val store = SchedulerFakeCertificateStore(expiry = now - MS_PER_DAY)
+
+        CertRenewalScheduler.enqueuePeriodic(context)
+        CertRenewalScheduler.enqueueImmediateIfExpiring(context, store, now = now)
+        CertRenewalScheduler.enqueueOneShot(context)
+
+        val periodic = workManager
+            .getWorkInfosForUniqueWork(CertRenewalWorker.WORK_NAME)
+            .get()
+        val immediate = workManager
+            .getWorkInfosForUniqueWork(CertRenewalScheduler.WORK_NAME_IMMEDIATE)
+            .get()
+        val oneShot = workManager
+            .getWorkInfosForUniqueWork(CertRenewalScheduler.WORK_NAME_ONE_SHOT)
+            .get()
+
+        assertEquals(1, periodic.size)
+        assertEquals(1, immediate.size)
+        assertEquals(1, oneShot.size)
+    }
+
     private companion object {
         const val MS_PER_DAY = 24L * 60L * 60L * 1000L
     }

@@ -214,6 +214,12 @@
     <string name="screen_settings_section_about">About</string>
     <string name="screen_settings_version">Version %1$s</string>
     <string name="screen_settings_license">Apache 2.0 License</string>
+    <string name="screen_settings_privacy">Privacy</string>
+    <string name="screen_settings_privacy_subtitle">What data leaves your phone and what the relay sees</string>
+    <string name="screen_settings_section_developer">Developer</string>
+    <string name="screen_settings_renew_cert_now">Renew cert now</string>
+    <string name="screen_settings_renew_cert_subtitle">Enqueue a one-shot cert renewal via WorkManager</string>
+    <string name="screen_settings_renew_cert_enqueued">Renewal enqueued</string>
     <string name="screen_settings_section_support">Support</string>
     <string name="screen_settings_support_privacy_note">Your device model and app state are included. Personal integration data is not.</string>
     <string name="screen_settings_report_bug">Report a bug</string>
