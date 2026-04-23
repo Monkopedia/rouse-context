@@ -6,10 +6,12 @@ import androidx.datastore.preferences.core.Preferences
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -41,9 +43,15 @@ class DataStoreUnknownClientLabelerTest {
     private val scopes = mutableListOf<CoroutineScope>()
 
     @After
-    fun tearDown() {
-        scopes.forEach { it.cancel() }
+    fun tearDown() = runBlocking {
+        scopes.forEach { cancelAndJoin(it) }
         scopes.clear()
+    }
+
+    private suspend fun cancelAndJoin(scope: CoroutineScope) {
+        val job: Job = scope.coroutineContext.job
+        scope.cancel()
+        job.join()
     }
 
     @Test
@@ -102,9 +110,12 @@ class DataStoreUnknownClientLabelerTest {
             assertEquals("Unknown (#1)", first.labelFor("client-A"))
             assertEquals("Unknown (#2)", first.labelFor("client-B"))
             // Simulate process death: DataStore requires only one active instance
-            // per file, so release the first before opening a second pointed at
-            // the same path.
-            firstScope.cancel()
+            // per file (enforced by a static `activeFiles` set in FileStorage),
+            // so release the first before opening a second pointed at the same
+            // path. Cancellation is asynchronous — the connection's
+            // invokeOnCompletion handler removes the file from `activeFiles`,
+            // so we must join the scope's job before opening a new DataStore.
+            cancelAndJoin(firstScope)
 
             val secondScope = newScope()
             val second = DataStoreUnknownClientLabeler(storeIn(secondScope))
