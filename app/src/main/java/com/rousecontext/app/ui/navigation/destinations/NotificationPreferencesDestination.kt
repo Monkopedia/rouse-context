@@ -14,7 +14,6 @@ import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.NotificationPreferencesScreen
 import com.rousecontext.app.ui.viewmodels.NotificationPreferencesViewModel
-import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 
@@ -27,20 +26,19 @@ fun NavGraphBuilder.notificationPreferencesDestination(navController: NavControl
         )
         val prefsViewModel: NotificationPreferencesViewModel =
             koinViewModel()
-        val onboardingViewModel: OnboardingViewModel =
-            koinViewModel()
         val state by prefsViewModel.state.collectAsState()
         val refresher: NotificationPermissionRefresher =
             koinInject()
+        // #392: Do NOT call startOnboarding() from this destination — it
+        // would run on a NotificationPreferences-scoped OnboardingViewModel
+        // that gets discarded when we navigate away, leaving the
+        // freshly-created destination VM to read a still-empty subdomain
+        // and show Welcome forever. Instead, route to the onboarding
+        // destination with autostart=true so the VM that owns that
+        // destination kicks off AND observes the flow.
         val continueToHome = {
             prefsViewModel.persistSelection()
-            // Kick off relay/FCM registration + ACME cert provisioning now
-            // that the user has completed the one-time onboarding
-            // preferences. Route back to the onboarding destination, which
-            // shows a progress UI during the several-second ACME hop and
-            // only navigates to Home once the full flow succeeds (#389).
-            onboardingViewModel.startOnboarding()
-            navController.navigate(Routes.ONBOARDING) {
+            navController.navigate(Routes.ONBOARDING_AUTOSTART) {
                 popUpTo(Routes.ONBOARDING) {
                     inclusive = true
                 }

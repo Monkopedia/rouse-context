@@ -105,12 +105,22 @@ class BackStackFlowTest {
 
     /**
      * First-time onboarding flow with #69 global notification preferences:
-     * Welcome -> NotificationPreferences -> Home. The preferences step
-     * must pop the entire onboarding stack (inclusive of ONBOARDING) so
-     * back from HOME exits rather than re-entering onboarding.
+     * Welcome -> NotificationPreferences -> Onboarding(autostart) -> Home.
+     *
+     * #392: NotificationPreferences "Continue" no longer navigates to HOME
+     * directly. It navigates back to ONBOARDING with `autostart=true` and
+     * pops the prior onboarding entry inclusive so the destination's VM
+     * (the one that shows progress + eventually flips to Home) is the same
+     * VM that kicks off registration. After the flow succeeds the
+     * onboarding destination LaunchedEffect navigates to HOME, again
+     * popping ONBOARDING inclusive.
      */
     @Test
     fun `onboarding visits notification preferences before home`() {
+        // NavHost stores each entry by its registered route pattern. The
+        // concrete autostart arg lives in the entry's Bundle, not in the
+        // pattern, so both the Welcome entry and the autostart entry live
+        // under the [Routes.ONBOARDING] pattern.
         val stack = FakeBackStack(Routes.ONBOARDING)
 
         // Welcome "Get Started" -> NotificationPreferences (plain navigate)
@@ -120,7 +130,19 @@ class BackStackFlowTest {
             stack.asList
         )
 
-        // NotificationPreferences "Continue" -> HOME, popping ONBOARDING inclusive
+        // #392: NotificationPreferences "Continue" -> autostart route,
+        // popping the prior ONBOARDING entry inclusive. The new entry
+        // shares the same pattern but carries autostart=true in its args.
+        stack.navigate(
+            route = Routes.ONBOARDING,
+            popTarget = Routes.ONBOARDING,
+            inclusive = true,
+            launchSingleTop = true
+        )
+        assertEquals(listOf(Routes.ONBOARDING), stack.asList)
+
+        // The onboarding destination's LaunchedEffect on Onboarded -> HOME,
+        // popping the onboarding entry inclusive.
         stack.navigate(
             route = Routes.HOME,
             popTarget = Routes.ONBOARDING,
@@ -130,6 +152,15 @@ class BackStackFlowTest {
         assertEquals(listOf(Routes.HOME), stack.asList)
         // Back from HOME should exit the app (stack is empty beneath HOME)
         assertEquals(false, stack.popBackStack())
+    }
+
+    /**
+     * #392 regression: The resolved autostart URL is distinct from the
+     * registered pattern, but the constant carries the right query.
+     */
+    @Test
+    fun `onboardingAutostart constant has autostart true query`() {
+        assertEquals("onboarding?autostart=true", Routes.ONBOARDING_AUTOSTART)
     }
 
     /**

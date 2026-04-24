@@ -38,7 +38,21 @@ import com.rousecontext.app.ui.navigation.destinations.usageSetupDestination
 import com.rousecontext.app.ui.screens.SetupMode
 
 object Routes {
-    const val ONBOARDING = "onboarding"
+    // Full route pattern used to register the onboarding composable. The
+    // optional [AUTOSTART_ARG] lets NotificationPreferences re-route here and
+    // trigger registration on the *same* VM that hosts the destination. Prior
+    // to #392 NotificationPreferences fetched its own OnboardingViewModel,
+    // kicked off registration, and navigated here, which created a second
+    // VM that never observed the flow completing (stuck on Welcome).
+    const val ONBOARDING = "onboarding?autostart={autostart}"
+
+    /**
+     * Base route (no args) used as the nav start destination and as the
+     * [popUpTo] target. NavHost resolves `"onboarding"` to the composable
+     * registered at [ONBOARDING] because [AUTOSTART_ARG] is nullable.
+     */
+    const val ONBOARDING_BASE = "onboarding"
+    const val AUTOSTART_ARG = "autostart"
     const val NOTIFICATION_PREFERENCES = "onboarding/notification_preferences"
     const val HOME = "home"
     const val AUDIT = "audit?provider={provider}&scrollToCallId={scrollToCallId}"
@@ -55,6 +69,13 @@ object Routes {
     const val AUTH_APPROVAL = "auth_approval"
     const val ALL_CLIENTS = "all_clients/{integrationId}"
     const val AUDIT_DETAIL = "audit_detail/{entryId}"
+
+    /**
+     * Concrete onboarding route that drives the destination to start
+     * registration immediately on enter. Used by NotificationPreferences
+     * Continue (#392) so the VM owning the destination observes the flow.
+     */
+    const val ONBOARDING_AUTOSTART = "onboarding?autostart=true"
 
     fun allClients(integrationId: String): String = "all_clients/$integrationId"
     fun audit(provider: String? = null, scrollToCallId: Long? = null): String {
@@ -76,6 +97,7 @@ object Routes {
 
 private val ONBOARDING_ROUTES = setOf(
     Routes.ONBOARDING,
+    Routes.ONBOARDING_BASE,
     Routes.NOTIFICATION_PREFERENCES
 )
 
