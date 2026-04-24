@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rouse Context &mdash; UX Flows</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface-hover: #1e2a4e;
+    --border: #0f3460;
+    --text: #e0e0e0;
+    --text-muted: #a0a0b0;
+    --accent: #e94560;
+    --accent-dim: #b33349;
+    --branch: #8a8aa0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.45;
+    padding: 1.5rem 1.5rem 4rem;
+  }
+  header {
+    max-width: 1200px;
+    margin: 0 auto 1.5rem;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #fff;
+  }
+  header p {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    margin-top: 0.35rem;
+  }
+  .flow {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  h2 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #fff;
+    margin-top: 2.5rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  h2 + p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+  }
+  .step img {
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: #000;
+  }
+  .step .label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 0.15rem;
+  }
+  .step .sub {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .step.branch {
+    border-color: var(--branch);
+    opacity: 0.85;
+  }
+  .step.branch .label {
+    color: var(--branch);
+  }
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: center;
+    margin: 0.4rem 0;
+    color: var(--accent);
+    font-size: 0.85rem;
+  }
+  .actions span {
+    padding: 0.2rem 0.6rem;
+    border: 1px dashed var(--accent-dim);
+    border-radius: 999px;
+    background: rgba(233, 69, 96, 0.08);
+  }
+  .branches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin: 0.8rem 0 0;
+    padding-left: 1rem;
+    border-left: 3px dashed var(--branch);
+  }
+  .branch-header {
+    grid-column: 1 / -1;
+    font-size: 0.85rem;
+    color: var(--branch);
+    margin-bottom: -0.2rem;
+  }
+  .note {
+    background: rgba(233, 69, 96, 0.08);
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1rem;
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 0.9rem;
+    margin: 0.8rem 0;
+  }
+  .note a {
+    color: var(--accent);
+  }
+  footer {
+    max-width: 1200px;
+    margin: 3rem auto 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>UX Flows</h1>
+  <p>Screenshots laid out as a flow. Used to spot unintended timing or ordering changes at review time. Source images are from the roborazzi suite in <code>app/screenshots/</code>.</p>
+</header>
+
+<section class="flow">
+  <h2>Onboarding &amp; first integration</h2>
+  <p>Fresh install &rarr; Home with at least one integration enabled.</p>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/01_welcome_light.png" alt="Welcome">
+      <div class="label">Welcome</div>
+      <div class="sub">First screen on fresh install. No state exists yet.</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>tap "Get Started"</span></div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/29_notification_preferences_light.png" alt="Notification Preferences">
+      <div class="label">Notification Preferences</div>
+      <div class="sub">User picks how tool-call notifications appear.</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>tap "Continue" &rarr; system POST_NOTIFICATIONS dialog (Android 13+) &rarr; grant</span></div>
+
+  <div class="note">
+    <strong>Design decision (#389):</strong> Relay registration + cert provisioning fire here, before Home loads. The user has not yet picked an integration. See
+    <a href="../../ux-decisions.md">docs/ux-decisions.md</a> for the trade-offs and why this was chosen over deferring to first integration add.
+  </div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/02_setting_up_first_time_light.png" alt="Setting up: Registering">
+      <div class="label">Setting up &mdash; Registering</div>
+      <div class="sub">Relay registration in flight. Subdomain + integration secrets persisted here.</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>registration succeeds</span></div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/03_setting_up_refreshing_light.png" alt="Setting up: Provisioning certs">
+      <div class="label">Setting up &mdash; Provisioning certs</div>
+      <div class="sub">ACME hop. Server cert, client (mTLS) cert, relay CA all persisted.</div>
+    </div>
+  </div>
+
+  <div class="branches">
+    <div class="branch-header">Error branches (stay on Setting up screen):</div>
+    <div class="step branch">
+      <img src="../../../app/screenshots/04_setting_up_rate_limited_light.png" alt="Rate limited">
+      <div class="label">Rate limited</div>
+      <div class="sub">ACME or relay quota exhausted. User sees retry date.</div>
+    </div>
+    <div class="step branch">
+      <img src="../../../app/screenshots/05_setting_up_failed_light.png" alt="Failed">
+      <div class="label">Failed</div>
+      <div class="sub">Network or server error. "Try again" button re-runs the failed hop.</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>cert provisioning succeeds &rarr; <code>Onboarded</code> state</span></div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/07_dashboard_empty_light.png" alt="Home (empty)">
+      <div class="label">Home &mdash; empty state</div>
+      <div class="sub">Device is fully provisioned but no integrations enabled yet.</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>tap "Add your first" integrations row</span></div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/14_add_integration_picker_light.png" alt="Add Integration picker">
+      <div class="label">Add Integration</div>
+      <div class="sub">List of available integrations (Health Connect, Notifications, Outreach, Test Tools, Usage Stats).</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>tap one</span></div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/16_integration_enabled_light.png" alt="Integration enabled">
+      <div class="label">Integration detail &mdash; ready</div>
+      <div class="sub">Integration URL shown. "Waiting for AI client&hellip;" until one connects.</div>
+    </div>
+  </div>
+
+  <div class="actions"><span>tap "Finish Later" (or add AI client now)</span></div>
+
+  <div class="steps">
+    <div class="step">
+      <img src="../../../app/screenshots/08_dashboard_integrations_light.png" alt="Home with integrations">
+      <div class="label">Home &mdash; integrations enabled</div>
+      <div class="sub">Fully configured. Integration card shows active state.</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Adding or reordering any step above requires explicit approval and an entry in
+  <a href="../../ux-decisions.md" style="color: var(--accent);">docs/ux-decisions.md</a>.
+  See <a href="../../../.claude/rules/ux-changes.md" style="color: var(--accent);">.claude/rules/ux-changes.md</a>.
+</footer>
+</body>
+</html>

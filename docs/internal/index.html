@@ -125,6 +125,7 @@
       <button class="tab" role="tab" id="tab-notifications" data-tab="notifications" aria-controls="pane-notifications">Notifications</button>
       <button class="tab" role="tab" id="tab-app-ui" data-tab="app-ui" aria-controls="pane-app-ui">App UI</button>
       <button class="tab" role="tab" id="tab-oauth" data-tab="oauth" aria-controls="pane-oauth">OAuth pages</button>
+      <button class="tab" role="tab" id="tab-flows" data-tab="flows" aria-controls="pane-flows">Flows</button>
     </div>
     <a class="deep-link" id="deep-link" href="notifications/" target="_blank" rel="noopener">Open in new tab &#8599;</a>
   </div>
@@ -140,16 +141,20 @@
   <section class="pane" id="pane-oauth" role="tabpanel" aria-labelledby="tab-oauth">
     <iframe data-src="auth/" title="OAuth authorization pages" loading="lazy"></iframe>
   </section>
+  <section class="pane" id="pane-flows" role="tabpanel" aria-labelledby="tab-flows">
+    <iframe data-src="flows/" title="UX flow diagrams" loading="lazy"></iframe>
+  </section>
 </main>
 
 <script>
   (function () {
-    var TABS = ['notifications', 'app-ui', 'oauth'];
+    var TABS = ['notifications', 'app-ui', 'oauth', 'flows'];
     var DEFAULT_TAB = 'notifications';
     var TAB_URLS = {
       'notifications': 'notifications/',
       'app-ui': 'app/',
-      'oauth': 'auth/'
+      'oauth': 'auth/',
+      'flows': 'flows/'
     };
 
     var loaded = {};
