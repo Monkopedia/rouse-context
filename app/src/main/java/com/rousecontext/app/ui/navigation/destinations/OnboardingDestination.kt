@@ -6,7 +6,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavType
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.SettingUpContent
@@ -16,10 +18,20 @@ import com.rousecontext.app.ui.screens.WelcomeScreen
 import com.rousecontext.app.ui.viewmodels.OnboardingState
 import com.rousecontext.app.ui.viewmodels.OnboardingStep
 import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
+import kotlinx.coroutines.flow.StateFlow
 import org.koin.androidx.compose.koinViewModel
 
 fun NavGraphBuilder.onboardingDestination(navController: NavController) {
-    composable(Routes.ONBOARDING) {
+    composable(
+        route = Routes.ONBOARDING,
+        arguments = listOf(
+            navArgument(Routes.AUTOSTART_ARG) {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }
+        )
+    ) { backStackEntry ->
         ConfigureNavBar(
             title = "",
             showTopBar = false,
@@ -27,14 +39,27 @@ fun NavGraphBuilder.onboardingDestination(navController: NavController) {
         )
         val onboardingViewModel: OnboardingViewModel =
             koinViewModel()
-        val state by onboardingViewModel.state.collectAsState()
+        // #392: Fresh-install onboarding used to fail because
+        // NotificationPreferences called startOnboarding() on its own
+        // VM (scoped to its own NavBackStackEntry), then navigated here
+        // which created a brand-new VM that never observed the in-flight
+        // flow. With [Routes.onboardingAutostart] the Continue button
+        // instead navigates us back with autostart=true and THIS
+        // destination's VM drives the flow — so the same VM that kicks
+        // off registration is also the one observing it finish and
+        // navigating to Home.
+        val autostart = backStackEntry.arguments
+            ?.getString(Routes.AUTOSTART_ARG) == "true"
 
-        LaunchedEffect(state) {
-            // Only navigate to Home once the device is fully onboarded
-            // (subdomain AND certs persisted, #389). In-progress and error
-            // states stay on this screen so the user sees either progress
-            // or a retryable failure.
-            if (state is OnboardingState.Onboarded) {
+        OnboardingDestinationContent(
+            autostart = autostart,
+            stateFlow = onboardingViewModel.state,
+            onStartOnboarding = { onboardingViewModel.startOnboarding() },
+            onRetry = { onboardingViewModel.retry() },
+            onGetStarted = {
+                navController.navigate(Routes.NOTIFICATION_PREFERENCES)
+            },
+            onOnboarded = {
                 navController.navigate(Routes.HOME) {
                     popUpTo(Routes.ONBOARDING) {
                         inclusive = true
@@ -42,18 +67,50 @@ fun NavGraphBuilder.onboardingDestination(navController: NavController) {
                     launchSingleTop = true
                 }
             }
-        }
-
-        OnboardingBody(
-            state = state,
-            onGetStarted = {
-                navController.navigate(
-                    Routes.NOTIFICATION_PREFERENCES
-                )
-            },
-            onRetry = { onboardingViewModel.retry() }
         )
     }
+}
+
+/**
+ * Pure composable body of the onboarding destination, separated from the
+ * NavGraph/ViewModel plumbing so it can be driven directly from Robolectric
+ * Compose tests. The [onStartOnboarding] callback is fired exactly once per
+ * destination entry when [autostart] is true — this is the invariant broken
+ * by #392's two-VM split and restored by scoping the autostart trigger to
+ * this destination instead of NotificationPreferences.
+ */
+@Composable
+internal fun OnboardingDestinationContent(
+    autostart: Boolean,
+    stateFlow: StateFlow<OnboardingState>,
+    onStartOnboarding: () -> Unit,
+    onRetry: () -> Unit,
+    onGetStarted: () -> Unit,
+    onOnboarded: () -> Unit
+) {
+    val state by stateFlow.collectAsState()
+
+    LaunchedEffect(autostart) {
+        if (autostart) {
+            onStartOnboarding()
+        }
+    }
+
+    LaunchedEffect(state) {
+        // Only navigate to Home once the device is fully onboarded
+        // (subdomain AND certs persisted, #389). In-progress and error
+        // states stay on this screen so the user sees either progress
+        // or a retryable failure.
+        if (state is OnboardingState.Onboarded) {
+            onOnboarded()
+        }
+    }
+
+    OnboardingBody(
+        state = state,
+        onGetStarted = onGetStarted,
+        onRetry = onRetry
+    )
 }
 
 @Composable

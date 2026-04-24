@@ -53,7 +53,10 @@ class MainActivity : ComponentActivity() {
             val hasSubdomain = certStore.getSubdomain() != null
             val notificationDestination = destinationForNotificationIntent(intent)
             startDestination = when {
-                !hasSubdomain -> Routes.ONBOARDING
+                // ONBOARDING_BASE (not the full arg pattern) is the concrete
+                // route; NavHost resolves it to the composable registered
+                // with the optional ?autostart={autostart} arg (#392).
+                !hasSubdomain -> Routes.ONBOARDING_BASE
                 notificationDestination != null -> notificationDestination
                 else -> Routes.HOME
             }
