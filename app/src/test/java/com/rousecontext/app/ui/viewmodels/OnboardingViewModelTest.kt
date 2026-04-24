@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -76,6 +77,8 @@ class OnboardingViewModelTest {
 
         coVerify(exactly = 1) { onboardingFlow.execute(authToken, fcmToken) }
         assertTrue(status.complete.value)
+        // #389: Onboarded state only after the full flow (incl. certs) succeeds.
+        assertEquals(OnboardingState.Onboarded, vm.state.value)
 
         coroutineContext.cancelChildren()
     }
@@ -226,6 +229,150 @@ class OnboardingViewModelTest {
 
         assertTrue(status.complete.value)
         appScope.cancel()
+    }
+
+    // --- #389: cert-provisioning failures surface as retryable error states
+    //           instead of silently dropping the user on Home without certs.
+
+    @Test
+    fun `cert rate limited during onboarding flips to RateLimited not Onboarded`() = runBlocking {
+        val authToken = "fake-firebase-id-token"
+        val fcmToken = "fake-fcm-token"
+
+        coEvery { certStore.getSubdomain() } returns null
+        coEvery {
+            onboardingFlow.execute(authToken, fcmToken)
+        } returns OnboardingResult.CertRateLimited(
+            retryAfterSeconds = 300L,
+            subdomain = "test-sub"
+        )
+
+        val status = DeviceRegistrationStatus(initiallyRegistered = false)
+
+        val vm = createViewModel(
+            authToken = authToken,
+            fcmToken = fcmToken,
+            status = status
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(OnboardingState.NotOnboarded, vm.state.value)
+
+        vm.startOnboarding()
+        testDispatcher.scheduler.advanceUntilIdle()
+        // Yield so appScope.launch (scheduled on the runBlocking event loop,
+        // not the test dispatcher) has a chance to execute before we read
+        // state. coVerify also forces this suspension elsewhere in the file.
+        yield()
+
+        val s = vm.state.value
+        assertTrue("expected RateLimited, got $s", s is OnboardingState.RateLimited)
+        // Subdomain was persisted so markComplete fires — prevents
+        // IntegrationSetupViewModel's awaitRegistrationIfNeeded from hanging
+        // forever if the user later adds an integration while retrying.
+        assertTrue(status.complete.value)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `cert storage failure during onboarding flips to Failed not Onboarded`() = runBlocking {
+        val authToken = "fake-firebase-id-token"
+        val fcmToken = "fake-fcm-token"
+
+        coEvery { certStore.getSubdomain() } returns null
+        coEvery {
+            onboardingFlow.execute(authToken, fcmToken)
+        } returns OnboardingResult.CertStorageFailed(
+            cause = RuntimeException("disk full"),
+            subdomain = "test-sub"
+        )
+
+        val status = DeviceRegistrationStatus(initiallyRegistered = false)
+
+        val vm = createViewModel(
+            authToken = authToken,
+            fcmToken = fcmToken,
+            status = status
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        vm.startOnboarding()
+        testDispatcher.scheduler.advanceUntilIdle()
+        yield()
+
+        val s = vm.state.value
+        assertTrue("expected Failed, got $s", s is OnboardingState.Failed)
+        assertTrue(status.complete.value)
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `cert network error during onboarding flips to Failed with retry path`() = runBlocking {
+        val authToken = "fake-firebase-id-token"
+        val fcmToken = "fake-fcm-token"
+
+        coEvery { certStore.getSubdomain() } returns null
+        coEvery {
+            onboardingFlow.execute(authToken, fcmToken)
+        } returns OnboardingResult.CertNetworkError(
+            cause = RuntimeException("unreachable"),
+            subdomain = "test-sub"
+        )
+
+        val status = DeviceRegistrationStatus(initiallyRegistered = false)
+
+        val vm = createViewModel(
+            authToken = authToken,
+            fcmToken = fcmToken,
+            status = status
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        vm.startOnboarding()
+        testDispatcher.scheduler.advanceUntilIdle()
+        yield()
+
+        assertTrue(vm.state.value is OnboardingState.Failed)
+
+        // On retry the VM should drive the full flow again; the mock will
+        // fail again but `onboardingFlow.execute` gets hit a second time.
+        vm.retry()
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(atLeast = 2) { onboardingFlow.execute(authToken, fcmToken) }
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `retry after success is no-op`() = runBlocking {
+        val authToken = "fake-firebase-id-token"
+        val fcmToken = "fake-fcm-token"
+
+        coEvery { certStore.getSubdomain() } returns null
+        coEvery {
+            onboardingFlow.execute(authToken, fcmToken)
+        } returns OnboardingResult.Success("test-sub")
+
+        val status = DeviceRegistrationStatus(initiallyRegistered = false)
+
+        val vm = createViewModel(
+            authToken = authToken,
+            fcmToken = fcmToken,
+            status = status
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        vm.startOnboarding()
+        testDispatcher.scheduler.advanceUntilIdle()
+        yield()
+        assertEquals(OnboardingState.Onboarded, vm.state.value)
+
+        vm.retry()
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Only one call — retry bails out when already Onboarded.
+        coVerify(exactly = 1) { onboardingFlow.execute(authToken, fcmToken) }
+
+        coroutineContext.cancelChildren()
     }
 
     /**

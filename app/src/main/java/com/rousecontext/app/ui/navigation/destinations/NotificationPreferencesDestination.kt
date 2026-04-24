@@ -34,12 +34,13 @@ fun NavGraphBuilder.notificationPreferencesDestination(navController: NavControl
             koinInject()
         val continueToHome = {
             prefsViewModel.persistSelection()
-            // Kick off relay/FCM registration in the background now
+            // Kick off relay/FCM registration + ACME cert provisioning now
             // that the user has completed the one-time onboarding
-            // preferences. This mirrors the old Get-Started behaviour
-            // but delayed until after preferences are set.
+            // preferences. Route back to the onboarding destination, which
+            // shows a progress UI during the several-second ACME hop and
+            // only navigates to Home once the full flow succeeds (#389).
             onboardingViewModel.startOnboarding()
-            navController.navigate(Routes.HOME) {
+            navController.navigate(Routes.ONBOARDING) {
                 popUpTo(Routes.ONBOARDING) {
                     inclusive = true
                 }

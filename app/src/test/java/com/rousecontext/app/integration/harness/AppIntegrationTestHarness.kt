@@ -764,17 +764,19 @@ private fun buildTestOverrides(
     }
 
     // --- OnboardingFlow override ---
-    // appModule pins `OnboardingFlow.integrationIds` from the Koin
-    // List<McpIntegration>, which still resolves correctly through the
-    // base module. We just need to re-declare it so the override module
-    // wins for the `RelayApiClient` dep (Koin picks the *last* definition
-    // per type, and re-declaring ensures the overridden RelayApiClient is
-    // threaded through).
+    // Integration tests that touch onboarding+cert provisioning drive both
+    // flows explicitly (see `ProvisioningExtensions.provisionDevice`) so the
+    // harness supplies an OnboardingFlow WITHOUT the chained cert step. This
+    // keeps per-test call counts (registerCertsCalls == 1) meaningful and
+    // lets `OnboardingInterruptedResumableTest` simulate a mid-flow crash
+    // between `/register` and `/register/certs` against the Koin-supplied
+    // flow. Production always wires both halves — see `appModule`.
     single {
         OnboardingFlow(
             relayApiClient = get(),
             certificateStore = get(),
-            integrationIds = get<List<McpIntegration>>().map { it.id }
+            integrationIds = get<List<McpIntegration>>().map { it.id },
+            certProvisioningFlow = null
         )
     }
 
