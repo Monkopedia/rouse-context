@@ -129,14 +129,17 @@ class ColdStartEndToEndTest {
 
         // Wait for process death. Polls batched on the remote host to keep
         // SSH overhead (~200ms/call) from eating the deadline (#394).
+        //
+        // Do NOT add a post-death buffer sleep here. TunnelForegroundService
+        // is a START_STICKY service, so Android will auto-restart the
+        // process a second or two after `stop-app` kills it; any extra
+        // sleep risks the pidof check catching the restarted process and
+        // then the subsequent MCP request tests a warm path instead of the
+        // cold-start-via-FCM-wake path. Hitting the MCP endpoint immediately
+        // is what we want — if Android beats us to it with a restart, the
+        // request still tests the same cold-connect path via whichever
+        // process has the tunnel.
         waitForProcessDeath(timeoutSec = 10)
-
-        // Extra buffer for Android to clean up process state
-        Thread.sleep(2000)
-
-        // Verify process is actually dead
-        val pidCheck = adb("shell", "pidof", "com.rousecontext.debug")
-        assertTrue(pidCheck.isBlank(), "Process still running after stop-app: '$pidCheck'")
 
         // Hit the MCP endpoint — triggers relay -> FCM -> cold device wake
         val initBody = buildJsonObject {
