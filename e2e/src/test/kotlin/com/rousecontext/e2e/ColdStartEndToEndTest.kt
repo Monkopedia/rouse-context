@@ -31,9 +31,23 @@ import org.junit.jupiter.api.TestMethodOrder
 /**
  * Cold-start-via-FCM end-to-end test.
  *
- * Force-stops the app, then hits the MCP endpoint over HTTPS. The relay delivers
- * an FCM high-priority message which wakes the device from cold, establishes
- * the tunnel, and serves the MCP request. Measures wall-clock latency.
+ * Kills the app process (simulating an OOM kill / swipe-from-Recents lifecycle),
+ * then hits the MCP endpoint over HTTPS. The relay delivers an FCM high-priority
+ * message which wakes the device from cold, establishes the tunnel, and serves
+ * the MCP request. Measures wall-clock latency.
+ *
+ * Uses `cmd activity stop-app` rather than `am force-stop` or `am kill`:
+ * - `am force-stop` puts the app into Android's "stopped" state which
+ *   intentionally blocks FCM delivery until manual user relaunch — not
+ *   reachable from real user scenarios (OOM kill, reboot, swipe-from-Recents
+ *   all leave FCM reachable).
+ * - `am kill` refuses to kill processes that hold a foreground service (which
+ *   `TunnelForegroundService` does whenever the tunnel is connecting/connected),
+ *   so it's a no-op in this test's most common scenario.
+ * - `cmd activity stop-app` (Android 11+) kills the process including any
+ *   foreground service, leaves the app in the normal non-stopped state, and
+ *   FCM can still wake it. This is the closest simulation of an OOM kill or
+ *   user-swipe-from-Recents. See #394.
  *
  * Requires:
  * - A debug build installed and onboarded on a device
@@ -107,25 +121,22 @@ class ColdStartEndToEndTest {
     @Test
     @Order(1)
     fun `01 - cold start via FCM wake succeeds within latency budget`() {
-        // Force-stop the app — kills process cold
-        adb("shell", "am", "force-stop", "com.rousecontext.debug")
+        // Kill the process via `cmd activity stop-app` — kills the foreground
+        // service holder too, but leaves the app in the normal non-stopped
+        // state so FCM can still wake it (unlike `am force-stop`). See class
+        // kdoc + #394 for why other primitives don't work here.
+        adb("shell", "cmd", "activity", "stop-app", "com.rousecontext.debug")
 
-        // Wait for process death
-        val deadline = System.currentTimeMillis() + 10_000
-        while (adb("shell", "pidof", "com.rousecontext.debug").isNotBlank()) {
-            Thread.sleep(500)
-            assertTrue(
-                System.currentTimeMillis() < deadline,
-                "Process did not die within 10 seconds"
-            )
-        }
+        // Wait for process death. Polls batched on the remote host to keep
+        // SSH overhead (~200ms/call) from eating the deadline (#394).
+        waitForProcessDeath(timeoutSec = 10)
 
         // Extra buffer for Android to clean up process state
         Thread.sleep(2000)
 
         // Verify process is actually dead
         val pidCheck = adb("shell", "pidof", "com.rousecontext.debug")
-        assertTrue(pidCheck.isBlank(), "Process still running after force-stop: '$pidCheck'")
+        assertTrue(pidCheck.isBlank(), "Process still running after stop-app: '$pidCheck'")
 
         // Hit the MCP endpoint — triggers relay -> FCM -> cold device wake
         val initBody = buildJsonObject {
@@ -350,6 +361,32 @@ class ColdStartEndToEndTest {
     }
 
     // --- Device helpers ---
+
+    /**
+     * Poll `pidof` on the device until the process dies or [timeoutSec] elapses.
+     * Runs the whole poll loop in a single SSH shell to avoid paying the
+     * per-call SSH round-trip (~200ms, #394).
+     */
+    private fun waitForProcessDeath(timeoutSec: Int) {
+        val iters = timeoutSec * 2 // poll every 500ms
+        val script = (1..iters).joinToString("; ") {
+            "pidof com.rousecontext.debug || exit 0; sleep 0.5"
+        } + "; exit 1"
+        val serial = System.getProperty("adb.serial", "")
+        val remoteAdb = if (serial.isNotEmpty()) {
+            "ANDROID_SERIAL=$serial /opt/android-sdk/platform-tools/adb"
+        } else {
+            "/opt/android-sdk/platform-tools/adb"
+        }
+        val cmd = listOf("ssh", adbHost, "$remoteAdb shell '$script'")
+        val process = ProcessBuilder(cmd).redirectErrorStream(true).start()
+        process.inputStream.bufferedReader().readText()
+        process.waitFor((timeoutSec + 5).toLong(), TimeUnit.SECONDS)
+        assertTrue(
+            process.exitValue() == 0,
+            "Process did not die within ${timeoutSec}s (exit=${process.exitValue()})"
+        )
+    }
 
     private fun deviceIsConnected(): Boolean = try {
         val result = adb("devices")
