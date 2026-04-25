@@ -31,7 +31,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.Dns
@@ -59,7 +58,7 @@ import org.junit.jupiter.api.Timeout
  * trick through [Ipv4OnlyMtlsWebSocketFactory].
  *
  * Skipped when the relay binary has not been built. Build with:
- *   cd relay && cargo build
+ *   cd relay && cargo build --features test-mode
  */
 @Tag("integration")
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
@@ -70,7 +69,14 @@ class CertRotationIntegrationTest {
         private const val BASE_DOMAIN = "relay.test.internal"
         private const val DUMMY_FIREBASE_TOKEN = "test-firebase-token-rotation"
         private const val DUMMY_FCM_TOKEN = "test-fcm-token-rotation"
-        private const val SESSION_REGISTRATION_DELAY_MS = 500L
+
+        /**
+         * Upper bound for [TestRelayManager.waitForSessionRegistered]. The
+         * relay-side `Notify` typically fires within a millisecond of the
+         * mux WebSocket upgrade completing; 10s is generous for CI under
+         * stress (#400).
+         */
+        private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
 
     private lateinit var tempDir: File
@@ -85,7 +91,7 @@ class CertRotationIntegrationTest {
         val relayBinary = findRelayBinary()
         assumeTrue(
             relayBinary.exists() && relayBinary.canExecute(),
-            "Relay binary not found. Build with: cd relay && cargo build"
+            "Relay binary not found. Build with: cd relay && cargo build --features test-mode"
         )
 
         tempDir = File.createTempFile("cert-rotation-integration-", "")
@@ -101,12 +107,17 @@ class CertRotationIntegrationTest {
         val deviceCaCertFile = ca.caCertPemFile()
 
         relayPort = findFreePort()
+        // test-mode enables the `/test/wait-session-registered` admin
+        // endpoint used after `tunnelClient.connect()` to deterministically
+        // wait for the relay-side `SessionRegistry.insert` instead of a
+        // blind 500ms sleep (#400).
         relayManager = TestRelayManager(
             tempDir,
             RELAY_HOSTNAME,
             deviceCaPaths = deviceCaKeyFile to deviceCaCertFile,
             disableFirebaseVerification = true,
-            baseDomainOverride = BASE_DOMAIN
+            baseDomainOverride = BASE_DOMAIN,
+            enableTestMode = true
         )
         relayManager.start(relayPort)
 
@@ -155,6 +166,7 @@ class CertRotationIntegrationTest {
      * Full cert rotation end-to-end: register, get certs, renew, assert new certs,
      * reconnect with renewed client cert and prove the mux session is accepted.
      */
+    @Suppress("LongMethod")
     @Test
     fun `renew returns new cert triple and reconnect with renewed cert succeeds`(): Unit =
         runBlocking {
@@ -229,8 +241,19 @@ class CertRotationIntegrationTest {
                 "TunnelClient must reach CONNECTED state after reconnect with renewed cert"
             )
 
-            // Allow session registration on the relay side
-            delay(SESSION_REGISTRATION_DELAY_MS)
+            // Deterministic wait for the relay's `SessionRegistry.insert`
+            // after the WS upgrade completes. Replaces the former 500ms
+            // blind sleep (#400). Backed by per-subdomain `Notify` on the
+            // relay, exposed via the test-mode admin endpoint.
+            val registered = relayManager.waitForSessionRegistered(
+                subdomain,
+                SESSION_REGISTRATION_TIMEOUT_MS
+            )
+            assertTrue(
+                registered,
+                "Relay did not register mux session for $subdomain within " +
+                    "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+            )
 
             // Clean disconnect
             tunnelClient.disconnect()
@@ -312,7 +335,19 @@ class CertRotationIntegrationTest {
             tunnelClient.state.value,
             "TunnelClient must connect with second-renewal certs"
         )
-        delay(SESSION_REGISTRATION_DELAY_MS)
+        // Deterministic wait for the relay's `SessionRegistry.insert` after
+        // the WS upgrade completes. Replaces the former 500ms blind sleep
+        // (#400). Backed by per-subdomain `Notify` on the relay, exposed via
+        // the test-mode admin endpoint.
+        val registered = relayManager.waitForSessionRegistered(
+            reg.subdomain,
+            SESSION_REGISTRATION_TIMEOUT_MS
+        )
+        assertTrue(
+            registered,
+            "Relay did not register mux session for ${reg.subdomain} within " +
+                "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+        )
         tunnelClient.disconnect()
     }
 

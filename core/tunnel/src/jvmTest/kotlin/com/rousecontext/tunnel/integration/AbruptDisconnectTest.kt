@@ -11,7 +11,6 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelChildren
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -53,8 +52,13 @@ class AbruptDisconnectTest {
         /** Same miss count as production. */
         private const val KEEPALIVE_MAX_MISSES = 3
 
-        /** Session registration delay — relay needs time after WS upgrade. */
-        private const val SESSION_REGISTRATION_DELAY_MS = 500L
+        /**
+         * Upper bound for [TestRelayManager.waitForSessionRegistered]. The
+         * relay-side `Notify` typically fires within a millisecond of the
+         * mux WebSocket upgrade completing; 10s is generous for CI under
+         * stress (#400).
+         */
+        private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
 
     private lateinit var tempDir: File
@@ -70,7 +74,7 @@ class AbruptDisconnectTest {
         val relayBinary = findRelayBinary()
         assumeTrue(
             relayBinary.exists() && relayBinary.canExecute(),
-            "Relay binary not found. Build with: cd relay && cargo build"
+            "Relay binary not found. Build with: cd relay && cargo build --features test-mode"
         )
 
         tempDir = File.createTempFile("e2e-abrupt-", "")
@@ -80,7 +84,11 @@ class AbruptDisconnectTest {
         ca = TestCertificateAuthority(tempDir, RELAY_HOSTNAME, DEVICE_SUBDOMAIN)
         ca.generate()
 
-        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
+        // test-mode enables the `/test/wait-session-registered` admin
+        // endpoint used by `connectTunnelClient` to deterministically wait
+        // for the relay-side `SessionRegistry.insert` instead of a blind
+        // 500ms sleep (#400).
+        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
     }
@@ -148,11 +156,10 @@ class AbruptDisconnectTest {
 
             // Phase 4: restart the relay on the same port
             relayManager.stop() // clean up the dead process reference
-            relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
+            // test-mode again so the post-reconnect waitForSessionRegistered
+            // call below can reach the admin endpoint (#400).
+            relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
             relayManager.start(relayPort)
-
-            // Small delay to let the new relay fully initialize
-            delay(SESSION_REGISTRATION_DELAY_MS)
 
             // Phase 5: reconnect and verify CONNECTED
             val reconnectStartMs = System.currentTimeMillis()
@@ -162,6 +169,19 @@ class AbruptDisconnectTest {
                 TunnelState.CONNECTED,
                 tunnelClient.state.value,
                 "Tunnel should be CONNECTED after reconnecting to new relay"
+            )
+
+            // Deterministic wait that the new relay completed its
+            // SessionRegistry.insert for our subdomain. Replaces the former
+            // blind 500ms post-restart sleep (#400).
+            val registered = relayManager.waitForSessionRegistered(
+                DEVICE_SUBDOMAIN,
+                SESSION_REGISTRATION_TIMEOUT_MS
+            )
+            assertTrue(
+                registered,
+                "Relay did not register mux session for $DEVICE_SUBDOMAIN after " +
+                    "restart within ${SESSION_REGISTRATION_TIMEOUT_MS}ms"
             )
 
             val reconnectTimeMs = System.currentTimeMillis() - reconnectStartMs
@@ -192,7 +212,19 @@ class AbruptDisconnectTest {
             client.state.value,
             "TunnelClient should be CONNECTED after connect()"
         )
-        delay(SESSION_REGISTRATION_DELAY_MS)
+        // Deterministic wait for the relay's `SessionRegistry.insert` after
+        // the WS upgrade completes. Replaces the former 500ms blind sleep
+        // (#400). Backed by per-subdomain `Notify` on the relay, exposed via
+        // the test-mode admin endpoint.
+        val registered = relayManager.waitForSessionRegistered(
+            DEVICE_SUBDOMAIN,
+            SESSION_REGISTRATION_TIMEOUT_MS
+        )
+        assertTrue(
+            registered,
+            "Relay did not register mux session for $DEVICE_SUBDOMAIN within " +
+                "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+        )
         return client
     }
 }
