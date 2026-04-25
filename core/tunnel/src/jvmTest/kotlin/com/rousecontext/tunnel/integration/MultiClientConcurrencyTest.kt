@@ -80,7 +80,14 @@ class MultiClientConcurrencyTest {
         private const val INTEGRATION = "test"
         private const val INTEGRATION_HOST =
             "exact-$INTEGRATION.$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
-        private const val SESSION_REGISTRATION_DELAY_MS = 500L
+
+        /**
+         * Upper bound for [TestRelayManager.waitForSessionRegistered]. The
+         * relay-side `Notify` typically fires within a millisecond of the
+         * mux WebSocket upgrade completing; 10s is generous for CI under
+         * stress (#400).
+         */
+        private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
 
     private lateinit var tempDir: File
@@ -115,7 +122,11 @@ class MultiClientConcurrencyTest {
         ca = TestCertificateAuthority(tempDir, RELAY_HOSTNAME, DEVICE_SUBDOMAIN)
         ca.generate()
 
-        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
+        // test-mode enables the `/test/wait-session-registered` admin
+        // endpoint used by `connectTunnelClient` to deterministically wait
+        // for the relay-side `SessionRegistry.insert` instead of a blind
+        // 500ms sleep (#400, #402).
+        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
 
@@ -125,8 +136,15 @@ class MultiClientConcurrencyTest {
         tokenStore = InMemoryTokenStore()
         authorizationCodeManager = AuthorizationCodeManager(tokenStore = tokenStore)
 
-        tunnelClient = connectTunnelClient()
-
+        // Subscribe to incoming sessions BEFORE connect so the collector is
+        // active when the relay starts splicing AI-client sockets to mux
+        // streams. Matches production wiring in TunnelForegroundService
+        // (#402): `_incomingSessions` is a `Channel(Channel.BUFFERED)`, so a
+        // late subscriber wouldn't lose frames, but the previous
+        // connect-then-collect ordering masked a subtler races where the
+        // collector hadn't started before the AI-client TLS handshake hit
+        // the relay (~1-in-7 flake).
+        tunnelClient = createTunnelClient()
         backgroundScope.launch {
             tunnelClient.incomingSessions.collect { stream ->
                 launch(Dispatchers.IO) {
@@ -134,6 +152,7 @@ class MultiClientConcurrencyTest {
                 }
             }
         }
+        connectTunnelClient(tunnelClient)
         Unit
     }
 
@@ -523,21 +542,40 @@ class MultiClientConcurrencyTest {
     // TunnelClient connection
     // =====================================================================
 
-    private suspend fun connectTunnelClient(): TunnelClientImpl {
+    /**
+     * Build the [TunnelClientImpl] without connecting it. The caller is
+     * expected to subscribe to [TunnelClientImpl.incomingSessions] before
+     * invoking [connectTunnelClient] so the collector is live when the
+     * relay starts splicing client sockets onto mux streams.
+     */
+    private fun createTunnelClient(): TunnelClientImpl {
         val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val wsFactory = MtlsWebSocketFactory(sslContext)
-        val client = TunnelClientImpl(
+        return TunnelClientImpl(
             scope = CoroutineScope(Dispatchers.IO),
             webSocketFactory = wsFactory
         )
+    }
+
+    private suspend fun connectTunnelClient(client: TunnelClientImpl) {
         client.connect("wss://$RELAY_HOSTNAME:$relayPort/ws")
         assertEquals(
             TunnelState.CONNECTED,
             client.state.value,
             "TunnelClient should be CONNECTED"
         )
-        delay(SESSION_REGISTRATION_DELAY_MS)
-        return client
+        // Deterministic wait for the relay's `SessionRegistry.insert` after
+        // the WS upgrade completes (#400). Backed by per-subdomain `Notify`
+        // on the relay, exposed via the test-mode admin endpoint.
+        val registered = relayManager.waitForSessionRegistered(
+            DEVICE_SUBDOMAIN,
+            SESSION_REGISTRATION_TIMEOUT_MS
+        )
+        assertTrue(
+            registered,
+            "Relay did not register mux session for $DEVICE_SUBDOMAIN within " +
+                "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+        )
     }
 
     // =====================================================================
