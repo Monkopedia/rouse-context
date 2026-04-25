@@ -14,7 +14,7 @@ Three authentication methods are used across endpoints:
 
 | Method | Mechanism | When Used |
 |---|---|---|
-| **mTLS** | TLS client certificate presented during handshake, verified against Let's Encrypt root certs (ISRG Root X1, X2). Subdomain extracted from certificate CN or first SAN dNSName matching `*.rousecontext.com`. | `/ws`, `/renew` (valid cert path) |
+| **mTLS** | TLS client certificate presented during handshake, verified against the relay's private device CA (loaded from `tls.ca_cert_path` in `relay.toml`; this is the same CA that issues the `client_cert` returned from `/register/certs` and `/renew`). Subdomain extracted from certificate CN or first SAN dNSName matching `*.rousecontext.com`. | `/ws`, `/renew` (valid cert path) |
 | **Firebase ID Token** | `firebase_token` field in request body. Verified via Google's public keys (RS256 JWT). Must match project ID. Extracts `sub` claim as Firebase UID. | `/register`, `/renew` (expired cert path) |
 | **Unauthenticated** | No credentials required. | `/wake/:subdomain`, `/status` |
 
@@ -67,7 +67,7 @@ Establishes a multiplexed WebSocket connection from a device to the relay. All M
 
 #### Authentication
 
-**mTLS required.** The device must present a valid TLS client certificate issued by a trusted CA (Let's Encrypt). The relay extracts the subdomain from the certificate's CN or SAN `dNSName` field (first entry matching `*.rousecontext.com`, stripping the domain suffix).
+**mTLS required.** The device must present a valid TLS client certificate issued by the relay's private device CA (returned as `client_cert` from `/register/certs`). The relay extracts the subdomain from the certificate's CN or SAN `dNSName` field (first entry matching `*.rousecontext.com`, stripping the domain suffix).
 
 #### Request
 
@@ -161,7 +161,7 @@ Content-Type: application/json
 | 403 | Firebase UID already registered but `signature` missing | `forbidden` | `"Signature required for re-registration"` |
 | 403 | `signature` does not verify against stored public key | `forbidden` | `"Signature verification failed"` |
 | 429 | `force_new: true` but last rotation was less than 30 days ago | `cooldown` | `"Subdomain rotation available after 2026-05-01"` |
-| 429 | ACME CA rate limit reached (50 certs/week for `rousecontext.com`) | `acme_rate_limited` | `"Certificate issuance rate limited"` |
+| 429 | ACME CA rate limit reached (CA-specific; GTS in production has tens-of-thousands/day headroom, Let's Encrypt is 50/registered-domain/week) | `acme_rate_limited` | `"Certificate issuance rate limited"` |
 | 502 | ACME challenge failed (DNS propagation timeout, CA rejection, Cloudflare API failure after 3 retries) | `acme_failure` | `"ACME DNS-01 challenge failed"` |
 | 500 | Firestore write failure, unexpected internal error | `internal` | `"Internal server error"` |
 
@@ -180,7 +180,7 @@ Content-Type: application/json
    - `signature` is required. Verify against stored `public_key`.
    - Check `last_rotation` timestamp. If less than 30 days ago, return 429 `cooldown`.
    - Generate new random subdomain. Delete old `devices/` document. All client tokens for the old subdomain are implicitly revoked (device-side responsibility).
-6. Check ACME weekly issuance count. If at or above 50, store in `pending_certs/{subdomain}` and return 429 `acme_rate_limited`.
+6. Check configured ACME issuance quota. If exceeded (CA-specific: GTS production is effectively unbounded at this scale, Let's Encrypt enforces 50 certs per registered domain per week), store in `pending_certs/{subdomain}` and return 429 `acme_rate_limited`.
 7. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com` (see ACME Orchestration in `relay.md`).
 8. Write/update `devices/{subdomain}` document in Firestore.
 9. Return certificate chain, subdomain, and relay host.
@@ -255,7 +255,7 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |---|---|---|
-| `server_cert` | string | PEM-encoded ACME server certificate (Let's Encrypt, serverAuth) |
+| `server_cert` | string | PEM-encoded ACME-issued server certificate (serverAuth EKU). Issued by the ACME provider the relay is configured against — Google Trust Services in production, Let's Encrypt or another public CA for self-hosted deployments. |
 | `client_cert` | string | PEM-encoded relay CA client certificate (clientAuth) |
 | `relay_ca_cert` | string | PEM-encoded relay CA root certificate |
 
@@ -748,8 +748,8 @@ The signature is always over the **raw DER bytes of the CSR** -- the bytes that 
 | Endpoint | Scope | Limit | Mechanism | State |
 |---|---|---|---|---|
 | `POST /wake/:subdomain` | Per subdomain | 6 requests per minute | Token bucket (1 token per 10 seconds, max burst 6) | In-memory (resets on relay restart) |
-| `POST /register` | Global (ACME) | 50 certs per week for `rousecontext.com` | Counter (resets weekly) | In-memory + Firestore `pending_certs/` for overflow |
+| `POST /register` | Global (ACME) | CA-specific — GTS (production) has tens-of-thousands/day headroom; Let's Encrypt (self-hosting) is 50/registered-domain/week | Counter (resets on the CA's quota window) | In-memory + Firestore `pending_certs/` for overflow |
 | `POST /register` (`force_new`) | Per Firebase UID | Once per 30 days | `last_rotation` timestamp in Firestore | Firestore |
-| `POST /renew` | Global (ACME) | 50 certs per week (shared with `/register`) | Same counter as `/register` | Same as `/register` |
+| `POST /renew` | Global (ACME) | Same as `/register` (shared ACME account/quota) | Same counter as `/register` | Same as `/register` |
 
-The ACME rate limit counter is best-effort. On relay restart, the counter resets. The relay can query Firestore `devices/` records with `cert_expires` in the current week to reconstruct an approximate count, but the exact count is not critical -- Let's Encrypt will reject requests that exceed the real limit, and the relay handles that gracefully.
+The ACME rate limit counter is best-effort. On relay restart, the counter resets. The relay can query Firestore `devices/` records with `cert_expires` in the current window to reconstruct an approximate count, but the exact count is not critical -- the CA will reject requests that exceed the real limit, and the relay handles that gracefully. In practice the counter mostly exists to spare Let's Encrypt-backed self-hosts from burning quota on retry storms; the production GTS-backed relay rarely gets close to its ceiling.

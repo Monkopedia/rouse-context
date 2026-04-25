@@ -46,7 +46,7 @@ No separate API port. One port, two behaviors.
 
 - Relay's own cert for `relay.rousecontext.com`: manually provisioned via certbot, deployed from GitHub Secrets alongside the binary. Referenced in `relay.toml` (`tls.cert_path`, `tls.key_path`). Renewed via GitHub Actions scheduled workflow (weekly certbot run).
 - Client cert: **optional** at TLS level (`rustls` `WebPkiClientVerifier` with `allow_unauthenticated()`). Individual endpoints enforce client cert requirements.
-- Client cert trust anchors: Let's Encrypt root certs (ISRG Root X1, X2), embedded in binary. Future: add additional CA roots as fallback CAs are added.
+- Client cert trust anchors: the **relay's private device CA** (the same CA that issues the `client_cert` returned from `/register/certs` and `/renew`). Loaded from `tls.ca_cert_path` in `relay.toml` at startup, not embedded in the binary. Public CAs (GTS, Let's Encrypt, ...) are not involved in mTLS — they only issue the device-facing `server_cert`.
 
 ### Client Passthrough (SNI = device subdomain)
 
@@ -167,7 +167,7 @@ Relay:
 ## ACME Orchestration
 
 ### CA Selection
-Primary: **Let's Encrypt** (50 certs per registered domain per week, no EAB needed). Future: add Google Trust Services or ZeroSSL as fallback CA.
+Primary: **Google Trust Services** (GTS) production directory `https://dv.acme-v02.api.pki.goog/directory`. GTS requires External Account Binding (RFC 8555 §7.3.4) on the first `newAccount` registration; EAB credentials are provisioned once via `gcloud publicca external-account-keys create` and supplied via the env vars named in `acme.external_account_binding_*_env`. GTS was chosen over Let's Encrypt because its issuance quota (tens of thousands of certs per day per account) is not a practical constraint for fresh-install churn or mass-install scenarios, whereas LE's 50 certs-per-registered-domain-per-week ceiling was. Let's Encrypt is still a supported fallback for self-hosters and can be selected by setting `acme.directory_url` (see `docs/self-hosting.md`).
 
 ### DNS-01 Challenge Flow
 1. Relay generates ACME order for `{subdomain}.rousecontext.com`
@@ -180,9 +180,9 @@ Primary: **Let's Encrypt** (50 certs per registered domain per week, no EAB need
 8. Relay returns cert to device
 
 ### Rate Limit Handling
-- Let's Encrypt: 50 certs per registered domain (`rousecontext.com`) per week
-- Relay tracks issued cert count per week
-- When limit hit:
+- GTS (current production): ~100 new orders per hour per account; overall daily issuance quota is in the tens of thousands. In practice this is not a ceiling we hit during normal operation or mass onboarding.
+- Let's Encrypt (fallback option for self-hosters): 50 certs per registered domain per week. This was the motivating reason to switch the default to GTS.
+- The relay still tracks issued-cert count and handles CA-side rate-limit errors generically:
   1. Store blocked device in Firestore `pending_certs/{subdomain}`
   2. Return `rate_limited` error with `retry_after_secs`
   3. Send admin alert (email/webhook, configured in relay.toml)
@@ -196,10 +196,10 @@ Primary: **Let's Encrypt** (50 certs per registered domain per week, no EAB need
 The production `rousecontext.com` DNS zone MUST have a CAA record restricting certificate issuance to the primary CA:
 
 ```
-rousecontext.com. CAA 0 issue "letsencrypt.org"
+rousecontext.com. CAA 0 issue "pki.goog"
 ```
 
-This prevents other CAs from issuing certs for `*.rousecontext.com` even if credentials are compromised or an attacker controls a different CA's validation. If a fallback CA is added (e.g. Google Trust Services), add a second `issue` record for it.
+This prevents other CAs from issuing certs for `*.rousecontext.com` even if credentials are compromised or an attacker controls a different CA's validation. Self-hosted deployments using Let's Encrypt should publish `0 issue "letsencrypt.org"` instead (or in addition, if both CAs are configured). The startup CAA check (see `relay/src/caa_check.rs`, #322) verifies the configured ACME provider's identifier appears in the CAA record set at boot and logs ERROR on mismatch — a silent CAA misconfiguration would otherwise only surface at the next renewal, 60-90 days later.
 
 Set via Cloudflare DNS alongside the zone configuration. Verify with `dig CAA rousecontext.com` after deployment.
 
@@ -285,7 +285,10 @@ max_streams_per_device = 8
 subdomain_rotation_cooldown_days = 30
 
 [acme]
-ca_url = "https://acme.letsencrypt.org/directory"
+# Defaults to Google Trust Services production when omitted.
+# directory_url = "https://dv.acme-v02.api.pki.goog/directory"
+external_account_binding_kid_env = "GTS_EAB_KID"
+external_account_binding_hmac_env = "GTS_EAB_HMAC"
 ```
 
 Secrets via env vars: `CLOUDFLARE_API_TOKEN`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `ADMIN_ALERT_WEBHOOK`.

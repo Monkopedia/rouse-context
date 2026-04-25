@@ -138,7 +138,7 @@ This defeats targeted interception attacks where an adversary filters the self-c
 - Results stored in the local audit log alongside tool call history
 
 **CAA records**
-The production `rousecontext.com` DNS zone should have a CAA record restricting issuance to a single CA (e.g. `0 issue "letsencrypt.org"`). This prevents other CAs from issuing for the domain even if credentials are compromised. Document in deployment runbook.
+The production `rousecontext.com` DNS zone should have a CAA record restricting issuance to a single CA. The upstream `rousecontext.com` zone uses Google Trust Services, so it publishes `0 issue "pki.goog"`; self-hosters using Let's Encrypt would use `0 issue "letsencrypt.org"` instead. This prevents other CAs from issuing for the domain even if credentials are compromised. Document in deployment runbook.
 
 ### Subdomain rotation
 
@@ -326,7 +326,11 @@ User controls exposure by:
 
 ## ACME Rate Limit Handling
 
-### Primary CA: Let's Encrypt (50 certs per registered domain per week)
+### Primary CA: Google Trust Services (GTS)
+
+`rousecontext.com` production runs against GTS's `dv.acme-v02.api.pki.goog` directory. GTS quotas (roughly 100 new orders/hour/account, tens of thousands of certs/day overall) are far above what the relay generates even under mass-onboarding load — quota was the main reason to move off Let's Encrypt, whose 50-cert-per-registered-domain-per-week ceiling was the binding constraint for fresh-install churn. GTS requires External Account Binding on the first `newAccount` call; see `docs/design/relay.md` for the config knobs.
+
+Let's Encrypt remains a supported option for self-hosters (see `docs/self-hosting.md`). The rate-limit handling below is generic and applies to any ACME CA the relay is pointed at.
 
 ### When limit is hit:
 1. Relay returns `{"error": "rate_limited", "retry_after_secs": 604800}` to device
@@ -338,8 +342,6 @@ User controls exposure by:
 ### When quota resets:
 1. Relay processes pending queue
 2. Relay sends FCM to each blocked device to trigger cert pickup
-
-### Future: add Google Trust Services or ZeroSSL as fallback CA
 
 ## Module Structure
 
@@ -408,7 +410,7 @@ User can request new subdomain once per 30 days. Old subdomain invalidated immed
 27. Device validates renewed cert CN/SAN matches stored subdomain before storing
 
 ### ACME rate limits
-28. Registration hits Let's Encrypt rate limit → device gets `rate_limited` error + retry_after
+28. Registration hits the ACME CA rate limit → device gets `rate_limited` error + retry_after
 29. Device shows "delayed" notification, schedules retry
 30. Admin receives automated alert
 31. Quota resets → relay processes pending queue, sends FCM to blocked devices
