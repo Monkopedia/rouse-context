@@ -28,12 +28,12 @@ Only remove entries from this list if we later implement a fix.
 ## Addressed (for reference)
 
 ### Token expiration / refresh (Audit #23)
-**Decision:** Backlog — implement refresh tokens (short-lived access + long-lived refresh)
-**Status:** Not yet implemented. Tokens currently don't expire.
+**Decision:** Implement refresh tokens (short-lived access + long-lived refresh) with rotation.
+**Status:** Implemented. `app/src/main/java/com/rousecontext/app/token/TokenEntity.kt` carries `expiresAt`, `refreshExpiresAt`, and `rotatedAt`; `app/src/main/java/com/rousecontext/app/token/RoomTokenStore.kt` (see `refreshToken`, lines ~115–140) performs OAuth 2.1 §4.14 refresh-token rotation with family-wide revocation on detected reuse.
 
 ### Notification action URLs (Audit #15)
-**Decision:** Verify http/https validation covers notification action buttons too
-**Status:** Needs verification.
+**Decision:** Verify http/https validation covers notification action buttons too.
+**Status:** Verified. `open_link` in `integrations/.../OutreachMcpProvider.kt` (around lines 161–172) rejects any scheme other than `http` or `https`.
 
 ### Usage integration privacy (Audit #16)
 **Decision:** Address via UX — clear setup copy explaining what's exposed
