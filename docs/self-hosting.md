@@ -267,7 +267,7 @@ If any step fails, tail the relay logs (`journalctl -u rouse-relay -f`) and the 
 
 **`strip_prefix("relay.")` doesn't match my hostname** — set `[server].base_domain` explicitly in `relay.toml`.
 
-**ACME rate limit (50 certs/week)** — use the staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`) for development, and persist `acme.account_key_path` so you don't register new accounts on every restart.
+**ACME rate limit** — quotas are CA-specific. Let's Encrypt enforces 50 certs per registered domain per week; for development against LE, use the staging directory (`https://acme-staging-v02.api.letsencrypt.org/directory`) to avoid burning production quota. Google Trust Services has tens-of-thousands/day headroom and is not a practical ceiling at this scale. In either case, persist `acme.account_key_path` so you don't register new accounts on every restart.
 
 ## Appendix: Runtime secrets for the upstream deploy (maintainers)
 
