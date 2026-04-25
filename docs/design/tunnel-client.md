@@ -2,19 +2,30 @@
 
 ## Overview
 
-Kotlin Multiplatform module (`:tunnel`). Core protocol logic in `commonMain` (Ktor WebSocket client, mux framing, session lifecycle). Android-specific code in `androidMain` (FCM, Keystore, WorkManager). JVM test target for integration tests against a test relay.
+JVM/Android library module (`:core:tunnel`). Owns the mux protocol, the
+WebSocket client to the relay, mTLS session bring-up, and the
+`CertificateStore` interface. Depended on by `:app` (wiring) and `:work`
+(foreground service + reconnect orchestration). Has no Android imports —
+the module is JVM-only and exposes a Kotlin API that the Android side
+consumes through Koin.
 
-## Module Structure (KMP)
+Higher-level concerns live elsewhere:
+
+- **FCM receiver, foreground service, reconnect** — `:work`
+- **Android Keystore signing key + CSR generation** — `:app` (`DeviceKeyManager`)
+- **Onboarding UI / state** — `:app` (`OnboardingViewModel`, `OnboardingScreen`)
+
+## Module Structure
 
 ```
-tunnel/
-  src/commonMain/     ← mux protocol, framing, WebSocket client, session lifecycle
-  src/commonTest/     ← protocol unit tests
-  src/androidMain/    ← FCM receiver, Android Keystore, WorkManager cert renewal
-  src/androidTest/    ← Android-specific tests
-  src/jvmMain/        ← JVM-specific implementations (for test relay, etc.)
-  src/jvmTest/        ← full integration tests against test relay
+core/tunnel/
+  src/jvmMain/kotlin/com/rousecontext/tunnel/   ← protocol, WebSocket client, mux, TLS accept
+  src/jvmTest/kotlin/...                         ← unit tests
+  src/integrationTest/kotlin/...                 ← integration tests against a test relay
 ```
+
+There is no `commonMain`/`androidMain`/`commonTest` source set — the
+module is not Kotlin Multiplatform.
 
 ## Mux Client
 
@@ -24,129 +35,145 @@ The mux client manages the WebSocket connection to the relay and demultiplexes i
 - Open and maintain WebSocket connection to relay (with mTLS using device cert)
 - Parse incoming binary frames (5-byte header: type u8, stream_id u32 BE, payload)
 - On OPEN frame: create raw stream pair, wrap in TLS server accept (using device cert + private key from `CertificateStore`), emit plaintext stream to app layer
-- On DATA frame: route payload bytes to the correct stream's InputStream
+- On DATA frame: route payload bytes to the correct stream
 - On CLOSE frame: close the corresponding stream pair
 - On ERROR frame: tear down the affected stream, propagate error
-- Outbound: accept bytes from stream OutputStreams, frame as DATA, send over WebSocket
+- Outbound: accept bytes via `MuxStream.send`, frame as DATA, send over WebSocket
 - WebSocket ping interval: ~30s (configurable, for NAT/mobile idle timeout survival)
 
 ### Stream Demux
-Each stream ID maps to a bidirectional byte channel. On the device side, each stream looks like a plain `InputStream`/`OutputStream` pair — `McpSession` never knows it's multiplexed.
+Each stream ID maps to a bidirectional byte channel. On the device side, each `MuxStream` exposes an `incoming: Flow<ByteArray>` and a `suspend fun send(data: ByteArray)`. TLS termination and HTTP routing sit on top via `TlsAcceptor` + `MuxStreamImpl`; `McpSession` never sees a mux frame.
 
 ### Connection State Machine
 ```
-DISCONNECTED → CONNECTING → CONNECTED → DISCONNECTING → DISCONNECTED
+DISCONNECTED → CONNECTING → CONNECTED → ACTIVE → DISCONNECTING → DISCONNECTED
 ```
 
-- **DISCONNECTED**: no WebSocket. Waiting for FCM or explicit connect.
+- **DISCONNECTED**: no WebSocket. Waiting for an explicit `connect(url)`.
 - **CONNECTING**: WebSocket handshake + mTLS in progress.
-- **CONNECTED**: ready to receive OPEN frames and carry streams.
+- **CONNECTED**: ready to receive OPEN frames; no active streams.
+- **ACTIVE**: at least one mux stream open.
 - **DISCONNECTING**: teardown in progress, sending CLOSE for active streams.
 
-No reconnect during active streams. If WebSocket drops, all streams die. Clean restart on next FCM.
+`TunnelClient` itself does not auto-reconnect. If the WebSocket drops or
+keepalive misses exceed `KEEPALIVE_MAX_MISSES` (`TunnelClientImpl`), the
+client transitions to DISCONNECTED and emits an error. **Reconnect
+ownership lives in `:work`** — `WakeReconnectDecider` and
+`TunnelForegroundService` decide when to reconnect, driven by FCM wakes
+and `healthCheck()` results (#179).
 
 ## FCM Wakeup
 
-### Receiver
-`FirebaseMessagingService` subclass in `androidMain`. On receiving a data message:
+Owned by `:work`, not `:core:tunnel`. The relevant pieces are listed
+here only to clarify the boundary.
 
-1. Extract `type` from data payload
+### Receiver
+`FirebaseMessagingService` subclass in `:work`. On receiving a data message:
+
+1. Extract `type` from data payload.
 2. Dispatch by type:
-   - `"wake"` (high priority): start TunnelService (foreground service), open mux WebSocket to the compiled-in relay URL (from BuildConfig)
-   - `"renew"` (normal priority): trigger immediate cert renewal via WorkManager (no mux connection needed)
-   - Unknown type: log warning, ignore
+   - `"wake"` (high priority): start the tunnel foreground service, which calls `TunnelClient.connect(url)` (URL from BuildConfig + `CertificateStore.getSubdomain()`).
+   - `"renew"` (normal priority): trigger immediate cert renewal via WorkManager (no mux connection needed).
+   - Unknown type: log warning, ignore.
 
 ### FCM Token Refresh
-`onNewToken()` callback → write new token directly to Firestore using Firebase SDK.
-If mux connection is active, no disruption — token is only used by relay for FCM sends.
+`onNewToken()` in `:work` is responsible for delivering the new token to
+the relay. While the tunnel is connected, `:work` calls
+`TunnelClient.sendFcmToken(token)`; otherwise it queues until the next
+connect.
 
-## Android Keystore Integration
+## Device Identity & Cert Storage
 
-### Key Generation (onboarding)
-```kotlin
-val keyPairGenerator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
-keyPairGenerator.initialize(
-    KeyGenParameterSpec.Builder("rouse_device_key", PURPOSE_SIGN)
-        .setDigests(KeyProperties.DIGEST_SHA256)
-        .build()
-)
-val keyPair = keyPairGenerator.generateKeyPair()
-```
+### Signing key
+Owned by `:app` `DeviceKeyManager` (issue #200). The ECDSA P-256
+signing key lives in the Android Keystore alias `rouse_device_key`, is
+non-exportable, and is hardware-backed where available. CSRs are
+generated by `:app` against this key (Bouncy Castle); `:core:tunnel`
+never touches the private key.
 
-- Algorithm: ECDSA P-256 (widely supported, compact signatures)
-- Key never exportable, hardware-backed where available
+### Cert storage
+PEM blobs (server cert, client cert, relay CA cert) are written to
+app-private storage by `:app`'s `CertificateStore` implementation. They
+are loaded on tunnel connect for the outer mTLS handshake against the
+relay and for the inner `TlsAcceptor` server hello when a mux stream
+opens.
 
-### CSR Generation
-Use Bouncy Castle or a lightweight ASN.1 library to create a PKCS#10 CSR signed by the Keystore private key. The CSR doesn't include the subdomain (relay assigns it) — just the public key.
-
-### Cert Storage
-The signed cert returned from the relay is stored in app-private storage (not the Keystore — Keystore holds keys, not certs). Loaded at mux connection time for mTLS.
-
-### Signature for Expired Renewal
-```kotlin
-val signature = Signature.getInstance("SHA256withECDSA")
-signature.initSign(privateKey) // from Keystore
-signature.update(csrBytes)
-val signed = signature.sign()
-```
+### Post-renewal validation
+After receiving a new cert from the relay, the device MUST verify the
+cert's CN/SAN matches its stored subdomain before storing. Reject and
+log an error if mismatched.
 
 ## Cert Renewal
 
-### WorkManager Job
-- Periodic: once daily
-- Constraint: network available
-- Check cert expiry date from `CertificateStore`
-- If <14 days remaining: call `POST /renew` with mTLS (proactive, silent)
-- If cert already expired: call `POST /renew` with Firebase token + signature
-- On failure: WorkManager retry with exponential backoff
-- On `type: "renew"` FCM (7-day nudge from relay): trigger immediate renewal attempt
+Implemented in `:work`, not `:core:tunnel`. Documented here for context.
 
-### Renewal Over Active Mux
-Device just makes an HTTPS call to `POST /renew` using its current cert for mTLS auth. The mux connection is unaffected. After getting the new cert, device stores it. Next mux connection uses the new cert.
+- Periodic WorkManager job: once daily, network constraint.
+- Read cert expiry via `CertificateStore.getCertExpiry()`.
+  - <14 days remaining: `POST /renew` over mTLS using the current cert (proactive, silent).
+  - Already expired: `POST /renew` with `subdomain` + new CSR + Firebase token + signature over the CSR (`relay/src/api/renew.rs`).
+- On failure: WorkManager retry with exponential backoff.
+- On `type: "renew"` FCM (7-day nudge from relay): trigger immediate renewal.
 
-### Post-Renewal Validation
-After receiving a new cert from the relay, the device MUST verify the cert's CN/SAN matches its stored subdomain before storing. Reject and log an error if mismatched.
+The mux connection is unaffected by renewal; the new cert is loaded on
+the next `connect(url)`.
 
 ## Onboarding Flow (device side)
 
-1. Check if device has stored cert + subdomain → if yes, skip onboarding
-2. Generate keypair in Android Keystore
-3. Firebase anonymous auth → get UID
-4. Get FCM token
-5. Generate CSR
-6. Call `POST /register` on relay with Firebase token + CSR + FCM token
-7. Receive subdomain + signed cert
-8. Store cert + subdomain in app-private storage
-9. Onboarding complete → UI shows device subdomain
+Implemented in `OnboardingFlow.kt`. Three relay hops, with cert
+provisioning chained in (#389) so a fresh install lands on a fully
+configured Home rather than a half-onboarded state.
 
-If any step fails, show error in UI with retry option. No partial state — either fully onboarded or not.
+1. Check `CertificateStore.getSubdomain()` → if non-null, skip onboarding.
+2. Firebase anonymous auth → get UID + ID token.
+3. Get FCM token.
+4. `POST /request-subdomain` (`firebaseToken`) → relay reserves a single-word name keyed by the UID, short-TTL.
+5. `POST /register` (`firebaseToken`, `fcmToken`, `integrations`) → relay consumes the reservation and returns `subdomain` + `relay_host` + per-integration `secrets` map.
+6. Persist `subdomain` and `integrationSecrets` via `CertificateStore`.
+7. `OnboardingFlow.execute` chains `CertProvisioningFlow.execute(firebaseToken)` immediately:
+   - `DeviceKeyManager` ensures the Keystore keypair exists; generates a CSR.
+   - `POST /register/certs` (`firebaseToken`, signature over the token bytes, CSR) → relay returns `server_cert` + `client_cert` + `relay_ca_cert`.
+   - PEMs persisted via `CertificateStore`.
+
+If step 4 succeeds but step 5 fails, the reservation expires on its own
+— no client-side cleanup. If step 6 fails, the store is cleared (no
+partial onboarding). If step 7 fails, the subdomain + secrets are kept
+and the UI surfaces a retry path that re-runs only cert provisioning
+(see the cert-specific variants of `OnboardingResult` in
+`OnboardingFlow.kt`).
+
+See `docs/ux-decisions.md` (2026-04-24 entry) for the rationale behind
+chaining cert provisioning into onboarding.
 
 ## CertificateStore Interface
 
-The tunnel needs certs for TLS but doesn't own storage. The app provides an implementation.
+The tunnel needs identity material (subdomain, certs, integration
+secrets) at connect time but does not own storage. `:app` provides the
+production implementation backed by app-private files; tests use an
+in-memory implementation.
 
-```kotlin
-interface CertificateStore {
-    /** Device cert chain for TLS server accept and mTLS to relay */
-    fun getCertChain(): List<X509Certificate>?
+The interface in `core/tunnel/src/jvmMain/.../CertificateStore.kt`
+covers:
 
-    /** Private key reference from Android Keystore */
-    fun getPrivateKey(): PrivateKey?
+- **PEM access for onboarding/renewal/connect:** `storeSubdomain` /
+  `getSubdomain`, `storeCertificate` / `getCertificate` (server cert),
+  `storeClientCertificate` / `getClientCertificate` (relay-CA-issued
+  client cert), `storeRelayCaCert` / `getRelayCaCert`.
+- **Per-integration secrets:** `storeIntegrationSecrets` /
+  `getIntegrationSecrets` / `getSecretForIntegration(id)`.
+- **Binary cert + key access for security monitoring:** `getCertChain`,
+  `getPrivateKeyBytes`, `storeCertChain`, `getCertExpiry`.
+- **Fingerprint tracking for `SelfCertVerifier`:**
+  `getKnownFingerprints`, `storeFingerprint`, plus the
+  `hasFingerprintBootstrapMarker` / `writeFingerprintBootstrapMarker`
+  pair that distinguishes legitimate pre-#111 migration from
+  post-bootstrap corruption (#210).
+- **Rollback hooks:** `clear` (full reset) and `clearCertificates`
+  (cert-only reset that preserves subdomain + secrets, used by
+  `CertProvisioningFlow` for narrow rollback on storage failures).
 
-    /** Store a new cert chain (after onboarding or renewal) */
-    fun storeCertChain(certs: List<X509Certificate>)
-
-    /** Device subdomain (for mTLS SNI to relay) */
-    fun getSubdomain(): String?
-
-    /** Cert expiry for renewal checks */
-    fun getCertExpiry(): Instant?
-}
-```
-
-- Interface defined in tunnel's `commonMain`
-- `:app` provides Android implementation (PEM files in `filesDir`, private key from Keystore)
-- `jvmTest` uses in-memory implementation
+PEM-key storage hooks (`storePrivateKey` / `getPrivateKey`) are
+deprecated and no-ops. The signing key is owned by `DeviceKeyManager`
+in `:app` (#200) and never serialised to PEM.
 
 ## Security Monitoring
 
@@ -154,44 +181,34 @@ interface CertificateStore {
 
 The app periodically connects to its own relay subdomain and verifies the TLS leaf cert fingerprint matches the cert it provisioned. Implementation:
 
-1. Custom `X509TrustManager` that extracts the SHA-256 fingerprint of the leaf cert's public key
-2. Compares against the fingerprint stored in the Android Keystore alongside the private key
-3. During the 90-day renewal window, stores both current and pending renewal fingerprints — accepts either as valid to avoid false positives during legitimate rotation
-4. Mismatch triggers an immediate user-facing alert
-
-The `CertificateStore` interface gains two methods:
-
-```kotlin
-/** SHA-256 fingerprints of cert public keys we issued (current + pending renewal) */
-fun getKnownFingerprints(): Set<String>
-
-/** Store a fingerprint for a newly issued cert */
-fun storeFingerprint(fingerprint: String)
-```
+1. Custom `X509TrustManager` that extracts the SHA-256 fingerprint of the leaf cert's public key.
+2. Compares against the fingerprints stored via `CertificateStore.getKnownFingerprints()` (current + pending renewal).
+3. During the renewal window, both the current and pending fingerprints are accepted to avoid false positives during legitimate rotation.
+4. Mismatch triggers an immediate user-facing alert.
 
 ### Certificate Transparency Monitoring
 
 The app periodically queries CT logs for any cert issued against its subdomain:
 
 1. Query `https://crt.sh/?q={subdomain}.rousecontext.com&output=json`
-2. Parse the JSON response — each entry has an `id`, `issuer_name`, `not_before`, and `serial_number`
-3. Cross-reference against the cert the app provisioned (match by serial number or public key fingerprint)
-4. If CT shows any cert for this subdomain that the app didn't issue, surface an immediate alert
+2. Parse the JSON response — each entry has an `id`, `issuer_name`, `not_before`, and `serial_number`.
+3. Cross-reference against the cert the app provisioned (match by serial number or public key fingerprint).
+4. If CT shows any cert for this subdomain that the app didn't issue, surface an immediate alert.
 
 This defeats targeted interception attacks where an adversary filters the self-check traffic but MITMs actual AI client sessions — they can't hide a fraudulent cert from the CT logs.
 
 ### Scheduling
 
-Both checks are WorkManager periodic tasks (not blocking user sessions):
-- Run on first launch after onboarding
-- Then every 4 hours (`PeriodicWorkRequest` with flex window)
-- Failed checks degrade to a visible warning state — never silently swallowed
-- Results stored in the local audit log alongside tool call history
-- If `getCertChain()` returns null → `TunnelError.CertExpired` (or `CertUnavailable`)
+Both checks are WorkManager periodic tasks (in `:work`):
+- Run on first launch after onboarding.
+- Then every 4 hours (`PeriodicWorkRequest` with flex window).
+- Failed checks degrade to a visible warning state — never silently swallowed.
+- Results stored in the local audit log alongside tool call history.
 
 ## Interface to App Layer
 
-The tunnel module exposes to `:app`:
+The tunnel module exposes (see
+`core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/`):
 
 ```kotlin
 enum class TunnelState {
@@ -202,63 +219,91 @@ enum class TunnelState {
     DISCONNECTING,   // teardown in progress
 }
 
-sealed interface TunnelError {
-    data object ConnectionFailed : TunnelError
-    data object AuthRejected : TunnelError       // mTLS handshake failed
-    data object CertExpired : TunnelError         // cert needs renewal before connecting
-    data class StreamError(val streamId: Int, val code: ErrorCode) : TunnelError
-    data class Unexpected(val message: String) : TunnelError
-}
+// Sealed Exception subclass — see TunnelError.kt for the full taxonomy
+// (TlsHandshakeFailed, ConnectionFailed, WebSocketClosed, ProtocolError,
+// StreamRefused, StreamReset, InternalError, CertificateError,
+// InvalidStateTransition).
+sealed class TunnelError(message: String, cause: Throwable? = null)
+    : Exception(message, cause)
 
 interface TunnelClient {
-    /** Current connection + stream state */
+    /** Current connection + stream state. */
     val state: StateFlow<TunnelState>
 
-    /** Errors emitted for app to handle (notifications, audit, UI) */
+    /** Errors emitted for app to handle (notifications, audit, UI). */
     val errors: SharedFlow<TunnelError>
 
-    /** Connect to relay (called by foreground service on FCM wakeup) */
-    suspend fun connect()
+    /** Connect to the relay at [url] (mTLS + WebSocket handshake). */
+    suspend fun connect(url: String)
 
-    /** Disconnect from relay */
+    /** Gracefully disconnect. */
     suspend fun disconnect()
 
-    /** Emitted when relay sends OPEN — app should create McpSession for this stream */
+    /**
+     * Send the device's FCM token to the relay so it can send push wakeups.
+     * Safe to call multiple times when the FCM token refreshes.
+     */
+    suspend fun sendFcmToken(token: String)
+
+    /**
+     * Active half-open probe (#179): sends an application-layer Ping on the
+     * mux channel and waits up to [timeout] for a Pong. Returns false if
+     * the tunnel is not connected, the write fails, or the deadline is
+     * exceeded. `:work`'s WakeReconnectDecider uses this on FCM wake to
+     * decide whether to skip a fresh reconnect.
+     */
+    suspend fun healthCheck(timeout: Duration): Boolean
+
+    /** Each emission is a new mux stream opened by the relay. */
     val incomingSessions: Flow<MuxStream>
 }
 
 interface MuxStream {
-    val streamId: Int         // u32, mux routing ID (per-connection)
-    val sessionId: String     // UUID, generated by tunnel, for audit log + notifications
-    val sniHostname: String
-    val input: InputStream    // plaintext (post-TLS termination by tunnel)
-    val output: OutputStream  // plaintext (tunnel encrypts on the way out)
+    /** Unique stream identifier within the mux connection. */
+    val id: UInt
+
+    /** Incoming data chunks from the remote peer. */
+    val incoming: Flow<ByteArray>
+
+    /** Send data to the remote peer (DATA frame). */
+    suspend fun send(data: ByteArray)
+
+    /** Close this stream gracefully (CLOSE frame). */
     suspend fun close()
+
+    val isClosed: Boolean
 }
 ```
 
-`:app` collects `incomingSessions`, creates `McpSession(providers)` for each, and calls `session.run(stream.input, stream.output)`.
+The TLS termination and SNI-based per-integration routing are handled
+by `TlsAcceptor` + `MuxStreamImpl` on top of the raw mux stream. `:app`
+collects `incomingSessions`, wraps each through `TlsAcceptor`, and
+hands the plaintext stream to `McpSession` to drive the integration
+HTTP server.
 
-See `docs/design/relay.md § Mux Framing Protocol` for the wire format (message types, error codes, byte layout).
+See `docs/design/relay.md § Mux Framing Protocol` for the wire format
+(message types, error codes, byte layout) and `docs/design/relay-api.md`
+for the relay endpoint surface.
 
 ## Dependencies
 
-### commonMain (KMP)
+### Production
 - `io.ktor:ktor-client-core` — HTTP + WebSocket client
 - `io.ktor:ktor-client-websockets` — WebSocket support
 - `kotlinx-coroutines-core`
 - `kotlinx-io-core` — byte buffer utilities
 
-### androidMain
-- `com.google.firebase:firebase-messaging` — FCM
-- `androidx.work:work-runtime-ktx` — WorkManager for cert renewal
-- `androidx.lifecycle:lifecycle-service` — foreground service base
-- Bouncy Castle or similar for CSR generation
+(Bouncy Castle for CSR generation lives in `:app`, not here. FCM,
+WorkManager, and lifecycle-service live in `:work`.)
 
-### jvmTest
+### jvmTest / integrationTest
 - Ktor client with CIO engine
 - Test relay implementation (in-process mock)
 
 ## Still Needs Design
 
-(none — all items resolved. CSR: Bouncy Castle. Cert storage: PEM file in app-private dir. Error propagation: TunnelError sealed class via SharedFlow. TunnelState enum with ACTIVE for 1+ streams. Foreground service + Doze + wakelocks: app concerns, see android-app.md. Mux wire format: see relay.md.)
+(none — all items resolved. CSR: Bouncy Castle in `:app`. Cert storage:
+PEM in app-private dir. Error propagation: `TunnelError` sealed class
+via `SharedFlow`. `TunnelState` enum with ACTIVE for 1+ streams.
+Foreground service / Doze / wakelocks / reconnect: `:work` concerns,
+see `docs/design/android-app.md`. Mux wire format: see `relay.md`.)

@@ -324,7 +324,7 @@ https://crisp-notifications.abc123.rousecontext.com  → Notifications (future)
 https://swift-contacts.abc123.rousecontext.com       → Contacts (future)
 ```
 
-The `{adjective}` portion of the first label is rotated independently of the `{integrationId}` so the routing key is unguessable to bots scanning the subdomain (#92, see also `docs/design/secret-prefix-bot-rejection.md`).
+The `{adjective}` portion of the first label is rotated independently of the `{integrationId}` so the routing key is unguessable to bots scanning the subdomain (#92). See `docs/design/relay-api.md` for the per-integration secret API surface.
 
 ### How It Works
 

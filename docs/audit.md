@@ -201,27 +201,14 @@ Removed from active audit on 2026-04-25 (deleted from repo):
   path" memory rule).
 
 ### docs/design/per-integration-hostnames.md
-- **Length**: 512 lines
-- **Audience**: engineering (proposal)
-- **Accuracy**: partially stale. Status is "proposed". Feature shipped
-  but with a different data model: proposal said
-  `integration_secrets: HashMap<String, String>`; code has
-  `valid_secrets: Vec<String>` + deprecated `secret_prefix`. Design
-  intent matches; schema does not.
-- **User-facing content?**: No.
-- **Recommendation**: update — change status to "implemented" and
-  reconcile the schema section with the shipped `Vec<String>` +
-  deprecated `secret_prefix` model. Or delete if we don't want to
-  preserve proposal docs post-ship.
+- **Status**: deleted (post-ship proposal). Shipped behavior is
+  documented in `docs/design/relay-api.md` and
+  `docs/design/overall.md § Per-integration hostnames`.
 
 ### docs/design/secret-prefix-bot-rejection.md
-- **Length**: 178 lines
-- **Audience**: engineering (proposal, predecessor to
-  per-integration-hostnames)
-- **Accuracy**: partially stale. Design shipped. Superseded by
-  `per-integration-hostnames.md` which generalized it.
-- **User-facing content?**: No.
-- **Recommendation**: delete. Superseded.
+- **Status**: deleted. Superseded by per-integration-hostnames; the
+  shipped routing-key design lives in
+  `docs/design/relay-api.md` and `docs/design/overall.md`.
 
 ### docs/design/notifications-integration.md
 - **Length**: 70 lines
@@ -294,11 +281,13 @@ Removed from active audit on 2026-04-25 (deleted from repo):
 ## Summary punch list
 
 - [ ] **Delete**: `BLOCKERS.md`, `docs/workflow.md`,
-      `docs/test-coverage-audit.md`,
-      `docs/design/secret-prefix-bot-rejection.md`.
+      `docs/test-coverage-audit.md`.
       _Done 2026-04-25: `docs/overnight-plan-2.md`, `docs/e2e-status.md`,
       `docs/device-test-report.md`, and the four `docs/screenshot_*.png`
       files paired with that report._
+      _Done (post-ship): `docs/design/secret-prefix-bot-rejection.md`,
+      `docs/design/per-integration-hostnames.md` — superseded by
+      `docs/design/relay-api.md` + `docs/design/overall.md`._
       `docs/screenshots/index.html` is kept (it indexes `app/screenshots/*`,
       not the deleted PNGs).
 - [ ] **Rewrite for docs/user/**: `docs/security.md` → split into
@@ -324,9 +313,6 @@ Removed from active audit on 2026-04-25 (deleted from repo):
         with auto-reconnect implementation.
   - [ ] `docs/design/ui.md` — deeper review against current nav graph
         and Screen composables; mark any dead-code screens.
-  - [ ] `docs/design/per-integration-hostnames.md` — status → implemented,
-        schema → `Vec<String> valid_secrets` + deprecated
-        `secret_prefix`. Or delete post-ship.
   - [ ] `docs/design/health-connect-expansion.md` — mark shipped record
         types.
 - [ ] **Keep as-is**:

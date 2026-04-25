@@ -1,7 +1,15 @@
 # Health Connect Expansion
 
+**Status:** Implemented. Reference doc rather than a proposal — the
+generic query interface described below is shipped in `:integrations`
+(`com.rousecontext.integrations.health`). This document is kept as a
+high-level reference; the source of truth for record types is
+[`RecordTypeRegistry.kt`](../../integrations/src/main/java/com/rousecontext/integrations/health/RecordTypeRegistry.kt).
+
 ## Overview
-Replace hardcoded `get_steps`, `get_heart_rate`, `get_sleep` tools with a generic query interface that supports all Health Connect record types.
+Generic Health Connect query surface that supports all the record types
+the app holds permissions for, replacing the original hardcoded
+`get_steps` / `get_heart_rate` / `get_sleep` tools.
 
 ## MCP Tools
 
@@ -9,7 +17,7 @@ Replace hardcoded `get_steps`, `get_heart_rate`, `get_sleep` tools with a generi
 Returns all available Health Connect record types and whether the app has permission.
 - **Params**: none
 - **Returns**: Array of `{type, display_name, category, has_permission, description}`
-- Categories: "activity", "body", "sleep", "vitals", "nutrition", "cycle"
+- Categories: `activity`, `body`, `sleep`, `vitals`, `nutrition`, `reproductive`, `mindfulness`
 
 ### `query_health_data`
 Generic query for any record type.
@@ -28,32 +36,49 @@ High-level health summary across multiple data types.
 - **Returns**: `{steps_total, avg_heart_rate, sleep_hours, weight_latest, active_minutes, ...}` — includes whatever data types have permission and data
 
 ## Record Type Registry
-Internal mapping from string names to Health Connect SDK classes:
-```kotlin
-val RECORD_TYPES = mapOf(
-    "Steps" to StepsRecord::class,
-    "HeartRate" to HeartRateRecord::class,
-    "SleepSession" to SleepSessionRecord::class,
-    "Weight" to WeightRecord::class,
-    "BloodPressure" to BloodPressureRecord::class,
-    "ActiveCaloriesBurned" to ActiveCaloriesBurnedRecord::class,
-    "Distance" to DistanceRecord::class,
-    "ExerciseSession" to ExerciseSessionRecord::class,
-    "Hydration" to HydrationRecord::class,
-    "Nutrition" to NutritionRecord::class,
-    "OxygenSaturation" to OxygenSaturationRecord::class,
-    "RespiratoryRate" to RespiratoryRateRecord::class,
-    // ... etc
-)
-```
+
+All supported record types are declared in `RecordTypeRegistry.kt` as
+`RecordTypeInfo` entries (machine `name`, `displayName`,
+`RecordCategory`, `description`, Health Connect read permission). The
+shipped registry covers seven categories:
+
+| Category       | Examples                                                                                                  |
+|----------------|-----------------------------------------------------------------------------------------------------------|
+| `activity`     | Steps, ActiveCaloriesBurned, TotalCaloriesBurned, BasalMetabolicRate, Distance, ElevationGained, FloorsClimbed, ExerciseSession, Speed, Power, CyclingPedalingCadence, StepsCadence, WheelchairPushes |
+| `body`         | Weight, Height, BodyFat, BoneMass, LeanBodyMass, Vo2Max                                                   |
+| `sleep`        | SleepSession                                                                                              |
+| `vitals`       | HeartRate, RestingHeartRate, HeartRateVariabilityRmssd, BloodPressure, BloodGlucose, OxygenSaturation, RespiratoryRate, BodyTemperature, BasalBodyTemperature, SkinTemperature |
+| `nutrition`    | Hydration, Nutrition                                                                                      |
+| `reproductive` | MenstruationFlow, MenstruationPeriod, CervicalMucus, OvulationTest, IntermenstrualBleeding, SexualActivity |
+| `mindfulness`  | MindfulnessSession                                                                                        |
+
+See `RecordTypeRegistry.kt` for the authoritative list, exact display
+names, descriptions, and Health Connect read-permission strings.
 
 ## Permissions
-- Each record type requires its own Health Connect read permission
-- `list_record_types` shows which ones are granted
-- Setup flow should request all common permissions upfront, with option to add more later
+- Each record type requires its own Health Connect read permission (see `RecordTypeInfo.readPermission`).
+- `list_record_types` reports which ones are currently granted.
+- Setup flow requests the common permissions upfront, with the option to add more later.
 
 ## Architecture
-- Modify existing `:health` module
-- Replace hardcoded tool handlers with generic `RecordTypeRegistry`
-- Each record type has a `RecordTypeHandler` that knows how to query and serialize results
-- `query_health_data` dispatches to the appropriate handler by type string
+
+- Lives in the `:integrations` module
+  (`com.rousecontext.integrations.health`).
+- `HealthConnectMcpServer` registers the three tools above.
+- Dispatch is by record type via `repository.queryRecords(type, …)` —
+  `HealthConnectRepository` (interface) /
+  `RealHealthConnectRepository` (production) delegate the actual SDK
+  calls to category-grouped query files under
+  `com.rousecontext.integrations.health.query`:
+  - `ActivityQueries.kt`
+  - `BodyQueries.kt`
+  - `SleepQueries.kt`
+  - `VitalsQueries.kt`
+  - `NutritionQueries.kt`
+  - `ReproductiveQueries.kt`
+  - `MindfulnessQueries.kt`
+  - `CategoryQueries.kt` (cross-category aggregation for `get_health_summary`)
+  - `RecordReader.kt` (shared SDK read helpers)
+- There is no per-type `RecordTypeHandler` class — the original
+  proposal anticipated one, but the shipped implementation groups
+  query logic by category for less surface area per record type.
