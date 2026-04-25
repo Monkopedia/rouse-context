@@ -12,7 +12,7 @@ It's an Android app that turns your phone into an [MCP](https://modelcontextprot
 AI Client ──TLS──> Relay (SNI passthrough) ──mux WebSocket (mTLS)──> Your Phone
 ```
 
-1. You enable an integration (e.g. Health Connect) and get a URL like `https://brave-falcon.abc123.rousecontext.com/health/mcp`
+1. You enable an integration (e.g. Health Connect) and get a URL like `https://brave-health.abc123.rousecontext.com/mcp` (the integration is identified by the hostname prefix; the path is always `/mcp`)
 2. Add that URL to Claude, Cursor, or any MCP client
 3. When the client connects, the relay wakes your phone via FCM push
 4. Your phone connects back through a mTLS WebSocket, and the relay splices the two TLS streams together
@@ -45,6 +45,7 @@ Each integration is independently enabled and gets its own MCP endpoint with OAu
 | `:integrations` | MCP providers: Health Connect, outreach (calls/SMS/DND), usage stats, notification capture |
 | `:notifications` | Cross-cutting notification infrastructure, audit persistence (Room) |
 | `:work` | Foreground service, FCM receiver, WorkManager |
+| `:core:testfixtures` | Shared fixtures for integration-tier tests that boot the real relay binary |
 
 ### Relay Server (`relay/`)
 
@@ -52,16 +53,16 @@ Rust binary on a small VPS. Handles:
 - **TLS passthrough** — routes AI client connections to devices via SNI, never terminates inner TLS
 - **Mux WebSocket** — multiplexes multiple client sessions over one device connection
 - **FCM wakeup** — sends push notifications to wake sleeping devices
-- **ACME certs** — issues wildcard TLS certs per device via Let's Encrypt DNS-01 (Cloudflare API)
+- **ACME certs** — issues per-device TLS certs via Google Trust Services DNS-01 (Cloudflare API); Let's Encrypt also supported
 - **Bot protection** — secret URL prefix validated before waking device, plus FCM throttle and IP rate limiting
 
 ## Security
 
 - **End-to-end encrypted** — TLS terminates on your phone. The relay does SNI passthrough only.
 - **No cloud sync** — data is read from on-device sources and served live. Nothing stored remotely.
-- **Per-device ACME certs** — wildcard certs via Let's Encrypt, private key in Android Keystore (hardware-backed).
+- **Per-device ACME certs** — per-device certs via Google Trust Services (DNS-01), private key in Android Keystore (hardware-backed).
 - **mTLS device auth** — relay authenticates the device by client certificate before allowing connections.
-- **Secret URL prefix** — each device URL includes a rotatable secret (`brave-falcon.abc123.rousecontext.com`). Bots that discover the device subdomain can't wake it without the secret.
+- **Secret URL prefix** — each device URL includes a rotatable per-integration secret (`brave-health.abc123.rousecontext.com`, where `brave-health` is `{adjective}-{integrationId}`). Bots that discover the device subdomain can't wake it without the secret.
 - **OAuth per-client** — each AI client must be authorized via on-device approval before accessing tools.
 - **Audit trail** — every tool invocation is logged locally with arguments, response, and duration.
 
@@ -73,7 +74,7 @@ Rust binary on a small VPS. Handles:
 ./gradlew assembleDebug
 ```
 
-Requires Android SDK (API 35) and JDK 17+.
+Requires Android SDK (`compileSdk` 36, `targetSdk` 35, `minSdk` 24). Build requires JDK 21 (`JAVA_HOME=/usr/lib/jvm/java-21-openjdk`).
 
 ### Coverage report
 
