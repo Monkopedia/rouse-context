@@ -55,7 +55,7 @@ import org.junit.jupiter.api.Timeout
  * skipped and any non-empty secret prefix is accepted.
  *
  * These tests are skipped if the relay binary has not been built.
- * Build it with: cd relay && cargo build
+ * Build it with: cd relay && cargo build --features test-mode
  */
 @Suppress("LargeClass")
 @Tag("integration")
@@ -73,14 +73,12 @@ class EndToEndSessionTest {
             "$INTEGRATION_SECRET.$DEVICE_SUBDOMAIN.$RELAY_HOSTNAME"
 
         /**
-         * Give the relay a moment after the WS upgrade completes to finish
-         * auto-creating the Firestore device record and inserting the mux
-         * session into its registry. Without this, an AI client that races
-         * in immediately after [connectTunnelClient] returns can hit
-         * `DeviceNotFound` before the server-side `handle_mux_session`
-         * body runs.
+         * Upper bound for [TestRelayManager.waitForSessionRegistered]. The
+         * relay-side `Notify` typically fires within a millisecond of the
+         * mux WebSocket upgrade completing; 10s is generous for CI under
+         * stress (#263, #400).
          */
-        private const val SESSION_REGISTRATION_DELAY_MS = 500L
+        private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
 
     private lateinit var tempDir: File
@@ -98,7 +96,7 @@ class EndToEndSessionTest {
         val relayBinary = findRelayBinary()
         assumeTrue(
             relayBinary.exists() && relayBinary.canExecute(),
-            "Relay binary not found. Build with: cd relay && cargo build"
+            "Relay binary not found. Build with: cd relay && cargo build --features test-mode"
         )
 
         tempDir = File.createTempFile("e2e-session-", "")
@@ -108,7 +106,11 @@ class EndToEndSessionTest {
         ca = TestCertificateAuthority(tempDir, RELAY_HOSTNAME, DEVICE_SUBDOMAIN)
         ca.generate()
 
-        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
+        // test-mode enables the `/test/wait-session-registered` admin
+        // endpoint used by `connectTunnelClient` to deterministically wait
+        // for the relay-side `SessionRegistry.insert` instead of a blind
+        // 500ms sleep (#263, #400).
+        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
     }
@@ -134,17 +136,18 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 5 - cold path full TLS tunnel`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
+        // Subscribe BEFORE connect so the collector is live when the relay
+        // starts splicing client sockets onto mux streams (#263, #402).
+        val tunnelClient = createTunnelClient()
+        val sessionReceived = CompletableDeferred<MuxStream>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessionReceived.complete(stream)
+            }
+        }
+        connectTunnelClient(tunnelClient)
 
         try {
-            // Collect the first incoming session
-            val sessionReceived = CompletableDeferred<MuxStream>()
-            val collectJob = launch {
-                tunnelClient.incomingSessions.collect { stream ->
-                    sessionReceived.complete(stream)
-                }
-            }
-
             // AI client connects with device subdomain SNI (starts TLS handshake)
             val clientSocket = CompletableDeferred<SSLSocket>()
             launch(Dispatchers.IO) {
@@ -207,16 +210,17 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 6 - warm path instant OPEN`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
+        val sessionReceived = CompletableDeferred<MuxStream>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessionReceived.complete(stream)
+            }
+        }
+        connectTunnelClient(tunnelClient)
 
         try {
-            val sessionReceived = CompletableDeferred<MuxStream>()
-            val collectJob = launch {
-                tunnelClient.incomingSessions.collect { stream ->
-                    sessionReceived.complete(stream)
-                }
-            }
-
             // Device is already connected. Now connect AI client.
             val startTime = System.currentTimeMillis()
 
@@ -252,20 +256,21 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 7 - concurrent clients get different stream IDs`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
-
-        try {
-            val sessions = CopyOnWriteArrayList<MuxStream>()
-            val twoSessions = CompletableDeferred<Unit>()
-            val collectJob = launch {
-                tunnelClient.incomingSessions.collect { stream ->
-                    sessions.add(stream)
-                    if (sessions.size >= 2) {
-                        twoSessions.complete(Unit)
-                    }
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
+        val sessions = CopyOnWriteArrayList<MuxStream>()
+        val twoSessions = CompletableDeferred<Unit>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessions.add(stream)
+                if (sessions.size >= 2) {
+                    twoSessions.complete(Unit)
                 }
             }
+        }
+        connectTunnelClient(tunnelClient)
 
+        try {
             // Connect two AI clients via raw TCP
             val rawSocket1 = connectRawAiClient()
             val rawSocket2 = connectRawAiClient()
@@ -295,16 +300,17 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 8 - client disconnect sends CLOSE to device`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
+        val sessionReceived = CompletableDeferred<MuxStream>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessionReceived.complete(stream)
+            }
+        }
+        connectTunnelClient(tunnelClient)
 
         try {
-            val sessionReceived = CompletableDeferred<MuxStream>()
-            val collectJob = launch {
-                tunnelClient.incomingSessions.collect { stream ->
-                    sessionReceived.complete(stream)
-                }
-            }
-
             // AI client connects via raw TCP
             val rawSocket = connectRawAiClient()
 
@@ -348,14 +354,15 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 9 - device disconnect drops client TCP`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
-
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
         val sessionReceived = CompletableDeferred<MuxStream>()
         val collectJob = launch {
             tunnelClient.incomingSessions.collect { stream ->
                 sessionReceived.complete(stream)
             }
         }
+        connectTunnelClient(tunnelClient)
 
         // AI client connects via raw TCP
         val rawSocket = connectRawAiClient()
@@ -396,22 +403,23 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 10 - max streams exceeded`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
-
-        try {
-            val sessions = CopyOnWriteArrayList<MuxStream>()
-            val enoughSessions = CompletableDeferred<Int>()
-            val collectJob = launch {
-                tunnelClient.incomingSessions.collect { stream ->
-                    sessions.add(stream)
-                    if (sessions.size >= 8) {
-                        // Give the 9th a moment to be processed
-                        delay(2_000)
-                        enoughSessions.complete(sessions.size)
-                    }
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
+        val sessions = CopyOnWriteArrayList<MuxStream>()
+        val enoughSessions = CompletableDeferred<Int>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessions.add(stream)
+                if (sessions.size >= 8) {
+                    // Give the 9th a moment to be processed
+                    delay(2_000)
+                    enoughSessions.complete(sessions.size)
                 }
             }
+        }
+        connectTunnelClient(tunnelClient)
 
+        try {
             // Open 9 AI client connections via raw TCP
             val sockets = CopyOnWriteArrayList<java.net.Socket>()
             for (ignored in 1..9) {
@@ -611,8 +619,8 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 17 - mux drop closes all client connections`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
-
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
         val sessions = CopyOnWriteArrayList<MuxStream>()
         val twoSessions = CompletableDeferred<Unit>()
         val collectJob = launch {
@@ -623,6 +631,7 @@ class EndToEndSessionTest {
                 }
             }
         }
+        connectTunnelClient(tunnelClient)
 
         // Connect two AI clients via raw TCP
         val rawSocket1 = connectRawAiClient()
@@ -669,15 +678,15 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 18 - reconnect gets new stream IDs`() = runBlocking {
-        // First connection
-        val tunnelClient1 = connectTunnelClient()
-
+        // First connection — subscribe BEFORE connect (#263, #402).
+        val tunnelClient1 = createTunnelClient()
         val firstSession = CompletableDeferred<MuxStream>()
         val collectJob1 = launch {
             tunnelClient1.incomingSessions.collect { stream ->
                 firstSession.complete(stream)
             }
         }
+        connectTunnelClient(tunnelClient1)
 
         val rawSocket1 = connectRawAiClient()
 
@@ -689,15 +698,15 @@ class EndToEndSessionTest {
         collectJob1.cancel()
         delay(1_000) // Let relay clean up
 
-        // Reconnect with a new TunnelClientImpl
-        val tunnelClient2 = connectTunnelClient()
-
+        // Reconnect with a new TunnelClientImpl — subscribe BEFORE connect.
+        val tunnelClient2 = createTunnelClient()
         val secondSession = CompletableDeferred<MuxStream>()
         val collectJob2 = launch {
             tunnelClient2.incomingSessions.collect { stream ->
                 secondSession.complete(stream)
             }
         }
+        connectTunnelClient(tunnelClient2)
 
         val rawSocket2 = connectRawAiClient()
 
@@ -726,16 +735,17 @@ class EndToEndSessionTest {
      */
     @Test
     fun `scenario 19 - TLS tunnel handles multiple sequential messages`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
+        // Subscribe BEFORE connect (#263, #402).
+        val tunnelClient = createTunnelClient()
+        val sessionReceived = CompletableDeferred<MuxStream>()
+        val collectJob = launch {
+            tunnelClient.incomingSessions.collect { stream ->
+                sessionReceived.complete(stream)
+            }
+        }
+        connectTunnelClient(tunnelClient)
 
         try {
-            val sessionReceived = CompletableDeferred<MuxStream>()
-            val collectJob = launch {
-                tunnelClient.incomingSessions.collect { stream ->
-                    sessionReceived.complete(stream)
-                }
-            }
-
             // AI client connects with TLS
             val clientSocket = CompletableDeferred<SSLSocket>()
             launch(Dispatchers.IO) {
@@ -799,15 +809,15 @@ class EndToEndSessionTest {
     @Suppress("LongMethod")
     @Test
     fun `scenario 20 - full session lifecycle with reconnect`() = runBlocking {
-        // Phase 1: connect and exchange data
-        val tunnelClient1 = connectTunnelClient()
-
+        // Phase 1: subscribe BEFORE connect (#263, #402), then exchange data.
+        val tunnelClient1 = createTunnelClient()
         val session1Received = CompletableDeferred<MuxStream>()
         val collectJob1 = launch {
             tunnelClient1.incomingSessions.collect { stream ->
                 session1Received.complete(stream)
             }
         }
+        connectTunnelClient(tunnelClient1)
 
         val clientSocket1 = CompletableDeferred<SSLSocket>()
         launch(Dispatchers.IO) {
@@ -845,16 +855,16 @@ class EndToEndSessionTest {
         assertEquals(TunnelState.DISCONNECTED, tunnelClient1.state.value)
         delay(1_000) // Let relay clean up
 
-        // Phase 2: reconnect and exchange data again
-        val tunnelClient2 = connectTunnelClient()
-        assertEquals(TunnelState.CONNECTED, tunnelClient2.state.value)
-
+        // Phase 2: subscribe BEFORE connect, then exchange data again.
+        val tunnelClient2 = createTunnelClient()
         val session2Received = CompletableDeferred<MuxStream>()
         val collectJob2 = launch {
             tunnelClient2.incomingSessions.collect { stream ->
                 session2Received.complete(stream)
             }
         }
+        connectTunnelClient(tunnelClient2)
+        assertEquals(TunnelState.CONNECTED, tunnelClient2.state.value)
 
         val clientSocket2 = CompletableDeferred<SSLSocket>()
         launch(Dispatchers.IO) {
@@ -900,7 +910,10 @@ class EndToEndSessionTest {
      */
     @Test
     fun `healthCheck succeeds against live relay`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
+        // No incomingSessions consumer needed for healthCheck. Use the
+        // deterministic registration wait via [connectTunnelClient] (#263).
+        val tunnelClient = createTunnelClient()
+        connectTunnelClient(tunnelClient)
         try {
             val live = tunnelClient.healthCheck(kotlin.time.Duration.parse("2s"))
             assertTrue(live, "Live relay must answer Ping with matching Pong")
@@ -919,7 +932,9 @@ class EndToEndSessionTest {
      */
     @Test
     fun `healthCheck fails and state flips when relay is killed`() = runBlocking {
-        val tunnelClient = connectTunnelClient()
+        // No incomingSessions consumer needed for healthCheck (#263).
+        val tunnelClient = createTunnelClient()
+        connectTunnelClient(tunnelClient)
         try {
             // Baseline: relay is up, healthCheck must succeed.
             assertTrue(
@@ -961,29 +976,48 @@ class EndToEndSessionTest {
     // =========================================================================
 
     /**
-     * Connect a [TunnelClientImpl] to the relay using [MtlsWebSocketFactory].
-     * This exercises the production code path.
+     * Build a [TunnelClientImpl] without connecting it. Callers are
+     * expected to subscribe to [TunnelClientImpl.incomingSessions] before
+     * invoking [connectTunnelClient] so the collector is live when the
+     * relay starts splicing client sockets onto mux streams. This matches
+     * production wiring in `TunnelForegroundService` (subscribe-then-connect)
+     * and avoids the test-only race the former 500ms blind sleep masked
+     * (#263, #402).
      */
-    private suspend fun connectTunnelClient(): TunnelClientImpl {
+    private fun createTunnelClient(): TunnelClientImpl {
         val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val wsFactory = MtlsWebSocketFactory(sslContext)
-        val client = TunnelClientImpl(
+        return TunnelClientImpl(
             scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO),
             webSocketFactory = wsFactory
         )
+    }
+
+    /**
+     * Connect a [TunnelClientImpl] to the relay using [MtlsWebSocketFactory].
+     * This exercises the production code path. Caller must have already
+     * subscribed to [TunnelClientImpl.incomingSessions] on a separate
+     * coroutine before calling this.
+     */
+    private suspend fun connectTunnelClient(client: TunnelClientImpl) {
         client.connect("wss://$RELAY_HOSTNAME:$relayPort/ws")
         assertEquals(
             TunnelState.CONNECTED,
             client.state.value,
             "TunnelClient should be CONNECTED after connect()"
         )
-        // The Kotlin side sees CONNECTED as soon as the WebSocket handshake
-        // completes, but the relay's handle_mux_session body (which does
-        // Firestore auto-create + session_registry.insert) runs in a separate
-        // tokio task afterwards. Give it a moment so subsequent AI-client
-        // connections find the session registered.
-        delay(SESSION_REGISTRATION_DELAY_MS)
-        return client
+        // Deterministic wait for the relay's `SessionRegistry.insert` after
+        // the WS upgrade completes (#263, #400). Backed by per-subdomain
+        // `Notify` on the relay, exposed via the test-mode admin endpoint.
+        val registered = relayManager.waitForSessionRegistered(
+            DEVICE_SUBDOMAIN,
+            SESSION_REGISTRATION_TIMEOUT_MS
+        )
+        assertTrue(
+            registered,
+            "Relay did not register mux session for $DEVICE_SUBDOMAIN within " +
+                "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+        )
     }
 
     // =========================================================================
