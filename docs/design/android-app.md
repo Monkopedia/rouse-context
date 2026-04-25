@@ -1,377 +1,336 @@
 # Android App Design
 
-## Module Structure
+Reflects shipped behavior on `main`. Source paths and line numbers are cited so this doc can be re-validated against the tree.
+
+## Architecture Overview
+
+The Android app is a single-Activity Compose app that hosts an on-device MCP server. The app shell wires together a Koin graph, a Compose Navigation host, and a foreground tunnel service. MCP integrations register through a single contract (`McpIntegration`) and the app is the only module that knows about all the others.
+
+Runtime topology of a live session:
 
 ```
-:core:tunnel         — KMP (jvm + android), mux protocol, CertificateStore interface, TunnelClient
-:core:mcp            — KMP (jvm + android), McpSession, ProviderRegistry, TokenStore, OAuth, HTTP routing
-:api                 — provider registration contract: McpIntegration interface, UI contracts
-:health              — implements :api for Health Connect
-:notifications       — audit persistence, notification channels,
-                       provides createForegroundNotification() for :work
-:work                — foreground service, WorkManager cert renewal, FCM receiver, wakelock management
-:app                 — Compose shell, Koin graph, navigation, registers providers, ties everything together
+AI client ──TLS──▶ relay (SNI passthrough) ──mux/WebSocket──▶
+  TunnelForegroundService (in :work) ──▶ TunnelSessionManager (in :core:bridge) ──▶
+  McpSession (in :core:mcp) ──▶ McpIntegration.provider (one per integration)
 ```
 
-### Dependency Graph
+Per-integration audit, notification, and permission state surfaces in the app UI; the integration itself only supplies metadata, an MCP `provider`, and an availability check.
+
+## Module Map
+
+Canonical list from `settings.gradle.kts:25-35`. Eleven modules; nine ship in the APK (`:core:testfixtures`, `:device-tests`, and `:e2e` are test-only).
+
+| Module | Path | Role | Project deps |
+|---|---|---|---|
+| `:app` | `app/` | Single Activity, Koin graph, navigation, integration registry, all setup/manage screens. Only module that knows about every other module. | `:core:tunnel`, `:core:mcp`, `:core:bridge`, `:api`, `:integrations`, `:notifications`, `:work` |
+| `:core:tunnel` | `core/tunnel/` | KMP. Mux protocol, WebSocket client, `CertificateStore`, `OnboardingFlow`, `CertProvisioningFlow`, `RelayApiClient`. No MCP knowledge. | (none) |
+| `:core:mcp` | `core/mcp/` | KMP. `McpSession`, `McpServerProvider`, OAuth device-code flow, token store, HTTP routing, `AuditListener`. | (none) |
+| `:core:bridge` | `core/bridge/` | KMP. Wires `:core:tunnel` mux streams to `:core:mcp` sessions: `TunnelSessionManager`, `SessionHandler`, `McpSessionFactory`, `HttpHeaderInjector`, `TlsCertProvider`. | `:core:tunnel`, `:core:mcp` |
+| `:api` | `api/` | The `McpIntegration` interface plus the supporting `IntegrationStateStore` / `NotificationSettingsProvider` contracts. | `:core:mcp` |
+| `:integrations` | `integrations/` | Hosts every shipped MCP server: `health`, `notifications`, `outreach`, `usage`. Each subpackage exports an `McpServerProvider` plus its own data layer. | `:core:mcp`, `:api`, `:notifications` |
+| `:notifications` | `notifications/` | Notification channels, foreground notification builder, audit Room database, post-session decisioning. | `:core:tunnel`, `:core:mcp`, `:api` |
+| `:work` | `work/` | `TunnelForegroundService`, FCM receiver + dispatch, WorkManager workers (`CertRenewalWorker`, `SecurityCheckWorker`), `IntegrationSecretsSynchronizer`, `IdleTimeoutManager`, `WakelockManager`, `WakeReconnectDecider`. | `:api`, `:core:tunnel`, `:core:bridge`, `:notifications` |
+| `:core:testfixtures` | `core/testfixtures/` | Test-only. `TestRelayFixture` for booting the real relay binary in integration tests. | (test) |
+| `:device-tests` | `device-tests/` | Instrumented tests. | (test) |
+| `:e2e` | `e2e/` | Cold-start and end-to-end harnesses. | (test) |
+
+### Dependency graph
+
+Edges below are derived from the `build.gradle.kts` file in each module.
 
 ```
-:core:tunnel         ← (no project module deps)
-:core:mcp            ← (no project module deps)
-:api                 ← :core:mcp
-:health              ← :api, :core:mcp
-:notifications       ← :core:tunnel, :core:mcp
-:work                ← :core:tunnel, :notifications (for foreground notification creation)
-:app                 ← :core:tunnel, :core:mcp, :api, :health, :notifications, :work
+:core:tunnel    (no project deps)
+:core:mcp       (no project deps)
+:core:bridge    ──▶ :core:tunnel, :core:mcp
+:api            ──▶ :core:mcp
+:integrations   ──▶ :core:mcp, :api, :notifications
+:notifications  ──▶ :core:tunnel, :core:mcp, :api
+:work           ──▶ :api, :core:tunnel, :core:bridge, :notifications
+:app            ──▶ :core:tunnel, :core:mcp, :core:bridge, :api,
+                    :integrations, :notifications, :work
 ```
 
-## :api — Provider Registration Contract
+There is no separate `:health`, `:outreach`, `:usage`, or `:notifications-mcp` module; all four MCP integrations live as subpackages of `:integrations` (`integrations/src/main/{java,kotlin}/com/rousecontext/integrations/{health,notifications,outreach,usage}`).
 
-Defines how MCP provider modules integrate with the app. Each provider implements `McpIntegration`.
+## Integration Contract
+
+The single contract is `McpIntegration` in `api/src/main/kotlin/com/rousecontext/api/McpIntegration.kt:11-45`:
 
 ```kotlin
 interface McpIntegration {
-    /** Unique ID, e.g. "health" */
-    val id: String
-
-    /** Display name, e.g. "Health Connect" */
-    val displayName: String
-
-    /** Short description for the Add Integration picker */
-    val description: String
-
-    /** URL path, e.g. "/health" */
-    val path: String
-
-    /** The MCP server provider for tool/resource registration */
+    val id: String              // e.g. "health"
+    val displayName: String     // e.g. "Health Connect"
+    val description: String     // shown in the Add picker
+    val path: String            // URL path prefix, e.g. "/health"
     val provider: McpServerProvider
-
-    /** Is the underlying platform available? (e.g. Health Connect installed) */
     suspend fun isAvailable(): Boolean
-
-    /**
-     * Register this integration's screens into the nav graph.
-     * Routes should be relative — the app provides a prefix (e.g. "integration/health/")
-     * to ensure uniqueness.
-     */
-    fun NavGraphBuilder.registerNavigation(prefix: String, navController: NavController)
-
-    /** Relative route for onboarding flow (appended to prefix) */
-    val onboardingRoute: String    // e.g. "setup"
-
-    /** Relative route for settings/detail screen (appended to prefix) */
-    val settingsRoute: String      // e.g. "settings"
+    val onboardingRoute: String // legacy field (see below)
+    val settingsRoute: String   // legacy field (see below)
 }
 ```
 
-Note: `isEnabled()` removed. Enabled/disabled state is a user toggle managed by `IntegrationStateStore`, not a platform check. Permission issues are surfaced by the integration on its own settings screen (banners, grant buttons) and through MCP error responses.
+What's *not* on this interface (and previous revisions of this doc claimed):
 
-Each integration owns its own screens entirely — layout, navigation within its routes, permission handling. The app navigates to `integration/{id}/{onboardingRoute}` or `integration/{id}/{settingsRoute}` and the integration handles the rest.
+- No `registerNavigation(NavGraphBuilder, ...)`. Integrations do not own nav graph entries. Setup and manage screens for every integration live in `:app`'s nav graph (`HealthConnectSetupDestination`, `NotificationSetupDestination`, `OutreachSetupDestination`, `UsageSetupDestination`, `IntegrationManageDestination`).
+- No `requiredPermissions()`. Permissions are integration-specific. Health Connect derives its set from `RecordTypeRegistry.allPermissions` (`integrations/src/main/java/com/rousecontext/integrations/health/RecordTypeRegistry.kt:336`); the others compute their own.
+- `onboardingRoute` / `settingsRoute` survive on the interface but are not used to route — the app navigates by integration `id` to fixed routes (see Navigation below).
 
-The app provides utility composables for common UI elements (URL bar, disable button) that integrations can optionally use for consistency, but the integration controls its own layout.
+The four `McpIntegration` implementations live in `:app` (not `:integrations`) so that the app can wire `Context`, settings stores, scopes, and notifiers without `:integrations` taking a dependency on `:app`-owned types:
 
-Uses Compose Navigation 3 (Nav3).
+- `app/src/main/java/com/rousecontext/app/registry/HealthConnectIntegration.kt`
+- `app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt`
+- `app/src/main/java/com/rousecontext/app/registry/OutreachIntegration.kt`
+- `app/src/main/java/com/rousecontext/app/registry/UsageIntegration.kt`
 
-### Supporting interfaces in :api
+Each delegates to the corresponding `*McpProvider`/`*McpServer` in `:integrations`.
+
+### Supporting interfaces in `:api`
 
 ```kotlin
-/** User-toggled enable/disable per integration. Backed by Preferences DataStore. */
 interface IntegrationStateStore {
     fun isUserEnabled(integrationId: String): Boolean
     fun setUserEnabled(integrationId: String, enabled: Boolean)
     fun observeUserEnabled(integrationId: String): Flow<Boolean>
 }
 
-/** Notification preference access. */
 interface NotificationSettingsProvider {
     val settings: NotificationSettings
 }
 ```
 
-The subdomain is injected as `StateFlow<String?>` via Koin — integrations use it to build their full URL for display. No wrapper interface needed.
+The active subdomain is exposed as a `StateFlow<String?>` from `CertificateStore` and bound directly in Koin — integrations consume it for URL display without a wrapper interface.
 
-## :health — Health Connect Integration
+## Navigation
 
-Implements `McpIntegration`:
-- `isAvailable()` → checks Health Connect SDK is installed
-- `requiredPermissions()` → READ_STEPS, READ_HEART_RATE, READ_SLEEP, etc.
-- `onboardingRoute` = "setup" → full screen explaining data exposure, requests Health Connect permissions
-- `settingsRoute` = "settings" → shows granted/available permissions with grant buttons, recent activity for this provider, disable button
-- `provider` → `HealthConnectMcpServer` which calls `server.addTool()` / `server.addResource()`
+Single Activity, Compose Navigation. All routes are defined as constants in `Routes` (`app/src/main/java/com/rousecontext/app/ui/navigation/AppNavigation.kt:40-96`) and registered as composables in `AppNavigation()`.
 
-Owns its own screens via `registerNavigation()`. Routes: `integration/health/setup`, `integration/health/settings`.
+| Route constant | Pattern | Purpose |
+|---|---|---|
+| `ONBOARDING` | `onboarding?autostart={autostart}` | Welcome screen + autostart trigger; same composable for both modes (see Onboarding below). |
+| `ONBOARDING_BASE` | `onboarding` | NavHost start destination; resolves to the `ONBOARDING` composable because the arg is nullable. |
+| `ONBOARDING_AUTOSTART` | `onboarding?autostart=true` | Concrete URL used by `NotificationPreferences` Continue (#392). |
+| `NOTIFICATION_PREFERENCES` | `onboarding/notification_preferences` | Post-session mode picker, plus inline `POST_NOTIFICATIONS` permission request. |
+| `HOME` | `home` | Main dashboard. |
+| `AUDIT` | `audit?provider={provider}&scrollToCallId={scrollToCallId}` | Audit list, optionally filtered + scrolled. |
+| `AUDIT_DETAIL` | `audit_detail/{entryId}` | Single audit row detail. |
+| `SETTINGS` | `settings` | App settings, trust status, subdomain rotation. |
+| `ADD_INTEGRATION` | `add_integration` | Picker for integrations not yet enabled. |
+| `INTEGRATION_MANAGE` | `integration/{integrationId}` | Per-integration manage screen: URL, recent activity, authorized clients, disable. |
+| `INTEGRATION_SETUP` | `integration_setup/{integrationId}` | Cert/wiring spinner shown after a fresh enable, before the integration-specific setup. |
+| `HEALTH_CONNECT_SETUP` | `health_connect_setup/{mode}` | Health Connect permission + record type picker. |
+| `NOTIFICATION_SETUP` | `notification_setup/{mode}` | Notifications-MCP setup. |
+| `OUTREACH_SETUP` | `outreach_setup/{mode}` | Outreach (installed-apps) setup. |
+| `USAGE_SETUP` | `usage_setup/{mode}` | Usage stats setup. |
+| `INTEGRATION_ENABLED` | `integration_enabled/{integrationId}` | Confirmation screen showing the URL + waiting-for-client state. |
+| `AUTH_APPROVAL` | `auth_approval` | OAuth device-code approve/deny. |
+| `ALL_CLIENTS` | `all_clients/{integrationId}` | Authorized clients list, per integration. |
 
-Depends on: `:api`, `:core:mcp`, Health Connect SDK.
+`{mode}` on the four `*_setup` routes is a `SetupMode` enum (initial onboarding vs. post-onboarding management).
 
-## :work — Android Tunnel Integration
+There are no integration-owned routes. Each `*_setup` destination is registered in `:app` (`app/src/main/java/com/rousecontext/app/ui/navigation/destinations/`) and the integration only supplies an `id` plus an `McpServerProvider`.
 
-Manages the Android lifecycle around `:core:tunnel`. Does NOT know about MCP.
-
-### Foreground Service
-- Started by FCM receiver on `type: "wake"`
-- Holds reference to TunnelClient singleton (from Koin)
-- Calls `tunnelClient.connect()` on start
-- Posts foreground notification via `createForegroundNotification()` from `:notifications`
-- Updates notification as TunnelState changes
-- Stops when tunnel disconnects and idle timeout elapses
-
-### Wakelock Management
-- Observes `TunnelClient.state` from the singleton
-- ACTIVE (1+ streams): acquire PARTIAL_WAKE_LOCK
-- CONNECTED (no streams): release wakelock
-- CONNECTING: hold wakelock for Doze window
-- DISCONNECTED: release
-
-### Idle Timeout
-- Configurable (2-5 min default), read from Preferences DataStore
-- Timer starts when state transitions from ACTIVE → CONNECTED
-- Cancelled if new stream arrives
-- On expiry: calls `tunnelClient.disconnect()`
-- "Disable timeout" option only available if battery optimization exempted
-
-### FCM Receiver
-- `FirebaseMessagingService` subclass
-- Dispatches by `type`:
-  - `"wake"` → start foreground service
-  - `"renew"` → enqueue WorkManager cert renewal job
-  - unknown → log, ignore
-- `onNewToken()` → update Firestore
-
-### WorkManager Cert Renewal
-- Periodic: once daily, network constraint
-- Checks `CertificateStore.getCertExpiry()`
-- If <14 days remaining: call `POST /renew` (mTLS if cert valid, Firebase+signature if expired)
-- On failure: exponential backoff retry
-- On `rate_limited`: schedule retry for `retry_after`
-
-### Testing
-- Service lifecycle testable via Robolectric or instrumented tests
-- WorkManager testable via `TestWorkerBuilder`
-- Wakelock logic testable by observing `TunnelState` emissions (mock TunnelClient)
-
-## :notifications — Notification & Audit
-
-### Notification behavior
-
-The module maps tunnel/session events to notifications, honoring user-configurable
-post-session modes (summary / each-usage / suppress) and notification permission state.
-A thin Android adapter maps decisions to `NotificationManager` calls. The foreground
-notification is always posted while the service is running, regardless of mode.
-
-### Foreground Notification
-
-```kotlin
-fun createForegroundNotification(state: TunnelState, activeStreams: Int): Notification
-```
-
-Called by `:work`'s foreground service. Returns a `Notification` object. The `:work` module gets this via Koin injection.
-
-### Notification Channels
-- **Active Session** — foreground service, ongoing
-- **Session Summary** — post-session summaries, controllable by setting
-- **Warnings/Errors** — escalating severity
-
-### Audit Persistence
-
-Room database:
-
-```
-audit_log
-  id: Long (auto-increment)
-  timestamp: Long
-  tool_name: String
-  arguments_json: String
-  result_json: String
-  duration_ms: Long
-  session_id: String     // UUID from MuxStream.sessionId
-  provider_id: String
-```
-
-Implements `AuditListener` from `:core:mcp`. Retention: 30 days, pruned on app launch.
-
-### Deep-links
-Notification taps deep-link into audit history filtered by session ID. Uses Compose Navigation deep-link support.
-
-## :app — Shell
-
-### Responsibilities
-- Koin module definitions (wires all dependencies)
-- Single Activity + Compose Navigation
-- Screen orchestration (onboarding, main, settings, integration setup, audit, authorized clients)
-- Registers all `McpIntegration` implementations with `ProviderRegistry`
-- Creates the shared `McpSession` singleton
-- Observes tunnel events and dispatches notifications via `:notifications`
-- Binds `CertificateStore` implementation (reads PEM files, accesses Keystore)
-
-### Koin Graph (key bindings)
-```kotlin
-val appModule = module {
-    // Core singletons
-    single { TunnelClientImpl(get<CertificateStore>()) } bind TunnelClient::class
-    single { McpSession(get(), get(), get()) }
-
-    // Interfaces → implementations
-    single<CertificateStore> { FileCertificateStore(get()) }
-    single<TokenStore> { RoomTokenStore(get()) }
-    single<IntegrationStateStore> { DataStoreIntegrationStateStore(get()) }
-    single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(get()) }
-    single<AuditListener> { RoomAuditListener(get()) }
-    single<ProviderRegistry> {
-        IntegrationProviderRegistry(getAll<McpIntegration>(), get<IntegrationStateStore>())
-    }
-
-    // Subdomain as StateFlow for URL display
-    single<StateFlow<String?>> { get<CertificateStore>().subdomainFlow() }
-
-    // Provider registrations
-    single<McpIntegration> { HealthConnectIntegration(get()) }
-    // Future: single<McpIntegration> { NotificationsIntegration() }
-}
-```
-
-### Navigation
-
-Single Activity, Compose Navigation 3 (Nav3):
-
-App-owned routes:
-- `/welcome` — first-run welcome screen
-- `/main` — dashboard (connection status, enabled integrations, recent activity)
-- `/add` — add integration picker
-- `/setup/notifications` — notification preferences (first integration only)
-- `/setup/certprogress` — cert issuance spinner
-- `/setup/ready/{id}` — integration URL + waiting for client
-- `/integration/{id}/manage` — integration detail: URL, recent activity, authorized clients, disable, settings link
-- `/approve` — device code approval (full screen)
-- `/approved` — connection confirmed
-- `/audit` — audit history list, filterable
-- `/audit/{sessionId}` — audit detail for a session (deep-link target from notifications)
-- `/settings` — app settings
-
-Integration-owned routes (registered via `McpIntegration.registerNavigation()`):
-- `/integration/{id}/setup` — onboarding flow (e.g. Health Connect permissions)
-- `/integration/{id}/settings` — domain-specific settings (e.g. permissions, data types)
-
-Bottom nav: Home, Audit, Settings (3 tabs). No global Clients tab — authorized clients shown per-integration in the manage screen.
-
-### Dependency Injection
-- Koin (not Hilt) for simplicity and KMP compatibility
-- All core interfaces bound in the app module
-- Integration modules provide their `McpIntegration` implementations via Koin
-
-### Battery Optimization
-- On launch: check `PowerManager.isIgnoringBatteryOptimizations()`
-- If not exempt: show card on main screen, deep-link to system dialog
-- Don't nag — remember dismissal in DataStore
-- OEM-specific guidance for Samsung/Xiaomi/Huawei
+Bottom nav: Home, Audit, Settings (3 tabs). The bottom bar and top bar are hidden during the onboarding routes (`AppNavigation.kt:98-153`).
 
 ## Device Onboarding
 
-First-run flow before any integrations:
+Three relay hops, one Compose flow, one shared `OnboardingViewModel`.
 
-1. Welcome screen — explain what the app does
-2. Notification permission (Android 13+) — request `POST_NOTIFICATIONS`
-   - Granted: normal behavior
-   - Denied: force post_session_notifications to "Suppress", inform user
-   - Foreground service notification works regardless
-3. Device registration progress — generating keys... registering... issuing certificate...
-4. Success — show assigned subdomain, guide to adding first integration
-5. Failure — error with retry, no partial state
+### Relay sequence
 
-## Integration Management
+`OnboardingFlow.execute()` (`core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/OnboardingFlow.kt:53-61`) chains:
 
-### Integration States
+1. `POST /request-subdomain` — relay reserves a single-word subdomain keyed by the Firebase UID (short TTL).
+2. `POST /register` — consumes the reservation, returns the assigned subdomain plus the per-integration secret map. Subdomain + secrets are persisted via `CertificateStore`.
+3. `POST /register/certs` (via `CertProvisioningFlow`) — mints the ACME server cert (DNS-01 through Cloudflare) and the relay-CA client cert. Added in #389 so a device never lands in a half-configured "subdomain but no certs" state.
 
-Derived from `IntegrationStateStore` + `TokenStore`:
+Failure semantics:
+
+- Step 1 failure: no persisted state. Reservation expires on its own.
+- Step 2 failure: no persisted state.
+- Step 3 failure: subdomain + secrets stay (#163). The user can retry just the cert hop without burning a new subdomain reservation.
+
+### UI flow
+
+Drawn from `OnboardingViewModel.kt:69-140` and the destinations under `app/src/main/java/com/rousecontext/app/ui/navigation/destinations/`:
+
+```
+Welcome  ──▶  NotificationPreferences  ──▶  onboarding?autostart=true  ──▶  Home
+(ONBOARDING)   (NOTIFICATION_PREFERENCES)   (ONBOARDING_AUTOSTART)
+```
+
+Step-by-step:
+
+1. **Welcome** (`OnboardingDestination`) — first-run intro. On Get Started, navigates to `NOTIFICATION_PREFERENCES`.
+2. **Notification preferences** (`NotificationPreferencesDestination`) — pick post-session mode (summary / each-usage / suppress), and on Android 13+ inline-prompt for `POST_NOTIFICATIONS`. On Continue, navigates to `ONBOARDING_AUTOSTART` (popping `ONBOARDING` inclusive).
+3. **Autostart re-entry** — the same `OnboardingDestination` recomposes with `autostart=true` and triggers `OnboardingViewModel.startOnboarding()` *on the destination's own VM*. This is the #392 invariant: previously two separate `OnboardingViewModel` instances existed (one for Welcome, one for NotificationPreferences) which caused the Welcome screen to never observe the relay registration completing. There is now exactly one `OnboardingViewModel` for the whole flow.
+4. **Registering** — `OnboardingState.InProgress(Registering)` while Firebase anon auth + FCM token + `POST /request-subdomain` + `POST /register` run. UI shows a spinner with "Registering" copy.
+5. **Provisioning certificates** — `OnboardingState.InProgress(ProvisioningCerts)` while `POST /register/certs` runs (multi-second ACME hop). UI flips to "Provisioning certificates" copy.
+6. **Onboarded** — navigates to `HOME`.
+
+There is no separate "generating keys" UI step; key generation happens inside `CertProvisioningFlow` while the UI is in `ProvisioningCerts`. The two `OnboardingStep` values in `OnboardingViewModel.kt:40-43` are exhaustive.
+
+The decision to run cert provisioning at Continue (rather than deferring to the first integration add) is logged in `docs/ux-decisions.md` under the 2026-04-24 entry.
+
+Failure surfaces:
+
+- `OnboardingState.RateLimited` — relay or ACME rate-limit; UI shows the formatted retry date.
+- `OnboardingState.Failed` — terminal error with retry button; on cert-provisioning failures, `registrationStatus.markComplete()` still fires so a retry from Settings can re-run only the cert hop.
+
+`OnboardingViewModel.startOnboarding()` launches on an `appScope` (Application-scoped) coroutine so the multi-second cert hop survives the user backgrounding the app or recomposition tearing down `viewModelScope`.
+
+## Foreground Service & Tunnel Lifecycle (`:work`)
+
+`:work` owns every Android-lifecycle concern around the tunnel. It does not know about MCP — that's `:core:bridge`'s job, invoked from inside the service.
+
+### `TunnelForegroundService`
+
+- Started by `FcmReceiver` on `type: "wake"`.
+- Holds the singleton `TunnelClient` from Koin; calls `connect()`.
+- Posts the foreground notification via the builder from `:notifications`.
+- Updates the notification as `TunnelState` changes.
+- Stops via `IdleTimeoutManager` after the configured idle window with no active streams.
+
+### FCM dispatch (`FcmDispatch`, `FcmReceiver`)
+
+`FirebaseMessagingService` subclass dispatches by `type`:
+
+- `wake` → start `TunnelForegroundService`.
+- `renew` → enqueue `CertRenewalWorker`.
+- unknown → log + ignore.
+
+`onNewToken()` triggers `FcmTokenRegistrar` to update the relay.
+
+### WorkManager workers
+
+- **`CertRenewalWorker`** — periodic, daily, network-constrained. Reads cert expiry from `CertificateStore`; if <14 days left, calls `POST /renew` (mTLS if cert valid, Firebase-signature otherwise). Schedules backoff on failure; honors `retry_after` on `rate_limited`.
+- **`SecurityCheckWorker`** — periodic self-check against the device's own cert and crt.sh. Persists results via `SecurityCheckPreferences`. Triggered by `SecurityCheckScheduler`.
+
+### Wakelock and reconnect logic
+
+- `WakelockManager` observes `TunnelClient.state`: ACTIVE (>=1 stream) holds `PARTIAL_WAKE_LOCK`; CONNECTED idle releases; CONNECTING holds for the Doze window; DISCONNECTED releases.
+- `WakeReconnectDecider` decides whether a `wake` FCM should reconnect immediately or be treated as spurious (`SpuriousWakeRecorder` keeps the rolling history).
+
+### Integration secret synchronization
+
+`IntegrationSecretsSynchronizer` keeps the device's stored integration secrets in sync with the relay's view. Run on connect and after `rotate-secret` events so a freshly-rotated integration secret on one device propagates without a full re-register.
+
+### Idle timeout
+
+`IdleTimeoutManager` (`work/src/main/kotlin/com/rousecontext/work/IdleTimeoutManager.kt`) arms the timer when `TunnelClient.state` enters CONNECTED and fires `tunnelClient.disconnect()` on expiry. The timeout duration (default 5 min) and the "disable timeout" toggle are user-facing settings; the toggle is gated on the device being battery-optimization-exempt.
+
+## Audit & Notifications (`:notifications`)
+
+### Audit persistence
+
+Room database, schema in `notifications/src/main/.../audit/`. Implements `AuditListener` from `:core:mcp` so every tool call/response surfaces with timestamps, arguments JSON, result JSON, duration, session ID, and provider ID. Retained for 30 days; pruned on app launch.
+
+Notification taps deep-link into `AUDIT?provider={id}&scrollToCallId={id}` so the user lands on the specific call.
+
+### Notification channels
+
+- **Active Session** — foreground service, ongoing.
+- **Session Summary** — controllable via `post_session_notifications` setting (`summary` / `each_usage` / `suppress`).
+- **Warnings/Errors** — escalating severity, including security-check alerts.
+
+### Foreground notification builder
+
+`createForegroundNotification(state: TunnelState, activeStreams: Int): Notification` is provided to `:work` via Koin. Always posted while the service is running, regardless of `post_session_notifications` mode.
+
+## Cross-Cutting Concerns
+
+### Koin DI
+
+The Koin graph is assembled in `app/src/main/java/com/rousecontext/app/di/AppModule.kt`. The four `McpIntegration` instances are registered as named singles and aggregated into a `List<McpIntegration>`:
+
+```kotlin
+single<McpIntegration>(named("health"))        { HealthConnectIntegration(androidContext()) }
+single<McpIntegration>(named("outreach"))      { OutreachIntegration(...) }
+single<McpIntegration>(named("notifications")) { NotificationIntegration(...) }
+single<McpIntegration>(named("usage"))         { UsageIntegration(androidContext()) }
+
+single<List<McpIntegration>> {
+    buildList {
+        add(get(named("notifications")))
+        add(get(named("outreach")))
+        add(get(named("usage")))
+        add(get(named("health")))
+        getKoin().getOrNull<McpIntegration>(named("test"))?.let { add(it) }
+    }
+}
+```
+
+Other key bindings:
+
+- `single<TunnelClient> { ... }` — the singleton consumed by `:work`.
+- `single<CertificateStore> { ... }` — file/Keystore-backed.
+- `single<TokenStore> { ... }` — Room-backed.
+- `single<IntegrationStateStore> { DataStoreIntegrationStateStore(...) }`.
+- `single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(...) }`.
+- `single<AuditListener> { ... }` — Room-backed; consumed by `:core:mcp`.
+- `single { TunnelSessionManager(...) }` — bridges tunnel mux streams to MCP sessions (`:core:bridge`).
+
+### Integration state machine
+
+Derived from `IntegrationStateStore` and `TokenStore`:
 
 - **Available** — `!userEnabled`, never set up. Shows in Add picker.
-- **Disabled** — `!userEnabled`, was previously set up. Shows in Add picker (re-enable skips setup if permissions still granted).
-- **Pending** — `userEnabled`, `!tokenStore.hasTokens(id)`. No client authorized yet. Shows on dashboard.
-- **Active** — `userEnabled`, `tokenStore.hasTokens(id)`. At least one client authorized. Shows on dashboard.
-- **Unavailable** — `!isAvailable()`. Platform not present. Greyed out in Add picker.
+- **Disabled** — `!userEnabled`, previously set up. Shows in Add picker.
+- **Pending** — `userEnabled`, no tokens. Shown on dashboard.
+- **Active** — `userEnabled`, ≥1 token. Shown on dashboard.
+- **Unavailable** — `!isAvailable()`. Greyed out.
 
-State transitions:
+Transitions:
+
 ```
-Available ──[setup flow]──→ Pending ──[client authorizes]──→ Active
-Disabled  ──[re-enable]───→ Pending ──[client authorizes]──→ Active
-Active    ──[user disables]──→ Disabled
-Pending   ──[user disables]──→ Disabled
-Active    ──[all tokens revoked]──→ Pending
+Available ──[setup]────────▶ Pending ──[client authorizes]──▶ Active
+Disabled  ──[re-enable]────▶ Pending ──[client authorizes]──▶ Active
+Active    ──[user disable]─▶ Disabled
+Pending   ──[user disable]─▶ Disabled
+Active    ──[tokens revoked]▶ Pending
 ```
 
-`clientAuthorized` is updated explicitly: set to true when device code approval completes for this integration, derived from `tokenStore.hasTokens(integrationId)`.
+### Setup flow (post-onboarding)
 
-### Setup Flow
-1. User taps integration from the Add picker
-2. Notification preferences shown (first integration only, skipped if already set)
-3. App navigates to `integration/{id}/setup` (integration owns the screen)
-4. Integration handles permissions, explanation, etc.
-5. On complete: `IntegrationStateStore.setUserEnabled(id, true)`, navigate to cert spinner (if needed) then URL screen
-6. On cancel: back to Add picker, state unchanged
+1. Add picker → user taps an available integration.
+2. App navigates to `INTEGRATION_SETUP/{id}` (cert/wiring spinner; cert provisioning already ran during onboarding, so this is mostly an integration-specific bootstrap).
+3. App navigates to the integration-specific setup destination (`HEALTH_CONNECT_SETUP`, `NOTIFICATION_SETUP`, `OUTREACH_SETUP`, or `USAGE_SETUP`) with `mode = Setup`.
+4. On complete: `IntegrationStateStore.setUserEnabled(id, true)`, then `INTEGRATION_ENABLED/{id}` shows the URL and waits for the first client.
+5. On cancel: back to Add picker.
 
-### Main Screen
-- Connection status indicator
-- Integration list with state badges
-- "Add Integration" for available-but-not-enabled integrations
-- Recent audit activity summary
+### Battery optimization
 
-## Client Authorization UI
+On launch, `PowerManager.isIgnoringBatteryOptimizations()` is checked. If false, a card on Home deep-links to the system dialog. Dismissal is remembered in `AppStatePreferences`. OEM-specific guidance (Samsung/Xiaomi/Huawei) lives in the same flow.
 
-- Device code approval: notification → open app → enter code → approve/deny
-- Authorized clients screen (`/clients`): list with client_id, created_at, last_used_at
-- Revoke per client
-- All tokens revoked on subdomain rotation
+### Security monitoring (Settings → Trust Status)
 
-## Subdomain Rotation
+- Self-check timestamp + result (verified / warning / alert).
+- CT-log (crt.sh) check timestamp + result.
+- Truncated SHA-256 cert fingerprint (tap to expand).
+- Overall status: green / amber / red.
 
-In Settings:
-- "Generate new address" button
-- Confirmation: "All connected clients will lose access. Once per 30 days."
-- On confirm: `/register` with `force_new: true`
-- Old subdomain invalidated, tokens revoked, UI updates
+Warning (amber) is non-blocking: shows "Unable to verify certificate — will retry." Alert (red) blocks new MCP sessions until acknowledged and offers View details + Rotate address actions.
 
-## ACME Rate Limit UX
+Persistence: `SecurityCheckPreferences` in `:work` (DataStore-backed).
 
-When relay returns `rate_limited`:
-- Notification: "Certificate issuance delayed. Will retry on [date]."
-- Onboarding shows waiting state
-- WorkManager retry scheduled
-
-## Settings (Preferences DataStore)
+### Settings (DataStore)
 
 - `idle_timeout_minutes: Int` (default 5)
-- `idle_timeout_disabled: Boolean` (requires battery optimization exempt)
-- `post_session_notifications: String` ("summary" | "each_usage" | "suppress")
+- `idle_timeout_disabled: Boolean` (battery-opt-exempt only)
+- `post_session_notifications: String` (`summary` | `each_usage` | `suppress`)
 - `battery_optimization_dismissed: Boolean`
 - `notification_permission_denied: Boolean`
+- `last_self_check_time: Long` / `last_self_check_result: String`
+- `last_ct_check_time: Long` / `last_ct_check_result: String`
+- `cert_fingerprint: String`
 
-## Security Monitoring
+### Subdomain rotation
 
-### Trust Status UI
+In Settings: "Generate new address" button. Confirmation warns "All connected clients will lose access. Once per 30 days." On confirm, `POST /register` with `force_new: true`; old subdomain invalidated, all tokens revoked, certs re-provisioned, UI updates.
 
-The Settings screen includes a trust status section showing:
+### ACME rate-limit UX
 
-| Field | Description |
-|---|---|
-| Self-check | Last timestamp + result (verified / warning / alert) |
-| CT log check | Last timestamp + result (verified / warning / alert) |
-| Cert fingerprint | Truncated SHA-256, tappable to show full |
-| Overall status | Verified (green) / Warning (amber) / Alert (red) |
-
-This makes security monitoring tangible rather than invisible. Users who care can verify it's actively working. Users who don't can ignore it — the alert states will surface on their own if something goes wrong.
-
-### Alert Behavior
-
-- **Warning** (amber): self-check or CT query failed to complete (network issue, crt.sh down). Shows "Unable to verify certificate — will retry." Non-blocking.
-- **Alert** (red): fingerprint mismatch or unknown cert in CT logs. Shows "Certificate verification failed — your connection may not be secure." Blocks new MCP sessions until acknowledged. Offers "View details" and "Rotate address" actions.
-
-### Preferences
-
-- `last_self_check_time: Long` (epoch millis)
-- `last_self_check_result: String` ("verified" | "warning" | "alert")
-- `last_ct_check_time: Long` (epoch millis)
-- `last_ct_check_result: String` ("verified" | "warning" | "alert")
-- `cert_fingerprint: String` (SHA-256 hex of current cert public key)
+When the relay returns `rate_limited` for cert issuance: notification "Certificate issuance delayed. Will retry on [date].", onboarding shows the same retry date, `CertRenewalWorker` schedules retry honoring `retry_after`.
 
 ## Still Needs Design
 
-1. **Third-party provider discovery** — bound service intent filter, verification, trust UI (future, not v1)
+- **Third-party provider discovery** — bound-service intent filter, verification, trust UI. Not v1.
