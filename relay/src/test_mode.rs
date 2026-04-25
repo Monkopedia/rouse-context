@@ -22,6 +22,10 @@
 //!   push a mux ERROR frame onto an already-open stream so tests can assert
 //!   that stream-level failures do not tear down the tunnel. `code` is a
 //!   `MuxErrorCode` value (1..=4); `message` is an optional UTF-8 diagnostic.
+//! - `GET  /test/wait-session-registered?subdomain=<sub>&timeout_ms=<ms>` —
+//!   deterministic wait for a device's mux `SessionRegistry` insertion. Used
+//!   to replace the 500ms sleep that guarded the relay-insertion race in the
+//!   integration tests (issue #377). Returns immediately if already registered.
 //! - `GET  /test/stats` — per-endpoint request counters + synthetic-wake log.
 //!
 //! See issue #249 for the motivating scenarios (#247 integration tier).
@@ -177,6 +181,46 @@ pub async fn handle_kill_ws(
 #[derive(Serialize)]
 pub struct WakeResponse {
     captured: usize,
+}
+
+#[derive(Deserialize)]
+pub struct WaitSessionQuery {
+    subdomain: String,
+    /// Upper bound in milliseconds on how long to block waiting for the
+    /// device-side WS upgrade to complete `SessionRegistry::insert`.
+    /// Defaults to 5s.
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct WaitSessionResponse {
+    registered: bool,
+    subdomain: String,
+}
+
+/// Block until the mux session for `subdomain` is registered (or `timeout_ms`
+/// elapses). Returns immediately if already registered. Replaces the
+/// hardcoded 500ms sleep integration tests used to insert after WS connect
+/// (issue #377) — the relay's insertion is on an async task and can be
+/// delayed under CI load, racing the AI-client TLS handshake that must
+/// route through the newly-registered session.
+pub async fn handle_wait_session_registered(
+    State(state): State<AdminState>,
+    Query(q): Query<WaitSessionQuery>,
+) -> Response {
+    let timeout = std::time::Duration::from_millis(q.timeout_ms.unwrap_or(5_000));
+    let registered = state
+        .session_registry
+        .wait_until_registered(&q.subdomain, timeout)
+        .await;
+    (
+        StatusCode::OK,
+        Json(WaitSessionResponse {
+            registered,
+            subdomain: q.subdomain,
+        }),
+    )
+        .into_response()
 }
 
 pub async fn handle_fcm_wake(
@@ -402,6 +446,10 @@ pub fn build_admin_router(admin_state: AdminState) -> axum::Router {
             "/test/emit-stream-error",
             axum::routing::post(handle_emit_stream_error),
         )
+        .route(
+            "/test/wait-session-registered",
+            axum::routing::get(handle_wait_session_registered),
+        )
         .route("/test/stats", axum::routing::get(handle_stats))
         .with_state(admin_state)
 }
@@ -565,5 +613,81 @@ mod tests {
         let router = build_admin_router(state);
         let resp = post(router, "/test/open-stream?subdomain=missing&stream_id=1").await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    async fn get(router: axum::Router, uri: &str) -> axum::response::Response {
+        router
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    }
+
+    async fn read_body(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn wait_session_registered_returns_immediately_when_already_registered() {
+        let (state, registry) = admin_state();
+        let _frame_rx = register_fake_session(&registry, "already");
+        let router = build_admin_router(state);
+        let resp = get(
+            router,
+            "/test/wait-session-registered?subdomain=already&timeout_ms=50",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert!(body.contains("\"registered\":true"), "body was: {body}");
+    }
+
+    #[tokio::test]
+    async fn wait_session_registered_unblocks_on_insert_before_timeout() {
+        let (state, registry) = admin_state();
+        let router = build_admin_router(state);
+
+        let reg_for_task = registry.clone();
+        let inserter = tokio::spawn(async move {
+            // Delay well under the admin call's timeout so the waiter is
+            // guaranteed to be parked on `notified()` before we fire.
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let (open_tx, _open_rx) = mpsc::channel(4);
+            let (kill_tx, _kill_rx) = mpsc::channel(1);
+            let (frame_tx, _frame_rx) = mpsc::channel(16);
+            reg_for_task.insert("later", open_tx, kill_tx, frame_tx);
+        });
+
+        let resp = get(
+            router,
+            "/test/wait-session-registered?subdomain=later&timeout_ms=2000",
+        )
+        .await;
+        inserter.await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert!(body.contains("\"registered\":true"), "body was: {body}");
+    }
+
+    #[tokio::test]
+    async fn wait_session_registered_reports_false_on_timeout() {
+        let (state, _registry) = admin_state();
+        let router = build_admin_router(state);
+        let resp = get(
+            router,
+            "/test/wait-session-registered?subdomain=never&timeout_ms=25",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = read_body(resp).await;
+        assert!(body.contains("\"registered\":false"), "body was: {body}");
     }
 }
