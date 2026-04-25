@@ -470,6 +470,18 @@ class TestRelayManager(
         requireAdmin().sendFcmWake(subdomain)
     }
 
+    /**
+     * Block until a device mux session is registered for [subdomain], or
+     * [timeoutMs] elapses. Returns `true` if the session is (or becomes)
+     * registered. See [TestRelayAdmin.waitForSessionRegistered] for
+     * background — replaces the 500ms sleep the integration tests used to
+     * paper over the post-WS-handshake registration race (issue #377).
+     *
+     * Requires [enableTestMode] = true.
+     */
+    fun waitForSessionRegistered(subdomain: String, timeoutMs: Long = 5_000L): Boolean =
+        requireAdmin().waitForSessionRegistered(subdomain, timeoutMs)
+
     /** Count of `/register/certs` calls observed by the relay. */
     fun registerCertsCalls(): Int = requireAdmin().registerCertsCalls()
 
@@ -752,6 +764,30 @@ class TestRelayAdmin(private val port: Int) {
                 "test-mode admin returned HTTP $code on emit-stream-error: $body"
             )
         }
+    }
+
+    /**
+     * Block until a mux session for [subdomain] is registered in the relay's
+     * [SessionRegistry], or [timeoutMs] elapses. Returns `true` if the
+     * session is (or becomes) registered.
+     *
+     * Replaces the hardcoded 500ms sleep the integration tests used to bridge
+     * the gap between client-side `TunnelState.CONNECTED` (WS handshake done)
+     * and relay-side `SessionRegistry.insert` (device is routable). See
+     * issue #377 for the flake this deterministic signal fixes.
+     */
+    fun waitForSessionRegistered(subdomain: String, timeoutMs: Long = 5_000L): Boolean {
+        // Give the HTTP client enough headroom beyond the server-side timeout
+        // to read the response, plus a safety margin for slow CI.
+        val readTimeout = (timeoutMs + 2_000L).toInt().coerceAtLeast(HTTP_TIMEOUT_MS)
+        val path = "/test/wait-session-registered?subdomain=${subdomain.urlEncoded()}" +
+            "&timeout_ms=$timeoutMs"
+        val conn = openConnection(path).apply {
+            requestMethod = "GET"
+            this.readTimeout = readTimeout
+        }
+        val body = readBody(conn)
+        return parseBoolField(body, "registered")
     }
 
     /** Number of `/register` calls observed since the relay started. */

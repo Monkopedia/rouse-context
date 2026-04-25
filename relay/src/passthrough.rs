@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify};
 use tracing::{debug, info, warn};
 
 /// Errors that can occur during passthrough.
@@ -99,12 +99,20 @@ pub struct SessionEntry {
 /// await points.
 pub struct SessionRegistry {
     sessions: DashMap<String, SessionEntry>,
+    /// Per-subdomain notifier fired when `insert` registers a new session.
+    /// Enables deterministic "wait for session registered" semantics in
+    /// tests without sleeping: `wait_until_registered` grabs (or creates)
+    /// the `Notify` for a subdomain and awaits `notified()`. See issue #377
+    /// for the flake this replaced (a hardcoded 500ms sleep in the tunnel
+    /// integration tests was racing with `insert` under CI load).
+    registration_signals: DashMap<String, Arc<Notify>>,
 }
 
 impl SessionRegistry {
     pub fn new() -> Self {
         Self {
             sessions: DashMap::new(),
+            registration_signals: DashMap::new(),
         }
     }
 
@@ -124,6 +132,46 @@ impl SessionRegistry {
                 frame_tx,
             },
         );
+        // Wake any `wait_until_registered` awaiters for this subdomain.
+        if let Some(notify) = self.registration_signals.get(subdomain) {
+            notify.notify_waiters();
+        }
+    }
+
+    /// Return whether a mux session is currently registered for `subdomain`.
+    pub fn contains(&self, subdomain: &str) -> bool {
+        self.sessions.contains_key(subdomain)
+    }
+
+    /// Wait until a mux session is registered for `subdomain`, or `timeout`
+    /// elapses. Returns `true` if a session is (or becomes) registered,
+    /// `false` on timeout.
+    ///
+    /// Used by the test-mode admin `/test/wait-session-registered` endpoint to
+    /// replace the 500ms sleep that used to guard the relay-side insertion
+    /// race in integration tests. The approach mirrors the `CompletableDeferred`
+    /// pattern from issue #341: a `Notify` primed once per subdomain lets
+    /// `insert` wake awaiters directly instead of forcing them to poll.
+    pub async fn wait_until_registered(&self, subdomain: &str, timeout: Duration) -> bool {
+        // Grab (or create) the `Notify` for this subdomain BEFORE the fast
+        // path check so that a concurrent `insert` racing between our check
+        // and the `notified()` subscription is caught by `enable()` below.
+        let notify = self
+            .registration_signals
+            .entry(subdomain.to_string())
+            .or_insert_with(|| Arc::new(Notify::new()))
+            .clone();
+        // Per tokio docs, `notified()` only starts listening when polled.
+        // `enable()` arms the future eagerly so any `notify_waiters` that
+        // fires after this line will wake it, closing the classic
+        // "notify between check and await" gap.
+        let notified = notify.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.sessions.contains_key(subdomain) {
+            return true;
+        }
+        tokio::time::timeout(timeout, notified).await.is_ok()
     }
 
     /// Send a frame directly to the device's mux WebSocket. Test-only hook

@@ -82,7 +82,7 @@ class OAuthEndToEndTest {
          * receives a consistent integration hostname. See sibling
          * EndToEndSessionTest for the SNI router semantics.
          */
-        private const val SESSION_REGISTRATION_DELAY_MS = 500L
+        private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
 
     private lateinit var tempDir: File
@@ -115,7 +115,10 @@ class OAuthEndToEndTest {
         ca = TestCertificateAuthority(tempDir, RELAY_HOSTNAME, DEVICE_SUBDOMAIN)
         ca.generate()
 
-        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME)
+        // test-mode enables the `/test/wait-session-registered` admin
+        // endpoint used below to deterministically wait for the relay-side
+        // `SessionRegistry.insert` instead of a blind 500ms sleep (#377).
+        relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
     }
@@ -518,10 +521,21 @@ class OAuthEndToEndTest {
             client.state.value,
             "TunnelClient should be CONNECTED"
         )
-        // Wait for the relay to finish auto-creating the Firestore record and
-        // inserting the mux session into its registry (both happen in the
-        // server-side `handle_mux_session` body after WS upgrade completes).
-        kotlinx.coroutines.delay(SESSION_REGISTRATION_DELAY_MS)
+        // Deterministic wait for the relay to finish auto-creating the
+        // Firestore record and inserting the mux session into its registry
+        // (both happen in the server-side `handle_mux_session` body after WS
+        // upgrade completes). Replaces the former 500ms sleep that was racing
+        // with the relay-side task scheduling under CI load -- see issue #377
+        // and the `CompletableDeferred`-based pattern from #341 this mirrors.
+        val registered = relayManager.waitForSessionRegistered(
+            DEVICE_SUBDOMAIN,
+            SESSION_REGISTRATION_TIMEOUT_MS
+        )
+        assertTrue(
+            registered,
+            "Relay did not register mux session for $DEVICE_SUBDOMAIN within " +
+                "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+        )
         return client
     }
 
