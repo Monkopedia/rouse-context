@@ -18,6 +18,7 @@ Filing an issue with options and a ranked recommendation is NOT approval. A GitH
 - Bug fixes that restore previously-intended behavior (the prior behavior was the approved one)
 - Copy wording at the same step, same flow position, same intent
 - New screens that are pure additions behind existing entry points (e.g. new Settings sub-pages, new Help content)
+- **Documentation updates that describe already-shipped behavior** — bringing design docs, READMEs, or audits in line with what the code already does. No code changes, no behavior changes. This is doc maintenance, not UX. (Don't conflate "rewriting design docs to match shipped code" with "changing the design.")
 
 ## Gray zone — ask
 
