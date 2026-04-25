@@ -2,25 +2,62 @@
 
 Complete API reference for the Rouse Context relay server (`relay.rousecontext.com`).
 
+This document describes the *shipped* HTTP/WebSocket surface and the mux binary
+framing protocol carried over the device WebSocket. It is the canonical
+contract between the device (`:core:tunnel` / `:work`) and the relay
+(`relay/`). Architectural prose lives in `relay.md`; the device side is
+detailed in `tunnel-client.md`.
+
 ## Conventions
 
 ### Base URL
 
-All REST endpoints are served over HTTPS at `https://relay.rousecontext.com` (port 443). The relay terminates TLS for its own hostname only. Device subdomain traffic is pure TLS passthrough and is not covered in this document (see `relay.md` for passthrough behavior).
+All REST endpoints are served over HTTPS at `https://relay.rousecontext.com`
+(port 443). The relay terminates TLS for the **relay's own hostname only**.
+Per-device subdomain traffic (e.g. `brave-health.abc123.rousecontext.com`) is
+**pure TLS passthrough** routed by SNI and is **not** an HTTP endpoint — see
+`relay.md` for passthrough behavior. There is no `/wake` HTTP endpoint; FCM
+wakeup happens internally inside the passthrough resolver
+(`relay/src/passthrough.rs::resolve_device_stream`) when a client TCP connection
+arrives for an offline device.
 
-### Authentication Methods
+### Endpoint summary
 
-Three authentication methods are used across endpoints:
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| `POST` | `/register` | Firebase ID token (+ signature on re-register) | Round 1 of onboarding. Assigns subdomain + integration secrets. No CSR yet. |
+| `POST` | `/register/certs` | Firebase ID token (+ signature in PoP path) | Round 2 of onboarding. Submits CSR; returns server cert + client cert + relay CA. |
+| `POST` | `/request-subdomain` | Firebase ID token | Optional pre-flight: reserve a subdomain before `/register`. Idempotent retry. |
+| `POST` | `/renew` | Body-driven signature; optional Firebase token (Path B) | Renew certs. Subdomain in body, not in TLS cert. |
+| `POST` | `/rotate-secret` | mTLS client certificate (required) | Replace per-integration secrets wholesale. Subdomain extracted from cert. |
+| `GET`  | `/ws` | mTLS client certificate (required) | Mux WebSocket upgrade. Subdomain extracted from cert. |
+| `GET`  | `/status` | None | Operational metrics. |
 
-| Method | Mechanism | When Used |
+A separate `--test-mode` admin server (loopback only, opt-in) exposes the
+`/test/*` routes — see [Admin / Test-Mode Endpoints](#admin--test-mode-endpoints).
+
+### Authentication mechanisms
+
+Three authentication mechanisms appear across endpoints. Each endpoint section
+states which one(s) it requires.
+
+| Method | Mechanism | When used |
 |---|---|---|
-| **mTLS** | TLS client certificate presented during handshake, verified against the relay's private device CA (loaded from `tls.ca_cert_path` in `relay.toml`; this is the same CA that issues the `client_cert` returned from `/register/certs` and `/renew`). Subdomain extracted from certificate CN or first SAN dNSName matching `*.rousecontext.com`. | `/ws`, `/renew` (valid cert path) |
-| **Firebase ID Token** | `firebase_token` field in request body. Verified via Google's public keys (RS256 JWT). Must match project ID. Extracts `sub` claim as Firebase UID. | `/register`, `/renew` (expired cert path) |
-| **Unauthenticated** | No credentials required. | `/wake/:subdomain`, `/status` |
+| **Firebase ID token** | `firebase_token` field in the JSON body. Verified via Google's public keys (RS256 JWT). The `sub` claim is taken as the Firebase UID. | `/register`, `/register/certs`, `/request-subdomain`, `/renew` (Path B). |
+| **Body-driven signature** | `signature` field in the JSON body, ECDSA P-256 over a per-endpoint payload, verified against the device's stored `public_key`. The exact payload differs by endpoint — see each section. | `/register` re-registration, `/register/certs` PoP path, `/renew` (always required). |
+| **mTLS client certificate** | TLS client certificate presented during the TLS handshake. Verified against the relay's private device CA (the same CA that issued `client_cert` in `/register/certs` / `/renew`). The subdomain is extracted from the certificate's CN or first SAN `dNSName` matching `*.{base_domain}`, with the suffix stripped. | `/rotate-secret`, `/ws`. |
 
-TLS client certificate is **optional** at the TLS level (`allow_unauthenticated()` in rustls config). Endpoints that require mTLS enforce it at the application layer and return 401 if no valid certificate was presented.
+`require_device_identity` is an axum middleware (`relay/src/api/mod.rs:211`)
+that rejects requests without a valid `DeviceIdentity` extension before the
+handler runs. Routes that require mTLS sit behind that middleware; everything
+else is on the public router and does its own (body-driven) auth check.
 
-### Common Error Response Envelope
+The TLS client certificate is **optional** at the TLS layer
+(`allow_unauthenticated()` in the relay's rustls config). Endpoints that
+require mTLS enforce it at the application layer and return 401 if no valid
+certificate was presented.
+
+### Common error response envelope
 
 All non-2xx responses from REST endpoints use this JSON envelope:
 
@@ -34,40 +71,494 @@ All non-2xx responses from REST endpoints use this JSON envelope:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `error` | string | always | Machine-readable error code (see table below) |
-| `message` | string | always | Human-readable description, suitable for logging but not for display to end users |
-| `retry_after_secs` | u64 | only for `rate_limited` | Seconds until the client should retry |
+| `error` | string | always | Machine-readable error code (see table below). |
+| `message` | string | always | Human-readable description, suitable for logging but not for end-user display. |
+| `retry_after_secs` | u64 | only for `rate_limited`, `cooldown`, `acme_rate_limited` | Seconds the client should wait before retrying. |
 
-### Error Codes
+### Error codes
 
-| Code | HTTP Status | Description |
-|---|---|---|
-| `unauthorized` | 401 | Missing or invalid authentication credentials |
-| `forbidden` | 403 | Valid credentials but insufficient permissions (e.g. Firebase UID mismatch) |
-| `not_found` | 404 | Subdomain not found in device registry |
-| `bad_request` | 400 | Malformed request body, missing required fields, or invalid field values |
-| `rate_limited` | 429 | Too many requests; includes `retry_after_secs` |
-| `acme_rate_limited` | 429 | ACME CA rate limit hit; includes `retry_after_secs` (typically 604800 = 1 week) |
-| `cooldown` | 429 | Subdomain rotation attempted within 30-day cooldown; includes `retry_after_secs` |
-| `acme_failure` | 502 | ACME challenge or cert issuance failed |
-| `timeout` | 504 | Device did not connect within the wakeup timeout window |
-| `internal` | 500 | Unexpected server error |
+The constructors on `ApiError` (`relay/src/api/mod.rs:30-148`) define the full
+set:
 
-### Content Type
+| Code | HTTP | Constructor | Description |
+|---|---|---|---|
+| `bad_request` | 400 | `ApiError::bad_request` | Malformed body, missing required field, invalid value. |
+| `unauthorized` | 401 | `ApiError::unauthorized` | Missing or invalid credentials. |
+| `forbidden` | 403 | `ApiError::forbidden` | Valid credentials, insufficient permission (e.g. UID mismatch, signature verification failure). |
+| `not_found` | 404 | `ApiError::not_found` | Subdomain (or other named resource) not in Firestore. |
+| `rate_limited` | 429 | `ApiError::rate_limited` | Generic per-key rate limit (e.g. `/request-subdomain` per-UID limiter). |
+| `cooldown` | 429 | `ApiError::cooldown` | Subdomain rotation requested before the cooldown window expired. |
+| `acme_rate_limited` | 429 | `ApiError::acme_rate_limited` | ACME CA rate limit hit. |
+| `acme_failure` | 502 | `ApiError::acme_failure` | ACME challenge or issuance failed (DNS, CA, etc.). |
+| `timeout` | 504 | `ApiError::timeout` | Internal wakeup or upstream timed out. |
+| `internal` | 500 | `ApiError::internal` | Unexpected server error. |
 
-All request and response bodies are `application/json` unless otherwise noted. The `/ws` endpoint upgrades to WebSocket.
+### Content type
+
+All request and response bodies are `application/json` unless otherwise noted.
+`/ws` is a WebSocket upgrade and afterwards carries binary mux frames.
 
 ---
 
 ## Endpoints
 
-### 1. `GET /ws` -- Mux WebSocket
+### `POST /register` — Round 1: device registration
 
-Establishes a multiplexed WebSocket connection from a device to the relay. All MCP client traffic for this device is routed through this connection using the binary mux framing protocol.
+Onboards a device's Firebase identity and returns a subdomain assignment plus
+per-integration secrets. **No CSR is submitted at this stage** — the device
+generates its keypair and CSR after seeing the assigned subdomain, then calls
+`POST /register/certs`.
 
 #### Authentication
 
-**mTLS required.** The device must present a valid TLS client certificate issued by the relay's private device CA (returned as `client_cert` from `/register/certs`). The relay extracts the subdomain from the certificate's CN or SAN `dNSName` field (first entry matching `*.rousecontext.com`, stripping the domain suffix).
+- **Firebase ID token** in the body is required.
+- **Signature** (`signature` field) is required when the Firebase UID already
+  has a registered subdomain — i.e. for re-registration or rotation. The
+  signature payload for `/register` is the **raw bytes of the
+  `firebase_token` string**, not the CSR DER. (The CSR-DER signature is what
+  `/register/certs` and `/renew` use; do not confuse the two.)
+
+#### Request body
+
+`relay/src/api/register.rs::RegisterRequest`:
+
+```json
+{
+  "firebase_token": "eyJhbGciOiJSUzI1NiIs...",
+  "fcm_token": "dGVzdF9mY21fdG9rZW4...",
+  "signature": "MEUCIQD...",
+  "force_new": false,
+  "integrations": ["health", "outreach", "notifications"]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `firebase_token` | string | always | Firebase ID token JWT for the project. |
+| `fcm_token` | string | always | Current FCM registration token for the device. |
+| `signature` | string | conditional | Base64 DER ECDSA signature over `firebase_token.as_bytes()`. Required iff the UID already has a subdomain. |
+| `force_new` | bool | optional (default `false`) | When `true`, request a new subdomain (rotation). Subject to the rotation cooldown. |
+| `integrations` | array of string | optional (default `[]`) | Integration ids the device wants secrets minted for (e.g. `health`, `outreach`). One `{adjective}-{integrationId}` secret is generated per entry. |
+
+#### Success response — 200 OK
+
+`relay/src/api/register.rs::RegisterResponse`:
+
+```json
+{
+  "subdomain": "abc123",
+  "relay_host": "relay.rousecontext.com",
+  "secrets": {
+    "health": "brave-health",
+    "outreach": "swift-outreach",
+    "notifications": "calm-notifications"
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `subdomain` | string | Assigned device subdomain (left-most label only). The full FQDN is `{subdomain}.{base_domain}`. |
+| `relay_host` | string | The relay's own hostname (clients use this for `/renew`, `/rotate-secret`, etc.). |
+| `secrets` | object (string → string) | Map of integration id → generated `{adjective}-{integration_id}` secret. Empty / omitted when `integrations` was empty. |
+
+`secrets` is **omitted from the JSON** when the map is empty (`#[serde(skip_serializing_if = "HashMap::is_empty")]`).
+
+#### Error responses
+
+| Status | Condition | Code | Example message |
+|---|---|---|---|
+| 400 | Empty `firebase_token` or `fcm_token`. | `bad_request` | `"Missing required field: firebase_token"` |
+| 401 | Firebase token invalid, expired, or wrong project. | `unauthorized` | `"Invalid Firebase ID token: ..."` |
+| 403 | UID has an existing subdomain and `signature` is missing. | `forbidden` | `"Signature required for re-registration"` |
+| 403 | Signature does not verify against the stored public key. | `forbidden` | `"Signature verification failed: ..."` |
+| 429 | `force_new: true` but the subdomain rotation cooldown is still active. `retry_after_secs` carries the remaining cooldown. | `cooldown` | `"Subdomain rotation cooldown not expired"` |
+| 500 | Firestore lookup or write failed. | `internal` | `"Firestore lookup failed: ..."` |
+
+#### Behavior
+
+`relay/src/api/register.rs::handle_register`:
+
+1. Validate `firebase_token` and `fcm_token` are non-empty.
+2. Verify the Firebase token; extract `uid`.
+3. Look up any existing device by `firebase_uid`.
+4. **Existing UID, `force_new == false`** (re-registration): require
+   `signature`; verify it against the stored public key over the bytes of
+   `firebase_token`. Reuse the existing subdomain.
+5. **Existing UID, `force_new == true`** (rotation): require and verify
+   `signature` (same payload as above). Enforce the subdomain rotation
+   cooldown (`limits.subdomain_rotation_cooldown_days`, default 30). Best-effort
+   delete the old DNS records and Firestore document, then generate a new
+   subdomain.
+6. **New UID**: if there is a non-expired `subdomain_reservations/` entry for
+   this UID (created by `/request-subdomain`), consume it. Otherwise, generate
+   a fresh subdomain via the in-process generator.
+7. Generate one `{adjective}-{integration_id}` secret per requested integration
+   id. Persist both the integration → secret map (`integration_secrets`) and
+   the flat `valid_secrets` list used by the SNI fast path. Seed the
+   in-memory SNI cache so the next passthrough connection hits the new
+   secrets without waiting for Firestore eventual consistency.
+8. Write `devices/{subdomain}` with `public_key = ""` and
+   `cert_expires = UNIX_EPOCH` — these are populated in round 2.
+9. Return `subdomain`, `relay_host`, `secrets`.
+
+The device must follow up with `POST /register/certs` to obtain certificates.
+
+---
+
+### `POST /register/certs` — Round 2: certificate issuance
+
+Submits the device's CSR and returns the server cert (ACME-issued), client
+cert (relay CA), and the relay CA root cert.
+
+#### Authentication
+
+- **Firebase ID token** is required.
+- **Signature** is required iff `devices/{subdomain}.public_key` is already
+  set — i.e. the device record has previously bound a key (reissuance / cert
+  re-roll on the same record). The signature payload here is the **raw DER
+  bytes of the CSR** (`relay/src/api/register.rs:367`). On a fresh record the
+  signature is ignored if present (round 2 is the step that binds the key for
+  the first time).
+
+This proof-of-possession check (issue #201) prevents an attacker who only
+holds a valid Firebase token from re-issuing a relay-CA client cert keyed to
+their own keypair. Use `/renew` for routine renewals on an existing key.
+
+#### Request body
+
+`relay/src/api/register.rs::CertRequest`:
+
+```json
+{
+  "firebase_token": "eyJhbGciOiJSUzI1NiIs...",
+  "csr": "MIIBIjANBgkqhki...",
+  "signature": "MEUCIQD..."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `firebase_token` | string | always | Firebase ID token JWT. |
+| `csr` | string | always | Base64-encoded DER PKCS#10 CSR with FQDN `{subdomain}.{base_domain}`, signed with an ECDSA P-256 key. |
+| `signature` | string | conditional | Base64 DER ECDSA signature over the **raw CSR DER bytes** using the device's registered private key. Required iff the device record already has a `public_key`. |
+
+#### Success response — 200 OK
+
+`relay/src/api/register.rs::CertResponse`:
+
+```json
+{
+  "subdomain": "abc123",
+  "server_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "client_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "relay_ca_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "relay_host": "relay.rousecontext.com"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `subdomain` | string | The device's subdomain (echoed for convenience). |
+| `server_cert` | string | PEM-encoded ACME-issued server certificate (serverAuth EKU, wildcard SAN `*.{subdomain}.{base_domain}`). Issued by the configured ACME provider — Google Trust Services in production, Let's Encrypt or another public CA for self-hosted deployments. |
+| `client_cert` | string | PEM-encoded relay-CA client certificate (clientAuth EKU, CN/SAN = `{subdomain}.{base_domain}`). Used for mTLS on `/ws`, `/rotate-secret`, etc. |
+| `relay_ca_cert` | string | PEM-encoded relay device-CA root, so the device can pin the issuer when validating future `client_cert` rolls. |
+| `relay_host` | string | The relay's own hostname (echo of the server config). |
+
+#### Error responses
+
+| Status | Condition | Code | Example message |
+|---|---|---|---|
+| 400 | Missing `firebase_token` or `csr`; bad Base64; CSR not parseable. | `bad_request` | `"Failed to parse CSR: ..."` |
+| 401 | Firebase token invalid. | `unauthorized` | `"Invalid Firebase ID token: ..."` |
+| 403 | Record has a registered key but `signature` is missing. | `forbidden` | `"Signature required: device already has a registered key. ..."` |
+| 403 | Signature does not verify against the stored public key. | `forbidden` | `"Signature verification failed: ..."` |
+| 404 | No `devices/{subdomain}` for this UID — caller must do `/register` first. | `not_found` | `"No device registered for this UID. Call POST /register first."` |
+| 429 | ACME CA rate limit hit. `retry_after_secs` is the CA's hint. | `acme_rate_limited` | `"Certificate issuance rate limited"` |
+| 502 | ACME DNS-01 challenge failed (DNS propagation, CA rejection, Cloudflare API failure). | `acme_failure` | `"ACME DNS-01 challenge failed: ..."` |
+| 500 | Firestore failure, device CA misconfiguration, internal CA signing failure. | `internal` | `"ACME error: ..."` / `"Failed to sign client cert: ..."` |
+
+#### Behavior
+
+`relay/src/api/register.rs::handle_register_certs`:
+
+1. Validate `firebase_token` and `csr`; Base64-decode the CSR.
+2. Verify the Firebase token; extract `uid`; look up the device record by UID.
+3. If `record.public_key` is non-empty, verify `signature` over the CSR DER
+   against the stored public key (PoP check, #201).
+4. Extract the public key from the CSR (this also validates the CSR's
+   self-signature).
+5. Issue the ACME server cert against the CSR's public key, with FQDN
+   `*.{subdomain}.{base_domain}` (wildcard, so per-integration sub-subdomains
+   share one cert).
+6. Sign a relay-CA client cert with the same public key; CN/SAN are
+   `{subdomain}.{base_domain}`.
+7. Update `devices/{subdomain}.public_key` and bump
+   `cert_expires` to `now + 90d`.
+8. Return both certs and the relay CA root.
+
+---
+
+### `POST /request-subdomain` — Reserve a subdomain before `/register`
+
+Optional pre-flight call used by `OnboardingFlow` so the device can show the
+chosen subdomain in the UI before the user accepts permissions and continues.
+
+#### Authentication
+
+- **Firebase ID token** is required.
+- Per-Firebase-UID rate limit (`request_subdomain_rate_limiter`), keyed by
+  `uid`. Defaults: burst 6, refill one token every 10 s
+  (`limits.request_subdomain_rate_burst` / `request_subdomain_rate_refill_secs`,
+  configurable in `relay.toml`). Pool-enumeration defence.
+
+#### Request body
+
+`relay/src/api/request_subdomain.rs::RequestSubdomainRequest`:
+
+```json
+{
+  "firebase_token": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `firebase_token` | string | always | Firebase ID token JWT. |
+
+#### Success response — 200 OK
+
+```json
+{
+  "subdomain": "ivory",
+  "base_domain": "rousecontext.com",
+  "fqdn": "ivory.rousecontext.com",
+  "reservation_ttl_seconds": 600
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `subdomain` | string | Reserved subdomain label. |
+| `base_domain` | string | Base domain the reservation lives under. Currently always the primary base domain; the release-valve is in place for future density-weighted picks (#92). |
+| `fqdn` | string | Full host = `{subdomain}.{base_domain}`. |
+| `reservation_ttl_seconds` | u64 | Seconds remaining before the reservation expires. On a fresh pick this is `limits.subdomain_reservation_ttl_secs` (default 600); on an idempotent retry (UID already holds a reservation) it is the remaining time on the existing entry. |
+
+#### Idempotent retry
+
+If the UID already holds a non-expired `subdomain_reservations/` entry, the
+handler returns it instead of picking a new one — calling
+`/request-subdomain` repeatedly during onboarding does not burn pool entries
+or rotate the user's name out from under them.
+
+#### Pool selection
+
+`select_free_subdomain` in `relay/src/api/request_subdomain.rs`:
+
+1. Tier 1 — single-word pool (adjectives ∪ nouns): two attempts.
+2. Tier 2 — `{adjective}-{noun}` overflow: up to five attempts.
+3. If all attempts collide (extremely unlikely with a ~54k pool), return
+   `internal`.
+
+A name is *free* if there is no `devices/` document and no non-expired
+`subdomain_reservations/` entry under it. Expired reservations count as free.
+
+#### Error responses
+
+| Status | Condition | Code |
+|---|---|---|
+| 400 | Empty `firebase_token`. | `bad_request` |
+| 401 | Invalid Firebase token. | `unauthorized` |
+| 429 | Per-UID rate limit exhausted. `retry_after_secs` = seconds until next token. | `rate_limited` |
+| 500 | Firestore lookup, pool-exhaustion, or persistence failure. | `internal` |
+
+The reservation is consumed by the next successful `POST /register` from the
+same UID. Expired reservations are swept opportunistically by both
+`/request-subdomain` (when the same UID retries) and the maintenance loop.
+
+---
+
+### `POST /renew` — Certificate renewal
+
+Renew the device's certificates. Both auth paths are **driven by the JSON
+body**, not the TLS client certificate of the HTTP connection — the relay
+does not inspect the cert here.
+
+#### Authentication
+
+- **Signature** is **always required**. It signs the **raw CSR DER bytes**
+  with the device's registered private key
+  (`relay/src/api/renew.rs:71-78,217`). This is *not* the same payload that
+  `/register` re-registration signs — that one signs the firebase token bytes.
+- **Path A** (valid cert / "mTLS-equivalent"): body has `csr`, `subdomain`,
+  `signature`. No `firebase_token`. The signature alone proves control of the
+  registered key.
+- **Path B** (expired cert): body has `csr`, `subdomain`, `signature`, plus
+  `firebase_token`. Firebase re-authenticates the user while the signature
+  still proves key control. The relay matches `claims.uid` against
+  `devices/{subdomain}.firebase_uid`.
+
+The relay detects Path B by the presence of `firebase_token`; otherwise it
+takes Path A.
+
+#### Request body
+
+`relay/src/api/renew.rs::RenewRequest`:
+
+```json
+{
+  "subdomain": "abc123",
+  "csr": "MIIBIjANBgkqhki...",
+  "signature": "MEUCIQD...",
+  "firebase_token": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `subdomain` | string | always | Device subdomain (must match an existing `devices/` document). |
+| `csr` | string | always | Base64-encoded DER PKCS#10 CSR, ECDSA P-256. |
+| `signature` | string | always | Base64 DER ECDSA signature over the **raw CSR DER bytes** using the registered private key. |
+| `firebase_token` | string | Path B only | Firebase ID token JWT. Presence selects Path B. |
+
+#### Success response — 200 OK
+
+`relay/src/api/renew.rs::RenewResponse`:
+
+```json
+{
+  "server_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "client_cert": "-----BEGIN CERTIFICATE-----\n...",
+  "relay_ca_cert": "-----BEGIN CERTIFICATE-----\n..."
+}
+```
+
+The fields mirror `/register/certs` (server cert, client cert, relay-CA root)
+so the device reuses the same cert-storage path for first-time issuance and
+renewal. `subdomain` and `relay_host` are not echoed because the device
+already supplied the subdomain.
+
+After a successful renewal the relay also sets
+`devices/{subdomain}.cert_expires = now + 90d` and clears any
+`renewal_nudge_sent` timestamp.
+
+#### Error responses
+
+| Status | Condition | Code |
+|---|---|---|
+| 400 | Missing `csr`, `subdomain`, or `signature`; bad Base64; CSR unparseable. | `bad_request` |
+| 401 | Path B: invalid Firebase token. | `unauthorized` |
+| 403 | Path B: Firebase UID does not match `devices/{subdomain}.firebase_uid`. | `forbidden` |
+| 403 | Signature does not verify against `devices/{subdomain}.public_key`. | `forbidden` |
+| 404 | No `devices/{subdomain}` document. | `not_found` |
+| 429 | ACME CA rate limit. | `acme_rate_limited` |
+| 502 | ACME DNS-01 failure. | `acme_failure` |
+| 500 | Firestore or device-CA failure. | `internal` |
+
+---
+
+### `POST /rotate-secret` — Replace per-integration secrets
+
+Authoritative replace-by-request-set rotation of the per-integration secrets
+that gate the SNI fast path. See issues #148 (introduction), #202 (mTLS
+hardening), and #285 (replace-wholesale semantics).
+
+#### Authentication
+
+- **mTLS client certificate is required** — enforced by the
+  `require_device_identity` middleware (`relay/src/api/mod.rs:211`). The
+  subdomain is taken from the cert, **not** from the request body. The body
+  carries no `subdomain` field and there is no fallback path: a request
+  without an mTLS identity returns 401.
+- This is the only auth check. Rotation does not require a Firebase token or
+  a body signature.
+
+#### Request body
+
+`relay/src/api/rotate_secret.rs::RotateSecretRequest`:
+
+```json
+{
+  "integrations": ["health", "outreach"]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `integrations` | array of string | always | Authoritative list of integration ids the device wants live. May legitimately be empty. |
+
+The list is the **authoritative set**:
+
+- For each id in the request that is already in
+  `record.integration_secrets`, the existing secret is **preserved**
+  (idempotent re-rotates do not invalidate live URLs).
+- For each id in the request that is not yet in the stored map, a fresh
+  `{adjective}-{integration_id}` secret is minted.
+- For each id in the stored map but **not** in the request, the entry is
+  **dropped** (the per-integration URL becomes invalid immediately).
+- An empty list legitimately wipes every secret. The device stays onboarded
+  (subdomain, account, certs untouched); only the SNI fast path is emptied.
+
+#### Success response — 200 OK
+
+`relay/src/api/rotate_secret.rs::RotateSecretResponse`:
+
+```json
+{
+  "success": true,
+  "secrets": {
+    "health": "brave-health",
+    "outreach": "calm-outreach"
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `success` | bool | Always `true` on a 200 response. |
+| `secrets` | object (string → string) | Full integration → secret mapping after replace-wholesale. The client mirrors this wholesale into its local `IntegrationSecretStore`. |
+
+#### Error responses
+
+| Status | Condition | Code |
+|---|---|---|
+| 401 | No mTLS client certificate, or cert lacks a usable subdomain. | `unauthorized` |
+| 404 | No `devices/{subdomain}` document. | `not_found` |
+| 500 | Firestore lookup or write failure. | `internal` |
+
+#### Behavior
+
+`relay/src/api/rotate_secret.rs::handle_rotate_secret`:
+
+1. Read the subdomain from the request's `DeviceIdentity` extension; reject
+   with 401 if absent.
+2. Load `devices/{subdomain}` (404 if missing).
+3. Compute the replace-wholesale set as described above. Rebuild
+   `valid_secrets` from the resulting map so the SNI cache stays in sync.
+4. Persist the new `integration_secrets` and `valid_secrets`. Update the
+   in-memory SNI cache (an empty result evicts the cache entry entirely).
+5. Return the full mapping.
+
+The relay logs the diff (`requested`, `newly_generated`, `removed`) at
+`info` level.
+
+---
+
+### `GET /ws` — Mux WebSocket upgrade
+
+Establishes the multiplexed WebSocket from device to relay. All MCP-client
+traffic for this device is splice-routed through this connection using the
+binary mux framing protocol (see [Mux Binary Framing
+Protocol](#mux-binary-framing-protocol)).
+
+#### Authentication
+
+**mTLS required.** The device must present a valid TLS client certificate
+issued by the relay's private device CA (the `client_cert` returned from
+`/register/certs` or `/renew`). The relay extracts the subdomain from the
+certificate's CN or first SAN `dNSName` matching the configured base domain.
+The `require_device_identity` middleware rejects requests with no
+`DeviceIdentity` extension before the handler runs.
 
 #### Request
 
@@ -80,351 +571,62 @@ Sec-WebSocket-Version: 13
 Sec-WebSocket-Key: <base64-encoded-key>
 ```
 
-No request body. No query parameters. No additional headers beyond standard WebSocket upgrade.
+No request body, no query parameters, no additional headers beyond standard
+WebSocket upgrade.
 
-#### Success Response
+#### Success response
 
-HTTP 101 Switching Protocols. The connection is upgraded to a WebSocket carrying binary mux frames (see Mux Binary Framing Protocol below).
+HTTP 101 Switching Protocols. The connection is upgraded to a WebSocket
+carrying binary mux frames.
 
-#### Error Responses
+#### Error responses
 
-| Status | Condition | Body |
+| Status | Condition | Code |
 |---|---|---|
-| 401 | No client certificate presented, or certificate is invalid/expired/untrusted | `{"error": "unauthorized", "message": "Valid client certificate required"}` |
-| 401 | Certificate CN/SAN does not contain a valid `*.rousecontext.com` subdomain | `{"error": "unauthorized", "message": "Certificate does not contain a valid device subdomain"}` |
-| 409 | Device already has an active mux connection from another session | `{"error": "conflict", "message": "Device already has an active mux connection"}` |
+| 401 | No client certificate, invalid/expired/untrusted certificate, or no subdomain extractable from the cert. | `unauthorized` |
+| 403 | Device certificate is valid but no `devices/{subdomain}` exists in Firestore. | `forbidden` |
+| 500 | Firestore lookup failure. | `internal` |
 
-#### Behavior After Upgrade
+In test fixtures with `limits.allow_ws_auto_create_device = true` the relay
+auto-creates a placeholder Firestore record for an authenticated subdomain
+that has never registered. Production sets this to `false` (default) so a
+revoked cert cannot silently resurrect a subdomain (#209).
 
-- The relay registers this WebSocket as the active mux connection for the extracted subdomain.
-- Any existing mux connection for the same subdomain is replaced (old WebSocket closed with 1000 Normal Closure).
-- WebSocket ping frames are sent every 30 seconds. If a pong is not received within 30 seconds, the connection is considered dead and torn down.
-- On WebSocket close (from either side), all active streams for this device are torn down and all corresponding client TCP connections are closed.
+#### Behavior after upgrade
 
----
+`relay/src/api/ws.rs::handle_mux_session`:
 
-### 2. `POST /register` -- Device Registration
-
-Onboards a new device or rotates the subdomain of an existing device. Performs ACME DNS-01 challenge and returns a signed certificate.
-
-#### Authentication
-
-**Firebase ID Token** in request body. For re-registration or rotation of an existing subdomain, a signature is also required to prove control of the original private key.
-
-#### Request
-
-```
-POST /register HTTP/1.1
-Host: relay.rousecontext.com
-Content-Type: application/json
-```
-
-```json
-{
-  "firebase_token": "eyJhbGciOiJSUzI1NiIs...",
-  "csr": "MIIBIjANBgkqhki...",
-  "fcm_token": "dGVzdF9mY21fdG9rZW4...",
-  "signature": "MEUCIQD...",
-  "force_new": false
-}
-```
-
-| Field | Type | Required | Constraints | Description |
-|---|---|---|---|---|
-| `firebase_token` | string | always | Valid Firebase ID token JWT for this project | Firebase anonymous auth ID token |
-| `csr` | string | always | Base64-encoded DER PKCS#10 CSR, signed with ECDSA P-256 key | Certificate Signing Request |
-| `fcm_token` | string | always | Non-empty string | Firebase Cloud Messaging registration token |
-| `signature` | string | conditional | Base64-encoded DER ECDSA signature over the raw (pre-Base64) CSR bytes using SHA256withECDSA | Required when the Firebase UID already has a registered subdomain. Signs the CSR DER bytes (not the Base64 string). |
-| `force_new` | boolean | no (default: `false`) | | When `true`, requests a new subdomain (rotation). Old subdomain is invalidated immediately. Subject to 30-day cooldown. |
-
-#### Success Response -- 200 OK
-
-```json
-{
-  "subdomain": "brave-falcon",
-  "cert": "MIICpDCCAYwCCQD..."
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `subdomain` | string | Assigned subdomain (without domain suffix). Full hostname is `{subdomain}.rousecontext.com`. |
-| `cert` | string | Base64-encoded DER certificate chain (leaf + intermediates), PEM-concatenated then Base64-encoded |
-
-#### Error Responses
-
-| Status | Condition | Error Code | Example Message |
-|---|---|---|---|
-| 400 | Missing required field, malformed CSR, invalid Base64, CSR not signed with P-256 | `bad_request` | `"Invalid CSR: expected ECDSA P-256 key"` |
-| 400 | CSR subject does not pass validation | `bad_request` | `"CSR validation failed"` |
-| 401 | Firebase token invalid, expired, or wrong project | `unauthorized` | `"Invalid Firebase ID token"` |
-| 403 | Firebase UID already registered but `signature` missing | `forbidden` | `"Signature required for re-registration"` |
-| 403 | `signature` does not verify against stored public key | `forbidden` | `"Signature verification failed"` |
-| 429 | `force_new: true` but last rotation was less than 30 days ago | `cooldown` | `"Subdomain rotation available after 2026-05-01"` |
-| 429 | ACME CA rate limit reached (CA-specific; GTS in production has tens-of-thousands/day headroom, Let's Encrypt is 50/registered-domain/week) | `acme_rate_limited` | `"Certificate issuance rate limited"` |
-| 502 | ACME challenge failed (DNS propagation timeout, CA rejection, Cloudflare API failure after 3 retries) | `acme_failure` | `"ACME DNS-01 challenge failed"` |
-| 500 | Firestore write failure, unexpected internal error | `internal` | `"Internal server error"` |
-
-#### Behavior Details
-
-1. Verify Firebase ID token. Extract UID from `sub` claim.
-2. Query Firestore for any `devices/` document where `firebase_uid == UID`.
-3. **New UID (no existing record):**
-   - `signature` field is ignored if present.
-   - Generate random two-word subdomain (`{adjective}-{noun}`). Check Firestore for collision, retry with new words if taken.
-   - Extract public key from CSR's SubjectPublicKeyInfo.
-4. **Existing UID, `force_new: false` (re-registration):**
-   - `signature` is required. Verify it against the stored `public_key` for the existing subdomain.
-   - Reuse the existing subdomain. Extract new public key from CSR (key rotation is allowed).
-5. **Existing UID, `force_new: true` (rotation):**
-   - `signature` is required. Verify against stored `public_key`.
-   - Check `last_rotation` timestamp. If less than 30 days ago, return 429 `cooldown`.
-   - Generate new random subdomain. Delete old `devices/` document. All client tokens for the old subdomain are implicitly revoked (device-side responsibility).
-6. Check configured ACME issuance quota. If exceeded (CA-specific: GTS production is effectively unbounded at this scale, Let's Encrypt enforces 50 certs per registered domain per week), store in `pending_certs/{subdomain}` and return 429 `acme_rate_limited`.
-7. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com` (see ACME Orchestration in `relay.md`).
-8. Write/update `devices/{subdomain}` document in Firestore.
-9. Return certificate chain, subdomain, and relay host.
-
-#### Example
-
-Request:
-```json
-{
-  "firebase_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhYmMxMjMiLCJhdWQiOiJyb3VzZS1jb250ZXh0IiwiZXhwIjoxNzE3NTMyODAwfQ.signature",
-  "csr": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3...",
-  "fcm_token": "eKJf8sM4TfKxHcLj:APA91bH...",
-  "force_new": false
-}
-```
-
-Response (200):
-```json
-{
-  "subdomain": "brave-falcon",
-  "cert": "LS0tLS1CRUdJTi..."
-}
-```
+1. Register the WebSocket as the active mux session for the subdomain in
+   `SessionRegistry`. Any prior session for the same subdomain is replaced;
+   the older session's read/write loop terminates when its WebSocket peer
+   closes.
+2. The write loop sends a **WebSocket-level** `Ping` every
+   `ws_ping_interval_secs` (default 30 s).
+3. The read loop applies a `ws_read_timeout_secs` deadline per message: if no
+   message — including pongs to the relay's WebSocket pings — arrives within
+   the deadline, the session is treated as dead and torn down.
+4. Binary frames are decoded as mux frames (see below) and dispatched to
+   `MuxSession::dispatch_incoming`.
+5. Text frames are control-plane messages. The only currently supported type
+   is `{"type":"fcm_token","token":"..."}` which updates the device's
+   `fcm_token` in Firestore (so a relay restart can still wake it).
+6. `PING` mux frames from the device are answered immediately with a `PONG`
+   carrying the same nonce. The relay does not currently originate `PING`
+   mux frames itself; PONGs received from the device are ignored. (Half-open
+   detection is driven by the device side — see `relay.md` and #179.)
+7. On WebSocket close (from either side, normal or abrupt), all active
+   streams for this device are torn down, the corresponding client TCP
+   connections are closed, and the session is unregistered.
 
 ---
 
-### 3. `POST /renew` -- Certificate Renewal
+### `GET /status` — Health and metrics
 
-Renews the TLS certificate for a registered device. Supports two authentication paths depending on whether the device's current certificate is still valid.
+Operational metrics. No auth.
 
-#### Authentication
+#### Success response — 200 OK
 
-**Path A -- Signature only (valid cert, "mTLS-equivalent"):** Device signs the raw DER bytes of the renewal CSR with its registered private key and sends `{ csr, subdomain, signature }`. The relay verifies the signature against the public key stored at registration time.
-
-**Path B -- Firebase + Signature (expired cert):** Device provides a Firebase ID token in addition to the signature: `{ csr, subdomain, firebase_token, signature }`. Firebase re-authenticates the user while the signature still proves control of the registered private key.
-
-The relay detects Path B by the presence of `firebase_token`; otherwise it takes Path A. Both paths are driven entirely by the JSON body -- the relay does not inspect the TLS client certificate of the HTTP connection.
-
-#### Request
-
-```
-POST /renew HTTP/1.1
-Host: relay.rousecontext.com
-Content-Type: application/json
-```
-
-```json
-{
-  "subdomain": "brave-falcon",
-  "csr": "MIIBIjANBgkqhki...",
-  "signature": "MEUCIQD...",
-  "firebase_token": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
-
-| Field | Type | Required | Constraints | Description |
-|---|---|---|---|---|
-| `subdomain` | string | always | Must match an existing `devices/` document | The device's assigned subdomain |
-| `csr` | string | always | Base64-encoded DER PKCS#10 CSR, ECDSA P-256 | New Certificate Signing Request |
-| `signature` | string | always | Base64-encoded DER ECDSA signature over raw CSR DER bytes using SHA256withECDSA | Proves control of the registered private key |
-| `firebase_token` | string | Path B only | Valid Firebase ID token JWT | Firebase anonymous auth ID token (required when the cert has expired) |
-
-#### Success Response -- 200 OK
-
-```json
-{
-  "server_cert": "-----BEGIN CERTIFICATE-----\n...",
-  "client_cert": "-----BEGIN CERTIFICATE-----\n...",
-  "relay_ca_cert": "-----BEGIN CERTIFICATE-----\n..."
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `server_cert` | string | PEM-encoded ACME-issued server certificate (serverAuth EKU). Issued by the ACME provider the relay is configured against — Google Trust Services in production, Let's Encrypt or another public CA for self-hosted deployments. |
-| `client_cert` | string | PEM-encoded relay CA client certificate (clientAuth) |
-| `relay_ca_cert` | string | PEM-encoded relay CA root certificate |
-
-The response shape mirrors `/register/certs` so devices reuse the same cert-storage code path for first-time issuance and renewal.
-
-#### Error Responses
-
-| Status | Condition | Error Code | Example Message |
-|---|---|---|---|
-| 400 | Missing required fields (`csr`, `subdomain`, `signature`), malformed CSR | `bad_request` | `"Missing required field: csr"` |
-| 401 | Path B: Firebase token invalid or expired | `unauthorized` | `"Invalid Firebase ID token"` |
-| 403 | Path B: Firebase UID does not match the `devices/{subdomain}` record | `forbidden` | `"Firebase UID does not match device record"` |
-| 403 | Signature does not verify against stored public key | `forbidden` | `"Signature verification failed"` |
-| 404 | Subdomain not found in Firestore | `not_found` | `"Device not found"` |
-| 429 | ACME CA rate limit reached | `acme_rate_limited` | `"Certificate issuance rate limited"` |
-| 502 | ACME challenge failed | `acme_failure` | `"ACME DNS-01 challenge failed"` |
-| 500 | Internal error | `internal` | `"Internal server error"` |
-
-#### Behavior Details
-
-1. **Validate body:** `csr`, `subdomain`, and `signature` must be present and non-empty.
-2. **If `firebase_token` is present (Path B):** verify the token, extract UID, match `claims.uid` against `firebase_uid` on `devices/{subdomain}`. 401 on invalid token, 403 on UID mismatch.
-3. **Verify signature:** decode the Base64 signature, decode the Base64 CSR to DER, verify SHA256withECDSA against `devices/{subdomain}.public_key` (the signature is over the raw DER bytes of the CSR, not the Base64 encoding). 403 on mismatch.
-4. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com`. Issue a fresh relay CA client cert from the device's CSR public key.
-5. Update `cert_expires` in `devices/{subdomain}`. Clear `renewal_nudge_sent` to `null`.
-6. Return the server cert, client cert, and relay CA cert.
-
-#### Example -- Path A (valid cert, signature only)
-
-Request:
-```json
-{
-  "subdomain": "brave-falcon",
-  "csr": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3...",
-  "signature": "MEUCIQDrZ3K4q..."
-}
-```
-
-Response (200):
-```json
-{
-  "server_cert": "-----BEGIN CERTIFICATE-----\n...",
-  "client_cert": "-----BEGIN CERTIFICATE-----\n...",
-  "relay_ca_cert": "-----BEGIN CERTIFICATE-----\n..."
-}
-```
-
-#### Example -- Path B (expired cert)
-
-Request:
-```json
-{
-  "subdomain": "brave-falcon",
-  "firebase_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "csr": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0Z3...",
-  "signature": "MEUCIQDrZ3K4q..."
-}
-```
-
-Response (200): same as Path A.
-
----
-
-### 4. `POST /wake/:subdomain` -- Pre-flight Wakeup
-
-Sends an FCM push to wake a device before the MCP client opens a TLS connection. Allows clients to avoid the cold-start latency on the first real connection.
-
-#### Authentication
-
-**None.** This endpoint is unauthenticated but rate-limited per subdomain.
-
-#### Rate Limiting
-
-Token bucket: **6 requests per subdomain per minute.** The bucket refills at 1 token every 10 seconds. State is held in-memory (resets on relay restart).
-
-When rate limited, the response includes a `Retry-After` header (seconds).
-
-#### Request
-
-```
-POST /wake/brave-falcon HTTP/1.1
-Host: relay.rousecontext.com
-```
-
-No request body. The subdomain is in the URL path.
-
-#### Path Parameters
-
-| Parameter | Type | Constraints | Description |
-|---|---|---|---|
-| `subdomain` | string | Must match `[a-z0-9]+(-[a-z0-9]+)*`, 3-63 characters | The device's assigned subdomain |
-
-#### Success Response -- 200 OK
-
-Returned when the device already has an active mux connection, or when the device successfully connects within the timeout window after FCM wakeup.
-
-```json
-{
-  "status": "ready"
-}
-```
-
-#### Error Responses
-
-| Status | Condition | Error Code | Example Message |
-|---|---|---|---|
-| 404 | Subdomain not found in Firestore (or in-memory cache) | `not_found` | `"Device not found"` |
-| 429 | Rate limit exceeded for this subdomain | `rate_limited` | `"Rate limit exceeded"` |
-| 504 | FCM sent but device did not connect within 20 seconds | `timeout` | `"Device did not connect within timeout"` |
-| 500 | FCM send failure, Firestore lookup failure | `internal` | `"Failed to send wakeup notification"` |
-
-The 429 response includes the header:
-```
-Retry-After: <seconds until next token available>
-```
-
-#### Behavior Details
-
-1. Check in-memory rate limit bucket for the subdomain. If empty, return 429.
-2. Look up `devices/{subdomain}` in Firestore (with in-memory cache, TTL-based).
-3. If device has an active mux WebSocket connection, return 200 immediately.
-4. If device is offline, send FCM `type: "wake"` message (see FCM Message Formats below).
-5. Hold the HTTP request open. Wait for the device to establish a mux WebSocket connection, up to 20 seconds (configurable via `timeouts.fcm_wakeup_secs` in `relay.toml`).
-6. If the device connects within the timeout, return 200.
-7. If the timeout expires, return 504.
-
-#### Example
-
-Request:
-```
-POST /wake/brave-falcon HTTP/1.1
-Host: relay.rousecontext.com
-```
-
-Response (200 -- device was already connected):
-```json
-{
-  "status": "ready"
-}
-```
-
-Response (504 -- device did not wake):
-```json
-{
-  "error": "timeout",
-  "message": "Device did not connect within timeout"
-}
-```
-
----
-
-### 5. `GET /status` -- Health and Metrics
-
-Returns relay operational metrics. Intended for monitoring systems.
-
-#### Authentication
-
-**None.** Publicly accessible.
-
-#### Request
-
-```
-GET /status HTTP/1.1
-Host: relay.rousecontext.com
-```
-
-No request body. No query parameters.
-
-#### Success Response -- 200 OK
+`relay/src/api/status.rs::StatusResponse`:
 
 ```json
 {
@@ -438,318 +640,451 @@ No request body. No query parameters.
 
 | Field | Type | Description |
 |---|---|---|
-| `uptime_secs` | u64 | Seconds since the relay process started. Monotonically increasing. |
-| `active_mux_connections` | u32 | Number of device mux WebSocket connections currently open |
-| `active_streams` | u32 | Total number of active mux streams across all devices (each stream corresponds to one client TCP connection being spliced) |
-| `total_sessions_served` | u64 | Cumulative count of streams that have been opened since the relay started (includes streams that have since closed) |
-| `pending_fcm_wakeups` | u32 | Number of client connections or `/wake` requests currently waiting for a device to connect after FCM was sent |
-
-#### Error Responses
-
-| Status | Condition | Error Code |
-|---|---|---|
-| 500 | Internal error (should be extremely rare) | `internal` |
+| `uptime_secs` | u64 | Seconds since the relay process started. |
+| `active_mux_connections` | u32 | Number of devices with an open mux WebSocket. |
+| `active_streams` | u32 | Total active mux streams across all devices (each = one in-flight client TCP splice). |
+| `total_sessions_served` | u64 | Cumulative count of mux sessions ended (read on session teardown). |
+| `pending_fcm_wakeups` | u32 | In-flight passthrough waits for a device that has been FCM-pinged but has not yet connected back. |
 
 ---
 
 ## Mux Binary Framing Protocol
 
-Transport: binary WebSocket frames over the mTLS connection established via `GET /ws`.
+Transport: binary WebSocket frames over the mTLS connection established via
+`GET /ws`. One mux frame per WebSocket binary message — no fragmentation or
+reassembly at the mux layer.
 
-### Frame Layout
+The wire format and semantics MUST be kept in sync with:
 
-Every WebSocket binary message contains exactly one mux frame:
+- `relay/src/mux/frame.rs` (relay)
+- `core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/MuxFrame.kt` (device)
+- `core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/MuxCodec.kt` (encoder/decoder)
+
+### Frame layout
 
 ```
  0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|     type      |                        stream_id                              |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|               |                                                               |
-+-+-+-+-+-+-+-+-+                                                               |
-|                            payload (variable length)                          |
-|                                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     type      |                  stream_id                    |
++-+-+-+-+-+-+-+-+                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    payload (variable length)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
 | Offset | Size | Field | Encoding |
 |---|---|---|---|
-| 0 | 1 byte | `type` | unsigned 8-bit integer |
-| 1 | 4 bytes | `stream_id` | unsigned 32-bit integer, big-endian (network byte order) |
-| 5 | variable | `payload` | depends on `type` |
+| 0 | 1 byte | `type` | unsigned 8-bit. |
+| 1 | 4 bytes | `stream_id` | unsigned 32-bit, big-endian. |
+| 5 | variable | `payload` | depends on `type`. |
 
-**Minimum frame size:** 5 bytes (header only, empty payload). A WebSocket binary message shorter than 5 bytes MUST be treated as a protocol error -- log a warning and ignore the frame.
+**Minimum frame size:** 5 bytes (header only). A WebSocket binary message
+shorter than 5 bytes MUST be treated as a protocol error.
 
-### Message Types
+### Frame types
 
-#### DATA (0x01)
+| Hex | Name | Direction | `stream_id` | Payload |
+|---|---|---|---|---|
+| `0x00` | `DATA` | both | non-zero | Opaque stream bytes (TLS ciphertext). |
+| `0x01` | `OPEN` | relay → device | non-zero (relay-assigned) | UTF-8 SNI hostname. |
+| `0x02` | `CLOSE` | both | non-zero | Empty. |
+| `0x03` | `ERROR` | both | per-stream (non-zero) or 0 (connection-level) | u32-BE error code + optional UTF-8 message. |
+| `0x04` | `PING` | device → relay (currently) | MUST be 0 | u64-BE nonce (8 bytes). |
+| `0x05` | `PONG` | relay → device (currently) | MUST be 0 | u64-BE nonce echoed from `PING` (8 bytes). |
 
-Carries opaque stream bytes. This is TLS ciphertext from the client-device session. The relay MUST NOT interpret the payload.
+`PING` / `PONG` are an application-layer keepalive on top of the WebSocket's
+own ping/pong, added for half-open detection (#179) — Doze and NAT-rebind
+scenarios where OkHttp's WebSocket pings fail to surface a dead socket. The
+device originates pings, the relay echoes them. Either peer may initiate in
+principle (the codecs are symmetric); current production traffic only flows
+device → relay.
 
-| Field | Value |
-|---|---|
-| `type` | `0x01` |
-| `stream_id` | The stream this data belongs to. MUST NOT be `0`. |
-| `payload` | Opaque bytes (1 or more bytes). Empty DATA frames SHOULD NOT be sent but MUST be tolerated. |
+#### `DATA` (0x00)
 
-**Direction:** Both (relay to device, device to relay).
+Opaque stream payload. The relay MUST NOT interpret the bytes — this is TLS
+ciphertext from the client ↔ device session.
 
-**Flow:** The relay copies bytes between the client TCP socket and the mux WebSocket using DATA frames. Each byte read from the client TCP socket is sent as (part of) a DATA frame payload. Each DATA frame payload received from the device is written to the corresponding client TCP socket.
+**Flow:** Each byte read from the client TCP socket is sent (possibly
+batched) as a `DATA` frame. Each `DATA` frame received from the device is
+written to the corresponding client TCP socket. The relay/device may batch
+or split TCP reads into `DATA` frames of any size. Empty `DATA` frames
+SHOULD NOT be sent but MUST be tolerated.
 
-There is no fragmentation or reassembly at the mux layer. A single WebSocket message = a single mux frame. The relay may batch or split TCP reads into DATA frames of any size. The device and relay SHOULD send DATA frames promptly rather than buffering large payloads.
-
-#### OPEN (0x02)
+#### `OPEN` (0x01)
 
 Signals the device to accept a new incoming client connection.
 
 | Field | Value |
 |---|---|
-| `type` | `0x02` |
-| `stream_id` | Newly assigned stream ID (relay-assigned, monotonically increasing from 1 per mux connection, never 0) |
-| `payload` | SNI hostname, UTF-8 encoded, no null terminator (e.g. `brave-falcon.rousecontext.com`) |
+| `stream_id` | Newly assigned, monotonically increasing from 1 per mux connection. Never 0. |
+| `payload` | UTF-8 SNI hostname from the client's TLS ClientHello, no null terminator (e.g. `brave-health.abc123.rousecontext.com`). |
 
-**Direction:** Relay to device only.
+**Relay flow:**
 
-**Behavior on relay side:**
-1. Assign next available stream ID for this mux connection.
-2. Send OPEN frame with the SNI hostname from the client's TLS ClientHello.
-3. Immediately after OPEN, send the buffered TLS ClientHello bytes as a DATA frame for the same stream ID.
-4. Begin splicing: further reads from the client TCP socket are sent as DATA frames; DATA frames from the device for this stream ID are written to the client TCP socket.
+1. Assign the next available stream id.
+2. Send `OPEN` with the SNI hostname.
+3. Immediately send the buffered TLS ClientHello bytes as a `DATA` frame on
+   the same `stream_id`.
+4. Splice forward in both directions.
 
-**Behavior on device side:**
-1. Create a new `MuxStream` for this stream ID.
-2. The first DATA frame(s) will contain the TLS ClientHello. The device performs TLS server accept over the stream.
-3. After TLS handshake completes, the device runs the HTTP/MCP server over the plaintext stream.
+**Device flow:** create a `MuxStream` for the new id; the first `DATA`
+frame(s) carry the ClientHello, which the device's `TlsAcceptor` consumes
+to terminate TLS. The device-side mux deserializer keeps `OPEN` payload
+bytes around (they are still on the wire) but does not currently route by
+hostname — the routing decision is made by the SNI hostname extracted from
+the ClientHello itself, on the device side.
 
-**Error handling:** If the device cannot accept the stream (e.g. max streams exceeded, internal error), it MUST respond with an ERROR frame for this stream ID with code `STREAM_REFUSED` (0x02).
+If the device cannot accept the stream (e.g. `max_streams_per_device` hit),
+it responds with `ERROR(STREAM_REFUSED)` for that `stream_id`.
 
-**Stream ID exhaustion:** Stream IDs are u32. If 2^32 - 1 streams have been opened on a single mux connection, the relay SHOULD close the mux WebSocket and let the device reconnect (this would take years at any realistic rate).
+#### `CLOSE` (0x02)
 
-#### CLOSE (0x03)
-
-Signals clean teardown of a stream.
-
-| Field | Value |
-|---|---|
-| `type` | `0x03` |
-| `stream_id` | The stream to close. MUST NOT be `0`. |
-| `payload` | Empty (0 bytes). Any payload MUST be ignored by the receiver. |
-
-**Direction:** Both.
-
-**Semantics:** CLOSE is a full close (not half-close). Once a CLOSE is sent or received for a stream ID, no further DATA frames should be sent for that stream ID. DATA frames received after CLOSE for a given stream MUST be silently discarded.
-
-**Relay behavior on CLOSE from device:** Close the corresponding client TCP socket (both read and write halves).
-
-**Relay behavior on client TCP close:** Send CLOSE frame to device for that stream ID.
-
-**Relay behavior on CLOSE from device for unknown stream ID:** Ignore (log at DEBUG level). This can happen due to races.
-
-**Idempotency:** Sending CLOSE for an already-closed stream is harmless. The receiver MUST ignore it.
-
-#### ERROR (0x04)
-
-Reports an error condition for a specific stream or for the connection.
+Clean teardown of a stream. Full close, not half-close.
 
 | Field | Value |
 |---|---|
-| `type` | `0x04` |
-| `stream_id` | The stream this error pertains to, or `0` for connection-level errors |
-| `payload` | 1 byte error code + UTF-8 error message (may be empty) |
+| `stream_id` | The stream to close. Non-zero. |
+| `payload` | Empty. Receiver MUST ignore any bytes. |
+
+After `CLOSE`, no further `DATA` frames should be sent for that
+`stream_id`; receivers MUST silently discard them. Sending `CLOSE` for an
+already-closed stream is harmless. `CLOSE` for an unknown stream is logged
+at debug level and ignored (race with peer-initiated close).
+
+- Relay receives `CLOSE` from device → close the corresponding client TCP
+  socket (both halves).
+- Client TCP socket closes → relay sends `CLOSE` for that stream id.
+
+#### `ERROR` (0x03)
+
+Reports an error condition. May be per-stream (`stream_id != 0`) or
+connection-level (`stream_id == 0`).
+
+| Field | Value |
+|---|---|
+| `stream_id` | Per-stream id, or 0 for connection-level errors. |
+| `payload` | 4-byte u32-BE error code, optionally followed by a UTF-8 message. |
 
 **Payload layout:**
 
-| Offset | Size | Field | Description |
-|---|---|---|---|
-| 0 | 1 byte | `error_code` | See error code table below |
-| 1 | variable | `message` | UTF-8 encoded human-readable message (for logging only, may be empty) |
+| Offset | Size | Field |
+|---|---|---|
+| 0 | 4 bytes | `error_code` (u32 big-endian) |
+| 4 | variable | UTF-8 `message` (may be empty) |
 
-**Direction:** Both.
+**Error codes** (`relay/src/mux/frame.rs::ErrorCode`,
+`MuxFrame.kt::MuxErrorCode`):
 
-**Error Codes:**
+| Code | Name | Meaning |
+|---|---|---|
+| 1 | `STREAM_REFUSED` | Receiver cannot accept the stream (e.g. `max_streams_per_device` reached). Typical reply to an `OPEN` the device cannot fulfil. |
+| 2 | `STREAM_RESET` | Stream is being abnormally torn down on this side; treat as a non-clean `CLOSE`. |
+| 3 | `PROTOCOL_ERROR` | Frame violated the mux contract (bad payload length, invalid `stream_id`, etc.). |
+| 4 | `INTERNAL_ERROR` | Unspecified internal error. |
 
-| Code | Name | Hex | Description |
-|---|---|---|---|
-| 1 | `UNKNOWN_STREAM` | `0x01` | DATA or CLOSE received for a stream ID that is not open. Sent by either side when it receives a frame for a stream it does not recognize. |
-| 2 | `STREAM_REFUSED` | `0x02` | Device cannot accept a new stream (e.g. max concurrent streams reached, internal error). Sent by device in response to OPEN. |
-| 3 | `TIMEOUT` | `0x03` | A timeout occurred (e.g. TLS handshake timeout on device side). |
-| 4 | `INTERNAL` | `0x04` | Unspecified internal error. |
+On `ERROR` for a specific stream, the receiver MUST close that stream and
+the corresponding client TCP socket (if on the relay side). On `ERROR` with
+`stream_id == 0`, the receiver SHOULD tear down the entire mux connection.
 
-**Behavior:** On receiving ERROR for a specific stream (stream_id != 0), the receiver MUST close that stream and the corresponding client TCP connection (if on the relay side). On receiving ERROR with stream_id = 0, the receiver SHOULD close the entire mux connection.
+### Stream id 0
 
-### Stream ID 0
+`stream_id == 0` is reserved for connection-level signaling:
 
-Stream ID 0 is reserved for connection-level signaling. Currently only used with ERROR frames to indicate a fatal mux-level error. DATA, OPEN, and CLOSE frames with stream_id = 0 are invalid and MUST be ignored (log at WARN level).
+- Connection-level `ERROR` frames.
+- `PING` / `PONG` (always on `stream_id == 0`).
 
-### Stream Lifecycle
+`DATA`, `OPEN`, `CLOSE` with `stream_id == 0` are invalid and MUST be
+ignored (log at WARN).
+
+### Stream lifecycle
 
 ```
-Relay assigns stream_id
-         |
-         v
-    OPEN (relay -> device)
-         |
-         v
-    DATA (bidirectional)
-         |
-         v
-  CLOSE or ERROR (either side)
-         |
-         v
-    stream_id retired
+relay assigns stream_id
+        |
+        v
+  OPEN (relay -> device)  [payload: SNI hostname]
+        |
+        v
+  DATA (bidirectional)   [opaque ciphertext bytes]
+        |
+        v
+ CLOSE or ERROR (either side)
+        |
+        v
+   stream_id retired
 ```
 
-A stream ID is never reused within a single mux connection. After a mux WebSocket disconnects and the device reconnects, stream IDs reset to 1.
+A stream id is never reused within a single mux connection. After the
+WebSocket reconnects, the relay restarts its monotonic counter at 1.
 
 ### Keepalive
 
-WebSocket protocol-level ping/pong frames, sent by the relay every 30 seconds (configurable via `timeouts.websocket_ping_secs`). No application-level ping/pong. If a pong is not received before the next ping is due, the mux connection is considered dead.
+Two layers run concurrently:
 
-### Maximum Concurrent Streams
+1. **WebSocket-level `Ping`/`Pong`**: the relay sends a WS `Ping` every
+   `ws_ping_interval_secs` (default 30 s). The read loop's `ws_read_timeout_secs`
+   deadline tears the session down if no message arrives in that window. This
+   is the relay's primary liveness signal.
+2. **Mux-level `PING`/`PONG`**: the device originates application-layer
+   `PING` frames (stream_id 0, u64-BE nonce). The relay echoes the nonce in
+   a `PONG`. Used by the device's half-open detector (#179).
 
-Default: **8** per device (configurable via `timeouts.max_streams_per_device` in `relay.toml`). When the limit is reached, the relay MUST NOT send further OPEN frames. Instead, it closes the incoming client TCP connection immediately. This is enforced relay-side, not by the device -- though the device MAY also refuse streams via ERROR(STREAM_REFUSED) as a defense-in-depth measure.
+### Maximum concurrent streams
+
+`limits.max_streams_per_device` (default 32) is the per-device cap. When
+reached, the device is expected to respond with `ERROR(STREAM_REFUSED)` for
+further `OPEN`s. The relay does not enforce a hard cap on its own.
 
 ---
 
-## FCM Message Formats
+## Internal FCM wakeup
 
-All FCM messages are **data-only** (no `notification` block) so the device's `FirebaseMessagingService` always receives them, even when the app is in the background.
+The relay does **not** expose an HTTP `/wake` endpoint. Wakeup is part of the
+passthrough resolver and runs only when an MCP client connects to a device
+subdomain. See `relay/src/passthrough.rs::resolve_device_stream`:
 
-Sent via FCM HTTP v1 API: `POST https://fcm.googleapis.com/v1/projects/{project_id}/messages:send`
+1. SNI extracted from the client's TLS ClientHello selects the
+   `(subdomain, integration_secret)` pair.
+2. The integration secret is checked against the in-memory `valid_secrets`
+   cache (or Firestore on cache miss) — mismatches are silently rejected to
+   avoid leaking subdomain existence.
+3. If a mux session is registered for the subdomain, a stream is opened
+   directly.
+4. Otherwise the relay consults `FcmWakeThrottle` (one wake per subdomain
+   within a short cooldown — by default 10 s — so concurrent clients share a
+   single FCM push). If the throttle allows, an FCM `type: "wake"` message
+   is sent to `devices/{subdomain}.fcm_token` with priority `high`.
+5. The handler then waits up to `limits.fcm_wakeup_timeout_secs` (default
+   20 s) for the device's WebSocket upgrade to complete; on connect, it
+   opens the stream. Otherwise the client TCP connection is closed without
+   forwarding any data.
 
-### Wake Message
+There is no application-layer error envelope on this path: the relay simply
+fails the TLS connection (the client sees the TCP socket close) since it is
+TLS-passthrough, not an HTTP endpoint. `pending_fcm_wakeups` on `/status`
+counts the wait queue.
 
-Sent when a client connects to a device subdomain and the device has no active mux connection, or when `/wake/:subdomain` is called for an offline device.
+---
+
+## FCM message formats
+
+All FCM messages are **data-only** (no `notification` block) so the device's
+`FirebaseMessagingService` always handles them, even when the app is in the
+background. Sent via the FCM HTTP v1 API:
+
+```
+POST https://fcm.googleapis.com/v1/projects/{project_id}/messages:send
+```
+
+`relay/src/fcm.rs::FcmData`:
+
+```json
+{
+  "type": "wake"
+}
+```
+
+The `data` payload has a single field:
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | One of `"wake"` or `"renew"`. |
+
+Wrapped in the FCM v1 send envelope:
 
 ```json
 {
   "message": {
     "token": "<device_fcm_token>",
-    "android": {
-      "priority": "high"
-    },
-    "data": {
-      "type": "wake"
-    }
+    "android": { "priority": "high" | "normal" },
+    "data": { "type": "wake" }
   }
 }
 ```
 
-| Data Field | Type | Description |
-|---|---|---|
-| `type` | string | Always `"wake"` |
+### `wake`
 
-**Priority:** `high` -- FCM will attempt immediate delivery, waking the device from Doze if necessary.
+Sent by the passthrough resolver when a client connects and no mux session
+is registered. Priority `high` (FCM attempts immediate delivery, waking
+Doze).
 
-**Expected device behavior:** Start foreground service, establish mux WebSocket connection to the relay using the compiled-in relay URL from BuildConfig.
+**Expected device behavior:** start the foreground tunnel service and
+upgrade to the relay's `/ws` using the compiled-in URL.
 
-### Renew Message
+### `renew`
 
-Sent by the daily maintenance job when a device's certificate expires within 7 days and no `renewal_nudge_sent` timestamp is set.
+Sent by the maintenance loop (`relay/src/maintenance.rs`) when a device's
+`cert_expires` is within `cert_expiry_nudge_days` (default 7 d) and
+`renewal_nudge_sent` is null. Priority `normal` (delivery may be delayed by
+Doze; renewal is not time-critical).
 
-```json
-{
-  "message": {
-    "token": "<device_fcm_token>",
-    "android": {
-      "priority": "normal"
-    },
-    "data": {
-      "type": "renew"
-    }
-  }
-}
-```
-
-| Data Field | Type | Description |
-|---|---|---|
-| `type` | string | Always `"renew"` |
-
-**Priority:** `normal` -- delivery may be delayed by Doze. Renewal is not time-critical.
-
-**Expected device behavior:** Enqueue a WorkManager task to call `POST /renew` using the compiled-in relay URL from BuildConfig. Show a warning notification if appropriate.
+**Expected device behavior:** enqueue a WorkManager task that calls
+`POST /renew` and surfaces a notification if the user needs to act.
 
 ---
 
-## Firestore Document Schemas
+## Firestore document schemas
 
 ### `devices/{subdomain}`
 
-Primary device record. The document ID is the subdomain string (e.g. `brave-falcon`).
+Primary device record. Document id is the subdomain string (e.g. `abc123`).
+See `relay/src/firestore.rs::DeviceRecord`.
 
-| Field | Firestore Type | Required | Description |
+| Field | Firestore type | Required | Description |
 |---|---|---|---|
-| `fcm_token` | string | yes | Current FCM registration token for the device |
-| `firebase_uid` | string | yes | Firebase anonymous auth UID. Immutable after creation (for a given subdomain). |
-| `public_key` | string | yes | Base64-encoded DER SubjectPublicKeyInfo (ECDSA P-256). Extracted from the CSR at registration time. Updated on re-registration if the device generates a new keypair. |
-| `cert_expires` | timestamp | yes | Expiration time of the most recently issued certificate |
-| `registered_at` | timestamp | yes | When this subdomain was first created |
-| `last_rotation` | timestamp | no | When this Firebase UID last performed a subdomain rotation. Null if never rotated. Used to enforce 30-day cooldown. |
-| `renewal_nudge_sent` | timestamp | no | Set when the relay sends a `type: "renew"` FCM push. Cleared (set to null) when the device successfully renews via `POST /renew`. Prevents duplicate nudge FCMs. |
+| `fcm_token` | string | yes | Current FCM registration token. |
+| `firebase_uid` | string | yes | Firebase anonymous-auth UID. Immutable for the lifetime of the subdomain. |
+| `public_key` | string | yes after round 2 | Base64-encoded DER `SubjectPublicKeyInfo` (ECDSA P-256), extracted from the most recent CSR. Empty between round 1 and round 2. |
+| `cert_expires` | timestamp | yes after round 2 | Expiration of the most recently issued certificate. `UNIX_EPOCH` between round 1 and round 2. |
+| `registered_at` | timestamp | yes | When this subdomain was first created. |
+| `last_rotation` | timestamp | optional | When this Firebase UID last rotated subdomains. Used to enforce the rotation cooldown. |
+| `renewal_nudge_sent` | timestamp | optional | Set when the relay sends a `type: "renew"` FCM. Cleared on successful `/renew`. Prevents duplicate nudges. |
+| `secret_prefix` | string | optional, **deprecated** | Legacy single-secret field from the pre-#148 era. Still consulted as a fallback in `passthrough.rs::resolve_device_stream` for devices that have not migrated. New registrations leave this `null`. |
+| `valid_secrets` | array of string | yes (may be empty) | Flat membership list used by the SNI fast path. Each entry is a valid first-label for the device's hostname (e.g. `brave-health`). Authoritative for SNI routing; derived from `integration_secrets` on writes that populate both. |
+| `integration_secrets` | map (string → string) | yes (may be empty) | Integration id → its `{adjective}-{integration_id}` secret. Source of truth for which secret belongs to which integration; needed for `/rotate-secret` replace-by-request-set semantics (#285). |
 
-**Access patterns:**
-- Relay reads/writes via Firebase Admin SDK (service account credentials).
-- Device writes only `fcm_token` (via Firestore security rules matching `firebase_uid`).
-- Lookup by subdomain: direct document get (`devices/{subdomain}`).
-- Lookup by Firebase UID: query `where firebase_uid == {uid}` (needed for `/register` to check if UID already has a subdomain).
-- Daily maintenance: query `where cert_expires < now + 7d AND cert_expires > now AND renewal_nudge_sent == null`.
-- Subdomain reclamation: query `where cert_expires < now - 180d`.
+**Access patterns**
 
-**Indexes required:**
-- `firebase_uid` -- equality query for registration lookup.
-- `cert_expires` -- range query for maintenance jobs.
+- Relay reads/writes via the Firebase Admin SDK (service-account credentials).
+- Device writes only `fcm_token` (via Firestore security rules matching
+  `firebase_uid`) — currently performed over the WebSocket text control
+  channel rather than a direct Firestore write.
+- Direct doc lookup: `devices/{subdomain}`.
+- UID query: `where firebase_uid == {uid}` for `/register` re-registration
+  detection.
+- Maintenance: `where cert_expires < now + 7d AND cert_expires > now AND
+  renewal_nudge_sent == null` for nudges; `where cert_expires < now - 180d`
+  for stale-device sweep / subdomain reclaim.
 
 ### `pending_certs/{subdomain}`
 
-Devices blocked on ACME rate limits. Created when a `/register` or `/renew` request hits the weekly cert limit. Processed by the daily maintenance job when the rate limit resets.
+Devices blocked on ACME rate limits. `relay/src/firestore.rs::PendingCert`.
 
-| Field | Firestore Type | Required | Description |
+| Field | Firestore type | Required | Description |
 |---|---|---|---|
-| `fcm_token` | string | yes | Device's FCM token at the time of the blocked request |
-| `csr` | string | yes | Base64-encoded DER CSR that was blocked |
-| `blocked_at` | timestamp | yes | When the request was blocked |
-| `retry_after` | timestamp | yes | Earliest time the relay should attempt to process this entry |
+| `fcm_token` | string | yes | Device's FCM token at the time of the blocked request. |
+| `csr` | string | yes | Base64-encoded DER CSR that was blocked. |
+| `blocked_at` | timestamp | yes | When the request was blocked. |
+| `retry_after` | timestamp | yes | Earliest time the maintenance job should retry issuance. |
 
-**Lifecycle:**
-1. Created by `/register` or `/renew` handler when ACME rate limit is hit.
-2. Daily maintenance job checks if `retry_after <= now`. If so, attempts ACME issuance.
-3. On successful issuance: update `devices/{subdomain}` with new cert expiry, delete `pending_certs/{subdomain}`, send FCM `type: "wake"` to the device.
-4. On failure (rate limit still active): update `retry_after` and leave the document.
+**Lifecycle**
+
+1. Created by `/register/certs` or `/renew` when the ACME CA returns a rate
+   limit.
+2. Maintenance job retries when `retry_after <= now`.
+3. On success: update `devices/{subdomain}.cert_expires`, delete
+   `pending_certs/{subdomain}`, send `type: "wake"` FCM so the device picks
+   up the new cert.
+4. On failure: bump `retry_after` and leave the doc.
+
+### `subdomain_reservations/{subdomain}`
+
+Short-lived holds created by `/request-subdomain`. Document id is the
+reserved subdomain. `relay/src/firestore.rs::SubdomainReservation`.
+
+| Field | Firestore type | Required | Description |
+|---|---|---|---|
+| `fqdn` | string | yes | Full FQDN (`{subdomain}.{base_domain}`). |
+| `firebase_uid` | string | yes | UID that holds the reservation. |
+| `expires_at` | timestamp | yes | Absolute expiry. After this point the name returns to the pool. |
+| `base_domain` | string | yes | Base domain the reservation lives under. |
+| `created_at` | timestamp | yes | When the reservation was created. |
+
+**Lifecycle**
+
+1. Created by `/request-subdomain`. TTL =
+   `limits.subdomain_reservation_ttl_secs` (default 600 s).
+2. Consumed by the next successful `POST /register` from the same UID
+   (single-use).
+3. Expired entries are dropped opportunistically by `/request-subdomain` when
+   the same UID retries, and by the maintenance sweep.
 
 ---
 
-## Signature Verification
+## Signature semantics by endpoint
 
-Several endpoints require verifying a signature produced by the device's Android Keystore private key.
+The relay verifies ECDSA P-256 signatures in three different shapes. They are
+**not interchangeable** — using the wrong payload returns `403 forbidden:
+Signature verification failed`. The signed bytes differ even though the
+algorithm and stored public key are the same.
+
+| Endpoint | When required | Payload signed | Where verified |
+|---|---|---|---|
+| `POST /register` (re-registration / rotation) | UID already has a subdomain. | **Raw bytes of the `firebase_token` string.** | `relay/src/api/register.rs:144-152` |
+| `POST /register/certs` (PoP path) | `devices/{subdomain}.public_key` already populated. | **Raw DER bytes of the CSR** (i.e. the bytes that would be Base64-encoded to produce the `csr` field). | `relay/src/api/register.rs:357-371` |
+| `POST /renew` (always) | Always. | **Raw DER bytes of the CSR.** | `relay/src/api/renew.rs:71-78,123,217` |
+| `POST /rotate-secret` | n/a — no body signature. Authenticated by mTLS only. | — | — |
+| `GET /ws` | n/a — authenticated by mTLS only. | — | — |
 
 ### Algorithm
 
-- **Key type:** ECDSA P-256 (secp256r1)
-- **Signature algorithm:** SHA256withECDSA (ECDSA with SHA-256 hash, per FIPS 186-4)
-- **Signature encoding:** DER-encoded ECDSA-Sig-Value (two INTEGER values: r and s), then Base64-encoded for transmission in JSON
+- **Key:** ECDSA P-256 (secp256r1).
+- **Hash:** SHA-256 (`SHA256withECDSA`, FIPS 186-4).
+- **Encoding:** DER-encoded `ECDSA-Sig-Value` (two `INTEGER`s, `r` and `s`),
+  then Base64-encoded for the JSON body.
 
-### What Is Signed
+### Verification procedure
 
-The signature is always over the **raw DER bytes of the CSR** -- the bytes that would be Base64-encoded to produce the `csr` field in the request. Not the Base64 string, not the PEM encoding, not a JSON wrapper -- the raw binary CSR.
-
-### Verification Procedure
-
-1. Base64-decode the `signature` field to obtain the DER-encoded ECDSA signature.
-2. Base64-decode the `csr` field to obtain the raw CSR bytes.
-3. Retrieve the device's stored `public_key` from Firestore (Base64-encoded DER SubjectPublicKeyInfo).
-4. Base64-decode the public key.
-5. Verify: `SHA256withECDSA.verify(public_key, csr_bytes, signature)`.
+1. Base64-decode the `signature` field → DER signature bytes.
+2. Determine the **payload bytes** for this endpoint (token bytes vs CSR
+   DER) — this is the step that diverges between endpoints.
+3. Look up `devices/{subdomain}.public_key`; Base64-decode → DER `SPKI`.
+4. Parse the SPKI as an ECDSA P-256 verifying key.
+5. `verifying_key.verify(payload_bytes, signature)`. On error → 403.
 
 ---
 
-## Rate Limiting Summary
+## Rate limiting summary
 
 | Endpoint | Scope | Limit | Mechanism | State |
 |---|---|---|---|---|
-| `POST /wake/:subdomain` | Per subdomain | 6 requests per minute | Token bucket (1 token per 10 seconds, max burst 6) | In-memory (resets on relay restart) |
-| `POST /register` | Global (ACME) | CA-specific — GTS (production) has tens-of-thousands/day headroom; Let's Encrypt (self-hosting) is 50/registered-domain/week | Counter (resets on the CA's quota window) | In-memory + Firestore `pending_certs/` for overflow |
-| `POST /register` (`force_new`) | Per Firebase UID | Once per 30 days | `last_rotation` timestamp in Firestore | Firestore |
-| `POST /renew` | Global (ACME) | Same as `/register` (shared ACME account/quota) | Same counter as `/register` | Same as `/register` |
+| `POST /request-subdomain` | Per Firebase UID | Token bucket: burst `request_subdomain_rate_burst`, refill 1 token / `request_subdomain_rate_refill_secs`. | `RateLimiter` keyed by UID. | In-memory (resets on relay restart). Periodic sweep drops idle entries. |
+| `POST /register` (`force_new`) | Per Firebase UID | Once per `subdomain_rotation_cooldown_days` (default 30). | `last_rotation` timestamp on `devices/{subdomain}`. | Firestore. |
+| `POST /register/certs` / `POST /renew` (ACME) | Global, per ACME account | CA-specific. GTS in production has tens-of-thousands/day headroom; Let's Encrypt deployments are bounded by 50 certs / registered domain / week. | Returned by the CA. The relay surfaces it as `acme_rate_limited` and stores blocked work in `pending_certs/`. | CA + Firestore. |
+| Internal passthrough (per subdomain) | Per subdomain | One FCM wake per subdomain per `FcmWakeThrottle` window (default 10 s). | `FcmWakeThrottle`. | In-memory. |
+| Internal passthrough (per source IP / subdomain) | Per (IP, subdomain) | `conn_rate_limit_max` connections / `conn_rate_limit_window_secs` (default 200 / 60 s) — defends against scanners hammering one device from one IP. | `ConnectionRateLimiter`. | In-memory. |
 
-The ACME rate limit counter is best-effort. On relay restart, the counter resets. The relay can query Firestore `devices/` records with `cert_expires` in the current window to reconstruct an approximate count, but the exact count is not critical -- the CA will reject requests that exceed the real limit, and the relay handles that gracefully. In practice the counter mostly exists to spare Let's Encrypt-backed self-hosts from burning quota on retry storms; the production GTS-backed relay rarely gets close to its ceiling.
+The ACME rate-limit counter is best-effort: on relay restart it resets, and
+the CA's authoritative limit is the binding one. In practice GTS-backed
+production rarely approaches its ceiling; the `pending_certs/` queue plus the
+`acme_rate_limited` envelope mostly exist to make Let's Encrypt-backed
+self-hosts survive a retry storm gracefully.
+
+---
+
+## Admin / Test-Mode Endpoints
+
+A separate admin HTTP server is gated by both:
+
+- the `test-mode` Cargo feature (compile-time);
+- the `--test-mode <port>` CLI flag (or `TEST_MODE_PORT` env var) at runtime.
+
+When enabled, the admin server binds **only on `127.0.0.1:<port>`** and is
+unauthenticated. **Release builds do not include this code at all** — the
+entire `relay/src/test_mode.rs` module is `#[cfg(feature = "test-mode")]`.
+
+The admin endpoints exist to drive failure scenarios from the
+`core/tunnel`/`:app` integration tests where a real ClientHello/mTLS dance
+is impractical (Conscrypt's SNI suppression under Robolectric, FCM
+unavailability in CI, etc.). See issues #249, #266, #377.
+
+| Method | Path | Query | Behavior |
+|---|---|---|---|
+| `POST` | `/test/kill-ws` | `subdomain` | Aborts the active mux WebSocket without sending a close frame. Simulates relay-side network drop / crash so the device-side half-open detector fires. Returns `{killed: bool, subdomain}`. |
+| `POST` | `/test/fcm-wake` | `subdomain` | Records a synthetic FCM wake event in the in-memory metrics (no real FCM is sent). Returns `{captured: <count>}`. |
+| `POST` | `/test/open-stream` | `subdomain`, `stream_id`, `sni` (optional) | Pushes an OPEN frame onto the mux session as if passthrough had routed an inbound client connection. The frame's payload is the supplied SNI string. Returns `{opened: bool, subdomain, stream_id}` (404 if no session, 409 on emit failure). |
+| `POST` | `/test/emit-stream-error` | `subdomain`, `stream_id`, `code` (optional, default `2` = `STREAM_RESET`), `message` (optional) | Pushes an ERROR frame onto an already-open stream. `code` is a `MuxErrorCode` (1..=4); 400 on invalid code. |
+| `GET`  | `/test/wait-session-registered` | `subdomain`, `timeout_ms` (optional, default 5000) | Blocks until the named subdomain's mux session is registered (or the timeout elapses). Returns immediately if already registered. Replaces the hardcoded 500 ms sleep that previously raced session insertion (#377). |
+| `GET`  | `/test/stats` | — | Returns the `TestMetrics` snapshot: per-endpoint call counters, last-seen mTLS presence per path, captured synthetic wakes, and the list of SNI hostnames the SNI router actually dispatched. |
+
+The admin router is built by
+`relay/src/test_mode.rs::build_admin_router` and bound on loopback by
+`spawn_admin_server`. None of these endpoints participate in graceful
+shutdown — the test harness terminates the relay subprocess directly.
+
+When `test-mode` is enabled, the production API router is also wrapped with
+the `record_api_request` middleware so every relay-API call is counted in
+`TestMetrics` (visible via `/test/stats`). In a release build that middleware
+is not even compiled in.
