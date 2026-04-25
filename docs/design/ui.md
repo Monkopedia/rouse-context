@@ -1,20 +1,27 @@
 # UI Design
 
+## Screen / Content / Destination split
+
+Every UI route is registered as a `*Destination` composable in `app/src/main/java/com/rousecontext/app/ui/navigation/destinations/`. The destination owns its `ViewModel` and calls a `*Content(state, ...)` composable from `app/src/main/java/com/rousecontext/app/ui/screens/` to render. The `*Screen.kt` files in the same screens directory wrap `*Content` for previews and screenshot tests; production never goes through `*Screen`. When this doc says "the Settings screen", read that as `SettingsDestination` → `SettingsContent` (with `SettingsScreen` only used for previews/tests). The `WelcomeScreen` and `NotificationPreferencesScreen` wrappers are the two exceptions that are still called from production destinations.
+
 ## Screens
 
 1. Welcome (first launch only)
-2. Main Dashboard
-3. Add Integration Picker
-4. Integration Setup: Notification Preferences (first integration only)
-5. Integration Setup: Integration-Specific (delegates to McpIntegration.onboardingRoute)
-6. Integration Setup: Setting Up (cert issuance spinner)
-7. Integration Setup: Integration Enabled (URL + waiting for client)
-8. Integration Manage (app-owned: URL, recent activity, authorized clients, disable, settings link)
-9. Integration Settings (integration-owned: permissions, domain-specific config)
-10. Device Code Approval (full screen)
-11. Connection Confirmed
-12. Audit History
-13. Settings
+2. Notification Preferences (post-session mode picker, runs during onboarding)
+3. Main Dashboard (Home)
+4. Add Integration Picker
+5. Integration Setup: Setting Up (cert/wiring spinner; cert provisioning normally already ran during onboarding)
+6. Integration Setup — Health Connect (`health_connect_setup/{mode}`)
+7. Integration Setup — Notifications (`notification_setup/{mode}`)
+8. Integration Setup — Outreach (`outreach_setup/{mode}`)
+9. Integration Setup — Usage (`usage_setup/{mode}`)
+10. Integration Enabled (URL + waiting for client)
+11. Integration Manage (app-owned: URL, recent activity, authorized clients, disable)
+12. All Clients (per-integration full list of authorized clients)
+13. Authorization Approval (full-screen device-code approve/deny)
+14. Audit History
+15. Audit Detail (single audit entry)
+16. Settings
 
 ## Integration States
 
@@ -37,26 +44,27 @@ Pending   ──[user disables]──→ Disabled (back in Add picker)
 Active    ──[all tokens for this integration revoked]──→ Pending
 ```
 
-## Cert Status (device-level)
+## Onboarding State (device-level)
 
-Observed by MainDashboardViewModel and IntegrationSetupViewModel only.
+Observed by `OnboardingViewModel` and `MainDashboardViewModel`. Source of truth: `app/src/main/java/com/rousecontext/app/ui/viewmodels/OnboardingViewModel.kt:21-43`.
 
 ```kotlin
-sealed interface CertStatus {
-    data object None : CertStatus
-    data class Onboarding(val step: OnboardingStep) : CertStatus
-    data object Valid : CertStatus
-    data object Renewing : CertStatus
-    data class Expired(val renewalInProgress: Boolean) : CertStatus
-    data class RateLimited(val retryAfter: Instant) : CertStatus
+sealed interface OnboardingState {
+    data object Checking : OnboardingState
+    data object NotOnboarded : OnboardingState
+    data class InProgress(val step: OnboardingStep) : OnboardingState
+    data object Onboarded : OnboardingState
+    data class Failed(val message: String) : OnboardingState
+    data class RateLimited(val retryDate: String) : OnboardingState
 }
 
 enum class OnboardingStep {
-    GENERATING_KEYS,
-    REGISTERING,
-    ISSUING_CERT,
+    Registering,        // POST /request-subdomain + POST /register
+    ProvisioningCerts,  // POST /register/certs (ACME hop)
 }
 ```
+
+Only two `OnboardingStep` values exist — there is no separate "generating keys" UI step (key generation runs inside `CertProvisioningFlow` while the UI is showing `ProvisioningCerts`). Renew / expired banners are surfaced via a separate state machine driven by `CertRenewalWorker` rather than this enum.
 
 ## Screen Wireframes
 
@@ -164,14 +172,9 @@ Shown at top of dashboard when cert is not in Valid state:
 │   Apr 11.                           │
 └─────────────────────────────────────┘
 
-(first run, registration in progress)
-┌─────────────────────────────────────┐
-│ ⟳ Setting up your device...         │
-│   Generating keys ✓                 │
-│   Registering ✓                     │
-│   Issuing certificate...            │
-└─────────────────────────────────────┘
 ```
+
+The "first-run registration in progress" banner is no longer shown on the dashboard: post-#389 the onboarding flow blocks until both `OnboardingStep.Registering` and `OnboardingStep.ProvisioningCerts` complete, so the user only reaches Home in `OnboardingState.Onboarded`. The two-step copy ("Registering" → "Provisioning certificates") lives on the onboarding destination instead. See `docs/design/android-app.md` "Device Onboarding" for the sequence.
 
 ### Add Integration Picker
 
@@ -198,9 +201,9 @@ Shown at top of dashboard when cert is not in Valid state:
 
 Shows Available + Disabled integrations. Disabled ones show "Re-enable" instead of "Set up". Future/unavailable ones greyed out with "Soon" or "Not available on this device".
 
-### Integration Setup: Notification Preferences
+### Notification Preferences (onboarding step)
 
-First integration only. Skipped on subsequent integrations.
+Part of the onboarding flow — sits between Welcome and the autostart re-entry. Not shown for subsequent integration adds. Route: `onboarding/notification_preferences`.
 
 ```
 ┌─────────────────────────────────────┐
@@ -229,7 +232,7 @@ If not "suppress": system notification permission dialog follows.
 
 ### Integration Setup: Integration-Specific
 
-Delegates to `McpIntegration.onboardingRoute`. For Health Connect:
+App-owned destinations, one per integration: `health_connect_setup/{mode}`, `notification_setup/{mode}`, `outreach_setup/{mode}`, `usage_setup/{mode}`. Each is registered in `:app`'s nav graph; integrations themselves do not own routes (the legacy `McpIntegration.onboardingRoute` field is unused by routing). Example for Health Connect:
 
 ```
 ┌─────────────────────────────────────┐
@@ -331,8 +334,9 @@ Auto-advances when cert becomes valid. If user leaves (Cancel or background), in
 │   Add this URL to your AI client:    │
 │                                      │
 │   ┌─────────────────────────────┐    │
-│   │ https://brave-falcon.       │    │
-│   │ rousecontext.com/health     │    │
+│   │ https://brave-health        │    │
+│   │ .cool-penguin               │    │
+│   │ .rousecontext.com/mcp       │    │
 │   │                      [Copy] │    │
 │   └─────────────────────────────┘    │
 │                                      │
@@ -347,11 +351,13 @@ Auto-advances when cert becomes valid. If user leaves (Cancel or background), in
 └──────────────────────────────────────┘
 ```
 
-If device code auth arrives while on this screen, auto-navigates to Device Code Approval. Cancel goes to dashboard (integration stays Pending, tappable to return here).
+If device code auth arrives while on this screen, auto-navigates to Authorization Approval. Cancel goes to dashboard (integration stays Pending, tappable to return here).
+
+URL format: `https://<integration-secret>.<subdomain>.rousecontext.com/mcp` (per-integration hostname; the integration is identified by SNI, not by the path). The `<integration-secret>` is `{adjective}-{integrationId}` (e.g. `brave-health`, `swift-notifications`) — a fresh adjective is rolled for each integration on registration / rotate. Source: `app/src/main/java/com/rousecontext/app/UrlBuilder.kt:14-48` (`McpUrlProvider.buildUrl()` + `buildMcpUrl()`); see also `docs/design/relay-api.md` for the per-integration secret schema.
 
 ### Integration Manage (app-owned)
 
-Shown when tapping an Active or Pending integration on the dashboard. App-owned screen at `integration/{id}/manage`. Shows operational info and management actions.
+Shown when tapping an Active or Pending integration on the dashboard. App-owned destination at route `integration/{integrationId}` (`Routes.INTEGRATION_MANAGE`). Shows operational info and management actions.
 
 For Active:
 
@@ -360,8 +366,9 @@ For Active:
 │     HEALTH CONNECT          Active   │
 │                                      │
 │   ┌─────────────────────────────┐    │
-│   │ https://brave-falcon.       │    │
-│   │ rousecontext.com/health     │    │
+│   │ https://brave-health        │    │
+│   │ .cool-penguin               │    │
+│   │ .rousecontext.com/mcp       │    │
 │   │                      [Copy] │    │
 │   └─────────────────────────────┘    │
 │                                      │
@@ -392,8 +399,9 @@ For Pending (no clients yet):
 │     HEALTH CONNECT         Pending   │
 │                                      │
 │   ┌─────────────────────────────┐    │
-│   │ https://brave-falcon.       │    │
-│   │ rousecontext.com/health     │    │
+│   │ https://brave-health        │    │
+│   │ .cool-penguin               │    │
+│   │ .rousecontext.com/mcp       │    │
 │   │                      [Copy] │    │
 │   └─────────────────────────────┘    │
 │                                      │
@@ -410,38 +418,16 @@ For Pending (no clients yet):
 └──────────────────────────────────────┘
 ```
 
-**Settings** navigates to `integration/{id}/settings` (integration-owned screen).
 **Disable** removes from dashboard, puts back in Add picker.
-**Revoke** removes token, may transition Active → Pending if last token.
-
-### Integration Settings (integration-owned)
-
-Reached via Settings button on the Manage screen. Integration owns this screen via `settingsRoute`. Example for Health Connect:
-
-```
-┌─────────────────────────────────────┐
-│     HEALTH CONNECT SETTINGS          │
-│                                      │
-│   Permissions                        │
-│   ┌─────────────────────────────┐    │
-│   │ ✓ Steps                     │    │
-│   │ ✓ Heart rate                │    │
-│   │ ✓ Sleep                     │    │
-│   │ ○ Workout history  [Grant]  │    │
-│   │ ○ HRV              [Grant]  │    │
-│   └─────────────────────────────┘    │
-│                                      │
-│   (integration-specific settings     │
-│    go here — data type config, etc.) │
-│                                      │
-└──────────────────────────────────────┘
-```
+**Revoke** removes token, may transition Active → Pending if last token. Tapping the Authorized Clients header navigates to the per-integration All Clients list (`all_clients/{integrationId}`).
 
 Tapping a **Pending** integration on the dashboard:
 - If cert still issuing → Setting Up spinner
 - If cert ready → Integration Manage (Pending variant above)
 
-### Device Code Approval (full screen)
+There is no integration-owned settings route. Permission management for Health Connect is delegated to the system Health Connect UI; the other integrations expose their per-integration configuration directly inside the manage screen above. The `settingsRoute` field on `McpIntegration` is a legacy field retained only for source-compatibility (see `docs/design/android-app.md`).
+
+### Authorization Approval (full screen)
 
 ```
 ┌─────────────────────────────────────┐
@@ -473,23 +459,7 @@ Tapping a **Pending** integration on the dashboard:
 - All other cases → notification posted ("A client wants to connect"), user taps notification to open this screen
 - Multiple simultaneous auth requests → each posts its own notification, user approves them one at a time, first-come first-served
 
-### Connection Confirmed
-
-```
-┌─────────────────────────────────────┐
-│                                      │
-│                                      │
-│         ✓ Connected                  │
-│                                      │
-│   Your AI client is now              │
-│   authorized.                        │
-│                                      │
-│                                      │
-│       [ Back to Home ]               │
-│                                      │
-│                                      │
-└──────────────────────────────────────┘
-```
+On Approve or Deny, the destination pops back to wherever the user came from (Integration Enabled, dashboard, etc.). There is no separate "Connection Confirmed" screen.
 
 ### Audit History
 
@@ -522,7 +492,7 @@ Tapping a **Pending** integration on the dashboard:
 └──────────────────────────────────────┘
 ```
 
-Deep-link: `/audit/{sessionId}` pre-filters to that session's entries (from notification tap).
+Deep-link: `audit?provider={provider}&scrollToCallId={callId}` pre-filters to a provider and scrolls to a specific call (from notification tap). The single-row `audit_detail/{entryId}` route shows the full args/result JSON for one call.
 
 ### Settings
 
@@ -565,39 +535,59 @@ Deep-link: `/audit/{sessionId}` pre-filters to that session's entries (from noti
 
 ## Navigation Flow
 
+Onboarding (fresh install, post-#389/#392 — see `docs/ux-decisions.md` 2026-04-24):
+
 ```
-Welcome ──→ Main Dashboard
-                │
-                ├── [+ Add] ──→ Add Integration Picker
-                │                    │
-                │                    └── [Set up] ──→ Notification Prefs (first time only)
-                │                                         │
-                │                                         └──→ Integration-Specific Setup
-                │                                                   │
-                │                                                   └──→ Setting Up (if cert needed)
-                │                                                            │
-                │                                                            └──→ Integration Enabled (URL + waiting)
-                │                                                                      │
-                │                                                                      └──→ Device Code (auto-navigate, ONLY from this screen)
-                │                                                                               │
-                │                                                                               └──→ Connected ──→ Dashboard
-                │
-                ├── [Pending integration] ──→ Integration Manage (Pending) or Setting Up (if cert issuing)
-                │
-                ├── [Active integration] ──→ Integration Manage (Active: URL, activity, clients, disable)
-                │                                │
-                │                                └── [Settings] ──→ Integration Settings (integration-owned)
-                │
-                ├── bottom nav: Audit ──→ Audit History
-                │
-                ├── bottom nav: Settings ──→ Settings
-                │
-                ├── notification tap (auth) ──→ Device Code Approval
-                │
-                └── notification tap (audit) ──→ Audit History (filtered by sessionId)
+Welcome (onboarding)
+    │
+    └─ [Get Started] ──→ Notification Preferences (onboarding/notification_preferences)
+                                │
+                                └─ [Continue] ──→ onboarding?autostart=true
+                                                       │  (re-enters the SAME onboarding
+                                                       │   destination; OnboardingViewModel
+                                                       │   runs Firebase auth → /request-subdomain
+                                                       │   → /register → /register/certs)
+                                                       │
+                                                       └─ on success ──→ Home
 ```
 
-Device code auth requests that arrive when the user is NOT on the Integration Enabled screen are surfaced via notification only. No forced navigation from other screens.
+The Welcome and NotificationPreferences screens both share a single `OnboardingViewModel` instance hosted by the onboarding destination — the #392 invariant. Cert provisioning runs *during* onboarding rather than at first integration add (#389), so by the time the user reaches Home the device cert chain already exists.
+
+Steady state (after Home is reached):
+
+```
+Home (main dashboard)
+    │
+    ├─ [+ Add] ──→ Add Integration Picker
+    │                  │
+    │                  └─ [Set up] ──→ Integration Setup (integration_setup/{id}, brief cert/wiring spinner)
+    │                                       │
+    │                                       └──→ Integration-specific Setup (health_connect_setup/{mode},
+    │                                              notification_setup/{mode}, outreach_setup/{mode}, usage_setup/{mode})
+    │                                                  │
+    │                                                  └──→ Integration Enabled (integration_enabled/{id}, URL + waiting)
+    │                                                            │
+    │                                                            └──→ Authorization Approval
+    │                                                                  (auto-navigate ONLY from this screen)
+    │                                                                         │
+    │                                                                         └──→ pop back to caller
+    │
+    ├─ [Pending integration] ──→ Integration Manage (Pending) or Integration Setup spinner (if cert still issuing)
+    │
+    ├─ [Active integration] ──→ Integration Manage (URL, activity, clients, disable)
+    │                                │
+    │                                └─ [View all clients] ──→ All Clients (all_clients/{id})
+    │
+    ├─ bottom nav: Audit ──→ Audit History ──→ Audit Detail (audit_detail/{entryId})
+    │
+    ├─ bottom nav: Settings ──→ Settings
+    │
+    ├─ notification tap (auth) ──→ Authorization Approval
+    │
+    └─ notification tap (audit) ──→ Audit History (filtered + scrolled to call)
+```
+
+Authorization requests that arrive when the user is NOT on the Integration Enabled screen are surfaced via notification only. No forced navigation from other screens.
 
 ## ViewModels
 
@@ -605,13 +595,19 @@ All constructor-injectable via Koin. Accept interfaces for mockability. Unit tes
 
 | ViewModel | Observes | Key State |
 |---|---|---|
-| MainDashboardViewModel | TunnelClient.state, cert status, enabled integrations, recent audit | connection indicator, integration list, activity preview, cert banner |
+| OnboardingViewModel | `CertificateStore.getSubdomain()`, Firebase auth, `OnboardingFlow`, `CertProvisioningFlow` | `OnboardingState` (`Checking` / `NotOnboarded` / `InProgress(step)` / `Onboarded` / `Failed` / `RateLimited`). Single shared instance owned by the onboarding destination — the post-#392 invariant for both Welcome and the autostart re-entry. |
+| NotificationPreferencesViewModel | DataStore `post_session_notifications`, `POST_NOTIFICATIONS` permission state | selected mode, permission-denied flag, Continue enablement |
+| MainDashboardViewModel | `TunnelClient.state`, onboarding state, enabled integrations, recent audit | connection indicator, integration list, activity preview, banners |
 | AddIntegrationViewModel | available + disabled integrations | integration picker list |
-| IntegrationSetupViewModel | cert status, setup flow step, pending device code | current step, progress, auto-navigate to device code when on URL screen |
-| IntegrationManageViewModel | integration state, recent audit for this integration, tokens for this integration | URL, activity, authorized clients, disable/settings actions, revoke |
-| DeviceCodeApprovalViewModel | pending device code request | user code input, validation, approve/deny |
-| AuditHistoryViewModel | audit DB queries | entries list, filters, empty state |
-| SettingsViewModel | DataStore preferences, battery optimization, rotation cooldown | setting values, toggles, rotation availability |
+| IntegrationSetupViewModel | cert/integration-secret readiness, setup flow step, pending authorization request | current step, progress, auto-navigate to authorization approval when on URL screen |
+| HealthConnectSetupViewModel | Health Connect SDK availability + permissions | granted record types, permission grant flow, completion |
+| NotificationSetupViewModel | NotificationListener access state | listener-grant flow, completion |
+| OutreachSetupViewModel | `QUERY_ALL_PACKAGES` / launcher app list permission state | permission flow, completion |
+| UsageSetupViewModel | `PACKAGE_USAGE_STATS` permission state | permission flow, completion |
+| IntegrationManageViewModel | integration state, recent audit for this integration, tokens for this integration | URL, activity, authorized clients, disable, revoke |
+| AuthorizationApprovalViewModel | pending device-code authorization request | user code input, validation, approve/deny (formerly named `DeviceCodeApprovalViewModel`) |
+| AuditHistoryViewModel | audit Room queries | entries list, filters, empty state, scroll target |
+| SettingsViewModel | DataStore preferences, battery optimization, rotation cooldown, security-check state | setting values, toggles, rotation availability, trust status |
 
 ## Testing
 
@@ -625,9 +621,9 @@ All constructor-injectable via Koin. Accept interfaces for mockability. Unit tes
 - Cover: empty state, loading, error, populated, edge cases (long text, many items)
 
 ### Integration setup flow tests
-- Notification prefs shown on first integration only
+- Notification preferences shown during initial onboarding (between Welcome and the autostart re-entry); not shown for subsequent integrations
 - Integration-specific onboarding skipped when permissions already granted
-- Setting Up screen shown only when cert not valid
-- Auto-navigation from Integration Enabled to Device Code on auth arrival
+- Setting Up spinner only shown when cert / integration secrets not yet available (rare path post-#389 since onboarding provisions certs before Home)
+- Auto-navigation from Integration Enabled to Authorization Approval on authorization arrival
 - Cancel at any step leaves integration in correct state (Available or Pending)
 - Re-enable disabled integration skips permissions if still granted

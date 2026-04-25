@@ -23,20 +23,22 @@ Frame: 5-byte header + payload
 
 | Type | Value | Direction | Payload |
 |---|---|---|---|
-| DATA | 0x01 | both | opaque stream bytes |
-| OPEN | 0x02 | relay→device | SNI hostname (UTF-8) |
-| CLOSE | 0x03 | both | empty |
-| ERROR | 0x04 | both | error code (u8) + message (UTF-8) |
+| DATA | 0x00 | both | opaque stream bytes |
+| OPEN | 0x01 | relay→device | SNI hostname (UTF-8) |
+| CLOSE | 0x02 | both | empty |
+| ERROR | 0x03 | both | error code (u32 BE) + message (UTF-8) |
+| PING | 0x04 | both | 8-byte BE nonce on stream_id 0 |
+| PONG | 0x05 | both | 8-byte BE nonce on stream_id 0 |
 
-Error codes: UNKNOWN_STREAM (0x01), STREAM_REFUSED (0x02), TIMEOUT (0x03), INTERNAL (0x04)
+Error codes (u32 BE): `STREAM_REFUSED`, `STREAM_RESET`, `PROTOCOL_ERROR`, `INTERNAL_ERROR`.
 
-WebSocket built-in ping/pong for keepalive (~30s). No application-level ping/pong.
+Application-level PING/PONG on stream id 0 carries an 8-byte big-endian nonce so endpoints can detect a half-open WebSocket without relying on the WebSocket-layer ping (which some intermediaries forward without the peer process being alive). See `docs/design/relay-api.md` ("Mux Binary Framing Protocol") for the canonical wire format.
 
 ## Port 443 — SNI-Based Routing
 
 All traffic arrives on port 443. The relay peeks at the TLS ClientHello to extract the SNI hostname and routes accordingly:
 
-- **SNI = `relay.rousecontext.com`** → terminate TLS (relay's own cert), serve HTTP. Routes: `/ws` (mux WebSocket), `/register`, `/renew`, `/wake/:subdomain`, `/status`.
+- **SNI = `relay.rousecontext.com`** → terminate TLS (relay's own cert), serve HTTP. The full endpoint catalog (`/ws`, `/register`, `/register/certs`, `/request-subdomain`, `/rotate-secret`, `/renew`, `/status`) is documented in `docs/design/relay-api.md`. There is no public `/wake` endpoint; FCM wakeup is internal to the SNI passthrough path on cache miss (see "Client Passthrough" below).
 - **SNI = `{subdomain}.rousecontext.com`** → passthrough mode. Buffer ClientHello, look up device, splice to mux stream.
 - **SNI unknown** → close connection.
 
@@ -69,100 +71,23 @@ Stream IDs are u32, assigned per-mux-connection, incrementing from 1. Reset when
 
 ## API Endpoints
 
-All served over HTTPS on `relay.rousecontext.com:443`. Optional mTLS — client cert accepted but not required at TLS level. Per-endpoint enforcement below.
+All served over HTTPS on `relay.rousecontext.com:443`. Optional mTLS at the TLS layer — client cert accepted but not required; per-endpoint enforcement is documented in `docs/design/relay-api.md`. The endpoint catalog at the time of writing:
 
-### `GET /ws` → Mux WebSocket
-**Requires valid client cert** (device cert, issued by trusted CA). Reject 401 if no cert or invalid cert. On valid cert: extract subdomain from CN/SAN, upgrade to WebSocket, begin mux framing.
+| Endpoint | Purpose | Auth |
+|---|---|---|
+| `POST /request-subdomain` | Round 0 of onboarding: reserve a single-word subdomain keyed by Firebase UID (short-TTL reservation). | Firebase ID token |
+| `POST /register` | Round 1: consume the reservation, persist the device record, return the assigned subdomain plus per-integration secrets. | Firebase ID token (+ signature for re-registration / `force_new`) |
+| `POST /register/certs` | Round 2: ACME DNS-01 → return server cert + relay-CA-issued client cert. Split out of `/register` to keep the registration round idempotent and quick. | Firebase ID token + signature over CSR |
+| `POST /rotate-secret` | Replace the per-integration secret set wholesale (request body is authoritative; ids absent from the body are dropped). | mTLS client cert |
+| `POST /renew` | Cert renewal. Path A (valid cert): mTLS client cert auth. Path B (expired cert): Firebase + signature. **Both paths require `subdomain`, `csr`, and `signature` in the body** — even Path A. mTLS only re-confirms identity; the body is authoritative. | mTLS or Firebase + signature |
+| `GET /ws` | Mux WebSocket upgrade. | mTLS client cert |
+| `GET /status` | Health and rough metrics. | none |
 
-### `POST /register`
-Onboarding or subdomain rotation.
+`docs/design/relay-api.md` is the canonical source for request/response shapes, error codes, signature semantics, and Firestore document schemas. This document only covers the architectural shape and the relay-internal behavior that does not surface as an endpoint.
 
-Request:
-```json
-{
-  "firebase_token": "eyJ...",
-  "csr": "base64-encoded-CSR",
-  "fcm_token": "firebase-cloud-messaging-token",
-  "signature": "base64-DER (required for re-registration or rotation)",
-  "force_new": false
-}
-```
+### Internal FCM wakeup (no `/wake` endpoint)
 
-`signature` required when Firebase UID already has a subdomain. `force_new: true` for subdomain rotation (relay enforces 30-day cooldown).
-
-Relay:
-1. Verify Firebase ID token → extract UID
-2. If UID already registered:
-   a. Verify signature against stored public key
-   b. If `force_new`: check 30-day cooldown, assign new subdomain, invalidate old
-   c. If not `force_new`: reuse existing subdomain, issue new cert
-3. If new UID: generate random two-word subdomain
-4. Check ACME rate limit — if exceeded, store in `pending_certs/`, return `rate_limited` error, alert admin
-5. Perform ACME DNS-01 challenge for `{subdomain}.rousecontext.com`
-6. Store/update device record in Firestore
-7. Return cert + subdomain
-
-Response (success):
-```json
-{
-  "subdomain": "brave-falcon",
-  "cert": "base64-encoded-cert-chain"
-}
-```
-
-Response (rate limited):
-```json
-{
-  "error": "rate_limited",
-  "retry_after_secs": 604800
-}
-```
-
-### `POST /renew`
-Cert renewal. Two auth paths depending on cert validity.
-
-Request (expired cert — Firebase + signature):
-```json
-{
-  "subdomain": "abc123",
-  "firebase_token": "eyJ...",
-  "csr": "base64-encoded-CSR",
-  "signature": "base64-encoded-signature-over-CSR"
-}
-```
-
-Request (valid cert — mTLS client cert auth):
-```json
-{
-  "csr": "base64-encoded-CSR"
-}
-```
-Subdomain extracted from client cert CN/SAN. No Firebase token needed.
-
-Relay:
-1. If mTLS: verify cert, extract subdomain
-2. If Firebase: verify token → extract UID → verify against Firestore → verify signature against stored public key
-3. Perform ACME DNS-01 challenge
-4. Update cert_expires in Firestore
-5. Return new cert
-
-Response:
-```json
-{
-  "cert": "base64-encoded-cert-chain"
-}
-```
-
-### `POST /wake/:subdomain`
-Pre-flight wakeup. No auth required but rate-limited.
-
-Rate limit: 6 requests per subdomain per minute (in-memory token bucket). Returns 429 if exceeded.
-
-Relay:
-1. Check rate limit → if exceeded, return 429
-2. Check if device has active mux connection → if yes, return 200 immediately
-3. If not, fire FCM, wait for device to connect (up to 20s)
-4. Return 200 when connected, 504 on timeout
+There is no public `/wake/:subdomain` endpoint. FCM wakeup is triggered internally on the SNI passthrough fast-path when a client connects for a subdomain whose device has no active mux connection: the relay holds the inbound TCP/TLS connection, fires an FCM `wake` push, and waits for the device to dial in (up to ~20s). See "Client Passthrough" above.
 
 ## ACME Orchestration
 
