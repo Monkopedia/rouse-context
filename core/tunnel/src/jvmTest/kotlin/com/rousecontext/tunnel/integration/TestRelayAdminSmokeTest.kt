@@ -51,7 +51,13 @@ class TestRelayAdminSmokeTest {
         private const val KEEPALIVE_TIMEOUT_MS = 1_000L
         private const val KEEPALIVE_MAX_MISSES = 3
 
-        private const val SESSION_REGISTRATION_DELAY_MS = 500L
+        /**
+         * Upper bound for [TestRelayManager.waitForSessionRegistered]. The
+         * relay-side `Notify` typically fires within a millisecond of the
+         * mux WebSocket upgrade completing; 10s is generous for CI under
+         * stress (#400).
+         */
+        private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
 
     private lateinit var tempDir: File
@@ -181,7 +187,19 @@ class TestRelayAdminSmokeTest {
             keepaliveMaxMisses = KEEPALIVE_MAX_MISSES
         )
         client.connect("wss://$RELAY_HOSTNAME:$relayPort/ws")
-        delay(SESSION_REGISTRATION_DELAY_MS)
+        // Deterministic wait for the relay's `SessionRegistry.insert` after
+        // the WS upgrade completes. Replaces the former 500ms blind sleep
+        // (#400). Backed by per-subdomain `Notify` on the relay, exposed via
+        // the test-mode admin endpoint.
+        val registered = relayManager.waitForSessionRegistered(
+            DEVICE_SUBDOMAIN,
+            SESSION_REGISTRATION_TIMEOUT_MS
+        )
+        assertTrue(
+            registered,
+            "Relay did not register mux session for $DEVICE_SUBDOMAIN within " +
+                "${SESSION_REGISTRATION_TIMEOUT_MS}ms"
+        )
         return client
     }
 }
