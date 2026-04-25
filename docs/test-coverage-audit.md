@@ -1005,7 +1005,6 @@ cd relay && cargo tarpaulin --out Html
 
 ## References
 
-- Production bug report: `docs/device-test-report.md`
 - Test file locations: See inventory section above
 - Ktor testing guide: https://ktor.io/docs/testing.html
 - Rust testing guide: https://doc.rust-lang.org/book/ch11-00-testing.html

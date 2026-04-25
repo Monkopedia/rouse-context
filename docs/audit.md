@@ -59,34 +59,15 @@ Top-level `BLOCKERS.md` is the only one.
   historical record is wanted, preserve by tagging the last commit that
   contains it and then delete from `main`.
 
-### docs/overnight-plan-2.md
-- **Length**: 118 lines
-- **Audience**: historical
-- **Accuracy**: stale. A dated execution plan (2026-04-06) listing
-  phase 1–7 bug fixes and integration work. Most items shipped; the rest
-  live in GitHub Issues.
-- **User-facing content?**: No.
-- **Recommendation**: delete. Point-in-time plan, not a design doc.
+<!--
+Removed from active audit on 2026-04-25 (deleted from repo):
+- docs/overnight-plan-2.md (stale execution plan)
+- docs/device-test-report.md (dated QA snapshot)
+- docs/e2e-status.md (resolved blocker history; root cause now in #389/#390)
+- docs/screenshot_{audit_tab,connected,dashboard,settings_tab}.png (referenced
+  only by the deleted device-test-report)
+-->
 
-### docs/device-test-report.md
-- **Length**: 172 lines
-- **Audience**: historical (point-in-time QA report)
-- **Accuracy**: partially stale. Snapshots 2026-04-07 test on a Pixel 3 XL.
-  Several "non-blocking issues" are now fixed (#5 tracked dashboard
-  connection state; spurious disconnect/reconnect and state-machine
-  idempotency fixes have landed).
-- **User-facing content?**: No.
-- **Recommendation**: delete or move to `docs/history/` if we want an
-  archive of QA snapshots. It is not an evergreen doc.
-
-### docs/e2e-status.md
-- **Length**: 55 lines
-- **Audience**: historical
-- **Accuracy**: stale. Describes "current blocker: AI client → relay
-  passthrough → device" as of 2026-04-06. Passthrough has shipped; this
-  was resolved.
-- **User-facing content?**: No.
-- **Recommendation**: delete.
 
 ### docs/test-coverage-audit.md
 - **Length**: 1012 lines
@@ -300,21 +281,26 @@ Top-level `BLOCKERS.md` is the only one.
 - **Recommendation**: keep, or move to `app/src/test/resources/`
   since it's test-generated output, not a doc.
 
-### docs/screenshots/index.html and docs/screenshot_*.png
-- **What it is**: Screenshot gallery index + the four referenced
-  screenshots from `device-test-report.md`.
-- **Recommendation**: if we delete `device-test-report.md`, remove
-  these too. Otherwise leave.
+### docs/screenshots/index.html
+- **What it is**: Gallery of the current `app/screenshots/*.png` roborazzi
+  outputs (dark/light pairs across the whole UI). Live and useful.
+- **Recommendation**: keep. The four standalone `docs/screenshot_*.png`
+  files that paired with `device-test-report.md` were deleted on
+  2026-04-25 along with the report; `docs/screenshots/index.html` is a
+  separate artifact and references `app/screenshots/*` instead.
 
 ---
 
 ## Summary punch list
 
-- [ ] **Delete**: `BLOCKERS.md`, `docs/workflow.md`, `docs/overnight-plan-2.md`,
-      `docs/e2e-status.md`, `docs/test-coverage-audit.md`,
-      `docs/design/secret-prefix-bot-rejection.md`. Optionally
-      `docs/device-test-report.md` (plus `docs/screenshot_*.png` and
-      `docs/screenshots/index.html` if report is deleted).
+- [ ] **Delete**: `BLOCKERS.md`, `docs/workflow.md`,
+      `docs/test-coverage-audit.md`,
+      `docs/design/secret-prefix-bot-rejection.md`.
+      _Done 2026-04-25: `docs/overnight-plan-2.md`, `docs/e2e-status.md`,
+      `docs/device-test-report.md`, and the four `docs/screenshot_*.png`
+      files paired with that report._
+      `docs/screenshots/index.html` is kept (it indexes `app/screenshots/*`,
+      not the deleted PNGs).
 - [ ] **Rewrite for docs/user/**: `docs/security.md` → split into
       `docs/user/security.md` (trust model, what-you-trust, what-ai-can't-do)
       and keep the implementation-detail parts under
