@@ -239,7 +239,7 @@ class OutreachMcpProviderTest {
 
     /** Build a fresh provider with overridable launch-direct predicate and notifier. */
     private fun registerProvider(
-        canLaunchDirectly: () -> Boolean,
+        canLaunchDirectly: suspend () -> Boolean,
         launchNotifier: com.rousecontext.api.LaunchRequestNotifierApi?
     ): MutableMap<
         String,

@@ -40,7 +40,7 @@ class McpSession(
     private val integration: String = "health",
     private val rateLimiter: RateLimiter? = defaultOAuthInitRateLimiter(),
     private val mcpRateLimiter: RateLimiter? = null,
-    private val securityAlertCheck: (() -> Boolean)? = null,
+    private val securityAlertCheck: (suspend () -> Boolean)? = null,
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0",
     private val unknownClientLabeler: UnknownClientLabeler? = null,

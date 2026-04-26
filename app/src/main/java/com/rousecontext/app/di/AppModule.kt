@@ -35,6 +35,7 @@ import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.state.OAuthHostnameProvider
 import com.rousecontext.app.state.PreferencesSnapshotHolder
+import com.rousecontext.app.state.SecurityAlertGate
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.support.BugReportUriBuilder
@@ -113,9 +114,7 @@ import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
@@ -199,16 +198,17 @@ val appModule = module {
     single { McpUrlProvider(get(), BuildConfig.BASE_DOMAIN) }
 
     // --- Device registration status ---
+    // Issue #419 finding #3: use the suspend-factory so awaitReady completes
+    // only after the cert store has been consulted. Pre-#419 the status was
+    // constructed with initiallyRegistered=false and the cert-store check ran
+    // in a background launch{} — leaving complete.value=false during the
+    // cold-start window even on already-registered devices.
     single {
         val certStore: CertificateStore = get()
         val appScope: CoroutineScope = get(named("appScope"))
-        val status = DeviceRegistrationStatus(initiallyRegistered = false)
-        appScope.launch {
-            if (certStore.getSubdomain() != null) {
-                status.markComplete()
-            }
+        DeviceRegistrationStatus.create(scope = appScope) {
+            certStore.getSubdomain() != null
         }
-        status
     }
 
     // --- Firebase auth / FCM abstractions ---
@@ -471,17 +471,19 @@ val appModule = module {
             integration = defaultIntegration,
             unknownClientLabeler = get(),
             securityAlertCheck = run {
+                // Issue #419 finding #1: wrap the combined alert flow in a
+                // SecurityAlertGate that only reports its value after the
+                // underlying DataStore flows have emitted their first values.
+                // The previous `stateIn(initialValue = false)` capture returned
+                // `false` during the cold-start window between process spawn
+                // and first emission, bypassing the alert gate.
                 val securityPrefs = get<SecurityCheckPreferences>()
-                val alertFlag = combine(
+                val alertFlow = combine(
                     securityPrefs.observeSelfCertResult(),
                     securityPrefs.observeCtLogResult()
                 ) { self, ct -> self == "alert" || ct == "alert" }
-                    .stateIn(
-                        scope = appScope,
-                        started = SharingStarted.Eagerly,
-                        initialValue = false
-                    )
-                val capture: () -> Boolean = { alertFlag.value }
+                val gate = SecurityAlertGate(source = alertFlow, scope = appScope)
+                val capture: suspend () -> Boolean = { gate.isAlerting() }
                 capture
             },
             log = { level, msg ->
