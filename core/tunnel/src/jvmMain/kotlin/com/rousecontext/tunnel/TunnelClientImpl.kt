@@ -90,6 +90,17 @@ class TunnelClientImpl(
                     }
 
                     override fun onClosing(code: Int, reason: String) {
+                        // If the server closes before onOpen ever fires, the
+                        // pre-CONNECTED awaiter on `opened.await()` would hang
+                        // until the surrounding scope is cancelled. Surface the
+                        // close as a connect failure on that path. See #420.
+                        if (!opened.isCompleted) {
+                            opened.completeExceptionally(
+                                TunnelError.WebSocketClosed(
+                                    "WebSocket closed during handshake: $code $reason"
+                                )
+                            )
+                        }
                         scope.launch {
                             handleDisconnect(
                                 TunnelError.WebSocketClosed(
