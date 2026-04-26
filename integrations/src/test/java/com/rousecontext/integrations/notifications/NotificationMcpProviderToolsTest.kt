@@ -1,9 +1,8 @@
 package com.rousecontext.integrations.notifications
 
 import android.service.notification.StatusBarNotification
-import io.mockk.every
+import com.rousecontext.integrations.testing.McpToolTestHarness
 import io.mockk.mockk
-import io.mockk.slot
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.Json
@@ -24,26 +23,13 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class NotificationMcpProviderToolsTest {
 
+    private lateinit var harness: McpToolTestHarness
     private lateinit var server: Server
-    private val toolNames = mutableListOf<String>()
-    private val toolSchemas = mutableMapOf<String, ToolSchema>()
 
     @Before
     fun setUp() {
-        server = mockk(relaxed = true)
-        val nameSlot = slot<String>()
-        val schemaSlot = slot<ToolSchema>()
-        every {
-            server.addTool(
-                name = capture(nameSlot),
-                description = any(),
-                inputSchema = capture(schemaSlot),
-                handler = any()
-            )
-        } answers {
-            toolNames.add(nameSlot.captured)
-            toolSchemas[nameSlot.captured] = schemaSlot.captured
-        }
+        harness = McpToolTestHarness()
+        server = harness.createMockServer()
     }
 
     private fun buildProvider(): NotificationMcpProvider = NotificationMcpProvider(
@@ -65,9 +51,9 @@ class NotificationMcpProviderToolsTest {
 
         buildProvider().register(server)
 
-        assertEquals(expected, toolNames.toSet())
-        // No duplicates — every name appears exactly once.
-        assertEquals(expected.size, toolNames.size)
+        assertEquals(expected, harness.toolHandlers.keys)
+        // No duplicates — every name appears exactly once (harness keyed by name).
+        assertEquals(expected.size, harness.toolHandlers.size)
     }
 
     @Test
@@ -75,7 +61,7 @@ class NotificationMcpProviderToolsTest {
         buildProvider().register(server)
 
         val json = Json { ignoreUnknownKeys = true }
-        toolSchemas.forEach { (name, schema) ->
+        harness.toolSchemas.forEach { (name, schema) ->
             val serialized = json.encodeToString(ToolSchema.serializer(), schema)
             val parsed = json.decodeFromString(ToolSchema.serializer(), serialized)
             assertEquals("$name schema round-trip", schema, parsed)

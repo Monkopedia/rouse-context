@@ -6,16 +6,11 @@ import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import com.rousecontext.integrations.testing.McpToolTestHarness
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -30,11 +25,9 @@ class UsageMcpProviderTest {
     private lateinit var context: Context
     private lateinit var usageStatsManager: UsageStatsManager
     private lateinit var packageManager: PackageManager
-    private lateinit var server: Server
+    private lateinit var harness: McpToolTestHarness
     private lateinit var provider: UsageMcpProvider
 
-    private val toolHandlers =
-        mutableMapOf<String, suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
     private val fakeConnection: ClientConnection = mockk(relaxed = true)
 
     @Before
@@ -53,23 +46,9 @@ class UsageMcpProviderTest {
             packageManager.getApplicationInfo(any<String>(), any<Int>())
         } returns appInfo
 
-        server = mockk(relaxed = true)
-
-        val nameSlot = slot<String>()
-        val handlerSlot = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
-        every {
-            server.addTool(
-                name = capture(nameSlot),
-                description = any(),
-                inputSchema = any<ToolSchema>(),
-                handler = capture(handlerSlot)
-            )
-        } answers {
-            toolHandlers[nameSlot.captured] = handlerSlot.captured
-        }
-
+        harness = McpToolTestHarness()
         provider = UsageMcpProvider(context)
-        provider.register(server)
+        provider.register(harness.createMockServer())
     }
 
     @Test
@@ -80,7 +59,7 @@ class UsageMcpProviderTest {
             "get_usage_events",
             "compare_usage"
         )
-        assertEquals(expectedTools, toolHandlers.keys)
+        assertEquals(expectedTools, harness.toolHandlers.keys)
     }
 
     @Test
@@ -98,17 +77,12 @@ class UsageMcpProviderTest {
         setupAppLabel("com.example.app2", "App Two")
         setupAppLabel("com.example.app3", "App Three")
 
-        val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_usage_summary",
-                    arguments = buildJsonObject {
-                        put("period", JsonPrimitive("today"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_usage_summary",
+            arguments = buildJsonObject {
+                put("period", JsonPrimitive("today"))
+            },
+            connection = fakeConnection
         )
 
         assertFalse(result.isError == true)
@@ -136,17 +110,12 @@ class UsageMcpProviderTest {
         setupAppLabel("com.example.app1", "Rouse Context")
         setupAppLabel("com.example.app2", "Other App")
 
-        val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_usage_summary",
-                    arguments = buildJsonObject {
-                        put("period", JsonPrimitive("today"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_usage_summary",
+            arguments = buildJsonObject {
+                put("period", JsonPrimitive("today"))
+            },
+            connection = fakeConnection
         )
 
         assertFalse(result.isError == true)
@@ -175,18 +144,13 @@ class UsageMcpProviderTest {
             setupAppLabel("com.example.app$i", "App$i")
         }
 
-        val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_usage_summary",
-                    arguments = buildJsonObject {
-                        put("period", JsonPrimitive("week"))
-                        put("limit", JsonPrimitive(2))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_usage_summary",
+            arguments = buildJsonObject {
+                put("period", JsonPrimitive("week"))
+                put("limit", JsonPrimitive(2))
+            },
+            connection = fakeConnection
         )
 
         assertFalse(result.isError == true)
@@ -199,17 +163,12 @@ class UsageMcpProviderTest {
 
     @Test
     fun `get_usage_summary rejects invalid period`() = runBlocking {
-        val handler = toolHandlers["get_usage_summary"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_usage_summary",
-                    arguments = buildJsonObject {
-                        put("period", JsonPrimitive("invalid"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_usage_summary",
+            arguments = buildJsonObject {
+                put("period", JsonPrimitive("invalid"))
+            },
+            connection = fakeConnection
         )
 
         assertTrue(result.isError == true)
@@ -226,18 +185,13 @@ class UsageMcpProviderTest {
 
         setupAppLabel("com.example.target", "Target App")
 
-        val handler = toolHandlers["get_app_usage"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_app_usage",
-                    arguments = buildJsonObject {
-                        put("package_name", JsonPrimitive("com.example.target"))
-                        put("period", JsonPrimitive("week"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_app_usage",
+            arguments = buildJsonObject {
+                put("package_name", JsonPrimitive("com.example.target"))
+                put("period", JsonPrimitive("week"))
+            },
+            connection = fakeConnection
         )
 
         assertFalse(result.isError == true)
@@ -248,17 +202,17 @@ class UsageMcpProviderTest {
 
     @Test
     fun `get_app_usage returns error for missing package_name`() = runBlocking {
-        val handler = toolHandlers["get_app_usage"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_app_usage",
-                    arguments = buildJsonObject {
-                        put("period", JsonPrimitive("today"))
-                    }
-                )
-            )
+        // expectJsonBody = false: the framework-level "Missing required parameter"
+        // path emits plain text, not JSON. Tracked separately in #427 (the
+        // harness in #426 surfaced this gap). Once #427 lands and ToolResult.Error
+        // wraps in a JSON envelope, this opt-out can be removed.
+        val result = harness.callTool(
+            name = "get_app_usage",
+            arguments = buildJsonObject {
+                put("period", JsonPrimitive("today"))
+            },
+            connection = fakeConnection,
+            expectJsonBody = false
         )
 
         assertTrue(result.isError == true)
@@ -273,18 +227,13 @@ class UsageMcpProviderTest {
             usageStatsManager.queryEvents(any(), any())
         } returns events
 
-        val handler = toolHandlers["get_usage_events"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_usage_events",
-                    arguments = buildJsonObject {
-                        put("since", JsonPrimitive("today"))
-                        put("until", JsonPrimitive("today"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_usage_events",
+            arguments = buildJsonObject {
+                put("since", JsonPrimitive("today"))
+                put("until", JsonPrimitive("today"))
+            },
+            connection = fakeConnection
         )
 
         assertFalse(result.isError == true)
@@ -294,18 +243,13 @@ class UsageMcpProviderTest {
 
     @Test
     fun `get_usage_events rejects invalid since period`() = runBlocking {
-        val handler = toolHandlers["get_usage_events"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "get_usage_events",
-                    arguments = buildJsonObject {
-                        put("since", JsonPrimitive("bad"))
-                        put("until", JsonPrimitive("today"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "get_usage_events",
+            arguments = buildJsonObject {
+                put("since", JsonPrimitive("bad"))
+                put("until", JsonPrimitive("today"))
+            },
+            connection = fakeConnection
         )
 
         assertTrue(result.isError == true)
@@ -329,18 +273,13 @@ class UsageMcpProviderTest {
 
         setupAppLabel("com.example.app1", "App One")
 
-        val handler = toolHandlers["compare_usage"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "compare_usage",
-                    arguments = buildJsonObject {
-                        put("period1", JsonPrimitive("yesterday"))
-                        put("period2", JsonPrimitive("today"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "compare_usage",
+            arguments = buildJsonObject {
+                put("period1", JsonPrimitive("yesterday"))
+                put("period2", JsonPrimitive("today"))
+            },
+            connection = fakeConnection
         )
 
         assertFalse(result.isError == true)
@@ -350,18 +289,13 @@ class UsageMcpProviderTest {
 
     @Test
     fun `compare_usage rejects invalid period1`() = runBlocking {
-        val handler = toolHandlers["compare_usage"]!!
-        val result = handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(
-                    name = "compare_usage",
-                    arguments = buildJsonObject {
-                        put("period1", JsonPrimitive("bad"))
-                        put("period2", JsonPrimitive("today"))
-                    }
-                )
-            )
+        val result = harness.callTool(
+            name = "compare_usage",
+            arguments = buildJsonObject {
+                put("period1", JsonPrimitive("bad"))
+                put("period2", JsonPrimitive("today"))
+            },
+            connection = fakeConnection
         )
 
         assertTrue(result.isError == true)
