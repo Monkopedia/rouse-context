@@ -1058,3 +1058,87 @@ async fn client_hello_preserved_through_wake_delay() {
     let result = splice_handle.await.unwrap();
     assert!(result.is_ok());
 }
+
+/// Regression for #423.
+///
+/// Sequence:
+///   1. Client A arrives, device offline -> FCM fires (record 1).
+///   2. Device's WS session registers -- this mirrors what
+///      `handle_mux_session` does on production: insert into the
+///      SessionRegistry, register the mux connection, then clear the
+///      throttle entry.
+///   3. Device disconnects (e.g. OOM, swipe-away, network blip).
+///   4. Client B arrives within the throttle's cooldown window. With the fix
+///      FCM must fire AGAIN (record 2), because the previous wake's job is
+///      done -- the device acknowledged it and then went away.
+///
+/// Pre-fix behaviour: step 4 sees the still-stamped throttle entry, logs
+/// "FCM wake throttled, waiting for existing wake", and the call hangs
+/// until `fcm_wakeup_timeout`. MockFcm would still show only 1 send and the
+/// final `len == 2` assertion would fail.
+#[tokio::test]
+async fn fcm_refires_after_register_disconnect_within_cooldown() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    let firestore =
+        Arc::new(MockFirestore::new().with_device("flap-dev", make_device_record("fcm-flap")));
+    let fcm = Arc::new(MockFcm::new());
+    // Long cooldown so the production-style throttle (10s) is comfortably
+    // longer than this test's wall-clock duration. Without the fix, the
+    // second wake is suppressed for the whole cooldown.
+    let throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(60)));
+
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry.clone(),
+        firestore,
+        fcm: fcm.clone(),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        // Short timeout so the *broken* path fails fast (~50ms each call)
+        // instead of stalling CI for the whole cooldown if the bug regresses.
+        fcm_wakeup_timeout: Duration::from_millis(50),
+        fcm_wake_throttle: throttle.clone(),
+    };
+
+    // Step 1: client A arrives, no session registered -> FCM fires.
+    // We don't simulate the device connecting back, so resolve_device_stream
+    // times out. The FCM send is what we care about here.
+    let r1 = resolve_device_stream(&ctx, "flap-dev", "flap-dev.rousecontext.com", "").await;
+    assert!(matches!(r1, Err(PassthroughError::WakeupTimeout)));
+    {
+        let sent = fcm.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1, "first wake should have fired exactly once");
+        assert_eq!(sent[0].0, "fcm-flap");
+    }
+
+    // Step 2: simulate `handle_mux_session` registering the WS session.
+    // This is the call site introduced for #423: insert into the registry
+    // AND clear the throttle entry so a subsequent disconnect+reconnect
+    // cycle inside the cooldown still triggers a fresh FCM push.
+    let (open_tx, _open_rx) = mpsc::channel::<OpenStreamRequest>(16);
+    let (kill_tx, _kill_rx) = mpsc::channel::<()>(1);
+    let (frame_tx, _frame_rx) = mpsc::channel::<Frame>(16);
+    registry.insert("flap-dev", open_tx, kill_tx, frame_tx);
+    relay_state.register_mux_connection("flap-dev");
+    throttle.clear("flap-dev");
+
+    // Step 3: device disconnects.
+    registry.remove("flap-dev");
+    relay_state.remove_mux_connection("flap-dev");
+
+    // Step 4: client B arrives inside the cooldown window. With the fix the
+    // throttle entry was cleared in step 2, so FCM fires again. Without it
+    // the throttle still has the timestamp from step 1 and silently
+    // swallows this wake -- the assertion below would observe `len == 1`.
+    let r2 = resolve_device_stream(&ctx, "flap-dev", "flap-dev.rousecontext.com", "").await;
+    assert!(matches!(r2, Err(PassthroughError::WakeupTimeout)));
+
+    let sent = fcm.sent.lock().unwrap();
+    assert_eq!(
+        sent.len(),
+        2,
+        "second wake must fire after register+disconnect within cooldown (#423)"
+    );
+    assert_eq!(sent[1].0, "fcm-flap");
+}

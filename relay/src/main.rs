@@ -172,6 +172,16 @@ async fn main() {
         refill_interval: Duration::from_secs(config.limits.request_subdomain_rate_refill_secs),
     };
 
+    // FCM-wake throttle is shared between the passthrough connection handler
+    // (which decides whether to fire FCM) and the `/ws` upgrade handler
+    // (which clears the entry once the device's mux session registers, so a
+    // subsequent disconnect+reconnect cycle inside the cooldown window still
+    // triggers a fresh wake -- see #423).
+    //
+    // Throttle must be shorter than fcm_wakeup_timeout so a failed wake
+    // allows a retry on the next client connection.
+    let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(10)));
+
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
         session_registry: session_registry.clone(),
@@ -187,6 +197,7 @@ async fn main() {
         request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             request_subdomain_limiter_cfg,
         ),
+        fcm_wake_throttle: fcm_wake_throttle.clone(),
         config: config.clone(),
         device_ca,
         #[cfg(feature = "test-mode")]
@@ -219,9 +230,7 @@ async fn main() {
     ));
 
     // Bot protection: rate limiters for passthrough connections
-    // Throttle must be shorter than fcm_wakeup_timeout so a failed wake
-    // allows a retry on the next client connection.
-    let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(10)));
+    // (`fcm_wake_throttle` is constructed earlier so it can be shared with AppState.)
     // All AI-client requests for a given user come from a single backend IP
     // (e.g. Anthropic's MCP gateway), so this limit is effectively per-user,
     // not per-attacker. Claude's integration discovery/setup can fire 10+

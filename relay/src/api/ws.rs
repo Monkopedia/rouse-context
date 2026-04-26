@@ -41,6 +41,9 @@ struct SessionParams {
     session_registry: Arc<SessionRegistry>,
     firestore: Arc<dyn crate::firestore::FirestoreClient>,
     firestore_has_record: bool,
+    /// Shared throttle; cleared on session registration so a quick
+    /// disconnect+reconnect cycle still triggers a fresh FCM wake (#423).
+    fcm_wake_throttle: Arc<crate::rate_limit::FcmWakeThrottle>,
 }
 
 pub async fn handle_ws(
@@ -100,6 +103,7 @@ pub async fn handle_ws(
         session_registry: state.session_registry.clone(),
         firestore: state.firestore.clone(),
         firestore_has_record,
+        fcm_wake_throttle: state.fcm_wake_throttle.clone(),
     };
 
     info!(subdomain = %params.subdomain, "Device WebSocket upgrade accepted");
@@ -117,6 +121,7 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
         session_registry,
         firestore,
         firestore_has_record,
+        fcm_wake_throttle,
     } = params;
 
     // If no Firestore record exists (e.g. after relay restart), auto-create one
@@ -177,6 +182,12 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     let registry_frame_tx = session.handle().frame_tx.clone();
     session_registry.insert(&subdomain, open_stream_tx, kill_tx, registry_frame_tx);
     relay_state.register_mux_connection(&subdomain);
+
+    // The wake's job is done: drop the throttle entry so any subsequent
+    // disconnect+reconnect cycle (e.g. OOM kill, swipe-away, network blip)
+    // inside the cooldown window still triggers a fresh FCM push instead of
+    // silently waiting out a non-existent in-flight wake (#423).
+    fcm_wake_throttle.clear(&subdomain);
 
     info!(subdomain = %subdomain, "Mux session registered");
 
@@ -622,6 +633,9 @@ mod tests {
             request_subdomain_rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
             ),
+            fcm_wake_throttle: Arc::new(crate::rate_limit::FcmWakeThrottle::new(
+                Duration::from_secs(10),
+            )),
             config: RelayConfig::default(),
             device_ca: None,
             #[cfg(feature = "test-mode")]
@@ -731,6 +745,9 @@ mod tests {
             request_subdomain_rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
             ),
+            fcm_wake_throttle: Arc::new(crate::rate_limit::FcmWakeThrottle::new(
+                Duration::from_secs(10),
+            )),
             config,
             device_ca: None,
             #[cfg(feature = "test-mode")]

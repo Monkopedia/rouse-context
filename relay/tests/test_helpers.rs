@@ -420,6 +420,9 @@ pub fn build_test_state_with_dns(
                 refill_interval: std::time::Duration::from_secs(20),
             },
         ),
+        fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
+            std::time::Duration::from_secs(10),
+        )),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
         #[cfg(feature = "test-mode")]
@@ -462,6 +465,9 @@ pub fn build_test_state_with_ca(
                 refill_interval: std::time::Duration::from_secs(20),
             },
         ),
+        fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
+            std::time::Duration::from_secs(10),
+        )),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),
         #[cfg(feature = "test-mode")]

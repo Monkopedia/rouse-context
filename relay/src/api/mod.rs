@@ -183,6 +183,12 @@ pub struct AppState {
     /// pool enumeration. Keyed by `firebase_uid`, independent from the
     /// wake/passthrough buckets.
     pub request_subdomain_rate_limiter: crate::rate_limit::RateLimiter,
+    /// Shared FCM-wake throttle. Owned by the passthrough path (#423) — the
+    /// `/ws` upgrade handler clears the entry for a subdomain once its mux
+    /// session registers, so a disconnect+reconnect cycle inside the cooldown
+    /// window still triggers a fresh FCM push. Wrapped in `Arc` because the
+    /// passthrough connection handlers also hold a clone.
+    pub fcm_wake_throttle: std::sync::Arc<crate::rate_limit::FcmWakeThrottle>,
     pub config: crate::config::RelayConfig,
     pub device_ca: Option<crate::device_ca::DeviceCa>,
     /// Optional test-mode instrumentation. `None` in production. When `Some`,
