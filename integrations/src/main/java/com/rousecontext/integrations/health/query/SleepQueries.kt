@@ -4,6 +4,7 @@ import androidx.health.connect.client.records.SleepSessionRecord
 import java.time.Duration
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -49,16 +50,26 @@ class SleepQueries(private val reader: RecordReader) : CategoryQueries {
         val records = reader.read(SleepSessionRecord::class, from, to)
         return records
             .map { record ->
+                // The legacy wire shape stored stages as a string-encoded JSON
+                // array (`"stages":"[{...},{...}]"`). Preserve that exact shape:
+                // build the array using kotlinx.serialization for proper escaping
+                // of `start`/`end`, then put its `toString()` representation as
+                // a string field.
+                val stagesArray = buildJsonArray {
+                    record.stages.forEach { stage ->
+                        add(
+                            buildJsonObject {
+                                put("stage", mapSleepStage(stage.stage))
+                                put("start", stage.startTime.toString())
+                                put("end", stage.endTime.toString())
+                            }
+                        )
+                    }
+                }
                 buildJsonObject {
                     put("start_time", record.startTime.toString())
                     put("end_time", record.endTime.toString())
-                    put(
-                        "stages",
-                        record.stages.joinToString(",") { stage ->
-                            """{"stage":"${mapSleepStage(stage.stage)}",""" +
-                                """"start":"${stage.startTime}","end":"${stage.endTime}"}"""
-                        }.let { "[$it]" }
-                    )
+                    put("stages", stagesArray.toString())
                 }
             }
             .let { if (limit != null) it.take(limit) else it }

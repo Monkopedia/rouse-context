@@ -15,6 +15,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.TimeZone
+import kotlinx.serialization.encodeToString
 
 /**
  * MCP server provider that exposes device usage statistics
@@ -90,12 +91,16 @@ internal class GetUsageSummaryTool(private val context: Context) : McpTool() {
             .take(lim)
 
         val totalMs = filtered.sumOf { (_, ms) -> ms }
-        val apps = filtered.joinToString(",") { (pkg, ms) -> appToJson(context, pkg, ms) }
+        val apps = filtered.map { (pkg, ms) -> appUsageEntry(context, pkg, ms) }
 
         return ToolResult.Success(
-            """{"period":"$periodStr",""" +
-                """"total_minutes":${totalMs / UsageMcpProvider.MS_PER_MIN},""" +
-                """"apps":[$apps]}"""
+            UsageJson.encodeToString(
+                UsageSummary(
+                    period = periodStr,
+                    totalMinutes = totalMs / UsageMcpProvider.MS_PER_MIN,
+                    apps = apps
+                )
+            )
         )
     }
 }
@@ -123,14 +128,18 @@ internal class GetAppUsageTool(private val context: Context) : McpTool() {
         val appStats = stats.filter { it.packageName == pkg }
         val appName = resolveAppName(context, pkg)
         val totalMs = mergeByPackage(appStats)[pkg] ?: 0L
-        val daily = formatDailyBreakdown(appStats)
+        val daily = dailyBreakdown(appStats)
 
         return ToolResult.Success(
-            """{"package":"${pkg.escapeJson()}",""" +
-                """"name":"${appName.escapeJson()}",""" +
-                """"period":"$periodStr",""" +
-                """"total_minutes":${totalMs / UsageMcpProvider.MS_PER_MIN},""" +
-                """"daily":[$daily]}"""
+            UsageJson.encodeToString(
+                AppUsage(
+                    `package` = pkg,
+                    name = appName,
+                    period = periodStr,
+                    totalMinutes = totalMs / UsageMcpProvider.MS_PER_MIN,
+                    daily = daily
+                )
+            )
         )
     }
 }
@@ -152,13 +161,9 @@ internal class GetUsageEventsTool(private val context: Context) : McpTool() {
         val sinceStr = since!!
         val untilStr = until!!
         val sinceRange = parsePeriod(sinceStr)
-            ?: return ToolResult.Error(
-                """{"success":false,"error":"Invalid since period: $sinceStr"}"""
-            )
+            ?: return usageError("Invalid since period: $sinceStr")
         val untilRange = parsePeriod(untilStr)
-            ?: return ToolResult.Error(
-                """{"success":false,"error":"Invalid until period: $untilStr"}"""
-            )
+            ?: return usageError("Invalid until period: $untilStr")
 
         val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
         val events = usageStatsManager.queryEvents(sinceRange.first, untilRange.second)
@@ -170,7 +175,7 @@ internal class GetUsageEventsTool(private val context: Context) : McpTool() {
             limit = limit ?: UsageMcpProvider.DEFAULT_EVENT_LIMIT
         )
 
-        return ToolResult.Success("""{"events":[${entries.joinToString(",")}]}""")
+        return ToolResult.Success(UsageJson.encodeToString(UsageEventList(events = entries)))
     }
 }
 
@@ -210,15 +215,17 @@ internal class CompareUsageTool(private val context: Context) : McpTool() {
 
 // ---------- formatting helpers ----------
 
-private fun appToJson(context: Context, packageName: String, foregroundMs: Long): String {
+private fun appUsageEntry(
+    context: Context,
+    packageName: String,
+    foregroundMs: Long
+): AppUsageEntry {
     val name = resolveAppName(context, packageName)
     val mins = foregroundMs / UsageMcpProvider.MS_PER_MIN
-    return """{"package":"${packageName.escapeJson()}",""" +
-        """"name":"${name.escapeJson()}",""" +
-        """"foreground_minutes":$mins}"""
+    return AppUsageEntry(`package` = packageName, name = name, foregroundMinutes = mins)
 }
 
-private fun formatDailyBreakdown(appStats: List<UsageStats>): String {
+private fun dailyBreakdown(appStats: List<UsageStats>): List<DailyUsage> {
     val cal = Calendar.getInstance(TimeZone.getDefault())
     // Group by date string and sum foreground time per day
     val byDate = mutableMapOf<String, Long>()
@@ -232,8 +239,8 @@ private fun formatDailyBreakdown(appStats: List<UsageStats>): String {
         )
         byDate[date] = (byDate[date] ?: 0L) + stat.totalTimeInForeground
     }
-    return byDate.entries.joinToString(",") { (date, ms) ->
-        """{"date":"$date","foreground_minutes":${ms / UsageMcpProvider.MS_PER_MIN}}"""
+    return byDate.entries.map { (date, ms) ->
+        DailyUsage(date = date, foregroundMinutes = ms / UsageMcpProvider.MS_PER_MIN)
     }
 }
 
@@ -244,8 +251,8 @@ private fun collectEvents(
     packageFilter: String?,
     includeSystem: Boolean,
     limit: Int
-): List<String> {
-    val entries = mutableListOf<String>()
+): List<UsageEvent> {
+    val entries = mutableListOf<UsageEvent>()
     val event = UsageEvents.Event()
     while (usageEvents.hasNextEvent() && entries.size < limit) {
         usageEvents.getNextEvent(event)
@@ -256,10 +263,12 @@ private fun collectEvents(
         val appName = resolveAppName(context, pkg)
         val isoTime = UsageMcpProvider.formatTimestamp(event.timeStamp)
         entries.add(
-            """{"package":"${pkg.escapeJson()}",""" +
-                """"name":"${appName.escapeJson()}",""" +
-                """"type":"$typeName",""" +
-                """"timestamp":"$isoTime"}"""
+            UsageEvent(
+                `package` = pkg,
+                name = appName,
+                type = typeName,
+                timestamp = isoTime
+            )
         )
     }
     return entries
@@ -289,22 +298,29 @@ private fun buildComparisonResult(
     val total1 = map1.values.sum()
     val total2 = map2.values.sum()
 
-    val apps = changes.joinToString(",") { (pkg, t1, t2) ->
+    val apps = changes.map { (pkg, t1, t2) ->
         val name = resolveAppName(context, pkg)
         val diff = (t2 - t1) / UsageMcpProvider.MS_PER_MIN
         val sign = if (diff >= 0) "+" else ""
-        """{"package":"${pkg.escapeJson()}",""" +
-            """"name":"${name.escapeJson()}",""" +
-            """"period1_minutes":${t1 / UsageMcpProvider.MS_PER_MIN},""" +
-            """"period2_minutes":${t2 / UsageMcpProvider.MS_PER_MIN},""" +
-            """"change":"$sign$diff min"}"""
+        UsageDelta(
+            `package` = pkg,
+            name = name,
+            period1Minutes = t1 / UsageMcpProvider.MS_PER_MIN,
+            period2Minutes = t2 / UsageMcpProvider.MS_PER_MIN,
+            change = "$sign$diff min"
+        )
     }
 
     return ToolResult.Success(
-        """{"period1":"$p1Str","period2":"$p2Str",""" +
-            """"total1_minutes":${total1 / UsageMcpProvider.MS_PER_MIN},""" +
-            """"total2_minutes":${total2 / UsageMcpProvider.MS_PER_MIN},""" +
-            """"apps":[$apps]}"""
+        UsageJson.encodeToString(
+            UsageComparison(
+                period1 = p1Str,
+                period2 = p2Str,
+                total1Minutes = total1 / UsageMcpProvider.MS_PER_MIN,
+                total2Minutes = total2 / UsageMcpProvider.MS_PER_MIN,
+                apps = apps
+            )
+        )
     )
 }
 
@@ -326,10 +342,10 @@ private fun resolveAppName(context: Context, packageName: String): String = try 
 }
 
 private fun invalidPeriodError(period: String, label: String = "period"): ToolResult =
-    ToolResult.Error(
-        """{"success":false,"error":"Invalid $label: $period. """ +
-            """Use: today, yesterday, week, month"}"""
-    )
+    usageError("Invalid $label: $period. Use: today, yesterday, week, month")
+
+internal fun usageError(message: String): ToolResult =
+    ToolResult.Error(UsageJson.encodeToString(UsageError(error = message)))
 
 // ---------- Period parsing ----------
 
@@ -417,11 +433,3 @@ private val EVENT_TYPE_NAMES: Map<Int, String> = mapOf(
     29 to "user_stopped",
     30 to "locus_id_set"
 )
-
-// ---------- JSON helpers ----------
-
-private fun String.escapeJson(): String = replace("\\", "\\\\")
-    .replace("\"", "\\\"")
-    .replace("\n", "\\n")
-    .replace("\r", "\\r")
-    .replace("\t", "\\t")

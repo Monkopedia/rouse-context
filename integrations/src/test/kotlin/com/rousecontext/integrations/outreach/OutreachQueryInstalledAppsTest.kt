@@ -46,7 +46,7 @@ class OutreachQueryInstalledAppsTest {
 
         assertTrue(
             "User app with launcher should be returned",
-            results.any { it.contains("com.example.myapp") }
+            results.any { it.`package` == "com.example.myapp" }
         )
     }
 
@@ -63,7 +63,7 @@ class OutreachQueryInstalledAppsTest {
 
         assertTrue(
             "System app without launcher should be filtered out",
-            results.none { it.contains("com.android.systemui") }
+            results.none { it.`package` == "com.android.systemui" }
         )
     }
 
@@ -80,7 +80,7 @@ class OutreachQueryInstalledAppsTest {
 
         assertTrue(
             "System app with launcher should be returned",
-            results.any { it.contains("com.android.settings") }
+            results.any { it.`package` == "com.android.settings" }
         )
     }
 
@@ -98,7 +98,7 @@ class OutreachQueryInstalledAppsTest {
 
         assertTrue(
             "Updated system app should be returned even without launcher",
-            results.any { it.contains("com.android.webview") }
+            results.any { it.`package` == "com.android.webview" }
         )
     }
 
@@ -111,7 +111,7 @@ class OutreachQueryInstalledAppsTest {
         val results = queryInstalledApps(context, filter = "beta")
 
         assertEquals("Filter should return only matching app", 1, results.size)
-        assertTrue(results[0].contains("com.example.beta"))
+        assertEquals("com.example.beta", results[0].`package`)
     }
 
     @Test
@@ -122,7 +122,7 @@ class OutreachQueryInstalledAppsTest {
 
         assertTrue(
             "Case-insensitive filter should match",
-            results.any { it.contains("com.example.app") }
+            results.any { it.`package` == "com.example.app" }
         )
     }
 
@@ -136,25 +136,16 @@ class OutreachQueryInstalledAppsTest {
     }
 
     @Test
-    fun `result JSON contains expected fields`() {
+    fun `result fields are populated`() {
         installApp("com.example.json", "JSON App", isSystem = false, hasLauncher = true)
 
         val results = queryInstalledApps(context, filter = "json")
 
         assertEquals(1, results.size)
         val entry = results[0]
-        assertTrue(
-            "Should contain package field",
-            entry.contains("\"package\":\"com.example.json\"")
-        )
-        assertTrue(
-            "Should contain name field",
-            entry.contains("\"name\":\"JSON App\"")
-        )
-        assertTrue(
-            "Should contain system field",
-            entry.contains("\"system\":false")
-        )
+        assertEquals("com.example.json", entry.`package`)
+        assertEquals("JSON App", entry.name)
+        assertEquals(false, entry.system)
     }
 
     @Test
@@ -164,7 +155,7 @@ class OutreachQueryInstalledAppsTest {
         val results = queryInstalledApps(context, filter = "phone")
 
         assertEquals(1, results.size)
-        assertTrue("System flag should be true", results[0].contains("\"system\":true"))
+        assertTrue("System flag should be true", results[0].system)
     }
 
     // ---- Test 2: Manifest <queries> assertion ----

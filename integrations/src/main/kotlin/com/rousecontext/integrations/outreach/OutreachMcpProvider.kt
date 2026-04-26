@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -232,7 +234,9 @@ internal class SendNotificationTool(
         addNotificationActions(context, builder, rawArgs, notificationId)
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.notify(notificationId, builder.build())
-        return ToolResult.Success("""{"success":true,"notification_id":$notificationId}""")
+        return ToolResult.Success(
+            OutreachJson.encodeToString(SendNotificationResult(notificationId = notificationId))
+        )
     }
 }
 
@@ -244,7 +248,9 @@ internal class ListInstalledAppsTool(private val context: Context) : McpTool() {
 
     override suspend fun execute(): ToolResult {
         val apps = queryInstalledApps(context, filter?.lowercase())
-        return ToolResult.Success("[${apps.joinToString(",")}]")
+        return ToolResult.Success(
+            OutreachJson.encodeToString(ListSerializer(InstalledApp.serializer()), apps)
+        )
     }
 }
 
@@ -287,7 +293,9 @@ internal class CreateNotificationChannelTool(private val context: Context) : Mcp
         }
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(channel)
-        return ToolResult.Success(buildChannelJson(nm.getNotificationChannel(channelId)))
+        return ToolResult.Success(
+            OutreachJson.encodeToString(buildChannelDto(nm.getNotificationChannel(channelId)))
+        )
     }
 }
 
@@ -302,8 +310,13 @@ internal class ListNotificationChannelsTool(private val context: Context) : McpT
         val nm = context.getSystemService(NotificationManager::class.java)
         val channels = nm.notificationChannels
             .filter { it.id.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX) }
-            .joinToString(",") { buildChannelJson(it) }
-        return ToolResult.Success("[$channels]")
+            .map { buildChannelDto(it) }
+        return ToolResult.Success(
+            OutreachJson.encodeToString(
+                ListSerializer(NotificationChannelDto.serializer()),
+                channels
+            )
+        )
     }
 }
 
@@ -342,7 +355,9 @@ internal class GetDndStateTool(private val context: Context) : McpTool() {
         val filter = nm.currentInterruptionFilter
         val enabled = filter != NotificationManager.INTERRUPTION_FILTER_ALL
         val mode = filterToMode(filter)
-        return ToolResult.Success("""{"enabled":$enabled,"mode":"$mode"}""")
+        return ToolResult.Success(
+            OutreachJson.encodeToString(DndState(enabled = enabled, mode = mode))
+        )
     }
 }
 
@@ -370,8 +385,14 @@ internal class SetDndStateTool(private val context: Context) : McpTool() {
         }
         nm.setInterruptionFilter(newFilter)
         return ToolResult.Success(
-            """{"success":true,"previous_state":""" +
-                """{"enabled":$previousEnabled,"mode":"$previousMode"}}"""
+            OutreachJson.encodeToString(
+                SetDndStateResult(
+                    previousState = DndState(
+                        enabled = previousEnabled,
+                        mode = previousMode
+                    )
+                )
+            )
         )
     }
 }
@@ -467,23 +488,26 @@ internal fun addNotificationActions(
 }
 
 @Suppress("MagicNumber")
-internal fun buildChannelJson(channel: NotificationChannel): String {
+internal fun buildChannelDto(channel: NotificationChannel): NotificationChannelDto {
     val imp = when (channel.importance) {
         NotificationManager.IMPORTANCE_MIN -> "min"
         NotificationManager.IMPORTANCE_LOW -> "low"
         NotificationManager.IMPORTANCE_HIGH -> "high"
         else -> "default"
     }
-    val desc = channel.description?.escapeJson() ?: ""
-    return """{"id":"${channel.id}","name":"${channel.name.toString().escapeJson()}",""" +
-        """"description":"$desc","importance":"$imp",""" +
-        """"vibration":${channel.shouldVibrate()},""" +
-        """"sound":${channel.sound != null},""" +
-        """"show_badge":${channel.canShowBadge()}}"""
+    return NotificationChannelDto(
+        id = channel.id,
+        name = channel.name.toString(),
+        description = channel.description ?: "",
+        importance = imp,
+        vibration = channel.shouldVibrate(),
+        sound = channel.sound != null,
+        showBadge = channel.canShowBadge()
+    )
 }
 
 @Suppress("DEPRECATION")
-internal fun queryInstalledApps(context: Context, filter: String?): List<String> {
+internal fun queryInstalledApps(context: Context, filter: String?): List<InstalledApp> {
     val pm = context.packageManager
     val allApps = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
@@ -499,12 +523,13 @@ internal fun queryInstalledApps(context: Context, filter: String?): List<String>
         if (filter != null && !appName.lowercase().contains(filter)) {
             null
         } else {
-            val systemFlag = isSystem && !isUpdatedSystem
-            """{"package":"${appInfo.packageName}",""" +
-                """"name":"${appName.escapeJson()}",""" +
-                """"system":$systemFlag}"""
+            InstalledApp(
+                `package` = appInfo.packageName,
+                name = appName,
+                system = isSystem && !isUpdatedSystem
+            )
         }
-    }.sorted()
+    }.sortedBy { it.`package` }
 }
 
 internal fun parseImportance(importance: String?): Int = when (importance?.lowercase()) {
@@ -534,15 +559,9 @@ internal fun modeToFilter(mode: String?): Int = when (mode) {
 }
 
 internal fun outreachError(message: String): ToolResult = ToolResult.Error(
-    """{"success":false,"error":"$message"}"""
+    OutreachJson.encodeToString(OutreachError(error = message))
 )
 
 internal fun outreachSuccess(message: String): ToolResult = ToolResult.Success(
-    """{"success":true,"message":"$message"}"""
+    OutreachJson.encodeToString(OutreachOk(message = message))
 )
-
-internal fun String.escapeJson(): String = replace("\\", "\\\\")
-    .replace("\"", "\\\"")
-    .replace("\n", "\\n")
-    .replace("\r", "\\r")
-    .replace("\t", "\\t")
