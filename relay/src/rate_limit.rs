@@ -173,6 +173,20 @@ impl FcmWakeThrottle {
         self.should_wake_at(subdomain, Instant::now())
     }
 
+    /// Clear the throttle entry for `subdomain`.
+    ///
+    /// Called when the wake's job is done (the device's WS session has
+    /// successfully registered). The previous wake is no longer in flight, so
+    /// a fresh disconnect+reconnect cycle within the cooldown window deserves
+    /// a new FCM push rather than being silently throttled. Without this,
+    /// `should_wake` keeps returning `false` until `cooldown` elapses, even
+    /// though the wake it was protecting against has already resolved (#423).
+    ///
+    /// Removing an entry that doesn't exist is a no-op.
+    pub fn clear(&self, subdomain: &str) {
+        self.last_wake.remove(subdomain);
+    }
+
     /// Testable version that accepts a specific time instant.
     pub fn should_wake_at(&self, subdomain: &str, now: Instant) -> bool {
         let mut entry = self
@@ -390,6 +404,32 @@ mod tests {
         let now = Instant::now();
         assert!(throttle.should_wake_at("dev1", now));
         assert!(throttle.should_wake_at("dev1", now + Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn fcm_throttle_clear_allows_immediate_rewake_within_cooldown() {
+        // Regression for #423: once the device's WS session registers we
+        // clear the throttle entry, so the next disconnect+reconnect cycle
+        // inside the cooldown window still triggers a fresh FCM wake.
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        let now = Instant::now();
+        assert!(throttle.should_wake_at("dev1", now));
+        // Without clear: still throttled 5s later.
+        assert!(!throttle.should_wake_at("dev1", now + Duration::from_secs(5)));
+        throttle.clear("dev1");
+        // After clear: a wake at the same instant is allowed again.
+        assert!(throttle.should_wake_at("dev1", now + Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn fcm_throttle_clear_unknown_subdomain_is_noop() {
+        let throttle = FcmWakeThrottle::new(Duration::from_secs(30));
+        // Clearing a subdomain that was never inserted must not panic and
+        // must leave the throttle behaviour unchanged for that subdomain.
+        throttle.clear("never-seen");
+        assert_eq!(throttle.len(), 0);
+        // Subsequent should_wake on the same key still returns true on first call.
+        assert!(throttle.should_wake_at("never-seen", Instant::now()));
     }
 
     #[test]

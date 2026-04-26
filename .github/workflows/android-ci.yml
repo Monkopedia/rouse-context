@@ -56,6 +56,12 @@ jobs:
         run: ./gradlew ktlintCheck
       - name: Check for zombie screen files
         run: bash scripts/check-zombie-screens.sh
+      - name: Check for manual-template JSON in production code
+        # Per #426: prevents reintroduction of the #417 bug class where
+        # """{"field":"$value"}""" string templates produce malformed JSON
+        # when interpolated values contain quotes, backslashes, or control
+        # characters. Production code must use @Serializable + encodeToString.
+        run: bash scripts/check-no-manual-json.sh
       - name: Build
         run: ./gradlew assembleDebug
       - name: Unit tests

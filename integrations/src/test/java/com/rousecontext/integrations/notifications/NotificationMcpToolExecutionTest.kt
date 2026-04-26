@@ -5,17 +5,14 @@ import android.content.Context
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
 import androidx.test.core.app.ApplicationProvider
+import com.rousecontext.integrations.testing.McpToolTestHarness
 import com.rousecontext.notifications.FieldEncryptor
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -45,13 +42,10 @@ class NotificationMcpToolExecutionTest {
     private lateinit var context: Context
     private lateinit var database: NotificationDatabase
     private lateinit var dao: NotificationDao
+    private lateinit var harness: McpToolTestHarness
     private lateinit var server: Server
 
     private val fakeConnection: ClientConnection = mockk(relaxed = true)
-    private val toolHandlers = mutableMapOf<
-        String,
-        suspend ClientConnection.(CallToolRequest) -> CallToolResult
-        >()
 
     // Mutable active-notifications list the provider's source callback returns.
     private var activeNotifications: Array<StatusBarNotification> = emptyArray()
@@ -67,19 +61,8 @@ class NotificationMcpToolExecutionTest {
         database = NotificationDatabase.createInMemory(context)
         dao = database.notificationDao()
 
-        server = mockk(relaxed = true)
-        val nameSlot = slot<String>()
-        val handlerSlot = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
-        every {
-            server.addTool(
-                name = capture(nameSlot),
-                description = any(),
-                inputSchema = any<ToolSchema>(),
-                handler = capture(handlerSlot)
-            )
-        } answers {
-            toolHandlers[nameSlot.captured] = handlerSlot.captured
-        }
+        harness = McpToolTestHarness()
+        server = harness.createMockServer()
     }
 
     @After
@@ -119,7 +102,6 @@ class NotificationMcpToolExecutionTest {
     }
 
     private suspend fun call(name: String, args: Map<String, Any> = emptyMap()): CallToolResult {
-        val handler = toolHandlers[name] ?: error("Tool not registered: $name")
         val jsonArgs = buildJsonObject {
             for ((k, v) in args) {
                 when (v) {
@@ -131,11 +113,10 @@ class NotificationMcpToolExecutionTest {
                 }
             }
         }
-        return handler.invoke(
-            fakeConnection,
-            CallToolRequest(
-                params = CallToolRequestParams(name = name, arguments = jsonArgs)
-            )
+        return harness.callTool(
+            name = name,
+            arguments = jsonArgs,
+            connection = fakeConnection
         )
     }
 
@@ -581,7 +562,7 @@ class NotificationMcpToolExecutionTest {
     @Test
     fun `search_notification_history registered with correct schema`() {
         registerProvider()
-        assertNotNull(toolHandlers["search_notification_history"])
+        assertNotNull(harness.toolHandlers["search_notification_history"])
     }
 
     private fun record(
