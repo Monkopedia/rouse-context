@@ -42,7 +42,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
             assertEquals(TunnelState.DISCONNECTED, client.state.value)
 
@@ -91,7 +91,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
             client.connect("ws://localhost:$port/tunnel")
 
             val sessionReceived = CompletableDeferred<MuxStream>()
@@ -150,7 +150,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
             client.connect("ws://localhost:$port/tunnel")
 
             val sessionReceived = CompletableDeferred<MuxStream>()
@@ -206,7 +206,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
             val errorReceived = CompletableDeferred<TunnelError>()
             val errorJob =
@@ -266,7 +266,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
             client.connect("ws://localhost:$port/tunnel")
 
             client.sendFcmToken("test-fcm-token-123")
@@ -283,7 +283,7 @@ class TunnelClientImplTest {
 
     @Test
     fun `sendFcmToken before connect is a no-op`() = runBlocking {
-        val client = TunnelClientImpl(this, KtorWebSocketFactory())
+        val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
         // Should not throw
         client.sendFcmToken("some-token")
@@ -293,7 +293,7 @@ class TunnelClientImplTest {
 
     @Test
     fun `disconnect when already disconnected does not throw or corrupt state`() = runBlocking {
-        val client = TunnelClientImpl(this, KtorWebSocketFactory())
+        val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
         // Initial state is DISCONNECTED
         assertEquals(TunnelState.DISCONNECTED, client.state.value)
@@ -327,7 +327,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
             // Connect, disconnect, connect again
             client.connect("ws://localhost:$port/tunnel")
@@ -372,7 +372,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
             // Connect/disconnect 5 times with brief settling delays
             repeat(5) { i ->
@@ -408,7 +408,7 @@ class TunnelClientImplTest {
         val captured = mutableListOf<Pair<LogLevel, String>>()
         val client = TunnelClientImpl(
             this,
-            KtorWebSocketFactory(),
+            KtorWebSocketFactory(this),
             log = { level, msg -> captured.add(level to msg) }
         )
 
@@ -450,7 +450,7 @@ class TunnelClientImplTest {
         try {
             val client = TunnelClientImpl(
                 scope = this,
-                webSocketFactory = KtorWebSocketFactory(),
+                webSocketFactory = KtorWebSocketFactory(this),
                 // Aggressive timing so the test doesn't wait 90s.
                 keepaliveIntervalMillis = 50L,
                 keepaliveTimeoutMillis = 50L,
@@ -501,7 +501,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
             client.connect("ws://localhost:$port/tunnel")
 
             val live = client.healthCheck(kotlin.time.Duration.parse("2s"))
@@ -532,7 +532,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
             client.connect("ws://localhost:$port/tunnel")
 
             val live = client.healthCheck(kotlin.time.Duration.parse("0.3s"))
@@ -547,7 +547,7 @@ class TunnelClientImplTest {
 
     @Test
     fun `healthCheck returns false when not connected`() = runBlocking {
-        val client = TunnelClientImpl(this, KtorWebSocketFactory())
+        val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
         // No connect() called.
         val live = client.healthCheck(kotlin.time.Duration.parse("0.2s"))
         assertTrue(!live, "healthCheck must not claim healthy when never connected")
@@ -571,7 +571,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
             client.connect("ws://localhost:$port/tunnel")
             assertEquals(TunnelState.CONNECTED, client.state.value)
 
@@ -633,7 +633,7 @@ class TunnelClientImplTest {
         server.start(wait = false)
 
         try {
-            val client = TunnelClientImpl(this, KtorWebSocketFactory())
+            val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
             // First connect: open a stream so state reaches ACTIVE, then drop.
             client.connect("ws://localhost:$port/tunnel")
@@ -726,7 +726,7 @@ class TunnelClientImplTest {
         try {
             val client = TunnelClientImpl(
                 scope = this,
-                webSocketFactory = KtorWebSocketFactory(),
+                webSocketFactory = KtorWebSocketFactory(this),
                 // Disable keepalive so it doesn't interfere with the test.
                 keepaliveIntervalMillis = 600_000L,
                 keepaliveTimeoutMillis = 10_000L,
@@ -766,7 +766,7 @@ class TunnelClientImplTest {
 
     @Test
     fun `connection failure emits error on SharedFlow`() = runBlocking {
-        val client = TunnelClientImpl(this, KtorWebSocketFactory())
+        val client = TunnelClientImpl(this, KtorWebSocketFactory(this))
 
         val errorReceived = CompletableDeferred<TunnelError>()
         val errorJob =

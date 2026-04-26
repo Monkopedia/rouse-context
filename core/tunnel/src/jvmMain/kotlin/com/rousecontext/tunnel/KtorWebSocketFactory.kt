@@ -9,7 +9,6 @@ import io.ktor.websocket.close
 import io.ktor.websocket.readBytes
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -17,10 +16,14 @@ import kotlinx.coroutines.launch
  *
  * Used for JVM tests. NOT suitable for Android mTLS because Ktor CIO engine
  * does not properly present client certificates during TLS handshake.
+ *
+ * [scope] must be a structured scope owned by the caller (e.g. the surrounding
+ * `runBlocking` in tests). The factory does not own a scope of its own — see
+ * `.claude/rules/coroutines.md`.
  */
 class KtorWebSocketFactory(
-    private val httpClient: HttpClient = HttpClient { install(WebSockets) },
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    private val scope: CoroutineScope,
+    private val httpClient: HttpClient = HttpClient { install(WebSockets) }
 ) : WebSocketFactory {
 
     override fun connect(url: String, listener: WebSocketListener): WebSocketHandle {
@@ -43,6 +46,10 @@ class KtorWebSocketFactory(
                 if (handle.isBound()) {
                     listener.onClosing(1006, e.message ?: "Connection lost")
                 } else {
+                    // Awaiters of sendBinary/sendText would otherwise hang
+                    // forever waiting for sessionDeferred. Propagate the failure
+                    // so they observe the connect error.
+                    handle.failBind(e)
                     listener.onFailure(e)
                 }
             }
@@ -59,6 +66,10 @@ private class KtorWebSocketHandle : WebSocketHandle {
 
     fun bind(session: WebSocketSession) {
         sessionDeferred.complete(session)
+    }
+
+    fun failBind(error: Throwable) {
+        sessionDeferred.completeExceptionally(error)
     }
 
     override suspend fun sendBinary(data: ByteArray): Boolean {

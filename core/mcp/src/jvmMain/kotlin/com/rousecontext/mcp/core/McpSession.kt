@@ -44,7 +44,14 @@ class McpSession(
     private val serverName: String = "rouse-context",
     private val serverVersion: String = "0.1.0",
     private val unknownClientLabeler: UnknownClientLabeler? = null,
-    private val log: (LogLevel, String) -> Unit = { _, _ -> }
+    private val log: (LogLevel, String) -> Unit = { _, _ -> },
+    /**
+     * Starter seam used by [start] to launch the embedded HTTP server.
+     * Production code uses the default which calls
+     * `server.start(wait = false)`. Tests inject a starter that throws to
+     * exercise the error path that would otherwise leave [awaitClose] hung.
+     */
+    private val serverStarter: (EmbeddedServer<*, *>) -> Unit = { it.start(wait = false) }
 ) {
 
     private var done = CompletableDeferred<Unit>()
@@ -110,7 +117,16 @@ class McpSession(
             )
         }
         engine = server
-        server.start(wait = false)
+        try {
+            serverStarter(server)
+        } catch (e: Throwable) {
+            // If start() blows up after we reset `done` above, anyone awaiting
+            // close would otherwise hang forever. Surface the failure on that
+            // path and re-throw so the synchronous caller still sees it. See
+            // #420.
+            done.completeExceptionally(e)
+            throw e
+        }
     }
 
     /**
