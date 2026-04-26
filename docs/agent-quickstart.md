@@ -1,0 +1,150 @@
+# Agent quickstart
+
+Distilled commands and paths agents reach for repeatedly. Pre-loading saves grep-then-discover cycles.
+
+## Module → path map
+
+```
+:app                       app/
+:core:tunnel               core/tunnel/
+:core:mcp                  core/mcp/
+:core:bridge               core/bridge/
+:core:testfixtures         core/testfixtures/
+:api                       api/
+:integrations              integrations/
+:notifications             notifications/
+:work                      work/
+:device-tests              device-tests/
+:e2e                       e2e/
+relay (Rust)               relay/
+```
+
+Source-of-truth for the module list is `settings.gradle.kts:25-35`.
+
+## Build & test recipes
+
+All Gradle commands need `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`.
+
+```bash
+# Build a debug APK
+./gradlew :app:assembleDebug
+# → app/build/outputs/apk/debug/app-debug.apk
+
+# Build a release APK
+./gradlew :app:assembleRelease
+# → app/build/outputs/apk/release/app-release.apk
+
+# Unit tests for one module
+./gradlew :core:mcp:jvmTest                       # KMP/JVM
+./gradlew :app:testDebugUnitTest                  # Android-only
+./gradlew :integrations:testDebugUnitTest         # Android-only
+
+# Tunnel integration tests (against real relay binary)
+./gradlew :core:tunnel:integrationTest --tests '*OAuthEndToEndTest*'
+
+# E2E (against a real device — requires adb host + serial)
+./gradlew :e2e:e2eTest -Dadb.host=adolin -Dadb.serial=1B151FDEE008EY
+
+# Lint & analysis (whole tree)
+./gradlew ktlintCheck detekt
+
+# Format
+./gradlew ktlintFormat
+```
+
+## Relay (Rust)
+
+```bash
+cd relay
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt
+```
+
+NEVER build the relay on the GCP VPS. The PR-to-main triggers `.github/workflows/relay-deploy.yml` (or similar) which cross-compiles + deploys.
+
+## GitHub CLI patterns
+
+```bash
+# Concise CI status
+gh pr checks NNN --json name,state --jq '.[] | "\(.name)\t\(.state)"'
+
+# Open PR
+gh pr create --title "..." --body "..."
+
+# Merge + delete branch (squash)
+gh pr merge NNN --squash --delete-branch
+
+# Issue management
+gh issue create --title "..." --body "..." --label in-progress
+gh issue edit NNN --add-label in-progress
+gh issue edit NNN --remove-label in-progress
+gh issue close NNN --comment "..."
+
+# Just the body of a comment thread
+gh issue view NNN --comments --json comments --jq '.comments[].body'
+```
+
+## Local-branch-deletion gotcha
+
+If `gh pr merge --delete-branch` fails because another worktree has the branch checked out:
+
+```bash
+cd /home/jmonk/git/rouse-context && git checkout --detach origin/main && git branch -d <branch>
+```
+
+## adb via SSH (test device)
+
+```bash
+# adolin Pixel 6 Pro (agent-controlled)
+ADB="ANDROID_SERIAL=1B151FDEE008EY /opt/android-sdk/platform-tools/adb"
+ssh adolin "$ADB <command>"
+
+# Common operations
+ssh adolin "$ADB shell pidof com.rousecontext.debug"
+ssh adolin "$ADB shell pm clear com.rousecontext.debug"
+ssh adolin "$ADB shell am start -n com.rousecontext.debug/com.rousecontext.app.MainActivity"
+ssh adolin "$ADB shell run-as com.rousecontext.debug ls files/"
+ssh adolin "$ADB logcat -d -s 'Onboarding:*' 'TunnelClient:*' '*:S'"   # filter at logcat level
+
+# Kill app cleanly (NOT am force-stop — that disables FCM until manual relaunch).
+# Use cmd activity stop-app: kills the process including foreground services
+# but leaves FCM reachable. See #394.
+ssh adolin "$ADB shell cmd activity stop-app com.rousecontext.debug"
+
+# Install
+scp app-debug.apk adolin:/tmp/
+ssh adolin "$ADB install -r /tmp/app-debug.apk"
+```
+
+## UI automation on device
+
+Drive Android UI via `uiautomator dump` XML, NOT screencap PNGs (resolution blows up context). See `/tmp/drive_onboard.sh` for the pattern (extract bounds via regex on `text="..."[^>]*bounds="[x1,y1][x2,y2]"`).
+
+## Relay over gcloud
+
+```bash
+gcloud compute ssh relay --zone=us-central1-a --command='sudo journalctl -u rouse-relay -f'
+gcloud compute ssh relay --zone=us-central1-a --command='systemctl status rouse-relay | head -5'
+```
+
+## Common files to know
+
+- `core/tunnel/src/jvmMain/.../OnboardingFlow.kt` — canonical onboarding sequence
+- `app/src/main/.../OnboardingViewModel.kt` — canonical VM (post-#392 single-VM invariant)
+- `app/src/main/.../navigation/AppNavigation.kt` + `Routes.kt` — nav graph + routes
+- `core/tunnel/src/jvmMain/.../TunnelClientImpl.kt` — tunnel client
+- `core/tunnel/src/jvmMain/.../MuxFrame.kt` / `MuxDemux.kt` — mux protocol
+- `relay/src/api/` — relay HTTP/WS endpoints
+- `relay/src/passthrough.rs` — TLS-passthrough decision + FCM wake
+- `relay/src/rate_limit.rs` — rate limiters (FcmWakeThrottle, etc.)
+- `docs/design/relay-api.md` — endpoint catalog (kept current as of #410)
+- `docs/design/android-app.md` — module map + dep graph (kept current as of #408)
+- `docs/design/overall.md` — system overview (kept current as of #409)
+- `docs/ux-decisions.md` — UX flow decisions log
+
+## When in doubt
+
+- Code is the source of truth over docs.
+- A `.claude/rules/*` rule is the source of truth over a memory entry.
+- The user's most recent in-session direction overrides everything else.
