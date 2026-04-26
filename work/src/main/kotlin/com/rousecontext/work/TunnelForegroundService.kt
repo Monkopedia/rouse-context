@@ -143,18 +143,24 @@ class TunnelForegroundService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
-        if (providerRegistry.enabledPaths().isEmpty()) {
-            Log.i(TAG, "No integrations enabled, stopping service")
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
         // Reset flags from any previous service instance — Koin singletons
         // and this service's own state may carry over from an idle-timeout stop.
         intentionalDisconnect = false
         idleTimeoutManager.resetTimeout()
 
-        lifecycleScope.launch { connectToRelay() }
+        // Issue #414: the provider registry may not have loaded its DataStore-backed
+        // enabled-state snapshot yet on a cold-start FCM wake. Suspend until it has,
+        // then either bail out (no integrations) or proceed to connectToRelay().
+        // Keep onStartCommand non-blocking by deferring the check to a coroutine.
+        lifecycleScope.launch {
+            providerRegistry.awaitReady()
+            if (providerRegistry.enabledPaths().isEmpty()) {
+                Log.i(TAG, "No integrations enabled, stopping service")
+                stopSelf()
+                return@launch
+            }
+            connectToRelay()
+        }
 
         return START_NOT_STICKY
     }
