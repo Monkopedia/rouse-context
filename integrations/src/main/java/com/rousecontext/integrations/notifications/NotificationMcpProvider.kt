@@ -11,6 +11,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -67,8 +68,13 @@ class NotificationMcpProvider(
 
     companion object {
         internal const val DEFAULT_SEARCH_LIMIT = 50
-        internal const val ERR_ACTIONS_DISABLED =
-            """{"success":false,"message":"Notification actions are disabled by the user."}"""
+
+        internal fun errActionsDisabled(): String = NotificationJson.encodeToString(
+            NotificationStatusMessage(
+                success = false,
+                message = "Notification actions are disabled by the user."
+            )
+        )
     }
 }
 
@@ -109,7 +115,7 @@ internal class PerformNotificationActionTool(
 
     override suspend fun execute(): ToolResult {
         if (!allowActions) {
-            return ToolResult.Error(NotificationMcpProvider.ERR_ACTIONS_DISABLED)
+            return ToolResult.Error(NotificationMcpProvider.errActionsDisabled())
         }
 
         val key = notificationKey!!
@@ -119,13 +125,22 @@ internal class PerformNotificationActionTool(
             .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
         if (isOwn) {
             return ToolResult.Error(
-                """{"success":false,"message":"Cannot act on Rouse Context notifications"}"""
+                NotificationJson.encodeToString(
+                    NotificationStatusMessage(
+                        success = false,
+                        message = "Cannot act on Rouse Context notifications"
+                    )
+                )
             )
         }
 
         val success = actionPerformer(key, actionIndex!!)
         val message = if (success) "Action performed" else "Failed to perform action"
-        return ToolResult.Success("""{"success":$success,"message":"$message"}""")
+        return ToolResult.Success(
+            NotificationJson.encodeToString(
+                NotificationStatusMessage(success = success, message = message)
+            )
+        )
     }
 }
 
@@ -141,7 +156,7 @@ internal class DismissNotificationTool(
 
     override suspend fun execute(): ToolResult {
         if (!allowActions) {
-            return ToolResult.Error(NotificationMcpProvider.ERR_ACTIONS_DISABLED)
+            return ToolResult.Error(NotificationMcpProvider.errActionsDisabled())
         }
 
         val key = notificationKey!!
@@ -151,12 +166,19 @@ internal class DismissNotificationTool(
             .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
         if (isOwn) {
             return ToolResult.Error(
-                """{"success":false,"message":"Cannot dismiss Rouse Context notifications"}"""
+                NotificationJson.encodeToString(
+                    NotificationStatusMessage(
+                        success = false,
+                        message = "Cannot dismiss Rouse Context notifications"
+                    )
+                )
             )
         }
 
         val success = notificationDismisser(key)
-        return ToolResult.Success("""{"success":$success}""")
+        return ToolResult.Success(
+            NotificationJson.encodeToString(NotificationSuccess(success = success))
+        )
     }
 }
 

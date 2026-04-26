@@ -12,6 +12,7 @@ import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SkinTemperatureRecord
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -228,17 +229,27 @@ class VitalsQueries(private val reader: RecordReader) : CategoryQueries {
         val records = reader.read(SkinTemperatureRecord::class, from, to)
         return records
             .map { record ->
+                // The legacy wire shape stored deltas as a string-encoded JSON
+                // array (`"deltas":"[{...},{...}]"`). Preserve that exact shape:
+                // build the array using kotlinx.serialization for proper escaping
+                // of `time` (and any future string fields), then put its
+                // `toString()` representation as a string field.
+                val deltasArray = buildJsonArray {
+                    record.deltas.forEach { delta ->
+                        add(
+                            buildJsonObject {
+                                put("time", delta.time.toString())
+                                put("delta_celsius", delta.delta.inCelsius)
+                            }
+                        )
+                    }
+                }
                 buildJsonObject {
                     put("start_time", record.startTime.toString())
                     put("end_time", record.endTime.toString())
                     record.baseline?.let { put("baseline_celsius", it.inCelsius) }
                     put("measurement_location", record.measurementLocation)
-                    put(
-                        "deltas",
-                        record.deltas.joinToString(",") { delta ->
-                            """{"time":"${delta.time}","delta_celsius":${delta.delta.inCelsius}}"""
-                        }.let { "[$it]" }
-                    )
+                    put("deltas", deltasArray.toString())
                 }
             }
             .let { if (limit != null) it.take(limit) else it }
