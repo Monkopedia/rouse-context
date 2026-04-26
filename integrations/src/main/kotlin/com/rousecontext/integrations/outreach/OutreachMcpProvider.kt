@@ -43,7 +43,8 @@ class OutreachMcpProvider(
     private val context: Context,
     private val dndEnabled: Boolean = false,
     clock: Clock = SystemClock,
-    private val canLaunchDirectly: () -> Boolean = { defaultCanLaunchDirectly(context) },
+    // Suspend so callers can await async opt-in state before deciding (issue #419 finding #2).
+    private val canLaunchDirectly: suspend () -> Boolean = { defaultCanLaunchDirectly(context) },
     private val launchNotifier: LaunchRequestNotifierApi? = null
 ) : McpServerProvider {
 
@@ -123,7 +124,7 @@ class OutreachMcpProvider(
 
 internal class LaunchAppTool(
     private val context: Context,
-    private val canLaunchDirectly: () -> Boolean,
+    private val canLaunchDirectly: suspend () -> Boolean,
     private val launchNotifier: LaunchRequestNotifierApi?
 ) : McpTool() {
     override val name = "launch_app"
@@ -155,7 +156,7 @@ internal class LaunchAppTool(
 
 internal class OpenLinkTool(
     private val context: Context,
-    private val canLaunchDirectly: () -> Boolean,
+    private val canLaunchDirectly: suspend () -> Boolean,
     private val launchNotifier: LaunchRequestNotifierApi?
 ) : McpTool() {
     override val name = "open_link"
@@ -383,9 +384,9 @@ internal class SetDndStateTool(private val context: Context) : McpTool() {
  * app cannot start activities directly from the background.
  */
 @Suppress("TooGenericExceptionCaught", "LongParameterList")
-internal fun launchActivitySafely(
+internal suspend fun launchActivitySafely(
     context: Context,
-    canLaunchDirectly: () -> Boolean,
+    canLaunchDirectly: suspend () -> Boolean,
     launchNotifier: LaunchRequestNotifierApi?,
     intent: Intent,
     description: String,

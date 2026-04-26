@@ -93,7 +93,7 @@ fun Application.configureMcpRouting(
     clock: Clock = SystemClock,
     rateLimiter: RateLimiter? = null,
     mcpRateLimiter: RateLimiter? = null,
-    securityAlertCheck: (() -> Boolean)? = null,
+    securityAlertCheck: (suspend () -> Boolean)? = null,
     serverName: String = "rouse-context",
     serverVersion: String = "0.1.0",
     internalToken: String? = null,
@@ -167,7 +167,7 @@ internal class McpRoutes(
     private val clock: Clock,
     private val rateLimiter: RateLimiter?,
     private val mcpRateLimiter: RateLimiter?,
-    private val securityAlertCheck: (() -> Boolean)?,
+    private val securityAlertCheck: (suspend () -> Boolean)?,
     private val serverName: String,
     private val serverVersion: String,
     private val unknownClientLabeler: UnknownClientLabeler? = null,
@@ -200,6 +200,12 @@ internal class McpRoutes(
 
     // Helper: if a security alert is active, block the request with 503.
     private suspend fun RoutingCall.rejectIfSecurityAlert(): Boolean {
+        // Issue #419 finding #1: securityAlertCheck is `suspend` so request
+        // handlers can wait for the underlying DataStore-backed alert flag to
+        // emit its first value before deciding. A pre-#419 synchronous read
+        // returned the initialValue=false default during the brief cold-start
+        // window between process spawn and first DataStore emission, which
+        // bypassed the alert gate for the very first request after wake.
         if (securityAlertCheck?.invoke() == true) {
             respond(
                 HttpStatusCode.ServiceUnavailable,

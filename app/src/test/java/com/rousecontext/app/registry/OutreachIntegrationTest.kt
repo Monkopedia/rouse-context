@@ -5,12 +5,16 @@ import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.app.state.IntegrationSettingsStore
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -96,6 +100,89 @@ class OutreachIntegrationTest {
         assertFalse(integration.directLaunchEnabled.value)
     }
 
+    @Test
+    fun `awaitReady completes after first settings emission`() = runBlocking {
+        // The default Robolectric IntegrationSettingsStore emits `false` for any
+        // unset key, which is a valid first emission. awaitReady must unblock.
+        val integration = OutreachIntegration(context, settingsStore, NoopNotifier, scope)
+        withTimeout(TIMEOUT_MS) { integration.awaitReady() }
+        assertTrue(
+            "awaitReadyBlocking should also report ready",
+            integration.awaitReadyBlocking(TIMEOUT_MS)
+        )
+    }
+
+    @Test
+    fun `awaitReady is idempotent across multiple calls`() = runBlocking {
+        val integration = OutreachIntegration(context, settingsStore, NoopNotifier, scope)
+        withTimeout(TIMEOUT_MS) { integration.awaitReady() }
+        // A second call must return immediately.
+        withTimeout(TIMEOUT_MS) { integration.awaitReady() }
+        assertTrue(integration.awaitReadyBlocking(SHORT_TIMEOUT_MS))
+    }
+
+    @Test
+    fun `awaitReady does not complete before first emission lands`() = runBlocking {
+        // Slow settings store: observeBoolean emits only after the gate completes.
+        // Pre-fix, _directLaunchEnabled stays at its `false` default and any
+        // synchronous read by canLaunchDirectly would mis-route the call.
+        val gate = CompletableDeferred<Unit>()
+        val slowStore = mockk<IntegrationSettingsStore>()
+        every {
+            slowStore.observeBoolean(
+                "outreach",
+                IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED,
+                any()
+            )
+        } returns flow {
+            gate.await()
+            emit(true)
+        }
+
+        val integration = OutreachIntegration(context, slowStore, NoopNotifier, scope)
+        // While gated, awaitReadyBlocking with a short timeout reports false.
+        assertFalse(integration.awaitReadyBlocking(SHORT_TIMEOUT_MS))
+
+        // Open the gate; awaitReady completes and the loaded state is reflected.
+        gate.complete(Unit)
+        withTimeout(TIMEOUT_MS) { integration.awaitReady() }
+        assertTrue(integration.directLaunchEnabled.value)
+    }
+
+    @Test
+    fun `directLaunchEnabled stays false until first emission lands`() = runBlocking {
+        // Regression for issue #419 finding #2: the very first tool call after
+        // process spawn must not see the default `false` opt-in if the user
+        // had actually enabled direct launch on disk. The fix routes reads
+        // through `awaitReady`, so before the first emission lands the store
+        // value is the synchronous default and only flips after awaitReady
+        // returns.
+        val gate = CompletableDeferred<Unit>()
+        val slowStore = mockk<IntegrationSettingsStore>()
+        every {
+            slowStore.observeBoolean(
+                "outreach",
+                IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED,
+                any()
+            )
+        } returns flow {
+            gate.await()
+            emit(true)
+        }
+
+        val integration = OutreachIntegration(context, slowStore, NoopNotifier, scope)
+
+        // Pre-load: directLaunchEnabled is the default `false`, awaitReady
+        // has not signalled.
+        assertFalse(integration.directLaunchEnabled.value)
+        assertFalse(integration.awaitReadyBlocking(SHORT_TIMEOUT_MS))
+
+        // Open the gate; awaitReady completes and the loaded state is reflected.
+        gate.complete(Unit)
+        withTimeout(TIMEOUT_MS) { integration.awaitReady() }
+        assertTrue(integration.directLaunchEnabled.value)
+    }
+
     private object NoopNotifier : LaunchRequestNotifierApi {
         override fun postLaunchApp(
             launchIntent: Intent,
@@ -108,5 +195,6 @@ class OutreachIntegrationTest {
 
     companion object {
         private const val TIMEOUT_MS = 5_000L
+        private const val SHORT_TIMEOUT_MS = 50L
     }
 }

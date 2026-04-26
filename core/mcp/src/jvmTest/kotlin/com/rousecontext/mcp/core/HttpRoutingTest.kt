@@ -217,6 +217,47 @@ class HttpRoutingTest {
     }
 
     @Test
+    fun `security alert with suspend awaiting check still blocks register with 503`() =
+        testApplication {
+            // Issue #419 finding #1: securityAlertCheck is a suspend lambda. A
+            // gate that suspends until its underlying flow has emitted (e.g.
+            // SecurityAlertGate) MUST still be honoured by the request handler:
+            // the request waits for the gate, then sees `true`, and returns 503.
+            val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
+            val tokenStore = InMemoryTokenStore()
+            val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+            val gateOpened = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+            application {
+                configureMcpRouting(
+                    registry = registry,
+                    tokenStore = tokenStore,
+                    deviceCodeManager = deviceCodeManager,
+                    hostname = "brave-falcon.rousecontext.com",
+                    integration = "health",
+                    securityAlertCheck = {
+                        // Simulate awaiting the first DataStore emission before
+                        // returning the persisted alert verdict.
+                        gateOpened.await()
+                        true
+                    }
+                )
+            }
+
+            // Open the gate immediately to keep the test fast; the key contract
+            // is that the route compiles with a suspend lambda and honours its
+            // return value once it resolves.
+            gateOpened.complete(Unit)
+
+            val response = client.post("/register") {
+                header("Content-Type", "application/json")
+            }
+            assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("security_alert", json["error"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun `no security alert allows normal request flow`() = testApplication {
         val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
         val tokenStore = InMemoryTokenStore()
