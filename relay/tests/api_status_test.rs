@@ -24,6 +24,9 @@ fn make_app(relay_state: Arc<RelayState>) -> axum::Router {
         request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
+        fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
+            std::time::Duration::from_secs(10),
+        )),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
         #[cfg(feature = "test-mode")]
