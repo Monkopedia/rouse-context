@@ -45,4 +45,10 @@ class InMemoryProviderRegistry : ProviderRegistry {
             return providers.keys.filter { it in enabled }.toSet()
         }
     }
+
+    /** In-memory state is populated synchronously; the registry is always ready. */
+    override suspend fun awaitReady() = Unit
+
+    /** In-memory state is populated synchronously; the registry is always ready. */
+    override fun awaitReadyBlocking(timeoutMs: Long): Boolean = true
 }

@@ -35,22 +35,40 @@ class FcmReceiver : FirebaseMessagingService() {
         Log.d(TAG, "FCM received: type=${message.data["type"]}, action=$action")
 
         when (action) {
-            is FcmAction.StartService -> {
-                if (providerRegistry.enabledPaths().isEmpty()) {
-                    Log.i(TAG, "Ignoring wake: no integrations enabled")
-                    return
-                }
+            is FcmAction.StartService -> dispatchIfIntegrationsEnabled("wake") {
                 startTunnelService()
             }
-            is FcmAction.EnqueueRenewal -> {
-                if (providerRegistry.enabledPaths().isEmpty()) {
-                    Log.i(TAG, "Ignoring cert renewal: no integrations enabled")
-                    return
-                }
+            is FcmAction.EnqueueRenewal -> dispatchIfIntegrationsEnabled("cert renewal") {
                 enqueueCertRenewal()
             }
             is FcmAction.Ignore -> Log.w(TAG, "Ignoring unknown FCM type: ${action.type}")
         }
+    }
+
+    /**
+     * Wait for the provider registry to load its initial enabled-state snapshot
+     * (issue #414), then dispatch [action] only if at least one integration is
+     * enabled. If the registry doesn't become ready within [REGISTRY_READY_TIMEOUT_MS],
+     * drop the wake — that's safer than spinning up the tunnel against unknown state.
+     *
+     * Blocks the FCM background worker thread (NOT the main thread). FCM gives this
+     * service ~10s before the system reclaims the wakelock, so a 2s wait is safe.
+     */
+    private fun dispatchIfIntegrationsEnabled(label: String, action: () -> Unit) {
+        val ready = providerRegistry.awaitReadyBlocking(REGISTRY_READY_TIMEOUT_MS)
+        if (!ready) {
+            Log.w(
+                TAG,
+                "Ignoring $label: provider registry did not become ready within " +
+                    "${REGISTRY_READY_TIMEOUT_MS}ms"
+            )
+            return
+        }
+        if (providerRegistry.enabledPaths().isEmpty()) {
+            Log.i(TAG, "Ignoring $label: no integrations enabled")
+            return
+        }
+        action()
     }
 
     override fun onNewToken(token: String) {
@@ -89,5 +107,12 @@ class FcmReceiver : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "FcmReceiver"
+
+        /**
+         * How long to wait for the provider registry to load its first DataStore
+         * emission before dropping a wake. DataStore reads are typically <100ms,
+         * so 2s is generous. Issue #414.
+         */
+        internal const val REGISTRY_READY_TIMEOUT_MS = 2_000L
     }
 }

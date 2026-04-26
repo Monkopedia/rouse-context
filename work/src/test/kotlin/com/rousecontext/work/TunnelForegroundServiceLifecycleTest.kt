@@ -12,6 +12,7 @@ import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelError
 import com.rousecontext.tunnel.TunnelState
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -59,6 +60,11 @@ class TunnelForegroundServiceLifecycleTest {
         providerRegistry = mockk {
             every { enabledPaths() } returns setOf("health")
             every { providerForPath(any()) } returns null
+            // Issue #414: TunnelForegroundService.onStartCommand now suspends on
+            // awaitReady() before checking enabledPaths(). Default to "ready"
+            // so existing lifecycle tests behave the same way.
+            coEvery { awaitReady() } returns Unit
+            every { awaitReadyBlocking(any()) } returns true
         }
         idleTimeoutManager = IdleTimeoutManager(
             timeoutMillis = Long.MAX_VALUE,
