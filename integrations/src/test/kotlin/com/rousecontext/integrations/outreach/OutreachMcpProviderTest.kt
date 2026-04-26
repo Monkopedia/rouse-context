@@ -3,17 +3,12 @@ package com.rousecontext.integrations.outreach
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.rousecontext.integrations.testing.McpToolTestHarness
 import com.rousecontext.mcp.core.Clock
-import io.mockk.every
 import io.mockk.mockk
-import io.mockk.slot
 import io.modelcontextprotocol.kotlin.sdk.server.ClientConnection
-import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest
-import io.modelcontextprotocol.kotlin.sdk.types.CallToolRequestParams
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
-import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -30,36 +25,17 @@ import org.robolectric.Shadows
 class OutreachMcpProviderTest {
 
     private lateinit var context: Context
-    private lateinit var server: Server
+    private lateinit var harness: McpToolTestHarness
     private lateinit var provider: OutreachMcpProvider
 
     private val fakeConnection: ClientConnection = mockk(relaxed = true)
-    private val toolHandlers = mutableMapOf<
-        String,
-        suspend ClientConnection.(
-            CallToolRequest
-        ) -> CallToolResult
-        >()
 
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
 
-        server = mockk(relaxed = true)
-
-        // Capture tool registrations
-        val nameSlot = slot<String>()
-        val handlerSlot = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
-        every {
-            server.addTool(
-                name = capture(nameSlot),
-                description = any(),
-                inputSchema = any<ToolSchema>(),
-                handler = capture(handlerSlot)
-            )
-        } answers {
-            toolHandlers[nameSlot.captured] = handlerSlot.captured
-        }
+        harness = McpToolTestHarness()
+        val server = harness.createMockServer()
 
         provider = OutreachMcpProvider(context, dndEnabled = true)
         provider.register(server)
@@ -86,51 +62,29 @@ class OutreachMcpProviderTest {
             "get_dnd_state",
             "set_dnd_state"
         )
-        assertEquals(expectedTools, toolHandlers.keys)
+        assertEquals(expectedTools, harness.toolHandlers.keys)
     }
 
     @Test
     fun `register without dnd skips DND tools`() {
-        val noDndHandlers = mutableMapOf<
-            String,
-            suspend ClientConnection.(
-                CallToolRequest
-            ) -> CallToolResult
-            >()
-        val noDndServer = mockk<Server>(relaxed = true)
-        val nameSlot2 = slot<String>()
-        val handlerSlot2 = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
-        every {
-            noDndServer.addTool(
-                name = capture(nameSlot2),
-                description = any(),
-                inputSchema = any<ToolSchema>(),
-                handler = capture(handlerSlot2)
-            )
-        } answers {
-            noDndHandlers[nameSlot2.captured] = handlerSlot2.captured
-        }
-
+        val noDndHarness = McpToolTestHarness()
         val noDndProvider = OutreachMcpProvider(context, dndEnabled = false)
-        noDndProvider.register(noDndServer)
+        noDndProvider.register(noDndHarness.createMockServer())
 
-        assertFalse(noDndHandlers.containsKey("get_dnd_state"))
-        assertFalse(noDndHandlers.containsKey("set_dnd_state"))
-        assertTrue(noDndHandlers.containsKey("launch_app"))
+        assertFalse(noDndHarness.toolHandlers.containsKey("get_dnd_state"))
+        assertFalse(noDndHarness.toolHandlers.containsKey("set_dnd_state"))
+        assertTrue(noDndHarness.toolHandlers.containsKey("launch_app"))
     }
 
     @Test
     fun `open_link rejects non-http schemes`() = runBlocking {
-        val handler = toolHandlers["open_link"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "open_link",
-                arguments = buildJsonObject {
-                    put("url", JsonPrimitive("file:///etc/passwd"))
-                }
-            )
+        val result = harness.callTool(
+            name = "open_link",
+            arguments = buildJsonObject {
+                put("url", JsonPrimitive("file:///etc/passwd"))
+            },
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         assertTrue(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("Only http and https"))
@@ -138,37 +92,30 @@ class OutreachMcpProviderTest {
 
     @Test
     fun `open_link accepts https`() = runBlocking {
-        val handler = toolHandlers["open_link"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "open_link",
-                arguments = buildJsonObject {
-                    put("url", JsonPrimitive("https://example.com"))
-                }
-            )
+        val result = harness.callTool(
+            name = "open_link",
+            arguments = buildJsonObject {
+                put("url", JsonPrimitive("https://example.com"))
+            },
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         assertFalse(result.isError == true)
     }
 
     @Test
     fun `open_link posts notification fallback when direct launch is denied`() = runBlocking {
         val notifier = mockk<com.rousecontext.api.LaunchRequestNotifierApi>(relaxed = true)
-        val fallbackHandlers = registerProvider(
+        val fallbackHarness = registerProvider(
             canLaunchDirectly = { false },
             launchNotifier = notifier
         )
-        val handler = fallbackHandlers["open_link"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "open_link",
-                arguments = buildJsonObject {
-                    put("url", JsonPrimitive("https://example.com"))
-                }
-            )
+        val result = fallbackHarness.callTool(
+            name = "open_link",
+            arguments = buildJsonObject {
+                put("url", JsonPrimitive("https://example.com"))
+            },
+            connection = fakeConnection
         )
-
-        val result = handler.invoke(fakeConnection, request)
 
         assertFalse(result.isError == true)
         io.mockk.verify(exactly = 1) {
@@ -184,21 +131,17 @@ class OutreachMcpProviderTest {
     @Test
     fun `open_link uses direct launch when permission is granted`() = runBlocking {
         val notifier = mockk<com.rousecontext.api.LaunchRequestNotifierApi>(relaxed = true)
-        val directHandlers = registerProvider(
+        val directHarness = registerProvider(
             canLaunchDirectly = { true },
             launchNotifier = notifier
         )
-        val handler = directHandlers["open_link"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "open_link",
-                arguments = buildJsonObject {
-                    put("url", JsonPrimitive("https://example.com"))
-                }
-            )
+        val result = directHarness.callTool(
+            name = "open_link",
+            arguments = buildJsonObject {
+                put("url", JsonPrimitive("https://example.com"))
+            },
+            connection = fakeConnection
         )
-
-        val result = handler.invoke(fakeConnection, request)
 
         assertFalse(result.isError == true)
         io.mockk.verify(exactly = 0) {
@@ -209,23 +152,20 @@ class OutreachMcpProviderTest {
     @Test
     fun `launch_app posts notification fallback when direct launch is denied`() = runBlocking {
         val notifier = mockk<com.rousecontext.api.LaunchRequestNotifierApi>(relaxed = true)
-        val fallbackHandlers = registerProvider(
+        val fallbackHarness = registerProvider(
             canLaunchDirectly = { false },
             launchNotifier = notifier
         )
-        val handler = fallbackHandlers["launch_app"]!!
         // Use this test app's own package so the launch intent resolves
         val selfPkg = context.packageName
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "launch_app",
-                arguments = buildJsonObject {
-                    put("package_name", JsonPrimitive(selfPkg))
-                }
-            )
-        )
 
-        val result = handler.invoke(fakeConnection, request)
+        val result: CallToolResult = fallbackHarness.callTool(
+            name = "launch_app",
+            arguments = buildJsonObject {
+                put("package_name", JsonPrimitive(selfPkg))
+            },
+            connection = fakeConnection
+        )
 
         // Either the launch-intent resolves and we post, or the package has no
         // launch intent and we error. Both are acceptable runtime outcomes; here
@@ -241,48 +181,26 @@ class OutreachMcpProviderTest {
     private fun registerProvider(
         canLaunchDirectly: suspend () -> Boolean,
         launchNotifier: com.rousecontext.api.LaunchRequestNotifierApi?
-    ): MutableMap<
-        String,
-        suspend ClientConnection.(CallToolRequest) -> CallToolResult
-        > {
-        val handlers = mutableMapOf<
-            String,
-            suspend ClientConnection.(CallToolRequest) -> CallToolResult
-            >()
-        val srv = mockk<Server>(relaxed = true)
-        val nameSlot = slot<String>()
-        val handlerSlot = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
-        every {
-            srv.addTool(
-                name = capture(nameSlot),
-                description = any(),
-                inputSchema = any<ToolSchema>(),
-                handler = capture(handlerSlot)
-            )
-        } answers {
-            handlers[nameSlot.captured] = handlerSlot.captured
-        }
+    ): McpToolTestHarness {
+        val h = McpToolTestHarness()
         OutreachMcpProvider(
             context = context,
             dndEnabled = false,
             canLaunchDirectly = canLaunchDirectly,
             launchNotifier = launchNotifier
-        ).register(srv)
-        return handlers
+        ).register(h.createMockServer())
+        return h
     }
 
     @Test
     fun `launch_app returns error for unknown package`() = runBlocking {
-        val handler = toolHandlers["launch_app"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "launch_app",
-                arguments = buildJsonObject {
-                    put("package_name", JsonPrimitive("com.unknown.nonexistent.app"))
-                }
-            )
+        val result = harness.callTool(
+            name = "launch_app",
+            arguments = buildJsonObject {
+                put("package_name", JsonPrimitive("com.unknown.nonexistent.app"))
+            },
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         assertTrue(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("App not found"))
@@ -290,17 +208,14 @@ class OutreachMcpProviderTest {
 
     @Test
     fun `send_notification succeeds`() = runBlocking {
-        val handler = toolHandlers["send_notification"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "send_notification",
-                arguments = buildJsonObject {
-                    put("title", JsonPrimitive("Test Title"))
-                    put("message", JsonPrimitive("Test Body"))
-                }
-            )
+        val result = harness.callTool(
+            name = "send_notification",
+            arguments = buildJsonObject {
+                put("title", JsonPrimitive("Test Title"))
+                put("message", JsonPrimitive("Test Body"))
+            },
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         assertFalse(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("\"success\":true"))
@@ -313,55 +228,42 @@ class OutreachMcpProviderTest {
             var time = 1000L
             override fun currentTimeMillis(): Long = time
         }
-        val rateLimitHandlers = mutableMapOf<
-            String,
-            suspend ClientConnection.(
-                CallToolRequest
-            ) -> CallToolResult
-            >()
-        val rlServer = mockk<Server>(relaxed = true)
-        val nameSlot3 = slot<String>()
-        val handlerSlot3 = slot<suspend ClientConnection.(CallToolRequest) -> CallToolResult>()
-        every {
-            rlServer.addTool(
-                name = capture(nameSlot3),
-                description = any(),
-                inputSchema = any<ToolSchema>(),
-                handler = capture(handlerSlot3)
-            )
-        } answers {
-            rateLimitHandlers[nameSlot3.captured] = handlerSlot3.captured
-        }
-
+        val rlHarness = McpToolTestHarness()
         val rlProvider = OutreachMcpProvider(context, dndEnabled = false, clock = clock)
-        rlProvider.register(rlServer)
+        rlProvider.register(rlHarness.createMockServer())
 
-        val handler = rateLimitHandlers["send_notification"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "send_notification",
-                arguments = buildJsonObject {
-                    put("title", JsonPrimitive("Test"))
-                    put("message", JsonPrimitive("Body"))
-                }
-            )
-        )
+        val args = buildJsonObject {
+            put("title", JsonPrimitive("Test"))
+            put("message", JsonPrimitive("Body"))
+        }
 
         // Send 10 notifications (should all succeed)
         repeat(10) {
-            val result = handler.invoke(fakeConnection, request)
+            val result = rlHarness.callTool(
+                name = "send_notification",
+                arguments = args,
+                connection = fakeConnection
+            )
             assertFalse("Notification $it should succeed", result.isError == true)
         }
 
         // 11th should be rate limited
-        val result = handler.invoke(fakeConnection, request)
+        val result = rlHarness.callTool(
+            name = "send_notification",
+            arguments = args,
+            connection = fakeConnection
+        )
         assertTrue("11th notification should be rate limited", result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("Rate limited"))
 
         // Advance clock past the window
         clock.time += 61_000L
-        val afterWindowResult = handler.invoke(fakeConnection, request)
+        val afterWindowResult = rlHarness.callTool(
+            name = "send_notification",
+            arguments = args,
+            connection = fakeConnection
+        )
         assertFalse("Should succeed after window resets", afterWindowResult.isError == true)
     }
 
@@ -370,14 +272,11 @@ class OutreachMcpProviderTest {
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
 
-        val handler = toolHandlers["get_dnd_state"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "get_dnd_state",
-                arguments = buildJsonObject {}
-            )
+        val result = harness.callTool(
+            name = "get_dnd_state",
+            arguments = buildJsonObject {},
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("\"enabled\":true"))
         assertTrue(text.contains("\"mode\":\"priority_only\""))
@@ -385,16 +284,13 @@ class OutreachMcpProviderTest {
 
     @Test
     fun `set_dnd_state rejects when permission not granted`() = runBlocking {
-        val handler = toolHandlers["set_dnd_state"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "set_dnd_state",
-                arguments = buildJsonObject {
-                    put("enabled", JsonPrimitive("true"))
-                }
-            )
+        val result = harness.callTool(
+            name = "set_dnd_state",
+            arguments = buildJsonObject {
+                put("enabled", JsonPrimitive("true"))
+            },
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         assertTrue(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("permission not granted"))
@@ -406,17 +302,14 @@ class OutreachMcpProviderTest {
         val shadowNm = Shadows.shadowOf(nm)
         shadowNm.setNotificationPolicyAccessGranted(true)
 
-        val handler = toolHandlers["set_dnd_state"]!!
-        val request = CallToolRequest(
-            params = CallToolRequestParams(
-                name = "set_dnd_state",
-                arguments = buildJsonObject {
-                    put("enabled", JsonPrimitive("true"))
-                    put("mode", JsonPrimitive("total_silence"))
-                }
-            )
+        val result = harness.callTool(
+            name = "set_dnd_state",
+            arguments = buildJsonObject {
+                put("enabled", JsonPrimitive("true"))
+                put("mode", JsonPrimitive("total_silence"))
+            },
+            connection = fakeConnection
         )
-        val result = handler.invoke(fakeConnection, request)
         assertFalse(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("\"success\":true"))
