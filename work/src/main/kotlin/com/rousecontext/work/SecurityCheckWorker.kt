@@ -109,9 +109,20 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
 
             is SecurityCheckResult.Warning -> {
                 val streak = prefs.incrementWarningStreak(sourceName)
-                if (streak >= WARNING_NOTIFICATION_THRESHOLD) {
+                val alreadyNotified = prefs.hasNotifiedForStreak(sourceName)
+                if (streak >= WARNING_NOTIFICATION_THRESHOLD && !alreadyNotified) {
                     Log.w(TAG, "$checkName: warning (streak=$streak) - ${result.reason}")
                     notifier.postInfo(check, result.reason)
+                    prefs.markNotifiedForStreak(sourceName)
+                } else if (streak >= WARNING_NOTIFICATION_THRESHOLD) {
+                    // Issue #429: streak still above threshold but we already
+                    // notified. Don't re-fire every interval — log silently
+                    // until the streak breaks (Verified / Skipped) and resets.
+                    Log.d(
+                        TAG,
+                        "$checkName: warning (streak=$streak, already notified) - " +
+                            result.reason
+                    )
                 } else {
                     // Below threshold -- single/transient flaps are absorbed
                     // silently. Issue #256: crt.sh 5xx hiccups should not

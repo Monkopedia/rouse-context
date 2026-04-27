@@ -162,6 +162,77 @@ class SecurityCheckWorkerTest {
         }
 
     @Test
+    fun `continued warning past threshold does not re-notify until streak breaks`() = runBlocking {
+        // Issue #429: streak >= threshold fires once; subsequent runs while
+        // the streak is unbroken must stay silent (logged only). User was
+        // getting a CT-log Warning notification every interval while crt.sh
+        // was flaking — the threshold reaches 3 once, then every later run
+        // re-fired because nothing reset the "already notified" state.
+        repeat(5) {
+            val worker = buildWorker(
+                selfCertResult = SecurityCheckResult.Verified,
+                ctResult = SecurityCheckResult.Warning("could not reach CT log")
+            )
+            worker.doWork()
+        }
+
+        assertEquals(
+            "Streak crossing threshold must fire exactly once, not on every subsequent run",
+            listOf(
+                FakeSecurityCheckNotifier.Call.Info(
+                    SecurityCheck.CT_LOG,
+                    "could not reach CT log"
+                )
+            ),
+            fakeNotifier.calls
+        )
+    }
+
+    @Test
+    fun `verified after notified streak resets state and next streak fires again`() = runBlocking {
+        // Issue #429: once the streak breaks via Verified, the notified
+        // flag must clear so the NEXT streak crossing threshold can fire
+        // a fresh notification. Otherwise the user would never hear about
+        // a recurring upstream outage.
+        repeat(3) {
+            val worker = buildWorker(
+                selfCertResult = SecurityCheckResult.Verified,
+                ctResult = SecurityCheckResult.Warning("first outage")
+            )
+            worker.doWork()
+        }
+
+        val verifiedWorker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Verified
+        )
+        verifiedWorker.doWork()
+
+        repeat(3) {
+            val worker = buildWorker(
+                selfCertResult = SecurityCheckResult.Verified,
+                ctResult = SecurityCheckResult.Warning("second outage")
+            )
+            worker.doWork()
+        }
+
+        assertEquals(
+            "First streak fires once; Verified resets; second streak fires once",
+            listOf(
+                FakeSecurityCheckNotifier.Call.Info(
+                    SecurityCheck.CT_LOG,
+                    "first outage"
+                ),
+                FakeSecurityCheckNotifier.Call.Info(
+                    SecurityCheck.CT_LOG,
+                    "second outage"
+                )
+            ),
+            fakeNotifier.calls
+        )
+    }
+
+    @Test
     fun `warning counter resets on verified result`() = runBlocking {
         // Two warning runs, then a verified run -- counter MUST reset so the
         // NEXT two warnings do not cross the threshold.

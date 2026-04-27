@@ -3,6 +3,7 @@ package com.rousecontext.work
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -82,6 +83,23 @@ class SecurityCheckPreferences(private val context: Context) {
     suspend fun resetWarningStreak(sourceName: String) {
         dataStore.edit { prefs ->
             prefs[warningStreakKey(sourceName)] = 0
+            prefs[notifiedForStreakKey(sourceName)] = false
+        }
+    }
+
+    /**
+     * Issue #429: per-source flag indicating that we already notified the user
+     * for the current Warning streak. Once set, subsequent Warning runs in the
+     * same streak log silently rather than re-firing the notification every
+     * scheduled interval. Cleared by [resetWarningStreak] when the streak ends
+     * via a Verified or Skipped result.
+     */
+    suspend fun hasNotifiedForStreak(sourceName: String): Boolean =
+        dataStore.data.first()[notifiedForStreakKey(sourceName)] ?: false
+
+    suspend fun markNotifiedForStreak(sourceName: String) {
+        dataStore.edit { prefs ->
+            prefs[notifiedForStreakKey(sourceName)] = true
         }
     }
 
@@ -93,6 +111,8 @@ class SecurityCheckPreferences(private val context: Context) {
             prefs[KEY_LAST_CHECK_TIME] = 0L
             prefs[warningStreakKey(SOURCE_SELF_CERT)] = 0
             prefs[warningStreakKey(SOURCE_CT_LOG)] = 0
+            prefs[notifiedForStreakKey(SOURCE_SELF_CERT)] = false
+            prefs[notifiedForStreakKey(SOURCE_CT_LOG)] = false
         }
     }
 
@@ -111,5 +131,8 @@ class SecurityCheckPreferences(private val context: Context) {
 
         private fun warningStreakKey(sourceName: String) =
             intPreferencesKey("warning_streak_$sourceName")
+
+        private fun notifiedForStreakKey(sourceName: String) =
+            booleanPreferencesKey("notified_for_streak_$sourceName")
     }
 }
