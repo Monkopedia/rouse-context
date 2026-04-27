@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -294,6 +296,88 @@ class OutreachMcpProviderTest {
         assertTrue(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
         assertTrue(text.contains("permission not granted"))
+    }
+
+    @Test
+    fun `send_notification with click_url sets contentIntent`() = runBlocking {
+        val result = harness.callTool(
+            name = "send_notification",
+            arguments = buildJsonObject {
+                put("title", JsonPrimitive("Click Test"))
+                put("message", JsonPrimitive("Tap to open"))
+                put("click_url", JsonPrimitive("https://example.com/page"))
+            },
+            connection = fakeConnection
+        )
+        assertFalse(result.isError == true)
+
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val shadowNm = Shadows.shadowOf(nm)
+        val posted = shadowNm.allNotifications
+        assertTrue("Expected at least one notification", posted.isNotEmpty())
+        val notification = posted.last()
+        assertNotNull("contentIntent should be set", notification.contentIntent)
+    }
+
+    @Test
+    fun `send_notification without click_url has no contentIntent`() = runBlocking {
+        val result = harness.callTool(
+            name = "send_notification",
+            arguments = buildJsonObject {
+                put("title", JsonPrimitive("No Click"))
+                put("message", JsonPrimitive("No URL"))
+            },
+            connection = fakeConnection
+        )
+        assertFalse(result.isError == true)
+
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val shadowNm = Shadows.shadowOf(nm)
+        val posted = shadowNm.allNotifications
+        assertTrue("Expected at least one notification", posted.isNotEmpty())
+        val notification = posted.last()
+        assertNull("contentIntent should not be set", notification.contentIntent)
+    }
+
+    @Test
+    fun `send_notification click_url rejects non-http scheme`() = runBlocking {
+        val result = harness.callTool(
+            name = "send_notification",
+            arguments = buildJsonObject {
+                put("title", JsonPrimitive("Bad Click"))
+                put("message", JsonPrimitive("Bad URL"))
+                put("click_url", JsonPrimitive("file:///etc/passwd"))
+            },
+            connection = fakeConnection
+        )
+        assertTrue(result.isError == true)
+        val text = (result.content.first() as TextContent).text!!
+        assertTrue(text.contains("Only http and https"))
+    }
+
+    @Test
+    fun `send_notification with actions adds action buttons`() = runBlocking {
+        val actionsJson = """[{"label":"Open","url":"https://example.com"},""" +
+            """{"label":"View","url":"https://example.org"}]"""
+        val result = harness.callTool(
+            name = "send_notification",
+            arguments = buildJsonObject {
+                put("title", JsonPrimitive("Actions Test"))
+                put("message", JsonPrimitive("With buttons"))
+                put("actions", JsonPrimitive(actionsJson))
+            },
+            connection = fakeConnection
+        )
+        assertFalse(result.isError == true)
+
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val shadowNm = Shadows.shadowOf(nm)
+        val posted = shadowNm.allNotifications
+        assertTrue("Expected at least one notification", posted.isNotEmpty())
+        val notification = posted.last()
+        assertEquals("Should have 2 action buttons", 2, notification.actions.size)
+        assertEquals("Open", notification.actions[0].title.toString())
+        assertEquals("View", notification.actions[1].title.toString())
     }
 
     @Test

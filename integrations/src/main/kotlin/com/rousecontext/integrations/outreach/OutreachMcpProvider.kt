@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -217,6 +218,14 @@ internal class SendNotificationTool(
     val priority by stringParam("priority", "")
         .optional().choices("low", "default", "high")
     val channelId by stringParam("channel_id", "From create_notification_channel").optional()
+    val actions by stringParam(
+        "actions",
+        "JSON array of action buttons, max 3. Each element: {\"label\": \"...\", \"url\": \"https://...\"}."
+    ).optional()
+    val clickUrl by stringParam(
+        "click_url",
+        "http/https URL to open when the notification is tapped"
+    ).optional()
 
     override suspend fun execute(): ToolResult {
         if (!rateLimiter.tryAcquire("send_notification")) {
@@ -232,7 +241,9 @@ internal class SendNotificationTool(
             .setContentText(message!!)
             .setAutoCancel(true)
             .setPriority(parsePriority(priority))
-        addNotificationActions(context, builder, rawArgs, notificationId)
+        addNotificationActions(context, builder, actions, notificationId)
+        val clickError = applyClickUrl(context, builder, clickUrl, notificationId)
+        if (clickError != null) return clickError
         val nm = context.getSystemService(NotificationManager::class.java)
         nm.notify(notificationId, builder.build())
         return ToolResult.Success(
@@ -464,12 +475,18 @@ internal fun resolveChannelId(channelId: String?): String {
 internal fun addNotificationActions(
     context: Context,
     builder: NotificationCompat.Builder,
-    args: kotlinx.serialization.json.JsonObject?,
+    actionsJson: String?,
     notificationId: Int
 ) {
-    args?.get("actions")?.jsonArray
-        ?.take(OutreachMcpProvider.MAX_NOTIFICATION_ACTIONS)
-        ?.forEach { actionElement ->
+    if (actionsJson == null) return
+    val elements = try {
+        Json.parseToJsonElement(actionsJson).jsonArray
+    } catch (_: Exception) {
+        return
+    }
+    elements
+        .take(OutreachMcpProvider.MAX_NOTIFICATION_ACTIONS)
+        .forEach { actionElement ->
             val action = actionElement.jsonObject
             val label = action["label"]?.jsonPrimitive?.content ?: return@forEach
             val url = action["url"]?.jsonPrimitive?.content ?: return@forEach
@@ -486,6 +503,29 @@ internal fun addNotificationActions(
                 builder.addAction(0, label, pi)
             }
         }
+}
+
+internal fun applyClickUrl(
+    context: Context,
+    builder: NotificationCompat.Builder,
+    clickUrl: String?,
+    notificationId: Int
+): ToolResult? {
+    if (clickUrl == null) return null
+    val uri = Uri.parse(clickUrl)
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") {
+        return outreachError("Only http and https URLs are allowed for click_url, got: $scheme")
+    }
+    val intent = Intent(Intent.ACTION_VIEW, uri)
+    val pi = PendingIntent.getActivity(
+        context,
+        notificationId,
+        intent,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
+    )
+    builder.setContentIntent(pi)
+    return null
 }
 
 @Suppress("MagicNumber")
