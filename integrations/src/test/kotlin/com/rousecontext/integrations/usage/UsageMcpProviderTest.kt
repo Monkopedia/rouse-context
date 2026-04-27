@@ -202,17 +202,12 @@ class UsageMcpProviderTest {
 
     @Test
     fun `get_app_usage returns error for missing package_name`() = runBlocking {
-        // expectJsonBody = false: the framework-level "Missing required parameter"
-        // path emits plain text, not JSON. Tracked separately in #427 (the
-        // harness in #426 surfaced this gap). Once #427 lands and ToolResult.Error
-        // wraps in a JSON envelope, this opt-out can be removed.
         val result = harness.callTool(
             name = "get_app_usage",
             arguments = buildJsonObject {
                 put("period", JsonPrimitive("today"))
             },
-            connection = fakeConnection,
-            expectJsonBody = false
+            connection = fakeConnection
         )
 
         assertTrue(result.isError == true)
