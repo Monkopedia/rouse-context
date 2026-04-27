@@ -13,6 +13,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlin.properties.ReadOnlyProperty
 import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 
@@ -120,7 +121,9 @@ abstract class McpTool {
             val b = binding as ParamBinding<Any>
             when (val ex = b.param.extract(args)) {
                 is ParamExtract.Value -> b.cached = ex.value
-                is ParamExtract.Error -> return ToolResult.Error(ex.message)
+                is ParamExtract.Error -> return ToolResult.Error(
+                    ToolErrorResponse.json.encodeToString(ToolErrorResponse(error = ex.message))
+                )
             }
         }
         return try {
@@ -131,7 +134,13 @@ abstract class McpTool {
             @Suppress("TooGenericExceptionCaught")
             t: Throwable
         ) {
-            ToolResult.Error(t.message ?: t::class.qualifiedName ?: "unknown error")
+            ToolResult.Error(
+                ToolErrorResponse.json.encodeToString(
+                    ToolErrorResponse(
+                        error = t.message ?: t::class.qualifiedName ?: "unknown error"
+                    )
+                )
+            )
         }
     }
 

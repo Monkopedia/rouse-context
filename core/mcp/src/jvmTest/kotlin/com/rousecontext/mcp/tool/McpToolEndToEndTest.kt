@@ -8,11 +8,14 @@ import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -75,7 +78,7 @@ class McpToolEndToEndTest {
     }
 
     @Test
-    fun `tools-call with missing required param returns MCP error`() = runBlocking {
+    fun `tools-call with missing required param returns JSON error`() = runBlocking {
         val server = server()
         server.registerTool { GreetTool() }
         val handler = server.tools["greet"]!!.handler
@@ -88,11 +91,16 @@ class McpToolEndToEndTest {
         val result = handler.invoke(StubClientConnection, request)
         assertTrue(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
-        assertTrue(text, text.contains("Missing required parameter 'who'"))
+        val json = Json.parseToJsonElement(text).jsonObject
+        assertFalse(json["success"]!!.jsonPrimitive.boolean)
+        assertTrue(
+            text,
+            json["error"]!!.jsonPrimitive.content.contains("Missing required parameter 'who'")
+        )
     }
 
     @Test
-    fun `tools-call with wrong type returns MCP error`() = runBlocking {
+    fun `tools-call with wrong type returns JSON error`() = runBlocking {
         val server = server()
         server.registerTool { GreetTool() }
         val handler = server.tools["greet"]!!.handler
@@ -105,6 +113,8 @@ class McpToolEndToEndTest {
         val result = handler.invoke(StubClientConnection, request)
         assertTrue(result.isError == true)
         val text = (result.content.first() as TextContent).text!!
-        assertTrue(text, text.contains("must be a string"))
+        val json = Json.parseToJsonElement(text).jsonObject
+        assertFalse(json["success"]!!.jsonPrimitive.boolean)
+        assertTrue(text, json["error"]!!.jsonPrimitive.content.contains("must be a string"))
     }
 }
