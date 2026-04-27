@@ -37,7 +37,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
-import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.LocalNavBarController
@@ -219,9 +218,6 @@ class BottomInsetScreenshotTest {
                 }
             }
         }
-        composeRule.onRoot()
-            .captureRoboImage("screenshots/99_bottom_inset_manage_dark.png")
-
         // The button must render entirely above the simulated 48dp gesture
         // bar. Root height is 800dp (see @Config), so the button's bottom
         // edge must be <= 752dp.
@@ -260,8 +256,6 @@ class BottomInsetScreenshotTest {
                 }
             }
         }
-        composeRule.onRoot()
-            .captureRoboImage("screenshots/99_bottom_inset_manage_prefix_dark.png")
     }
 
     @Test
@@ -278,7 +272,5 @@ class BottomInsetScreenshotTest {
                 }
             }
         }
-        composeRule.onRoot()
-            .captureRoboImage("screenshots/99_bottom_inset_health_dark.png")
     }
 }

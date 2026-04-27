@@ -6,12 +6,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.rousecontext.app.ui.navigation.LocalNavBarController
+import com.rousecontext.app.ui.navigation.NavBarControllerImpl
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
+import com.rousecontext.app.ui.screens.AllClientsContent
 import com.rousecontext.app.ui.screens.AuditDetailScreen
 import com.rousecontext.app.ui.screens.AuditDetailState
 import com.rousecontext.app.ui.screens.AuditDetailUiState
@@ -30,6 +34,7 @@ import com.rousecontext.app.ui.screens.HealthConnectSetupContent
 import com.rousecontext.app.ui.screens.HealthConnectSetupScreen
 import com.rousecontext.app.ui.screens.IntegrationEnabledScreen
 import com.rousecontext.app.ui.screens.IntegrationEnabledState
+import com.rousecontext.app.ui.screens.IntegrationEnabledUrlState
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationManageScreen
 import com.rousecontext.app.ui.screens.IntegrationManageState
@@ -357,6 +362,26 @@ class ScreenScreenshotTest {
     }
 
     @Test
+    fun integrationEnabledLoadingDark() = captureDark("16b_integration_enabled_loading") {
+        IntegrationEnabledScreen(
+            state = IntegrationEnabledState(
+                integrationName = "Health Connect",
+                urlState = IntegrationEnabledUrlState.Loading
+            )
+        )
+    }
+
+    @Test
+    fun integrationEnabledLoadingLight() = captureLight("16b_integration_enabled_loading") {
+        IntegrationEnabledScreen(
+            state = IntegrationEnabledState(
+                integrationName = "Health Connect",
+                urlState = IntegrationEnabledUrlState.Loading
+            )
+        )
+    }
+
+    @Test
     fun integrationManageActiveDark() = captureDark("17_integration_manage_active") {
         IntegrationManageScreen(state = integrationManageActiveState())
     }
@@ -389,6 +414,42 @@ class ScreenScreenshotTest {
                 url = "https://brave-health.my-device.rousecontext.com/mcp"
             )
         )
+    }
+
+    // =========================================================================
+    // All Clients
+    // =========================================================================
+
+    @Test
+    fun allClientsDark() = captureDark("20_all_clients") {
+        CompositionLocalProvider(
+            LocalNavBarController provides NavBarControllerImpl()
+        ) {
+            AllClientsContent(
+                integrationName = "Health Connect",
+                clients = listOf(
+                    AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
+                    AuthorizedClient("Cursor", "Apr 3", "just now"),
+                    AuthorizedClient("Windsurf", "Apr 5", "yesterday")
+                )
+            )
+        }
+    }
+
+    @Test
+    fun allClientsLight() = captureLight("20_all_clients") {
+        CompositionLocalProvider(
+            LocalNavBarController provides NavBarControllerImpl()
+        ) {
+            AllClientsContent(
+                integrationName = "Health Connect",
+                clients = listOf(
+                    AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
+                    AuthorizedClient("Cursor", "Apr 3", "just now"),
+                    AuthorizedClient("Windsurf", "Apr 5", "yesterday")
+                )
+            )
+        }
     }
 
     // =========================================================================
