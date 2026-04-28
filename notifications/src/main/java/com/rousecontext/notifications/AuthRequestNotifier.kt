@@ -48,6 +48,7 @@ class AuthRequestNotifier(
             notificationId,
             Intent(context, activityClass).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_NAVIGATE_TO, NAVIGATE_TO_AUTH_APPROVAL)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -105,5 +106,11 @@ class AuthRequestNotifier(
     companion object {
         /** Notification ID offset for auth request notifications. */
         const val BASE_ID = 5000
+
+        /** Intent extra key for deep-link navigation target. */
+        const val EXTRA_NAVIGATE_TO = "navigate_to"
+
+        /** Value for [EXTRA_NAVIGATE_TO] that routes to the auth approval screen. */
+        const val NAVIGATE_TO_AUTH_APPROVAL = "auth_approval"
     }
 }

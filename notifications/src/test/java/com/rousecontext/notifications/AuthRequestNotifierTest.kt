@@ -86,6 +86,23 @@ class AuthRequestNotifierTest {
     }
 
     @Test
+    fun `contentIntent carries navigate_to extra for auth approval`() {
+        notifier.post("NAV-TEST", "health")
+
+        val shadowManager = Shadows.shadowOf(manager)
+        val notification = shadowManager.getNotification(AuthRequestNotifier.BASE_ID)
+        assertNotNull("Notification should be posted", notification)
+
+        val shadowPendingIntent = Shadows.shadowOf(notification.contentIntent)
+        val savedIntent = shadowPendingIntent.savedIntent
+        assertEquals(
+            "contentIntent must carry navigate_to=auth_approval",
+            AuthRequestNotifier.NAVIGATE_TO_AUTH_APPROVAL,
+            savedIntent.getStringExtra(AuthRequestNotifier.EXTRA_NAVIGATE_TO)
+        )
+    }
+
+    @Test
     fun `consecutive posts use different notification IDs`() {
         notifier.post("CODE-1", "health")
         notifier.post("CODE-2", "health")

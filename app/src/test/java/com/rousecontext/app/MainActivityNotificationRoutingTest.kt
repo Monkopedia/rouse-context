@@ -2,6 +2,7 @@ package com.rousecontext.app
 
 import android.content.Intent
 import com.rousecontext.app.ui.navigation.Routes
+import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SessionSummaryNotifier
 import org.junit.Assert.assertEquals
@@ -120,5 +121,26 @@ class MainActivityNotificationRoutingTest {
     @Test
     fun `null intent returns null`() {
         assertNull(MainActivity.destinationForNotificationIntent(null))
+    }
+
+    @Test
+    fun `navigate_to auth_approval extra routes to AUTH_APPROVAL`() {
+        val intent = Intent().apply {
+            putExtra(
+                AuthRequestNotifier.EXTRA_NAVIGATE_TO,
+                AuthRequestNotifier.NAVIGATE_TO_AUTH_APPROVAL
+            )
+        }
+        val route = MainActivity.destinationForNotificationIntent(intent)
+        assertEquals(Routes.AUTH_APPROVAL, route)
+    }
+
+    @Test
+    fun `navigate_to with unknown value returns null`() {
+        val intent = Intent().apply {
+            putExtra(AuthRequestNotifier.EXTRA_NAVIGATE_TO, "unknown_screen")
+        }
+        val route = MainActivity.destinationForNotificationIntent(intent)
+        assertNull(route)
     }
 }
