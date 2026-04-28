@@ -12,6 +12,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -105,8 +106,20 @@ private val ONBOARDING_ROUTES = setOf(
 @Composable
 fun AppNavigation(
     startDestination: String = Routes.HOME,
+    pendingNavRoute: String? = null,
+    onPendingNavConsumed: () -> Unit = {},
     navController: NavHostController = rememberNavController()
 ) {
+    // Handle deep-link navigation delivered by onNewIntent (#435).
+    // When the activity is already running and a notification tap delivers
+    // a new intent, pendingNavRoute is set and the composition navigates.
+    LaunchedEffect(pendingNavRoute) {
+        if (pendingNavRoute != null) {
+            navController.navigate(pendingNavRoute)
+            onPendingNavConsumed()
+        }
+    }
+
     val controller = remember { NavBarControllerImpl() }
     val currentEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentEntry?.destination?.route

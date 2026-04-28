@@ -23,6 +23,8 @@ import com.rousecontext.app.ui.screens.IntegrationEnabledContent
 import com.rousecontext.app.ui.screens.IntegrationEnabledState
 import com.rousecontext.app.ui.screens.IntegrationEnabledUrlState
 import com.rousecontext.mcp.core.McpSession
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import org.koin.compose.koinInject
 
 fun NavGraphBuilder.integrationEnabledDestination(navController: NavController) {
@@ -71,13 +73,16 @@ fun NavGraphBuilder.integrationEnabledDestination(navController: NavController) 
             onBackPressed = finishToManage
         )
 
-        // Auto-navigate to approval when a client auth request arrives
+        // Auto-navigate to approval when a client auth request arrives.
+        // Uses pendingRequestsFlow (StateFlow) instead of newRequestFlow
+        // (SharedFlow with replay=0) so pre-existing requests are seen
+        // immediately when this composable enters composition (#435).
         val mcpSession: McpSession = koinInject()
         LaunchedEffect(Unit) {
-            mcpSession.authorizationCodeManager.newRequestFlow
-                .collect {
-                    navController.navigate(Routes.AUTH_APPROVAL)
-                }
+            mcpSession.authorizationCodeManager.pendingRequestsFlow
+                .filter { it.isNotEmpty() }
+                .first()
+            navController.navigate(Routes.AUTH_APPROVAL)
         }
 
         IntegrationEnabledContent(

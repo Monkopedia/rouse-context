@@ -22,7 +22,11 @@ import org.koin.compose.koinInject
  *   the splash screen is dismissed so there is no flash of the wrong screen.
  */
 @Composable
-fun RouseContextApp(startDestination: String = Routes.HOME) {
+fun RouseContextApp(
+    startDestination: String = Routes.HOME,
+    pendingNavRoute: String? = null,
+    onPendingNavConsumed: () -> Unit = {}
+) {
     val themePreference: ThemePreference = koinInject()
     val themeMode by themePreference.themeMode.collectAsState(initial = ThemeMode.AUTO)
     val systemDark = isSystemInDarkTheme()
@@ -48,6 +52,10 @@ fun RouseContextApp(startDestination: String = Routes.HOME) {
     }
 
     RouseContextTheme(themeMode = themeMode) {
-        AppNavigation(startDestination = startDestination)
+        AppNavigation(
+            startDestination = startDestination,
+            pendingNavRoute = pendingNavRoute,
+            onPendingNavConsumed = onPendingNavConsumed
+        )
     }
 }

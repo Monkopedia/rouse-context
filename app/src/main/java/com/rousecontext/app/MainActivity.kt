@@ -19,6 +19,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.rousecontext.app.ui.navigation.RouseContextApp
 import com.rousecontext.app.ui.navigation.Routes
+import com.rousecontext.notifications.AuthRequestNotifier
 import com.rousecontext.notifications.PerToolCallNotifier
 import com.rousecontext.notifications.SessionSummaryNotifier
 import com.rousecontext.tunnel.CertificateStore
@@ -27,6 +28,19 @@ import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
     private val certStore: CertificateStore by inject()
+
+    /**
+     * Deep-link route delivered by [onNewIntent] when the activity is already
+     * running (FLAG_ACTIVITY_SINGLE_TOP). The composition observes this and
+     * navigates when it becomes non-null, then resets it to null.
+     */
+    internal var pendingNavRoute: String? by mutableStateOf(null)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val route = destinationForNotificationIntent(intent) ?: return
+        pendingNavRoute = route
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -87,7 +101,11 @@ class MainActivity : ComponentActivity() {
             // Only compose the app once the destination is resolved — the splash screen
             // covers the window until then, so the user never sees a blank frame.
             startDestination?.let { dest ->
-                RouseContextApp(startDestination = dest)
+                RouseContextApp(
+                    startDestination = dest,
+                    pendingNavRoute = pendingNavRoute,
+                    onPendingNavConsumed = { pendingNavRoute = null }
+                )
             }
         }
     }
@@ -124,6 +142,17 @@ class MainActivity : ComponentActivity() {
          */
         internal fun destinationForNotificationIntent(intent: Intent?): String? {
             if (intent == null) return null
+
+            // Auth-request notifications use the navigate_to extra (#435)
+            // instead of a custom action, because they originate from
+            // PendingIntent.getActivity (not a broadcast).
+            val navigateTo = intent.getStringExtra(
+                AuthRequestNotifier.EXTRA_NAVIGATE_TO
+            )
+            if (navigateTo == AuthRequestNotifier.NAVIGATE_TO_AUTH_APPROVAL) {
+                return Routes.AUTH_APPROVAL
+            }
+
             return when (intent.action) {
                 PerToolCallNotifier.ACTION_OPEN_AUDIT_HISTORY,
                 SessionSummaryNotifier.ACTION_OPEN_AUDIT_HISTORY -> auditRouteFor(intent)
