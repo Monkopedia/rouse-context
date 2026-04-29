@@ -27,6 +27,11 @@ use crate::firestore::{FirestoreError, SubdomainReservation};
 #[derive(Debug, Deserialize)]
 pub struct RequestSubdomainRequest {
     pub firebase_token: String,
+    /// Optional prefix prepended (with a hyphen) to single-word subdomains.
+    /// Debug builds send `"test"` so testing doesn't burn the finite
+    /// single-word pool. See issue #437.
+    #[serde(default)]
+    pub prefix: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,6 +54,21 @@ pub async fn handle_request_subdomain(
 ) -> Response {
     if req.firebase_token.is_empty() {
         return ApiError::bad_request("Missing required field: firebase_token").into_response();
+    }
+
+    // Validate optional prefix (issue #437).
+    if let Some(ref prefix) = req.prefix {
+        if prefix.is_empty()
+            || prefix.len() > 10
+            || !prefix
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            return ApiError::bad_request(
+                "prefix must be 1-10 characters, alphanumeric or hyphen only",
+            )
+            .into_response();
+        }
     }
 
     let claims = match state
@@ -128,7 +148,7 @@ pub async fn handle_request_subdomain(
 
     // Candidate selection: two rounds in the single-word pool, then
     // fall back to adjective-noun for a bounded number of attempts.
-    let (subdomain, fqdn) = match select_free_subdomain(&state, &base_domain).await {
+    let (subdomain, fqdn) = match select_free_subdomain(&state, &base_domain, &req.prefix).await {
         Ok(pair) => pair,
         Err(e) => {
             return ApiError::internal(format!("Failed to select subdomain: {e}")).into_response();
@@ -175,13 +195,23 @@ async fn pick_base_domain(state: &Arc<AppState>) -> Result<String, FirestoreErro
 }
 
 /// Walk the tiered pool until we find an unused subdomain.
+///
+/// When `prefix` is `Some`, single-word candidates are prepended with
+/// `{prefix}-` (e.g. `"test"` + `"cliff"` → `"test-cliff"`). The raw word
+/// is NOT checked — `"test-cliff"` and `"cliff"` are independent subdomains,
+/// so prefixed picks never burn the single-word pool. See issue #437.
 async fn select_free_subdomain(
     state: &Arc<AppState>,
     base_domain: &str,
+    prefix: &Option<String>,
 ) -> Result<(String, String), FirestoreError> {
     // Tier 1: single-word pool (two attempts).
     for _ in 0..SINGLE_WORD_RETRIES {
-        let candidate = state.subdomain_generator.generate_single_word();
+        let word = state.subdomain_generator.generate_single_word();
+        let candidate = match prefix {
+            Some(p) => format!("{p}-{word}"),
+            None => word,
+        };
         if is_free(state, &candidate).await? {
             let fqdn = format!("{candidate}.{base_domain}");
             return Ok((candidate, fqdn));

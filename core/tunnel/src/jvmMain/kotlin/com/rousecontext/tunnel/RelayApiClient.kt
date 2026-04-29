@@ -19,7 +19,8 @@ import kotlinx.serialization.json.Json
  */
 class RelayApiClient(
     private val baseUrl: String,
-    private val httpClient: HttpClient = createDefaultClient()
+    private val httpClient: HttpClient = createDefaultClient(),
+    private val subdomainPrefix: String? = null
 ) {
 
     /**
@@ -38,7 +39,12 @@ class RelayApiClient(
         executeRequest {
             httpClient.post("$baseUrl/request-subdomain") {
                 contentType(ContentType.Application.Json)
-                setBody(RequestSubdomainRequest(firebaseToken = firebaseToken))
+                setBody(
+                    RequestSubdomainRequest(
+                        firebaseToken = firebaseToken,
+                        prefix = subdomainPrefix
+                    )
+                )
             }
         }
 
@@ -231,7 +237,10 @@ sealed class RelayApiResult<out T> {
 }
 
 @Serializable
-data class RequestSubdomainRequest(@SerialName("firebase_token") val firebaseToken: String)
+data class RequestSubdomainRequest(
+    @SerialName("firebase_token") val firebaseToken: String,
+    @SerialName("prefix") val prefix: String? = null
+)
 
 @Serializable
 data class RequestSubdomainResponse(

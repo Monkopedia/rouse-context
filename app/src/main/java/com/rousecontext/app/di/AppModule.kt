@@ -232,7 +232,8 @@ val appModule = module {
         val httpClient = createMtlsRelayHttpClient(certSource)
         RelayApiClient(
             baseUrl = "$httpScheme://${BuildConfig.RELAY_HOST}",
-            httpClient = httpClient
+            httpClient = httpClient,
+            subdomainPrefix = if (BuildConfig.DEBUG) "test" else null
         )
     }
     single {
