@@ -16,6 +16,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -84,6 +85,119 @@ class RelayApiClientTest {
             "fake-firebase-token",
             parsed["firebase_token"]?.jsonPrimitive?.content,
             "request body must use snake_case firebase_token field"
+        )
+
+        httpClient.close()
+    }
+
+    @Test
+    fun `requestSubdomain includes prefix when configured`(): Unit = runBlocking {
+        var capturedBody: String? = null
+
+        val httpClient = HttpClient(MockEngine) {
+            engine {
+                addHandler { request ->
+                    capturedBody = (request.body as? TextContent)?.text
+                        ?: (request.body as? OutgoingContent.ByteArrayContent)?.bytes()?.let {
+                            String(it)
+                        } ?: ""
+                    respond(
+                        content = ByteReadChannel(
+                            """
+                            {
+                              "subdomain": "test-zephyr",
+                              "base_domain": "rousecontext.com",
+                              "fqdn": "test-zephyr.rousecontext.com",
+                              "reservation_ttl_seconds": 600
+                            }
+                            """.trimIndent()
+                        ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+            }
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        encodeDefaults = true
+                    }
+                )
+            }
+        }
+
+        val api = RelayApiClient(
+            baseUrl = "https://relay.example",
+            httpClient = httpClient,
+            subdomainPrefix = "test"
+        )
+        val result = api.requestSubdomain(firebaseToken = "fake-firebase-token")
+
+        assertTrue(result is RelayApiResult.Success)
+        assertEquals("test-zephyr", result.data.subdomain)
+
+        val parsed = Json.parseToJsonElement(capturedBody!!) as JsonObject
+        assertEquals(
+            "test",
+            parsed["prefix"]?.jsonPrimitive?.content,
+            "request body must include prefix field when configured"
+        )
+
+        httpClient.close()
+    }
+
+    @Test
+    fun `requestSubdomain omits prefix when not configured`(): Unit = runBlocking {
+        var capturedBody: String? = null
+
+        val httpClient = HttpClient(MockEngine) {
+            engine {
+                addHandler { request ->
+                    capturedBody = (request.body as? TextContent)?.text
+                        ?: (request.body as? OutgoingContent.ByteArrayContent)?.bytes()?.let {
+                            String(it)
+                        } ?: ""
+                    respond(
+                        content = ByteReadChannel(
+                            """
+                            {
+                              "subdomain": "zephyr",
+                              "base_domain": "rousecontext.com",
+                              "fqdn": "zephyr.rousecontext.com",
+                              "reservation_ttl_seconds": 600
+                            }
+                            """.trimIndent()
+                        ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+            }
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        encodeDefaults = true
+                    }
+                )
+            }
+        }
+
+        val api = RelayApiClient(
+            baseUrl = "https://relay.example",
+            httpClient = httpClient
+        )
+        val result = api.requestSubdomain(firebaseToken = "fake-firebase-token")
+
+        assertTrue(result is RelayApiResult.Success)
+
+        val parsed = Json.parseToJsonElement(capturedBody!!) as JsonObject
+        val prefixElement = parsed["prefix"]
+        assertTrue(
+            prefixElement == null ||
+                prefixElement is kotlinx.serialization.json.JsonNull,
+            "request body must not include a non-null prefix when not configured, got: $prefixElement"
         )
 
         httpClient.close()

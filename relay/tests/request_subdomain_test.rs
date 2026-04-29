@@ -183,6 +183,92 @@ async fn request_subdomain_retry_returns_same_name_while_reservation_valid() {
 }
 
 #[tokio::test]
+async fn request_subdomain_with_prefix_prepends_to_single_word() {
+    let firestore = MockFirestore::new();
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-abc");
+    let app = make_app(firestore, auth);
+
+    let resp = post_request(
+        app,
+        serde_json::json!({ "firebase_token": "valid-token", "prefix": "test" }),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let subdomain = json["subdomain"].as_str().unwrap();
+
+    assert!(
+        subdomain.starts_with("test-"),
+        "Expected subdomain to start with 'test-', got: {subdomain}"
+    );
+}
+
+#[tokio::test]
+async fn request_subdomain_rejects_invalid_prefix() {
+    // Too long
+    let app = make_app(
+        MockFirestore::new(),
+        MockFirebaseAuth::new().with_token("valid-token", "uid-abc"),
+    );
+    let resp = post_request(
+        app,
+        serde_json::json!({ "firebase_token": "valid-token", "prefix": "toolongprefix" }),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+
+    // Invalid characters
+    let app = make_app(
+        MockFirestore::new(),
+        MockFirebaseAuth::new().with_token("valid-token", "uid-abc"),
+    );
+    let resp = post_request(
+        app,
+        serde_json::json!({ "firebase_token": "valid-token", "prefix": "bad!" }),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+
+    // Empty string
+    let app = make_app(
+        MockFirestore::new(),
+        MockFirebaseAuth::new().with_token("valid-token", "uid-abc"),
+    );
+    let resp = post_request(
+        app,
+        serde_json::json!({ "firebase_token": "valid-token", "prefix": "" }),
+    )
+    .await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn request_subdomain_without_prefix_returns_unprefixed() {
+    // When prefix is omitted, subdomains should NOT start with "test-".
+    let firestore = MockFirestore::new();
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-abc");
+    let app = make_app(firestore, auth);
+
+    let resp = post_request(app, serde_json::json!({ "firebase_token": "valid-token" })).await;
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let subdomain = json["subdomain"].as_str().unwrap();
+
+    assert!(
+        !subdomain.starts_with("test-"),
+        "Without prefix, subdomain should not start with 'test-', got: {subdomain}"
+    );
+}
+
+#[tokio::test]
 async fn request_subdomain_uses_single_word_pool_when_free() {
     // With an empty pool, subdomains from /request-subdomain should not
     // contain hyphens (single-word tier).
