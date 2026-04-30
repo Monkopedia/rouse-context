@@ -4,7 +4,7 @@ Your phone has context that AI doesn't — your health data, your notifications,
 
 It's an Android app that turns your phone into an [MCP](https://modelcontextprotocol.io/) server. AI clients like Claude connect to a URL, your phone wakes up, and a direct encrypted session is established. The AI asks for what it needs, your phone responds, and then it goes back to sleep. Your data never leaves your device except through that live session.
 
-> **Status:** Active development. The core e2e flow works — Claude can connect, wake the phone, authorize via OAuth, and call MCP tools. Health Connect, Notifications, Outreach, and Usage Stats integrations are implemented. See `docs/design/` for detailed design documents.
+> **Status:** v1.0 released. Available on [Google Play (closed testing)](https://play.google.com/store/apps/details?id=com.rousecontext) and [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases). Works with Claude, Cursor, and any MCP-compatible client.
 
 ## How It Works
 
@@ -22,14 +22,57 @@ Sessions are ephemeral. The phone goes back to sleep when the client disconnects
 
 ## Integrations
 
-| Integration | What it exposes |
-|---|---|
-| **Health Connect** | Step count, heart rate, sleep, HRV, workout history |
-| **Notifications** | Active and historical device notifications |
-| **Outreach** | Send messages, make calls, toggle DND |
-| **Usage Stats** | App usage patterns and screen time |
+Each integration is independently enabled and gets its own MCP endpoint with OAuth authorization (PKCE). 36 tools across 4 integrations:
 
-Each integration is independently enabled and gets its own MCP endpoint with OAuth authorization (PKCE).
+### Health Connect (3 tools)
+
+Query Android Health Connect data across 36 record types in 7 categories (activity, body, sleep, vitals, nutrition, reproductive, mindfulness).
+
+| Tool | Description |
+|---|---|
+| `list_record_types` | List Health Connect record types with permission status |
+| `query_health_data` | Query records by type and time range |
+| `get_health_summary` | Health summary across permitted types for a period |
+
+### Notifications (5 tools)
+
+Read, search, and interact with device notifications.
+
+| Tool | Description |
+|---|---|
+| `list_active_notifications` | List posted notifications |
+| `search_notification_history` | Search notification history by text, package, or time range |
+| `get_notification_stats` | Notification counts, top apps, and busiest hour for a period |
+| `perform_notification_action` | Invoke an action button on an active notification |
+| `dismiss_notification` | Dismiss an active notification by key |
+
+### Outreach (10 tools)
+
+Let AI take actions on the device — launch apps, open links, send notifications, manage DND.
+
+| Tool | Description |
+|---|---|
+| `launch_app` | Launch an installed app by package name |
+| `open_link` | Open an http/https URL in the default app |
+| `copy_to_clipboard` | Copy text to the clipboard |
+| `send_notification` | Post a notification with optional action buttons and tap-to-open URL |
+| `list_installed_apps` | List installed apps |
+| `create_notification_channel` | Create a notification channel |
+| `list_notification_channels` | List AI-created notification channels |
+| `delete_notification_channel` | Delete an AI-created notification channel |
+| `get_dnd_state` | Get Do Not Disturb state |
+| `set_dnd_state` | Set Do Not Disturb state |
+
+### Usage Stats (4 tools)
+
+App usage patterns and screen time analytics.
+
+| Tool | Description |
+|---|---|
+| `get_usage_summary` | Screen time totals and top apps for a period |
+| `get_app_usage` | Per-day usage for one app |
+| `get_usage_events` | Raw app foreground/background events over a range |
+| `compare_usage` | Compare screen time between two periods; biggest deltas first |
 
 ## Architecture
 
@@ -118,7 +161,7 @@ Without `lan.ip`, the device-tests skip cleanly via JUnit assumptions.
 
 ## Status
 
-Active development. The core flow works end-to-end: Claude can connect, wake the phone, authorize via OAuth, and call MCP tools. See `docs/design/` for detailed design documents.
+v1.0 released. 22 tools across 4 integrations, cold-start wake in ~3 seconds, end-to-end encrypted. See `docs/design/` for detailed design documents and [privacy policy](https://rousecontext.com/privacy).
 
 ## License
 
