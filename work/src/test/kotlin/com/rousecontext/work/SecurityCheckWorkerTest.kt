@@ -25,7 +25,7 @@ class SecurityCheckWorkerTest {
     @Before
     fun setUp() = runBlocking {
         context = ApplicationProvider.getApplicationContext()
-        prefs = SecurityCheckPreferences(context)
+        prefs = SecurityCheckPreferences(context, minStreakIncrementIntervalMs = 0L)
         prefs.clearResults()
         fakeNotifier = FakeSecurityCheckNotifier()
     }
@@ -186,6 +186,25 @@ class SecurityCheckWorkerTest {
             ),
             fakeNotifier.calls
         )
+    }
+
+    @Test
+    fun `rapid warnings within dedup window count as single streak increment`() = runBlocking {
+        // Use a prefs instance WITH the real 6h dedup window
+        val dedupPrefs = SecurityCheckPreferences(context)
+        dedupPrefs.clearResults()
+
+        // First increment goes through (no prior timestamp)
+        val first = dedupPrefs.incrementWarningStreak(SecurityCheckPreferences.SOURCE_CT_LOG)
+        assertEquals("First warning should increment", 1, first)
+
+        // Rapid second increment within the 6h window — should be suppressed
+        val second = dedupPrefs.incrementWarningStreak(SecurityCheckPreferences.SOURCE_CT_LOG)
+        assertEquals("Warning within dedup window must not increment", 1, second)
+
+        // Third rapid call — still suppressed
+        val third = dedupPrefs.incrementWarningStreak(SecurityCheckPreferences.SOURCE_CT_LOG)
+        assertEquals("Still within window", 1, third)
     }
 
     @Test
