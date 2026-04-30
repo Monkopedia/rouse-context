@@ -24,7 +24,10 @@ private val Context.securityCheckDataStore: DataStore<Preferences>
  * Replaces the previous SharedPreferences backing (see issue #116) so reads
  * and writes happen entirely from suspend contexts without `runBlocking`.
  */
-class SecurityCheckPreferences(private val context: Context) {
+class SecurityCheckPreferences(
+    private val context: Context,
+    private val minStreakIncrementIntervalMs: Long = MIN_STREAK_INCREMENT_INTERVAL_MS
+) {
 
     private val dataStore get() = context.securityCheckDataStore
 
@@ -70,12 +73,31 @@ class SecurityCheckPreferences(private val context: Context) {
     suspend fun warningStreak(sourceName: String): Int =
         dataStore.data.first()[warningStreakKey(sourceName)] ?: 0
 
+    /**
+     * Increments the streak only if at least [MIN_STREAK_INCREMENT_INTERVAL_MS]
+     * has elapsed since the last increment for this source. Rapid reconnects
+     * (FCM wakes, opportunistic checks) within the window are deduplicated
+     * into a single logical failure so the streak reflects independent check
+     * attempts over meaningful time intervals, not test-loop churn.
+     *
+     * @return the new streak value, or the existing one if the increment was
+     *   suppressed by the dedup window.
+     */
     suspend fun incrementWarningStreak(sourceName: String): Int {
         val key = warningStreakKey(sourceName)
+        val tsKey = lastStreakIncrementKey(sourceName)
         var newValue = 0
         dataStore.edit { prefs ->
-            newValue = (prefs[key] ?: 0) + 1
-            prefs[key] = newValue
+            val now = System.currentTimeMillis()
+            val lastIncrement = prefs[tsKey] ?: 0L
+            if (now - lastIncrement >= minStreakIncrementIntervalMs) {
+                newValue = (prefs[key] ?: 0) + 1
+                prefs[key] = newValue
+                prefs[tsKey] = now
+            } else {
+                // Within dedup window — don't increment
+                newValue = prefs[key] ?: 0
+            }
         }
         return newValue
     }
@@ -84,6 +106,7 @@ class SecurityCheckPreferences(private val context: Context) {
         dataStore.edit { prefs ->
             prefs[warningStreakKey(sourceName)] = 0
             prefs[notifiedForStreakKey(sourceName)] = false
+            prefs[lastStreakIncrementKey(sourceName)] = 0L
         }
     }
 
@@ -113,6 +136,8 @@ class SecurityCheckPreferences(private val context: Context) {
             prefs[warningStreakKey(SOURCE_CT_LOG)] = 0
             prefs[notifiedForStreakKey(SOURCE_SELF_CERT)] = false
             prefs[notifiedForStreakKey(SOURCE_CT_LOG)] = false
+            prefs[lastStreakIncrementKey(SOURCE_SELF_CERT)] = 0L
+            prefs[lastStreakIncrementKey(SOURCE_CT_LOG)] = 0L
         }
     }
 
@@ -129,10 +154,16 @@ class SecurityCheckPreferences(private val context: Context) {
         private val KEY_CT_LOG_RESULT = stringPreferencesKey("ct_log_result")
         private val KEY_CERT_FINGERPRINT = stringPreferencesKey("cert_fingerprint")
 
+        /** Minimum interval between streak increments for the same source. */
+        const val MIN_STREAK_INCREMENT_INTERVAL_MS = 6 * 60 * 60 * 1000L // 6 hours
+
         private fun warningStreakKey(sourceName: String) =
             intPreferencesKey("warning_streak_$sourceName")
 
         private fun notifiedForStreakKey(sourceName: String) =
             booleanPreferencesKey("notified_for_streak_$sourceName")
+
+        private fun lastStreakIncrementKey(sourceName: String) =
+            longPreferencesKey("last_streak_increment_$sourceName")
     }
 }
