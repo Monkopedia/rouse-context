@@ -22,7 +22,7 @@ Sessions are ephemeral. The phone goes back to sleep when the client disconnects
 
 ## Integrations
 
-Each integration is independently enabled and gets its own MCP endpoint with OAuth authorization (PKCE). 36 tools across 4 integrations:
+Each integration is independently enabled and gets its own MCP endpoint with OAuth authorization (PKCE). 22 tools across 4 integrations:
 
 ### Health Connect (3 tools)
 
