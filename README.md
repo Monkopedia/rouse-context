@@ -4,7 +4,15 @@ Your phone has context that AI doesn't — your health data, your notifications,
 
 It's an Android app that turns your phone into an [MCP](https://modelcontextprotocol.io/) server. AI clients like Claude connect to a URL, your phone wakes up, and a direct encrypted session is established. The AI asks for what it needs, your phone responds, and then it goes back to sleep. Your data never leaves your device except through that live session.
 
-> **Status:** v1.0 released. Available on [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases). For Google Play beta access, email `bugs@rousecontext.com`. Works with Claude, Cursor, and any MCP-compatible client.
+> **Status:** v1.0 released. Available on [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases). For Google Play beta access, email `beta@rousecontext.com`. Works with Claude, Cursor, and any MCP-compatible client.
+
+## Getting Started
+
+1. **Install** — download the APK from [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases/latest) and sideload it (you may need to enable "Install from unknown sources" in your Android settings). Or email `beta@rousecontext.com` for Google Play beta access.
+2. **Onboard** — open the app, tap Get Started, grant notification permissions. The app registers with the relay and provisions your device's TLS certificates (~10 seconds).
+3. **Enable an integration** — tap Add Integration on the home screen. Pick one (e.g. Health Connect), grant the requested permissions, and you'll get a URL like `https://brave-health.abc123.rousecontext.com/mcp`.
+4. **Connect your AI client** — paste that URL into Claude (Settings → Connectors → Add custom connector), Cursor, or any MCP client. The first connection triggers an OAuth approval on your phone — tap Approve.
+5. **Use it** — ask the AI about your health data, send yourself a notification, check your screen time. Every tool call is logged in the app's Audit tab.
 
 ## How It Works
 
