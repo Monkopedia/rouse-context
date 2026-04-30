@@ -4,7 +4,7 @@ Your phone has context that AI doesn't — your health data, your notifications,
 
 It's an Android app that turns your phone into an [MCP](https://modelcontextprotocol.io/) server. AI clients like Claude connect to a URL, your phone wakes up, and a direct encrypted session is established. The AI asks for what it needs, your phone responds, and then it goes back to sleep. Your data never leaves your device except through that live session.
 
-> **Status:** v1.0 released. Available on [Google Play (closed testing)](https://play.google.com/store/apps/details?id=com.rousecontext) and [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases). Works with Claude, Cursor, and any MCP-compatible client.
+> **Status:** v1.0 released. Available on [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases). For Google Play beta access, email `bugs@rousecontext.com`. Works with Claude, Cursor, and any MCP-compatible client.
 
 ## How It Works
 
