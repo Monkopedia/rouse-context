@@ -1,5 +1,7 @@
 # Rouse Context
 
+[![rouse-context MCP server](https://glama.ai/mcp/servers/Monkopedia/rouse-context/badges/score.svg)](https://glama.ai/mcp/servers/Monkopedia/rouse-context)
+
 Your phone has context that AI doesn't — your health data, your notifications, your app usage. Rouse Context makes that context available to AI assistants on demand, without ever syncing your data to the cloud.
 
 It's an Android app that turns your phone into an [MCP](https://modelcontextprotocol.io/) server. AI clients like Claude connect to a URL, your phone wakes up, and a direct encrypted session is established. The AI asks for what it needs, your phone responds, and then it goes back to sleep. Your data never leaves your device except through that live session.
