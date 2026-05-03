@@ -16,6 +16,8 @@ coroutines:
 
 complexity:
   active: true
+  LargeClass:
+    threshold: 800
   LongMethod:
     threshold: 60
     ignoreAnnotated: ['Composable']
