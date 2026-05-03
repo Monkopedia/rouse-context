@@ -67,14 +67,22 @@ impl RealFirestoreClient {
         }
     }
 
-    /// Authenticated GET with one retry on auth errors.
-    async fn get_with_retry(&self, path: &str) -> Result<reqwest::Response, FirestoreError> {
+    /// Send an authenticated request with one retry on auth errors.
+    ///
+    /// `build_request` receives the URL and a bearer token and must return a
+    /// ready-to-send `reqwest::RequestBuilder`. The closure is called twice
+    /// when the first attempt gets a 401/403 (with a fresh token on retry).
+    async fn authenticated_request_with_retry<F>(
+        &self,
+        path: &str,
+        build_request: F,
+    ) -> Result<reqwest::Response, FirestoreError>
+    where
+        F: Fn(&str, &str) -> reqwest::RequestBuilder,
+    {
         let url = self.url(path);
         let token = self.token().await?;
-        let resp = self
-            .http
-            .get(&url)
-            .bearer_auth(&token)
+        let resp = build_request(&url, &token)
             .send()
             .await
             .map_err(|e| FirestoreError::Http(e.to_string()))?;
@@ -83,10 +91,7 @@ impl RealFirestoreClient {
             Err(PendingError::AuthRetry(status)) => {
                 warn!(status, path, "Firestore auth error, retrying");
                 let token = self.token().await?;
-                let resp = self
-                    .http
-                    .get(&url)
-                    .bearer_auth(&token)
+                let resp = build_request(&url, &token)
                     .send()
                     .await
                     .map_err(|e| FirestoreError::Http(e.to_string()))?;
@@ -94,6 +99,14 @@ impl RealFirestoreClient {
             }
             Err(PendingError::Final(e)) => Err(e),
         }
+    }
+
+    /// Authenticated GET with one retry on auth errors.
+    async fn get_with_retry(&self, path: &str) -> Result<reqwest::Response, FirestoreError> {
+        self.authenticated_request_with_retry(path, |url, token| {
+            self.http.get(url).bearer_auth(token)
+        })
+        .await
     }
 
     /// Authenticated PATCH (upsert) with one retry on auth errors.
@@ -102,62 +115,18 @@ impl RealFirestoreClient {
         path: &str,
         body: &serde_json::Value,
     ) -> Result<reqwest::Response, FirestoreError> {
-        let url = self.url(path);
-        let token = self.token().await?;
-        let resp = self
-            .http
-            .patch(&url)
-            .bearer_auth(&token)
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| FirestoreError::Http(e.to_string()))?;
-        match Self::map_status(resp, path) {
-            Ok(r) => Ok(r),
-            Err(PendingError::AuthRetry(status)) => {
-                warn!(status, path, "Firestore auth error, retrying");
-                let token = self.token().await?;
-                let resp = self
-                    .http
-                    .patch(&url)
-                    .bearer_auth(&token)
-                    .json(body)
-                    .send()
-                    .await
-                    .map_err(|e| FirestoreError::Http(e.to_string()))?;
-                Self::map_status(resp, path).map_err(PendingError::into_final)
-            }
-            Err(PendingError::Final(e)) => Err(e),
-        }
+        self.authenticated_request_with_retry(path, |url, token| {
+            self.http.patch(url).bearer_auth(token).json(body)
+        })
+        .await
     }
 
     /// Authenticated DELETE with one retry on auth errors.
     async fn delete_with_retry(&self, path: &str) -> Result<reqwest::Response, FirestoreError> {
-        let url = self.url(path);
-        let token = self.token().await?;
-        let resp = self
-            .http
-            .delete(&url)
-            .bearer_auth(&token)
-            .send()
-            .await
-            .map_err(|e| FirestoreError::Http(e.to_string()))?;
-        match Self::map_status(resp, path) {
-            Ok(r) => Ok(r),
-            Err(PendingError::AuthRetry(status)) => {
-                warn!(status, path, "Firestore auth error, retrying");
-                let token = self.token().await?;
-                let resp = self
-                    .http
-                    .delete(&url)
-                    .bearer_auth(&token)
-                    .send()
-                    .await
-                    .map_err(|e| FirestoreError::Http(e.to_string()))?;
-                Self::map_status(resp, path).map_err(PendingError::into_final)
-            }
-            Err(PendingError::Final(e)) => Err(e),
-        }
+        self.authenticated_request_with_retry(path, |url, token| {
+            self.http.delete(url).bearer_auth(token)
+        })
+        .await
     }
 }
 
