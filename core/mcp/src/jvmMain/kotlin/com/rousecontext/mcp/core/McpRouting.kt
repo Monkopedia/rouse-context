@@ -10,11 +10,14 @@ import io.ktor.server.request.contentType
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.RoutingCall
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.ktor.utils.io.writeStringUtf8
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -24,6 +27,8 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.net.URI
 import java.util.UUID
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -62,11 +67,21 @@ private data class SessionEntry(
     @Volatile var lastAccessedAt: Long
 )
 
+/** Result of [McpRoutes.authenticateAndLookupSession]. */
+private data class SessionLookup(
+    val integration: String,
+    val sessionId: String,
+    val callerClientId: String
+)
+
 /** Maximum concurrent sessions per integration before oldest is evicted. */
 internal const val MAX_SESSIONS_PER_INTEGRATION = 16
 
 /** Idle timeout in milliseconds (30 minutes). Sessions untouched for longer are evicted. */
 internal const val SESSION_IDLE_TIMEOUT_MS = 30L * 60 * 1000
+
+/** Interval between SSE keepalive comments on GET /mcp (30 seconds). */
+internal const val SSE_KEEPALIVE_INTERVAL_MS = 30_000L
 
 /**
  * Configures Ktor routing for MCP Streamable HTTP with per-integration OAuth.
@@ -146,6 +161,8 @@ fun Application.configureMcpRouting(
         get("/authorize/status") { with(routes) { call.handleAuthorizeStatus() } }
         post("/token") { with(routes) { call.handleToken() } }
         post("/mcp") { with(routes) { call.handleMcp() } }
+        get("/mcp") { with(routes) { call.handleMcpSse() } }
+        delete("/mcp") { with(routes) { call.handleMcpDelete() } }
     }
 }
 
@@ -816,6 +833,102 @@ internal class McpRoutes(
 
             respondText(responseJson, ContentType.Application.Json)
         }
+    }
+
+    /**
+     * Common auth + session lookup for GET and DELETE /mcp. Returns the
+     * resolved [SessionLookup] on success, or null if an error response
+     * has already been sent.
+     */
+    @Suppress("ReturnCount")
+    private suspend fun RoutingCall.authenticateAndLookupSession(): SessionLookup? {
+        if (rejectIfSecurityAlert()) return null
+        val ri = resolveIntegration()
+        if (registry.providerForPath(ri) == null) {
+            respond(HttpStatusCode.NotFound)
+            return null
+        }
+
+        val authHeader = request.headers["Authorization"]
+        val token = authHeader?.removePrefix("Bearer ")?.takeIf {
+            authHeader.startsWith("Bearer ")
+        }
+        if (token == null || !tokenStore.validateToken(ri, token)) {
+            response.headers.append(
+                "WWW-Authenticate",
+                "Bearer resource_metadata=\"https://${resolveHostname()}" +
+                    "/.well-known/oauth-protected-resource\""
+            )
+            respond(HttpStatusCode.Unauthorized)
+            return null
+        }
+
+        val incomingSessionId = request.headers["Mcp-Session-Id"]
+        if (incomingSessionId == null) {
+            respond(HttpStatusCode.BadRequest)
+            return null
+        }
+
+        val callerClientId = tokenStore.resolveClientId(ri, token)
+        if (callerClientId == null) {
+            response.headers.append(
+                "WWW-Authenticate",
+                "Bearer resource_metadata=\"https://${resolveHostname()}" +
+                    "/.well-known/oauth-protected-resource\""
+            )
+            respond(HttpStatusCode.Unauthorized)
+            return null
+        }
+
+        return SessionLookup(ri, incomingSessionId, callerClientId)
+    }
+
+    // GET /mcp -- SSE stream for server-to-client messages (Streamable HTTP spec).
+    // We don't currently push server-initiated messages, so this just keeps
+    // the connection alive with periodic SSE comments until the client disconnects.
+    suspend fun RoutingCall.handleMcpSse() {
+        val lookup = authenticateAndLookupSession() ?: return
+        val key = "${lookup.integration}:${lookup.sessionId}"
+        val entry = sessionsMutex.withLock { sessions[key] }
+        if (entry == null || entry.clientId != lookup.callerClientId) {
+            respond(HttpStatusCode.NotFound)
+            return
+        }
+        entry.lastAccessedAt = clock.currentTimeMillis()
+
+        response.headers.append("Cache-Control", "no-cache")
+        response.headers.append("Mcp-Session-Id", lookup.sessionId)
+        respondBytesWriter(contentType = ContentType.Text.EventStream) {
+            while (coroutineContext.isActive) {
+                writeStringUtf8(":keepalive\n\n")
+                flush()
+                delay(SSE_KEEPALIVE_INTERVAL_MS)
+            }
+        }
+    }
+
+    // DELETE /mcp -- session teardown (Streamable HTTP spec).
+    suspend fun RoutingCall.handleMcpDelete() {
+        val lookup = authenticateAndLookupSession() ?: return
+        val key = "${lookup.integration}:${lookup.sessionId}"
+        val entry = sessionsMutex.withLock { sessions.remove(key) }
+        if (entry == null) {
+            respond(HttpStatusCode.NotFound)
+            return
+        }
+        if (entry.clientId != lookup.callerClientId) {
+            // Put it back -- wrong client
+            sessionsMutex.withLock { sessions[key] = entry }
+            respond(HttpStatusCode.NotFound)
+            return
+        }
+
+        try {
+            entry.transport.close()
+        } catch (_: Exception) {
+            // best-effort cleanup
+        }
+        respond(HttpStatusCode.OK)
     }
 }
 
