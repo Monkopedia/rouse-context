@@ -21,14 +21,38 @@ class SleepQueries(private val reader: RecordReader) : CategoryQueries {
         to: Instant,
         limit: Int?
     ): List<JsonObject> = when (recordType) {
-        "SleepSession" -> querySleep(from, to, limit)
+        "SleepSession" -> reader.queryRecords(
+            SleepSessionRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            val stagesArray = buildJsonArray {
+                record.stages.forEach { stage ->
+                    add(
+                        buildJsonObject {
+                            put("stage", mapSleepStage(stage.stage))
+                            put("start", stage.startTime.toString())
+                            put("end", stage.endTime.toString())
+                        }
+                    )
+                }
+            }
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("stages", stagesArray.toString())
+                }
+            )
+        }
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("SleepSession" in granted) {
-                val sessions = querySleep(from, to, null)
+                val sessions = query("SleepSession", from, to, null)
                 val totalMinutes = sessions.sumOf { session ->
                     val start = session["start_time"]?.toString()?.trim('"')
                     val end = session["end_time"]?.toString()?.trim('"')
@@ -45,35 +69,6 @@ class SleepQueries(private val reader: RecordReader) : CategoryQueries {
                 put("sleep_hours", totalMinutes / MINUTES_PER_HOUR)
             }
         }
-
-    private suspend fun querySleep(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(SleepSessionRecord::class, from, to)
-        return records
-            .map { record ->
-                // The legacy wire shape stored stages as a string-encoded JSON
-                // array (`"stages":"[{...},{...}]"`). Preserve that exact shape:
-                // build the array using kotlinx.serialization for proper escaping
-                // of `start`/`end`, then put its `toString()` representation as
-                // a string field.
-                val stagesArray = buildJsonArray {
-                    record.stages.forEach { stage ->
-                        add(
-                            buildJsonObject {
-                                put("stage", mapSleepStage(stage.stage))
-                                put("start", stage.startTime.toString())
-                                put("end", stage.endTime.toString())
-                            }
-                        )
-                    }
-                }
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("stages", stagesArray.toString())
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
 
     private fun mapSleepStage(stage: Int): String = when (stage) {
         SleepSessionRecord.STAGE_TYPE_AWAKE -> "awake"

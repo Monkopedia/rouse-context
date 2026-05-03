@@ -20,31 +20,27 @@ class NutritionQueries(private val reader: RecordReader) : CategoryQueries {
         to: Instant,
         limit: Int?
     ): List<JsonObject> = when (recordType) {
-        "Hydration" -> queryHydration(from, to, limit)
-        "Nutrition" -> queryNutrition(from, to, limit)
-        else -> throw IllegalArgumentException("Unsupported record type: $recordType")
-    }
-
-    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
-        JsonObject(emptyMap())
-
-    private suspend fun queryHydration(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(HydrationRecord::class, from, to)
-        return records
-            .map { record ->
+        "Hydration" -> reader.queryRecords(
+            HydrationRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("start_time", record.startTime.toString())
                     put("end_time", record.endTime.toString())
                     put("liters", record.volume.inLiters)
                 }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryNutrition(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(NutritionRecord::class, from, to)
-        return records
-            .map { record ->
+            )
+        }
+        "Nutrition" -> reader.queryRecords(
+            NutritionRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("start_time", record.startTime.toString())
                     put("end_time", record.endTime.toString())
@@ -54,7 +50,11 @@ class NutritionQueries(private val reader: RecordReader) : CategoryQueries {
                     record.totalFat?.let { put("fat_g", it.inGrams) }
                     record.totalCarbohydrate?.let { put("carbs_g", it.inGrams) }
                 }
-            }
-            .let { if (limit != null) it.take(limit) else it }
+            )
+        }
+        else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
+
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        JsonObject(emptyMap())
 }

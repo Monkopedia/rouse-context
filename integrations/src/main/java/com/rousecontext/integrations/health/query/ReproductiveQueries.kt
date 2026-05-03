@@ -25,122 +25,99 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
         "SexualActivity"
     )
 
+    @Suppress("LongMethod")
     override suspend fun query(
         recordType: String,
         from: Instant,
         to: Instant,
         limit: Int?
     ): List<JsonObject> = when (recordType) {
-        "MenstruationFlow" -> queryMenstruationFlow(from, to, limit)
-        "MenstruationPeriod" -> queryMenstruationPeriod(from, to, limit)
-        "CervicalMucus" -> queryCervicalMucus(from, to, limit)
-        "OvulationTest" -> queryOvulationTest(from, to, limit)
-        "IntermenstrualBleeding" -> queryIntermenstrualBleeding(from, to, limit)
-        "SexualActivity" -> querySexualActivity(from, to, limit)
-        else -> throw IllegalArgumentException("Unsupported record type: $recordType")
-    }
-
-    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
-        JsonObject(emptyMap())
-
-    private suspend fun queryMenstruationFlow(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(MenstruationFlowRecord::class, from, to)
-        return records
-            .map { record ->
+        "MenstruationFlow" -> reader.queryRecords(
+            MenstruationFlowRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("time", record.time.toString())
                     put("flow", record.flow)
                 }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryMenstruationPeriod(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(MenstruationPeriodRecord::class, from, to)
-        return records
-            .map { record ->
+            )
+        }
+        "MenstruationPeriod" -> reader.queryRecords(
+            MenstruationPeriodRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("start_time", record.startTime.toString())
                     put("end_time", record.endTime.toString())
                 }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryCervicalMucus(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(CervicalMucusRecord::class, from, to)
-        return records
-            .map { record ->
+            )
+        }
+        "CervicalMucus" -> reader.queryRecords(
+            CervicalMucusRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("time", record.time.toString())
                     put("appearance", record.appearance)
                     put("sensation", record.sensation)
                 }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryOvulationTest(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(OvulationTestRecord::class, from, to)
-        return records
-            .map { record ->
+            )
+        }
+        "OvulationTest" -> reader.queryRecords(
+            OvulationTestRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("time", record.time.toString())
                     put("result", record.result)
                 }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryIntermenstrualBleeding(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(IntermenstrualBleedingRecord::class, from, to)
-        return records
-            .map { record ->
+            )
+        }
+        "IntermenstrualBleeding" -> reader.queryRecords(
+            IntermenstrualBleedingRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("time", record.time.toString())
                 }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun querySexualActivity(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(SexualActivityRecord::class, from, to)
-        return records
-            .map { record ->
+            )
+        }
+        "SexualActivity" -> reader.queryRecords(
+            SexualActivityRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("time", record.time.toString())
                     put("protection_used", record.protectionUsed)
                 }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
+            )
+        }
+        else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
+
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        JsonObject(emptyMap())
 }

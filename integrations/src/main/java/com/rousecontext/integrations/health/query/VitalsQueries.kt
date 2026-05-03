@@ -34,30 +34,175 @@ class VitalsQueries(private val reader: RecordReader) : CategoryQueries {
         "SkinTemperature"
     )
 
-    @Suppress("CyclomaticComplexMethod")
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     override suspend fun query(
         recordType: String,
         from: Instant,
         to: Instant,
         limit: Int?
     ): List<JsonObject> = when (recordType) {
-        "HeartRate" -> queryHeartRate(from, to, limit)
-        "RestingHeartRate" -> queryRestingHeartRate(from, to, limit)
-        "HeartRateVariabilityRmssd" -> queryHeartRateVariability(from, to, limit)
-        "BloodPressure" -> queryBloodPressure(from, to, limit)
-        "BloodGlucose" -> queryBloodGlucose(from, to, limit)
-        "OxygenSaturation" -> queryOxygenSaturation(from, to, limit)
-        "RespiratoryRate" -> queryRespiratoryRate(from, to, limit)
-        "BodyTemperature" -> queryBodyTemperature(from, to, limit)
-        "BasalBodyTemperature" -> queryBasalBodyTemperature(from, to, limit)
-        "SkinTemperature" -> querySkinTemperature(from, to, limit)
+        "HeartRate" -> reader.queryRecords(
+            HeartRateRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            record.samples.map { sample ->
+                buildJsonObject {
+                    put("time", sample.time.toString())
+                    put("bpm", sample.beatsPerMinute)
+                }
+            }
+        }
+        "RestingHeartRate" -> reader.queryRecords(
+            RestingHeartRateRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("bpm", record.beatsPerMinute)
+                }
+            )
+        }
+        "HeartRateVariabilityRmssd" -> reader.queryRecords(
+            HeartRateVariabilityRmssdRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("rmssd_ms", record.heartRateVariabilityMillis)
+                }
+            )
+        }
+        "BloodPressure" -> reader.queryRecords(
+            BloodPressureRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("systolic", record.systolic.inMillimetersOfMercury)
+                    put("diastolic", record.diastolic.inMillimetersOfMercury)
+                }
+            )
+        }
+        "BloodGlucose" -> reader.queryRecords(
+            BloodGlucoseRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("mmol_per_l", record.level.inMillimolesPerLiter)
+                }
+            )
+        }
+        "OxygenSaturation" -> reader.queryRecords(
+            OxygenSaturationRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("percentage", record.percentage.value)
+                }
+            )
+        }
+        "RespiratoryRate" -> reader.queryRecords(
+            RespiratoryRateRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("breaths_per_minute", record.rate)
+                }
+            )
+        }
+        "BodyTemperature" -> reader.queryRecords(
+            BodyTemperatureRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("celsius", record.temperature.inCelsius)
+                    put("measurement_location", record.measurementLocation)
+                }
+            )
+        }
+        "BasalBodyTemperature" -> reader.queryRecords(
+            BasalBodyTemperatureRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("celsius", record.temperature.inCelsius)
+                    put("measurement_location", record.measurementLocation)
+                }
+            )
+        }
+        "SkinTemperature" -> reader.queryRecords(
+            SkinTemperatureRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            val deltasArray = buildJsonArray {
+                record.deltas.forEach { delta ->
+                    add(
+                        buildJsonObject {
+                            put("time", delta.time.toString())
+                            put("delta_celsius", delta.delta.inCelsius)
+                        }
+                    )
+                }
+            }
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    record.baseline?.let { put("baseline_celsius", it.inCelsius) }
+                    put("measurement_location", record.measurementLocation)
+                    put("deltas", deltasArray.toString())
+                }
+            )
+        }
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("HeartRate" in granted) {
-                val samples = queryHeartRate(from, to, null)
+                val samples = query("HeartRate", from, to, null)
                 if (samples.isNotEmpty()) {
                     val avg = samples.mapNotNull {
                         it["bpm"]?.toString()?.toLongOrNull()
@@ -66,192 +211,4 @@ class VitalsQueries(private val reader: RecordReader) : CategoryQueries {
                 }
             }
         }
-
-    private suspend fun queryHeartRate(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(HeartRateRecord::class, from, to)
-        return records
-            .flatMap { record ->
-                record.samples.map { sample ->
-                    buildJsonObject {
-                        put("time", sample.time.toString())
-                        put("bpm", sample.beatsPerMinute)
-                    }
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryRestingHeartRate(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(RestingHeartRateRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("bpm", record.beatsPerMinute)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryHeartRateVariability(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(HeartRateVariabilityRmssdRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("rmssd_ms", record.heartRateVariabilityMillis)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBloodPressure(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(BloodPressureRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("systolic", record.systolic.inMillimetersOfMercury)
-                    put("diastolic", record.diastolic.inMillimetersOfMercury)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBloodGlucose(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(BloodGlucoseRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("mmol_per_l", record.level.inMillimolesPerLiter)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryOxygenSaturation(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(OxygenSaturationRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("percentage", record.percentage.value)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryRespiratoryRate(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(RespiratoryRateRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("breaths_per_minute", record.rate)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBodyTemperature(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(BodyTemperatureRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("celsius", record.temperature.inCelsius)
-                    put("measurement_location", record.measurementLocation)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBasalBodyTemperature(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(BasalBodyTemperatureRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("celsius", record.temperature.inCelsius)
-                    put("measurement_location", record.measurementLocation)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun querySkinTemperature(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(SkinTemperatureRecord::class, from, to)
-        return records
-            .map { record ->
-                // The legacy wire shape stored deltas as a string-encoded JSON
-                // array (`"deltas":"[{...},{...}]"`). Preserve that exact shape:
-                // build the array using kotlinx.serialization for proper escaping
-                // of `time` (and any future string fields), then put its
-                // `toString()` representation as a string field.
-                val deltasArray = buildJsonArray {
-                    record.deltas.forEach { delta ->
-                        add(
-                            buildJsonObject {
-                                put("time", delta.time.toString())
-                                put("delta_celsius", delta.delta.inCelsius)
-                            }
-                        )
-                    }
-                }
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    record.baseline?.let { put("baseline_celsius", it.inCelsius) }
-                    put("measurement_location", record.measurementLocation)
-                    put("deltas", deltasArray.toString())
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
 }

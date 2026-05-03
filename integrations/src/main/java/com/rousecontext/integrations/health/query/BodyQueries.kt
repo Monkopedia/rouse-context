@@ -25,25 +25,105 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
         "Vo2Max"
     )
 
+    @Suppress("LongMethod")
     override suspend fun query(
         recordType: String,
         from: Instant,
         to: Instant,
         limit: Int?
     ): List<JsonObject> = when (recordType) {
-        "Weight" -> queryWeight(from, to, limit)
-        "Height" -> queryHeight(from, to, limit)
-        "BodyFat" -> queryBodyFat(from, to, limit)
-        "BoneMass" -> queryBoneMass(from, to, limit)
-        "LeanBodyMass" -> queryLeanBodyMass(from, to, limit)
-        "Vo2Max" -> queryVo2Max(from, to, limit)
+        "Weight" -> reader.queryRecords(
+            WeightRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("kg", record.weight.inKilograms)
+                }
+            )
+        }
+        "Height" -> reader.queryRecords(
+            HeightRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("meters", record.height.inMeters)
+                }
+            )
+        }
+        "BodyFat" -> reader.queryRecords(
+            BodyFatRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("percentage", record.percentage.value)
+                }
+            )
+        }
+        "BoneMass" -> reader.queryRecords(
+            BoneMassRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("kg", record.mass.inKilograms)
+                }
+            )
+        }
+        "LeanBodyMass" -> reader.queryRecords(
+            LeanBodyMassRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("kg", record.mass.inKilograms)
+                }
+            )
+        }
+        "Vo2Max" -> reader.queryRecords(
+            Vo2MaxRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("ml_per_min_per_kg", record.vo2MillilitersPerMinuteKilogram)
+                    put("measurement_method", record.measurementMethod)
+                }
+            )
+        }
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("Weight" in granted) {
-                val weights = queryWeight(from, to, null)
+                val weights = query("Weight", from, to, null)
                 val latest = weights.lastOrNull()
                 if (latest != null) {
                     val kg = latest["kg"]?.toString()?.toDoubleOrNull()
@@ -51,87 +131,4 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
                 }
             }
         }
-
-    private suspend fun queryWeight(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(WeightRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("kg", record.weight.inKilograms)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryHeight(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(HeightRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("meters", record.height.inMeters)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBodyFat(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(BodyFatRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("percentage", record.percentage.value)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBoneMass(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(BoneMassRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("kg", record.mass.inKilograms)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryLeanBodyMass(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(LeanBodyMassRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("kg", record.mass.inKilograms)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryVo2Max(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(Vo2MaxRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("ml_per_min_per_kg", record.vo2MillilitersPerMinuteKilogram)
-                    put("measurement_method", record.measurementMethod)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
 }
