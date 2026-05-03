@@ -61,6 +61,14 @@ class TlsAcceptor(private val sslContext: SSLContext) {
             val engine = sslContext.createSSLEngine()
             engine.useClientMode = false
 
+            // Advertise HTTP/1.1 via ALPN so HTTP clients that require ALPN
+            // negotiation will send requests over the connection. Without
+            // this, some clients complete TLS but never send HTTP data
+            // because no application protocol was agreed.
+            val sslParams = engine.sslParameters
+            sslParams.applicationProtocols = arrayOf("http/1.1")
+            engine.sslParameters = sslParams
+
             val session = engine.session
             val appBufferSize = session.applicationBufferSize
             val netBufferSize = session.packetBufferSize
