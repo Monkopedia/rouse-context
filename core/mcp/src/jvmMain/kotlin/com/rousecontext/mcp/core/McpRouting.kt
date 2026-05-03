@@ -114,7 +114,7 @@ fun Application.configureMcpRouting(
     internalToken: String? = null,
     unknownClientLabeler: UnknownClientLabeler? = null,
     log: (LogLevel, String) -> Unit = { _, _ -> }
-) {
+): McpRoutes {
     // Installed BEFORE ContentNegotiation so it intercepts well-known and
     // OAuth endpoints before any downstream plugin has a chance to parse
     // bodies. Only active when the caller supplies a token; tests that
@@ -164,6 +164,7 @@ fun Application.configureMcpRouting(
         get("/mcp") { with(routes) { call.handleMcpSse() } }
         delete("/mcp") { with(routes) { call.handleMcpDelete() } }
     }
+    return routes
 }
 
 /**
@@ -173,7 +174,7 @@ fun Application.configureMcpRouting(
  * Ktor call context via `with(routes) { call.handleX() }` from the wire-up block.
  */
 @Suppress("LongParameterList")
-internal class McpRoutes(
+class McpRoutes(
     private val registry: ProviderRegistry,
     private val tokenStore: TokenStore,
     private val deviceCodeManager: DeviceCodeManager,
@@ -251,6 +252,30 @@ internal class McpRoutes(
                 } catch (_: Exception) {
                     // best-effort cleanup
                 }
+            }
+        }
+    }
+
+    /**
+     * Gracefully shuts down all active MCP sessions by closing their transports
+     * and clearing the session map. SSE streams (GET /mcp) exit their keepalive
+     * loop cleanly when the transport closes, so the client sees a normal
+     * server-initiated close instead of a connection reset.
+     *
+     * Safe to call when no sessions exist and safe to call multiple times.
+     * See issue #446.
+     */
+    suspend fun shutdown() {
+        val entries: List<SessionEntry>
+        sessionsMutex.withLock {
+            entries = sessions.values.toList()
+            sessions.clear()
+        }
+        for (entry in entries) {
+            try {
+                entry.transport.close()
+            } catch (_: Exception) {
+                // best-effort cleanup
             }
         }
     }

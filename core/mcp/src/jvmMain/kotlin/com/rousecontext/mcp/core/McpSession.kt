@@ -56,6 +56,7 @@ class McpSession(
 
     private var done = CompletableDeferred<Unit>()
     private var engine: EmbeddedServer<*, *>? = null
+    private var routes: McpRoutes? = null
 
     /**
      * Returns the actual port the HTTP server is listening on.
@@ -97,8 +98,9 @@ class McpSession(
         if (done.isCompleted) {
             done = CompletableDeferred()
         }
+        var capturedRoutes: McpRoutes? = null
         val server = embeddedServer(CIO, port = port, host = LOOPBACK_HOST) {
-            configureMcpRouting(
+            capturedRoutes = configureMcpRouting(
                 registry = registry,
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
@@ -117,6 +119,7 @@ class McpSession(
             )
         }
         engine = server
+        routes = capturedRoutes
         try {
             serverStarter(server)
         } catch (e: Throwable) {
@@ -154,6 +157,18 @@ class McpSession(
      */
     suspend fun awaitClose() {
         done.await()
+    }
+
+    /**
+     * Gracefully shuts down all active MCP sessions (closing their transports
+     * so SSE streams end cleanly) then stops the HTTP server.
+     *
+     * Callers should wrap this in `withTimeoutOrNull` so a wedged transport
+     * cannot block tunnel teardown indefinitely. See issue #446.
+     */
+    suspend fun shutdown() {
+        routes?.shutdown()
+        stop()
     }
 
     /**
