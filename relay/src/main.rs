@@ -816,7 +816,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         &self,
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::DeviceRecord, rouse_relay::firestore::FirestoreError> {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
         devices
             .get(subdomain)
             .cloned()
@@ -830,7 +830,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         Option<(String, rouse_relay::firestore::DeviceRecord)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
         Ok(devices
             .iter()
             .find(|(_, r)| r.firebase_uid == firebase_uid)
@@ -842,7 +842,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
         record: &rouse_relay::firestore::DeviceRecord,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
-        let mut devices = self.devices.lock().unwrap();
+        let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
         devices.insert(subdomain.to_string(), record.clone());
         Ok(())
     }
@@ -851,7 +851,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         &self,
         subdomain: &str,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
-        let mut devices = self.devices.lock().unwrap();
+        let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
         devices.remove(subdomain);
         Ok(())
     }
@@ -861,7 +861,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
         pending: &rouse_relay::firestore::PendingCert,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
-        let mut certs = self.pending_certs.lock().unwrap();
+        let mut certs = self.pending_certs.lock().unwrap_or_else(|e| e.into_inner());
         certs.insert(subdomain.to_string(), pending.clone());
         Ok(())
     }
@@ -870,7 +870,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         &self,
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::PendingCert, rouse_relay::firestore::FirestoreError> {
-        let certs = self.pending_certs.lock().unwrap();
+        let certs = self.pending_certs.lock().unwrap_or_else(|e| e.into_inner());
         certs
             .get(subdomain)
             .cloned()
@@ -881,7 +881,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         &self,
         subdomain: &str,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
-        let mut certs = self.pending_certs.lock().unwrap();
+        let mut certs = self.pending_certs.lock().unwrap_or_else(|e| e.into_inner());
         certs.remove(subdomain);
         Ok(())
     }
@@ -892,7 +892,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         Vec<(String, rouse_relay::firestore::DeviceRecord)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        let devices = self.devices.lock().unwrap();
+        let devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
         Ok(devices
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -905,7 +905,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         Vec<(String, rouse_relay::firestore::PendingCert)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        let certs = self.pending_certs.lock().unwrap();
+        let certs = self.pending_certs.lock().unwrap_or_else(|e| e.into_inner());
         Ok(certs.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 
@@ -914,7 +914,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
         reservation: &rouse_relay::firestore::SubdomainReservation,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
-        let mut map = self.reservations.lock().unwrap();
+        let mut map = self.reservations.lock().unwrap_or_else(|e| e.into_inner());
         map.insert(subdomain.to_string(), reservation.clone());
         Ok(())
     }
@@ -924,7 +924,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
     ) -> Result<rouse_relay::firestore::SubdomainReservation, rouse_relay::firestore::FirestoreError>
     {
-        let map = self.reservations.lock().unwrap();
+        let map = self.reservations.lock().unwrap_or_else(|e| e.into_inner());
         map.get(subdomain)
             .cloned()
             .ok_or_else(|| rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string()))
@@ -937,7 +937,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         Option<(String, rouse_relay::firestore::SubdomainReservation)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        let map = self.reservations.lock().unwrap();
+        let map = self.reservations.lock().unwrap_or_else(|e| e.into_inner());
         Ok(map
             .iter()
             .find(|(_, r)| r.firebase_uid == firebase_uid)
@@ -948,7 +948,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         &self,
         subdomain: &str,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
-        let mut map = self.reservations.lock().unwrap();
+        let mut map = self.reservations.lock().unwrap_or_else(|e| e.into_inner());
         map.remove(subdomain);
         Ok(())
     }
@@ -959,7 +959,7 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         Vec<(String, rouse_relay::firestore::SubdomainReservation)>,
         rouse_relay::firestore::FirestoreError,
     > {
-        let map = self.reservations.lock().unwrap();
+        let map = self.reservations.lock().unwrap_or_else(|e| e.into_inner());
         Ok(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
     }
 }
