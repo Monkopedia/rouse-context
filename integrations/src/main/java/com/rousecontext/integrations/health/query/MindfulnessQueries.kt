@@ -21,21 +21,13 @@ class MindfulnessQueries(private val reader: RecordReader) : CategoryQueries {
         to: Instant,
         limit: Int?
     ): List<JsonObject> = when (recordType) {
-        "MindfulnessSession" -> queryMindfulnessSession(from, to, limit)
-        else -> throw IllegalArgumentException("Unsupported record type: $recordType")
-    }
-
-    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
-        JsonObject(emptyMap())
-
-    private suspend fun queryMindfulnessSession(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(MindfulnessSessionRecord::class, from, to)
-        return records
-            .map { record ->
+        "MindfulnessSession" -> reader.queryRecords(
+            MindfulnessSessionRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
                 buildJsonObject {
                     put("start_time", record.startTime.toString())
                     put("end_time", record.endTime.toString())
@@ -43,7 +35,11 @@ class MindfulnessQueries(private val reader: RecordReader) : CategoryQueries {
                     record.title?.let { put("title", it) }
                     record.notes?.let { put("notes", it) }
                 }
-            }
-            .let { if (limit != null) it.take(limit) else it }
+            )
+        }
+        else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
+
+    override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
+        JsonObject(emptyMap())
 }

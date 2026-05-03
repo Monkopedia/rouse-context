@@ -43,7 +43,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
         "WheelchairPushes"
     )
 
-    @Suppress("CyclomaticComplexMethod")
+    @Suppress("CyclomaticComplexMethod", "LongMethod")
     override suspend fun query(
         recordType: String,
         from: Instant,
@@ -51,18 +51,176 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
         limit: Int?
     ): List<JsonObject> = when (recordType) {
         "Steps" -> querySteps(from, to, limit)
-        "ActiveCaloriesBurned" -> queryActiveCalories(from, to, limit)
-        "TotalCaloriesBurned" -> queryTotalCalories(from, to, limit)
-        "BasalMetabolicRate" -> queryBasalMetabolicRate(from, to, limit)
-        "Distance" -> queryDistance(from, to, limit)
-        "ElevationGained" -> queryElevationGained(from, to, limit)
-        "FloorsClimbed" -> queryFloorsClimbed(from, to, limit)
-        "ExerciseSession" -> queryExercise(from, to, limit)
-        "Speed" -> querySpeed(from, to, limit)
-        "Power" -> queryPower(from, to, limit)
-        "CyclingPedalingCadence" -> queryCyclingPedalingCadence(from, to, limit)
-        "StepsCadence" -> queryStepsCadence(from, to, limit)
-        "WheelchairPushes" -> queryWheelchairPushes(from, to, limit)
+        "ActiveCaloriesBurned" -> reader.queryRecords(
+            ActiveCaloriesBurnedRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("kcal", record.energy.inKilocalories)
+                }
+            )
+        }
+        "TotalCaloriesBurned" -> reader.queryRecords(
+            TotalCaloriesBurnedRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("kcal", record.energy.inKilocalories)
+                }
+            )
+        }
+        "BasalMetabolicRate" -> reader.queryRecords(
+            BasalMetabolicRateRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("time", record.time.toString())
+                    put("watts", record.basalMetabolicRate.inWatts)
+                    put("kcal_per_day", record.basalMetabolicRate.inKilocaloriesPerDay)
+                }
+            )
+        }
+        "Distance" -> reader.queryRecords(
+            DistanceRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("meters", record.distance.inMeters)
+                }
+            )
+        }
+        "ElevationGained" -> reader.queryRecords(
+            ElevationGainedRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("meters", record.elevation.inMeters)
+                }
+            )
+        }
+        "FloorsClimbed" -> reader.queryRecords(
+            FloorsClimbedRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("floors", record.floors)
+                }
+            )
+        }
+        "ExerciseSession" -> reader.queryRecords(
+            ExerciseSessionRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("exercise_type", record.exerciseType)
+                    record.title?.let { put("title", it) }
+                }
+            )
+        }
+        "Speed" -> reader.queryRecords(
+            SpeedRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            record.samples.map { sample ->
+                buildJsonObject {
+                    put("time", sample.time.toString())
+                    put("meters_per_second", sample.speed.inMetersPerSecond)
+                }
+            }
+        }
+        "Power" -> reader.queryRecords(
+            PowerRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            record.samples.map { sample ->
+                buildJsonObject {
+                    put("time", sample.time.toString())
+                    put("watts", sample.power.inWatts)
+                }
+            }
+        }
+        "CyclingPedalingCadence" -> reader.queryRecords(
+            CyclingPedalingCadenceRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            record.samples.map { sample ->
+                buildJsonObject {
+                    put("time", sample.time.toString())
+                    put("rpm", sample.revolutionsPerMinute)
+                }
+            }
+        }
+        "StepsCadence" -> reader.queryRecords(
+            StepsCadenceRecord::class,
+            from,
+            to,
+            limit,
+            sortByTime = true
+        ) { record ->
+            record.samples.map { sample ->
+                buildJsonObject {
+                    put("time", sample.time.toString())
+                    put("steps_per_minute", sample.rate)
+                }
+            }
+        }
+        "WheelchairPushes" -> reader.queryRecords(
+            WheelchairPushesRecord::class,
+            from,
+            to,
+            limit
+        ) { record ->
+            listOf(
+                buildJsonObject {
+                    put("start_time", record.startTime.toString())
+                    put("end_time", record.endTime.toString())
+                    put("count", record.count)
+                }
+            )
+        }
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
@@ -88,204 +246,6 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
                 }
             }
             .sortedBy { it["date"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryActiveCalories(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(ActiveCaloriesBurnedRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("kcal", record.energy.inKilocalories)
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryTotalCalories(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(TotalCaloriesBurnedRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("kcal", record.energy.inKilocalories)
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryBasalMetabolicRate(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(BasalMetabolicRateRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("time", record.time.toString())
-                    put("watts", record.basalMetabolicRate.inWatts)
-                    put("kcal_per_day", record.basalMetabolicRate.inKilocaloriesPerDay)
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryDistance(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(DistanceRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("meters", record.distance.inMeters)
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryElevationGained(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(ElevationGainedRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("meters", record.elevation.inMeters)
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryFloorsClimbed(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(FloorsClimbedRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("floors", record.floors)
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryExercise(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(ExerciseSessionRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("exercise_type", record.exerciseType)
-                    record.title?.let { put("title", it) }
-                }
-            }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun querySpeed(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(SpeedRecord::class, from, to)
-        return records
-            .flatMap { record ->
-                record.samples.map { sample ->
-                    buildJsonObject {
-                        put("time", sample.time.toString())
-                        put("meters_per_second", sample.speed.inMetersPerSecond)
-                    }
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryPower(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(PowerRecord::class, from, to)
-        return records
-            .flatMap { record ->
-                record.samples.map { sample ->
-                    buildJsonObject {
-                        put("time", sample.time.toString())
-                        put("watts", sample.power.inWatts)
-                    }
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryCyclingPedalingCadence(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(CyclingPedalingCadenceRecord::class, from, to)
-        return records
-            .flatMap { record ->
-                record.samples.map { sample ->
-                    buildJsonObject {
-                        put("time", sample.time.toString())
-                        put("rpm", sample.revolutionsPerMinute)
-                    }
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryStepsCadence(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(StepsCadenceRecord::class, from, to)
-        return records
-            .flatMap { record ->
-                record.samples.map { sample ->
-                    buildJsonObject {
-                        put("time", sample.time.toString())
-                        put("steps_per_minute", sample.rate)
-                    }
-                }
-            }
-            .sortedBy { it["time"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
-    }
-
-    private suspend fun queryWheelchairPushes(
-        from: Instant,
-        to: Instant,
-        limit: Int?
-    ): List<JsonObject> {
-        val records = reader.read(WheelchairPushesRecord::class, from, to)
-        return records
-            .map { record ->
-                buildJsonObject {
-                    put("start_time", record.startTime.toString())
-                    put("end_time", record.endTime.toString())
-                    put("count", record.count)
-                }
-            }
             .let { if (limit != null) it.take(limit) else it }
     }
 }
