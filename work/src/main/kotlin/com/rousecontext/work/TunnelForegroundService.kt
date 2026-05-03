@@ -16,6 +16,7 @@ import androidx.work.WorkManager
 import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.bridge.SessionHandler
+import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.notifications.FgsLimitNotifier
 import com.rousecontext.notifications.ForegroundNotifier
@@ -30,6 +31,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
 
@@ -48,6 +50,7 @@ import org.koin.core.qualifier.named
 class TunnelForegroundService : LifecycleService() {
 
     private val tunnelClient: TunnelClient by inject()
+    private val mcpSession: McpSession by inject()
     private val sessionHandler: SessionHandler by inject()
     private val wakelockManager: WakelockManager by inject()
     private val idleTimeoutManager: IdleTimeoutManager by inject()
@@ -292,6 +295,7 @@ class TunnelForegroundService : LifecycleService() {
         reconnectJob?.cancel()
         reconnectJob = null
         lifecycleScope.launch {
+            withTimeoutOrNull(GRACEFUL_SHUTDOWN_TIMEOUT_MS) { mcpSession.shutdown() }
             tunnelClient.disconnect()
         }
         super.onDestroy()
@@ -350,6 +354,7 @@ class TunnelForegroundService : LifecycleService() {
         private const val TAG = "TunnelForegroundService"
         const val NOTIFICATION_ID = 1
 
+        private const val GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
         private const val RECONNECT_GIVE_UP_MS = 5 * 60 * 1000L

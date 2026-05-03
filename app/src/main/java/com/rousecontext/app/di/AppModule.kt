@@ -116,6 +116,7 @@ import com.rousecontext.work.WakelockManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
@@ -125,6 +126,9 @@ import org.koin.dsl.module
 
 /** Idle timeout before disconnecting the tunnel after all streams close. */
 private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
+
+/** How long to wait for graceful MCP session shutdown before forcing tunnel disconnect. */
+private const val GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000L
 
 /**
  * crt.sh issuer names that are legitimate for Rouse Context certificates.
@@ -579,10 +583,14 @@ val appModule = module {
 
     single {
         val tunnelClient: TunnelClient = get()
+        val mcpSession: McpSession = get()
         val recorder: SpuriousWakeRecorder = get()
         IdleTimeoutManager(
             timeoutMillis = IDLE_TIMEOUT_MS,
-            onTimeout = { tunnelClient.disconnect() },
+            onTimeout = {
+                withTimeoutOrNull(GRACEFUL_SHUTDOWN_TIMEOUT_MS) { mcpSession.shutdown() }
+                tunnelClient.disconnect()
+            },
             recorder = recorder
         )
     }
