@@ -117,14 +117,19 @@ class McpShutdownTest {
         // Shut down all sessions
         routes.shutdown()
 
-        // Session should be gone
+        // Session was cleared from memory. A subsequent POST with the
+        // same id auto-recreates a fresh session — that is the desired
+        // behaviour after device restart so clients don't need to
+        // re-initialize. The recreated session has an uninitialized
+        // SDK Server, so this is a brand-new entry under the same id.
         val afterResp = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             header("Mcp-Session-Id", sessionId)
             contentType(ContentType.Application.Json)
             setBody(mcpJsonRpc("tools/list", id = 3))
         }
-        assertEquals(HttpStatusCode.NotFound, afterResp.status)
+        assertEquals(HttpStatusCode.OK, afterResp.status)
+        assertEquals(sessionId, afterResp.headers["Mcp-Session-Id"])
     }
 
     @Test
@@ -141,7 +146,7 @@ class McpShutdownTest {
     }
 
     @Test
-    fun `after shutdown POST with old session returns 404`() =
+    fun `after shutdown POST with old session auto-recreates`() =
         withSession { token, sessionId, routes ->
             routes.shutdown()
 
@@ -151,7 +156,8 @@ class McpShutdownTest {
                 contentType(ContentType.Application.Json)
                 setBody(mcpJsonRpc("tools/list", id = 2))
             }
-            assertEquals(HttpStatusCode.NotFound, resp.status)
+            assertEquals(HttpStatusCode.OK, resp.status)
+            assertEquals(sessionId, resp.headers["Mcp-Session-Id"])
         }
 
     @Test
@@ -191,16 +197,8 @@ class McpShutdownTest {
     fun `new session can be created after shutdown`() = withSession { token, sessionId, routes ->
         routes.shutdown()
 
-        // Old session is gone
-        val gone = client.post("/mcp") {
-            header("Authorization", "Bearer $token")
-            header("Mcp-Session-Id", sessionId)
-            contentType(ContentType.Application.Json)
-            setBody(mcpJsonRpc("tools/list", id = 2))
-        }
-        assertEquals(HttpStatusCode.NotFound, gone.status)
-
-        // But a fresh initialize should create a new session
+        // After shutdown, a fresh initialize should create a new session
+        // unrelated to the old sessionId.
         val freshResp = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             contentType(ContentType.Application.Json)

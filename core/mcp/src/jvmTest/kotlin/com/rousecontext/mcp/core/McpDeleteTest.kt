@@ -112,7 +112,7 @@ class McpDeleteTest {
     }
 
     @Test
-    fun `DELETE mcp removes session so subsequent POST returns 404`() =
+    fun `DELETE mcp removes session so subsequent POST recreates it`() =
         withSession { token, sessionId ->
             // Delete the session
             val deleteResp = client.delete("/mcp") {
@@ -121,14 +121,17 @@ class McpDeleteTest {
             }
             assertEquals(HttpStatusCode.OK, deleteResp.status)
 
-            // Try to use the session -- should be gone
+            // POST with the same id auto-recreates a fresh session under
+            // that id and serves the request. The DELETE successfully
+            // removed the original; the recreated session is brand new.
             val postResp = client.post("/mcp") {
                 header("Authorization", "Bearer $token")
                 header("Mcp-Session-Id", sessionId)
                 contentType(ContentType.Application.Json)
                 setBody(mcpJsonRpc("tools/list", id = 2))
             }
-            assertEquals(HttpStatusCode.NotFound, postResp.status)
+            assertEquals(HttpStatusCode.OK, postResp.status)
+            assertEquals(sessionId, postResp.headers["Mcp-Session-Id"])
         }
 
     @Test

@@ -145,17 +145,32 @@ class McpSessionRoutingTest {
             assertNotNull("Session 2 tools/list should have result", body2["result"])
         }
 
-    // -- Test 2: Unknown session id returns 404 --
+    // -- Test 2: Unknown session id auto-recreates the session --
+    //
+    // After device restart (process kill, app reinstall, idle eviction)
+    // the in-memory session map is empty. Returning 404 forces every
+    // client to re-initialize, which the Anthropic Streamable HTTP proxy
+    // does not handle gracefully — it surfaces "Invalid content from
+    // server" to the LLM. Instead we recreate the session under the
+    // requested id and bind it to the caller's clientId. The old session
+    // was already gone, so security is unchanged: only the original
+    // OAuth client whose token authenticates this request can claim a
+    // session id at all.
 
     @Test
-    fun `unknown session id returns 404`() = testApp { token ->
+    fun `unknown session id auto-recreates session`() = testApp { token ->
         val resp = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             header("Mcp-Session-Id", "nonexistent-session-id")
             contentType(ContentType.Application.Json)
             setBody(mcpJsonRpc("tools/list"))
         }
-        assertEquals(HttpStatusCode.NotFound, resp.status)
+        // Recreated session responds 200; the SDK Server handles tools/list
+        // even before initialize.
+        assertEquals(HttpStatusCode.OK, resp.status)
+        // The recreated session re-uses the requested id so the client
+        // doesn't need to track a new one.
+        assertEquals("nonexistent-session-id", resp.headers["Mcp-Session-Id"])
     }
 
     // -- Test 3: Missing session id on non-initialize request returns error --
@@ -170,10 +185,10 @@ class McpSessionRoutingTest {
         assertEquals(HttpStatusCode.BadRequest, resp.status)
     }
 
-    // -- Test 4: Session idle timeout evicts --
+    // -- Test 4: Session idle timeout evicts and auto-recreates --
 
     @Test
-    fun `session idle timeout evicts session`() {
+    fun `session idle timeout evicts and auto-recreates on next request`() {
         val clock = FakeClock()
         testApp(clock = clock) { token ->
             // Initialize a session
@@ -187,14 +202,16 @@ class McpSessionRoutingTest {
             // Advance clock past the idle timeout (30 min + 1 min)
             clock.advanceMinutes(31)
 
-            // Next request triggers sweep; session should be gone
+            // Next request triggers sweep; session is gone but auto-recreates
+            // under the same id so the client doesn't need to re-initialize.
             val resp2 = client.post("/mcp") {
                 header("Authorization", "Bearer $token")
                 header("Mcp-Session-Id", sessionId)
                 contentType(ContentType.Application.Json)
                 setBody(mcpJsonRpc("tools/list", id = 2))
             }
-            assertEquals(HttpStatusCode.NotFound, resp2.status)
+            assertEquals(HttpStatusCode.OK, resp2.status)
+            assertEquals(sessionId, resp2.headers["Mcp-Session-Id"])
         }
     }
 
@@ -215,14 +232,16 @@ class McpSessionRoutingTest {
             sessionIds.add(resp.headers["Mcp-Session-Id"]!!)
         }
 
-        // The first session should be evicted
+        // The first session was evicted by the cap. A request with that id
+        // now auto-recreates under the same id (transparent to the client).
         val evictedResp = client.post("/mcp") {
             header("Authorization", "Bearer $token")
             header("Mcp-Session-Id", sessionIds.first())
             contentType(ContentType.Application.Json)
             setBody(mcpJsonRpc("tools/list", id = 100))
         }
-        assertEquals(HttpStatusCode.NotFound, evictedResp.status)
+        assertEquals(HttpStatusCode.OK, evictedResp.status)
+        assertEquals(sessionIds.first(), evictedResp.headers["Mcp-Session-Id"])
 
         // The last session should still work
         val lastResp = client.post("/mcp") {

@@ -798,23 +798,48 @@ class McpRoutes(
             session = entry
         } else if (incomingSessionId != null) {
             val key = "$ri:$incomingSessionId"
-            val entry = sessionsMutex.withLock { sessions[key] }
-            if (entry == null) {
-                respond(HttpStatusCode.NotFound)
-                return
+            val existing = sessionsMutex.withLock { sessions[key] }
+            if (existing != null) {
+                // Session-to-client binding check (issue #206): a session is
+                // owned by the client id that created it. A different client
+                // (even one with a valid token for the same integration) must
+                // not be able to reuse the session id. We return 404, matching
+                // the unknown-session-id behaviour, so existence isn't leaked.
+                if (existing.clientId != callerClientId) {
+                    respond(HttpStatusCode.NotFound)
+                    return
+                }
+                existing.lastAccessedAt = clock.currentTimeMillis()
+                sessionId = incomingSessionId
+                session = existing
+            } else {
+                // Unknown session ID — recreate the session under that ID.
+                // This handles the case where the device restarted (process
+                // killed, app reinstall, etc.) but the client still holds the
+                // old session ID. Bind the new session to the current caller.
+                val (newServer, newTransport) =
+                    createIntegrationServer(provider, serverName, serverVersion)
+                val newEntry = SessionEntry(
+                    server = newServer,
+                    transport = newTransport,
+                    integration = ri,
+                    clientId = callerClientId,
+                    clientLabel = resolvedClientLabel,
+                    lastAccessedAt = clock.currentTimeMillis()
+                )
+                val evicted = sessionsMutex.withLock {
+                    val removed = evictOldestIfNeeded(ri)
+                    sessions[key] = newEntry
+                    removed
+                }
+                try {
+                    evicted?.transport?.close()
+                } catch (_: Exception) {
+                    // best-effort cleanup
+                }
+                sessionId = incomingSessionId
+                session = newEntry
             }
-            // Session-to-client binding check (issue #206): a session is
-            // owned by the client id that created it. A different client
-            // (even one with a valid token for the same integration) must
-            // not be able to reuse the session id. We return 404, matching
-            // the unknown-session-id behaviour, so existence isn't leaked.
-            if (entry.clientId != callerClientId) {
-                respond(HttpStatusCode.NotFound)
-                return
-            }
-            entry.lastAccessedAt = clock.currentTimeMillis()
-            sessionId = incomingSessionId
-            session = entry
         } else {
             // Non-initialize without Mcp-Session-Id
             respond(HttpStatusCode.BadRequest)
@@ -848,6 +873,24 @@ class McpRoutes(
                 )
             }
 
+            respondMcpResponse(responseJson)
+        }
+    }
+
+    /**
+     * Respond with the MCP JSON-RPC response, choosing between
+     * `application/json` and `text/event-stream` based on the client's
+     * `Accept` header. Per Streamable HTTP spec, clients send
+     * `Accept: application/json, text/event-stream`; the server may
+     * respond with either. Some proxies (e.g. Anthropic's) require the
+     * SSE form, so we prefer event-stream when the client accepts it.
+     */
+    private suspend fun RoutingCall.respondMcpResponse(responseJson: String) {
+        val accept = request.headers["Accept"].orEmpty()
+        if (accept.contains("text/event-stream", ignoreCase = true)) {
+            val sse = "event: message\ndata: $responseJson\n\n"
+            respondText(sse, ContentType.Text.EventStream)
+        } else {
             respondText(responseJson, ContentType.Application.Json)
         }
     }
