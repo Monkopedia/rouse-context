@@ -58,17 +58,7 @@ class TlsAcceptor(private val sslContext: SSLContext) {
      */
     suspend fun accept(stream: MuxStream): TlsSession = withContext(Dispatchers.IO) {
         try {
-            val engine = sslContext.createSSLEngine()
-            engine.useClientMode = false
-
-            // Advertise HTTP/1.1 via ALPN so HTTP clients that require ALPN
-            // negotiation will send requests over the connection. Without
-            // this, some clients complete TLS but never send HTTP data
-            // because no application protocol was agreed.
-            val sslParams = engine.sslParameters
-            sslParams.applicationProtocols = arrayOf("http/1.1")
-            engine.sslParameters = sslParams
-
+            val engine = createServerEngine()
             val session = engine.session
             val appBufferSize = session.applicationBufferSize
             val netBufferSize = session.packetBufferSize
@@ -129,6 +119,20 @@ class TlsAcceptor(private val sslContext: SSLContext) {
         } catch (e: Exception) {
             throw TunnelError.TlsHandshakeFailed("TLS handshake failed", e)
         }
+    }
+
+    /**
+     * Build the server-side [SSLEngine] with ALPN advertising HTTP/1.1.
+     * Without ALPN, some HTTP clients complete TLS but never send HTTP
+     * data because no application protocol was agreed.
+     */
+    private fun createServerEngine(): SSLEngine {
+        val engine = sslContext.createSSLEngine()
+        engine.useClientMode = false
+        val sslParams = engine.sslParameters
+        sslParams.applicationProtocols = arrayOf("http/1.1")
+        engine.sslParameters = sslParams
+        return engine
     }
 
     companion object {

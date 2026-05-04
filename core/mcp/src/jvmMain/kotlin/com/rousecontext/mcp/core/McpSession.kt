@@ -168,7 +168,9 @@ class McpSession(
      */
     suspend fun shutdown() {
         routes?.shutdown()
-        stop()
+        // Do NOT call stop() here. The Ktor server must stay alive so
+        // subsequent FCM wakes can bridge new connections to it. Only
+        // stop() when the service is being destroyed (onDestroy path).
     }
 
     /**

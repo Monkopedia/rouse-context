@@ -1,7 +1,6 @@
 package com.rousecontext.mcp.core
 
 import io.ktor.client.request.delete
-import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -21,10 +20,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 /**
- * Tests for GET /mcp (SSE stream) and DELETE /mcp (session teardown) routes
- * added by issue #440 to complete the Streamable HTTP transport.
+ * Tests for DELETE /mcp (session teardown) route from the Streamable HTTP transport.
  */
-class McpSseAndDeleteTest {
+class McpDeleteTest {
 
     private class EchoProvider : McpServerProvider {
         override val id = "health"
@@ -100,65 +98,6 @@ class McpSseAndDeleteTest {
         assertNotNull("Must receive Mcp-Session-Id", sessionId)
 
         block(token, sessionId!!)
-    }
-
-    // ---- GET /mcp tests ----
-
-    @Test
-    fun `GET mcp with valid auth and session returns 200 event-stream`() =
-        withSession { token, sessionId ->
-            val resp = client.get("/mcp") {
-                header("Authorization", "Bearer $token")
-                header("Mcp-Session-Id", sessionId)
-            }
-            assertEquals(HttpStatusCode.OK, resp.status)
-            val ct = resp.contentType()
-            assertNotNull("Content-Type must be set", ct)
-            assertEquals("text", ct!!.contentType)
-            assertEquals("event-stream", ct.contentSubtype)
-        }
-
-    @Test
-    fun `GET mcp without session id returns 400`() = withSession { token, _ ->
-        val resp = client.get("/mcp") {
-            header("Authorization", "Bearer $token")
-        }
-        assertEquals(HttpStatusCode.BadRequest, resp.status)
-    }
-
-    @Test
-    fun `GET mcp with invalid session returns 404`() = withSession { token, _ ->
-        val resp = client.get("/mcp") {
-            header("Authorization", "Bearer $token")
-            header("Mcp-Session-Id", "nonexistent-session-id")
-        }
-        assertEquals(HttpStatusCode.NotFound, resp.status)
-    }
-
-    @Test
-    fun `GET mcp without auth returns 401`() = withSession { _, sessionId ->
-        val resp = client.get("/mcp") {
-            header("Mcp-Session-Id", sessionId)
-        }
-        assertEquals(HttpStatusCode.Unauthorized, resp.status)
-    }
-
-    @Test
-    fun `GET mcp with cache-control no-cache header`() = withSession { token, sessionId ->
-        val resp = client.get("/mcp") {
-            header("Authorization", "Bearer $token")
-            header("Mcp-Session-Id", sessionId)
-        }
-        assertEquals("no-cache", resp.headers["Cache-Control"])
-    }
-
-    @Test
-    fun `GET mcp returns Mcp-Session-Id in response`() = withSession { token, sessionId ->
-        val resp = client.get("/mcp") {
-            header("Authorization", "Bearer $token")
-            header("Mcp-Session-Id", sessionId)
-        }
-        assertEquals(sessionId, resp.headers["Mcp-Session-Id"])
     }
 
     // ---- DELETE /mcp tests ----

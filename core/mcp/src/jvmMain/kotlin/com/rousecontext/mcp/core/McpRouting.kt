@@ -10,14 +10,12 @@ import io.ktor.server.request.contentType
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondBytesWriter
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.RoutingCall
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
-import io.ktor.utils.io.writeStringUtf8
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -27,8 +25,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.net.URI
 import java.util.UUID
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -79,9 +75,6 @@ internal const val MAX_SESSIONS_PER_INTEGRATION = 16
 
 /** Idle timeout in milliseconds (30 minutes). Sessions untouched for longer are evicted. */
 internal const val SESSION_IDLE_TIMEOUT_MS = 30L * 60 * 1000
-
-/** Interval between SSE keepalive comments on GET /mcp (30 seconds). */
-internal const val SSE_KEEPALIVE_INTERVAL_MS = 30_000L
 
 /**
  * Configures Ktor routing for MCP Streamable HTTP with per-integration OAuth.
@@ -161,7 +154,6 @@ fun Application.configureMcpRouting(
         get("/authorize/status") { with(routes) { call.handleAuthorizeStatus() } }
         post("/token") { with(routes) { call.handleToken() } }
         post("/mcp") { with(routes) { call.handleMcp() } }
-        get("/mcp") { with(routes) { call.handleMcpSse() } }
         delete("/mcp") { with(routes) { call.handleMcpDelete() } }
     }
     return routes
@@ -906,30 +898,6 @@ class McpRoutes(
         }
 
         return SessionLookup(ri, incomingSessionId, callerClientId)
-    }
-
-    // GET /mcp -- SSE stream for server-to-client messages (Streamable HTTP spec).
-    // We don't currently push server-initiated messages, so this just keeps
-    // the connection alive with periodic SSE comments until the client disconnects.
-    suspend fun RoutingCall.handleMcpSse() {
-        val lookup = authenticateAndLookupSession() ?: return
-        val key = "${lookup.integration}:${lookup.sessionId}"
-        val entry = sessionsMutex.withLock { sessions[key] }
-        if (entry == null || entry.clientId != lookup.callerClientId) {
-            respond(HttpStatusCode.NotFound)
-            return
-        }
-        entry.lastAccessedAt = clock.currentTimeMillis()
-
-        response.headers.append("Cache-Control", "no-cache")
-        response.headers.append("Mcp-Session-Id", lookup.sessionId)
-        respondBytesWriter(contentType = ContentType.Text.EventStream) {
-            while (coroutineContext.isActive) {
-                writeStringUtf8(":keepalive\n\n")
-                flush()
-                delay(SSE_KEEPALIVE_INTERVAL_MS)
-            }
-        }
     }
 
     // DELETE /mcp -- session teardown (Streamable HTTP spec).
