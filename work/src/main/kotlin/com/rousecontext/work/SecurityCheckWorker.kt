@@ -98,6 +98,9 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
             is SecurityCheckResult.Verified -> {
                 Log.d(TAG, "$checkName: verified")
                 prefs.resetWarningStreak(sourceName)
+                // Issue #448: clear any stale alert / info notification so the
+                // shade reflects the recovery, not just the in-prefs streak.
+                notifier.cancel(check)
             }
 
             is SecurityCheckResult.Skipped -> {
@@ -105,6 +108,9 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
                 // for diagnostics but MUST NOT fire a user notification.
                 Log.d(TAG, "$checkName: skipped - ${result.reason}")
                 prefs.resetWarningStreak(sourceName)
+                // Issue #448: a Skipped result is also a "no longer alarming"
+                // state — clear any stale notification posted by an earlier run.
+                notifier.cancel(check)
             }
 
             is SecurityCheckResult.Warning -> {

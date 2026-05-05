@@ -21,6 +21,21 @@ interface SecurityCheckNotifier {
 
     fun postInfo(check: SecurityCheck, reason: String)
 
+    /**
+     * Cancels any active alert AND info notifications for [check].
+     *
+     * Issue #448: when a subsequent run reports
+     * [com.rousecontext.tunnel.SecurityCheckResult.Verified] or
+     * [com.rousecontext.tunnel.SecurityCheckResult.Skipped] the worker resets
+     * the in-prefs streak counter — the visible notification used to linger in
+     * the shade indefinitely. Calling [cancel] from those recovery branches
+     * keeps the shade in sync with the actual check state.
+     *
+     * Idempotent: cancelling a non-existent notification is a no-op on
+     * [android.app.NotificationManager].
+     */
+    fun cancel(check: SecurityCheck)
+
     /** The kind of security check whose result is being surfaced. */
     enum class SecurityCheck { SELF_CERT, CT_LOG }
 
