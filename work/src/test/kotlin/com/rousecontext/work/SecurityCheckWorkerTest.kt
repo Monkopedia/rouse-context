@@ -43,7 +43,7 @@ class SecurityCheckWorkerTest {
         assertEquals("verified", prefs.selfCertResult())
         assertEquals("verified", prefs.ctLogResult())
         assertTrue(prefs.lastCheckAt() > 0)
-        assertEquals(emptyList<FakeSecurityCheckNotifier.Call>(), fakeNotifier.calls)
+        assertEquals(emptyList<FakeSecurityCheckNotifier.Call>(), fakeNotifier.posts)
     }
 
     @Test
@@ -66,7 +66,7 @@ class SecurityCheckWorkerTest {
                         "fingerprint mismatch"
                     )
                 ),
-                fakeNotifier.calls
+                fakeNotifier.posts
             )
         }
 
@@ -90,7 +90,7 @@ class SecurityCheckWorkerTest {
                         "unexpected issuer Evil CA"
                     )
                 ),
-                fakeNotifier.calls
+                fakeNotifier.posts
             )
 
             // Simulate the alert gate used by McpSession (see AppModule.kt securityAlertCheck).
@@ -122,7 +122,7 @@ class SecurityCheckWorkerTest {
         assertEquals(
             "Single warning MUST NOT fire a notification",
             emptyList<FakeSecurityCheckNotifier.Call>(),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -141,7 +141,7 @@ class SecurityCheckWorkerTest {
             assertEquals(
                 "Runs below threshold must stay silent",
                 emptyList<FakeSecurityCheckNotifier.Call>(),
-                fakeNotifier.calls
+                fakeNotifier.posts
             )
 
             val worker = buildWorker(
@@ -157,7 +157,7 @@ class SecurityCheckWorkerTest {
                         "could not reach CT log"
                     )
                 ),
-                fakeNotifier.calls
+                fakeNotifier.posts
             )
         }
 
@@ -184,7 +184,7 @@ class SecurityCheckWorkerTest {
                     "could not reach CT log"
                 )
             ),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -247,7 +247,7 @@ class SecurityCheckWorkerTest {
                     "second outage"
                 )
             ),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -279,7 +279,7 @@ class SecurityCheckWorkerTest {
         assertEquals(
             "Counter must have reset; single warning post-reset MUST NOT fire",
             emptyList<FakeSecurityCheckNotifier.Call>(),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -303,7 +303,7 @@ class SecurityCheckWorkerTest {
                     "unexpected issuer Evil CA"
                 )
             ),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -321,7 +321,7 @@ class SecurityCheckWorkerTest {
         assertEquals(
             "Two self-cert warnings alone must stay below threshold",
             emptyList<FakeSecurityCheckNotifier.Call>(),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
 
         val worker = buildWorker(
@@ -333,7 +333,7 @@ class SecurityCheckWorkerTest {
         assertEquals(
             "Fresh ct-log warning must not fire just because self-cert had two",
             emptyList<FakeSecurityCheckNotifier.Call>(),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -356,7 +356,7 @@ class SecurityCheckWorkerTest {
         assertEquals(
             "Skipped result MUST NOT fire a notification",
             emptyList<FakeSecurityCheckNotifier.Call>(),
-            fakeNotifier.calls
+            fakeNotifier.posts
         )
     }
 
@@ -387,9 +387,112 @@ class SecurityCheckWorkerTest {
                         "could not reach CT log"
                     )
                 ),
-                fakeNotifier.calls
+                fakeNotifier.posts
             )
         }
+
+    @Test
+    fun `verified result cancels stale notification for that check`() = runBlocking {
+        // Issue #448: when a check returns Verified, any previously-posted alert
+        // or info notification for the same check must be cancelled so the user
+        // sees the recovery in the shade — not just in app preferences.
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Verified
+        )
+
+        worker.doWork()
+
+        assertEquals(
+            "Each Verified result must cancel its check's stale notification",
+            listOf(
+                FakeSecurityCheckNotifier.Call.Cancel(SecurityCheck.SELF_CERT),
+                FakeSecurityCheckNotifier.Call.Cancel(SecurityCheck.CT_LOG)
+            ),
+            fakeNotifier.cancels
+        )
+    }
+
+    @Test
+    fun `skipped result cancels stale notification for that check`() = runBlocking {
+        // Issue #448: Skipped (pre-onboarding / not configured) must also clear
+        // any previously-posted notification — once we're back in a non-error
+        // state, the stale alert in the shade is misleading.
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Skipped("No certificate stored"),
+            ctResult = SecurityCheckResult.Skipped("No subdomain configured")
+        )
+
+        worker.doWork()
+
+        assertEquals(
+            "Each Skipped result must cancel its check's stale notification",
+            listOf(
+                FakeSecurityCheckNotifier.Call.Cancel(SecurityCheck.SELF_CERT),
+                FakeSecurityCheckNotifier.Call.Cancel(SecurityCheck.CT_LOG)
+            ),
+            fakeNotifier.cancels
+        )
+    }
+
+    @Test
+    fun `verified after warning streak fires info then cancels on recovery`() = runBlocking {
+        // Concrete repro of the issue: three Warnings cross the threshold and
+        // post an Info; the next Verified run must cancel that Info so it
+        // disappears from the shade.
+        repeat(3) {
+            val w = buildWorker(
+                selfCertResult = SecurityCheckResult.Verified,
+                ctResult = SecurityCheckResult.Warning("could not reach CT log")
+            )
+            w.doWork()
+        }
+
+        // Threshold crossed -> Info posted for CT_LOG.
+        assertEquals(
+            listOf(
+                FakeSecurityCheckNotifier.Call.Info(
+                    SecurityCheck.CT_LOG,
+                    "could not reach CT log"
+                )
+            ),
+            fakeNotifier.posts
+        )
+
+        val recoveryWorker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Verified
+        )
+        recoveryWorker.doWork()
+
+        // The Verified recovery must cancel the CT_LOG notification (and
+        // SELF_CERT was already verified, but cancelling is idempotent).
+        assertTrue(
+            "Recovery run must cancel CT_LOG so the Info disappears from the shade",
+            fakeNotifier.cancels.contains(
+                FakeSecurityCheckNotifier.Call.Cancel(SecurityCheck.CT_LOG)
+            )
+        )
+    }
+
+    @Test
+    fun `alert result does not produce cancel for the alerting check`() = runBlocking {
+        // Sanity guard: Alert posts, it does NOT cancel. (Cancellation is for
+        // recovery paths only.) Self-cert is Verified, so SELF_CERT should
+        // produce a Cancel, but CT_LOG (Alert) must not.
+        val worker = buildWorker(
+            selfCertResult = SecurityCheckResult.Verified,
+            ctResult = SecurityCheckResult.Alert("unexpected issuer Evil CA")
+        )
+
+        worker.doWork()
+
+        assertEquals(
+            "Alert path must NOT issue a cancel for its own check",
+            listOf(FakeSecurityCheckNotifier.Call.Cancel(SecurityCheck.SELF_CERT)),
+            fakeNotifier.cancels
+        )
+    }
 
     private fun buildWorker(
         selfCertResult: SecurityCheckResult,
@@ -418,9 +521,23 @@ private class FakeSecurityCheckNotifier : SecurityCheckNotifier {
         data class Alert(val check: SecurityCheck, val reason: String) : Call()
 
         data class Info(val check: SecurityCheck, val reason: String) : Call()
+
+        data class Cancel(val check: SecurityCheck) : Call()
     }
 
     val calls = mutableListOf<Call>()
+
+    /**
+     * Just the alert/info posts. Most existing tests focus on whether a
+     * notification was *raised* and don't care about the per-Verified-or-Skipped
+     * cancel calls added in #448 — use this filter for those.
+     */
+    val posts: List<Call>
+        get() = calls.filter { it is Call.Alert || it is Call.Info }
+
+    /** Just the cancel calls (#448). */
+    val cancels: List<Call.Cancel>
+        get() = calls.filterIsInstance<Call.Cancel>()
 
     override fun postAlert(check: SecurityCheck, reason: String) {
         calls += Call.Alert(check, reason)
@@ -428,5 +545,9 @@ private class FakeSecurityCheckNotifier : SecurityCheckNotifier {
 
     override fun postInfo(check: SecurityCheck, reason: String) {
         calls += Call.Info(check, reason)
+    }
+
+    override fun cancel(check: SecurityCheck) {
+        calls += Call.Cancel(check)
     }
 }

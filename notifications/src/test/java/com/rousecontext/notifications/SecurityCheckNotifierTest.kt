@@ -109,6 +109,54 @@ class SecurityCheckNotifierTest {
         )
     }
 
+    @Test
+    fun `cancel removes both alert and info for the given check`() {
+        // Issue #448: a recovery (Verified / Skipped) must clear the visible
+        // notification, not just reset the in-prefs streak counter.
+        notifier.postAlert(SecurityCheckNotifier.SecurityCheck.SELF_CERT, "alert reason")
+        notifier.postInfo(SecurityCheckNotifier.SecurityCheck.SELF_CERT, "warning reason")
+        assertEquals(2, manager.activeNotifications.size)
+
+        notifier.cancel(SecurityCheckNotifier.SecurityCheck.SELF_CERT)
+
+        assertEquals(
+            "Cancel must clear both alert and info for the targeted check",
+            0,
+            manager.activeNotifications.size
+        )
+    }
+
+    @Test
+    fun `cancel only clears notifications for the targeted check`() {
+        // Cancelling SELF_CERT must NOT touch CT_LOG notifications: the
+        // streak counters are per-source, so the visibility must be too.
+        notifier.postAlert(SecurityCheckNotifier.SecurityCheck.SELF_CERT, "self cert alert")
+        notifier.postInfo(SecurityCheckNotifier.SecurityCheck.CT_LOG, "ct log warning")
+        assertEquals(2, manager.activeNotifications.size)
+
+        notifier.cancel(SecurityCheckNotifier.SecurityCheck.SELF_CERT)
+
+        val remaining = manager.activeNotifications
+        assertEquals(
+            "Only the targeted check's notifications should be cancelled",
+            1,
+            remaining.size
+        )
+        assertEquals(
+            SecurityCheckNotifier.NOTIFICATION_ID_CT_LOG_INFO,
+            remaining.single().id
+        )
+    }
+
+    @Test
+    fun `cancel is idempotent when no notification is posted`() {
+        // No notifications exist; cancel must not throw.
+        notifier.cancel(SecurityCheckNotifier.SecurityCheck.SELF_CERT)
+        notifier.cancel(SecurityCheckNotifier.SecurityCheck.CT_LOG)
+
+        assertEquals(0, manager.activeNotifications.size)
+    }
+
     /** Lightweight priority comparison that maps the legacy priority int onto test labels. */
     private enum class NotificationCompatPriority { HIGH, DEFAULT, OTHER }
 

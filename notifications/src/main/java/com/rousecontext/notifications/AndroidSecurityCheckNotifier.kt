@@ -50,6 +50,15 @@ class AndroidSecurityCheckNotifier(private val context: Context) : SecurityCheck
         notificationManager().notify(infoIdFor(check), notification)
     }
 
+    override fun cancel(check: SecurityCheck) {
+        // Issue #448: clear BOTH severities so a Verified / Skipped run wipes
+        // any prior alert OR info for this check. NotificationManager.cancel
+        // is idempotent, so cancelling an absent id is a no-op.
+        val manager = notificationManager()
+        manager.cancel(alertIdFor(check))
+        manager.cancel(infoIdFor(check))
+    }
+
     private fun notificationManager(): NotificationManager =
         context.getSystemService(NotificationManager::class.java)
 
