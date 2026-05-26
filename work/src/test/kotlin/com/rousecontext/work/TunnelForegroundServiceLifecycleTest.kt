@@ -1,10 +1,13 @@
 package com.rousecontext.work
 
 import android.app.Notification
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Looper
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.bridge.SessionHandler
 import com.rousecontext.mcp.core.ProviderRegistry
+import com.rousecontext.notifications.FgsLimitNotifier
 import com.rousecontext.notifications.ForegroundNotifier
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.SessionSummaryNotifier
@@ -17,6 +20,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlin.time.Duration
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -36,6 +40,7 @@ import org.koin.dsl.module
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
 
 /**
  * Tests [TunnelForegroundService] lifecycle transitions using Robolectric.
@@ -280,6 +285,47 @@ class TunnelForegroundServiceLifecycleTest {
                 "before any coroutine or handler work runs (issue #325)",
             fgNotification
         )
+    }
+
+    // -- Test 7: onTimeout (run-time FGS budget exhaustion) stops the service (#450/#451) --
+
+    @Test
+    @Config(sdk = [Build.VERSION_CODES.VANILLA_ICE_CREAM])
+    fun `onTimeout stops service and posts FGS limit notification`() {
+        // Android 15+ calls Service.onTimeout once the cumulative dataSync FGS
+        // budget is exhausted while the service is running. If we don't stop
+        // promptly the system kills us with ForegroundServiceDidNotStopInTime-
+        // Exception (#450/#451). This mirrors the start-time budget handler.
+        mockkObject(FgsLimitNotifier)
+        every { FgsLimitNotifier.postLimitReachedNotification(any()) } returns Unit
+        try {
+            fakeTunnelClient.stateFlow.value = TunnelState.DISCONNECTED
+
+            val controller = Robolectric.buildService(TunnelForegroundService::class.java)
+            val service = controller.get()
+            controller.create()
+            drainMain()
+            controller.startCommand(0, 1)
+            drainMain()
+            fakeTunnelClient.stateFlow.value = TunnelState.CONNECTED
+            drainMain()
+
+            // System signals the dataSync 6h budget is exhausted mid-run.
+            service.onTimeout(1, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            drainMain()
+
+            assertTrue(
+                "Service must stop itself when the FGS run-time timeout fires",
+                shadowOf(service).isStoppedBySelf
+            )
+            assertTrue(
+                "intentionalDisconnect must be set so the stop doesn't trigger a reconnect",
+                service.intentionalDisconnect
+            )
+            verify { FgsLimitNotifier.postLimitReachedNotification(any()) }
+        } finally {
+            unmockkObject(FgsLimitNotifier)
+        }
     }
 
     // -- Helpers --
