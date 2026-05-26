@@ -14,6 +14,45 @@ Newest entries on top.
 
 ---
 
+## 2026-05-26 — Surface the FGS-budget notification on run-time timeout, not just at startup
+
+**Decision:** When Android calls `Service.onTimeout()` because the `dataSync`
+foreground-service budget is exhausted *while the service is running*,
+`TunnelForegroundService` posts the existing `FgsLimitNotifier` notification and
+stops cleanly — the same notification already shown when the budget is exhausted
+at startup.
+
+**Approved by:** Jason, in-session 2026-05-26 ("sure" — to implement the
+onTimeout handler reusing FgsLimitNotifier).
+
+**Context:** Crashes #450/#451 (`ForegroundServiceDidNotStopInTimeException`)
+were the service being force-killed when the cumulative 6h/24h dataSync FGS cap
+ran out mid-session. The start-time half of this was already handled
+(`ForegroundServiceStartNotAllowedException` → notify + stopSelf); the run-time
+half (`onTimeout`) was missing, so the budget exhausting mid-run produced a
+silent crash with no user-facing explanation.
+
+**Alternatives considered:**
+- **Stop silently on timeout, no notification** — fixes the crash but the user
+  gets no signal that wakes have paused until the 24h window frees budget;
+  inconsistent with the start-time path, which does notify.
+- **Distinct "ran out mid-session" copy** — more precise, but it's the same
+  underlying condition (budget exhausted, wakes paused, retries next window), so
+  a second message would be noise.
+
+**Trade-off accepted:** The same notification can now appear at a second moment
+in the lifecycle (mid-session, not only at wake start). Accepted because the
+user-facing meaning is identical — "FGS budget spent, wakes paused, will resume
+when the rolling window frees up" — and a shared id means the two paths replace
+rather than stack in the shade.
+
+**Relevant:**
+- Crashes: #450 (FcmReceiver.startTunnelService frame), #451 (system-generated
+  frame) — same root cause, one fix.
+- Mirrors the existing start-time handler in `TunnelForegroundService.startForegroundSafely`.
+
+---
+
 ## 2026-04-24 — Cert provisioning runs at Continue, not at first integration add
 
 **Decision:** Keep the post-#389 flow where relay subdomain registration and ACME cert provisioning fire immediately after the user taps Continue on NotificationPreferences, before Home loads.

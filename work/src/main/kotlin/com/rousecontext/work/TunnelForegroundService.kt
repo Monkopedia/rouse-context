@@ -289,6 +289,26 @@ class TunnelForegroundService : LifecycleService() {
         }
     }
 
+    /**
+     * Android 15+ enforces a cumulative ~6h-per-24h limit on `dataSync`
+     * foreground services. When that budget is exhausted *while the service is
+     * running*, the system calls this and requires us to stop within a couple
+     * seconds — otherwise it kills the process with
+     * `ForegroundServiceDidNotStopInTimeException` (#450, #451).
+     *
+     * This is the run-time mirror of the start-time
+     * `ForegroundServiceStartNotAllowedException` already handled in
+     * [startForegroundSafely]: post the same user-visible notification, suppress
+     * reconnect, and stop. The next FCM wake retries once the rolling window
+     * frees the budget back up.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "FGS dataSync time limit reached (fgsType=$fgsType); stopping service")
+        intentionalDisconnect = true
+        FgsLimitNotifier.postLimitReachedNotification(this)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         Log.i(TAG, "TunnelForegroundService destroyed")
         intentionalDisconnect = true
