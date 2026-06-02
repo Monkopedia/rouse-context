@@ -56,6 +56,13 @@ class SettingsViewModel(
     private val integrations: List<McpIntegration> = emptyList(),
     private val securityCheckPreferences: SecurityCheckPreferences? = null,
     private val appStatePreferences: AppStatePreferences? = null,
+    /**
+     * Reports whether the app is currently exempt from battery optimization.
+     * Read on each refresh so returning from the system battery-settings screen
+     * (which triggers a refresh on resume) reflects the new state. Defaults to a
+     * conservative "not exempt" when absent (tests only).
+     */
+    private val batteryExemptProvider: () -> Boolean = { false },
     spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
 ) : ViewModel() {
 
@@ -94,6 +101,14 @@ class SettingsViewModel(
         ?.observeSecurityCheckIntervalHours()
         ?: flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
 
+    /** (idle-timeout minutes, idle-timeout disabled) from DataStore, with defaults. */
+    private val idleTimeoutFlow: Flow<Pair<Int, Boolean>> = appStatePreferences?.let { prefs ->
+        combine(
+            prefs.observeIdleTimeoutMinutes(),
+            prefs.observeIdleTimeoutDisabled()
+        ) { minutes, disabled -> minutes to disabled }
+    } ?: flowOf(AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES to false)
+
     val state: StateFlow<SettingsState> = combine(
         combine(
             refreshTrigger,
@@ -102,17 +117,27 @@ class SettingsViewModel(
             rotateError,
             spuriousWakesFlow
         ) { _, themeMode, rotating, rotateErr, spurious ->
-            Quint(themeMode, rotating, rotateErr, spurious, Unit)
+            // Battery-exempt is a point-in-time PowerManager read; re-evaluate it
+            // whenever the refresh trigger (or any of these flows) emits, so a
+            // resume-driven refresh() picks up a change made in system settings.
+            Quint(themeMode, rotating, rotateErr, spurious, batteryExemptProvider())
         },
         notificationSettingsProvider.observeSettings(),
         trustStatusFlow,
-        intervalFlow
-    ) { tuple, settings, trust, intervalHours ->
+        intervalFlow,
+        idleTimeoutFlow
+    ) { tuple, settings, trust, intervalHours, idle ->
         val themeMode = tuple.a
         val rotating = tuple.b
         val rotateErr = tuple.c
         val spurious = tuple.d
+        val batteryExempt = tuple.e
+        val (idleMinutes, idleDisabled) = idle
         SettingsState(
+            idleTimeoutMinutes = idleMinutes,
+            idleTimeoutDisabled = idleDisabled,
+            batteryOptimizationExempt = batteryExempt,
+            showBatteryWarning = !batteryExempt,
             postSessionMode = settings.postSessionMode.toOption(),
             themeMode = themeMode.toOption(),
             securityCheckInterval = SecurityCheckIntervalOption.forHours(intervalHours),
@@ -159,8 +184,17 @@ class SettingsViewModel(
     }
 
     fun setIdleTimeout(minutes: Int) {
-        // TODO: persist to DataStore when idle timeout DataStore is added
-        refresh()
+        viewModelScope.launch {
+            appStatePreferences?.setIdleTimeoutMinutes(minutes)
+            refresh()
+        }
+    }
+
+    fun setDisableTimeout(disabled: Boolean) {
+        viewModelScope.launch {
+            appStatePreferences?.setIdleTimeoutDisabled(disabled)
+            refresh()
+        }
     }
 
     fun setPostSessionMode(mode: PostSessionModeOption) {

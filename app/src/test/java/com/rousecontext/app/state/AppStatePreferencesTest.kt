@@ -52,4 +52,46 @@ class AppStatePreferencesTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun `idle timeout minutes defaults to constant`() = runTest {
+        assertEquals(AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES, prefs.idleTimeoutMinutes())
+    }
+
+    @Test
+    fun `setIdleTimeoutMinutes persists value`() = runTest {
+        prefs.setIdleTimeoutMinutes(10)
+        assertEquals(10, prefs.idleTimeoutMinutes())
+    }
+
+    @Test
+    fun `observeIdleTimeoutMinutes emits updates`() = runTest {
+        prefs.observeIdleTimeoutMinutes().test {
+            assertEquals(AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES, awaitItem())
+            prefs.setIdleTimeoutMinutes(2)
+            assertEquals(2, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `idle timeout disabled defaults to false`() = runTest {
+        assertFalse(prefs.idleTimeoutDisabled())
+    }
+
+    @Test
+    fun `setIdleTimeoutDisabled persists value`() = runTest {
+        prefs.setIdleTimeoutDisabled(true)
+        assertTrue(prefs.idleTimeoutDisabled())
+    }
+
+    @Test
+    fun `observeIdleTimeoutDisabled emits updates`() = runTest {
+        prefs.observeIdleTimeoutDisabled().test {
+            assertFalse(awaitItem())
+            prefs.setIdleTimeoutDisabled(true)
+            assertTrue(awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }

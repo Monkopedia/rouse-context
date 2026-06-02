@@ -72,7 +72,7 @@ class TunnelForegroundServiceLifecycleTest {
             every { awaitReadyBlocking(any()) } returns true
         }
         idleTimeoutManager = IdleTimeoutManager(
-            timeoutMillis = Long.MAX_VALUE,
+            timeoutProvider = { Long.MAX_VALUE },
             onTimeout = { /* no-op for tests */ }
         )
 

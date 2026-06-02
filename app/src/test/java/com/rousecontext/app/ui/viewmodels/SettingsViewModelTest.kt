@@ -1,6 +1,7 @@
 package com.rousecontext.app.ui.viewmodels
 
 import androidx.test.core.app.ApplicationProvider
+import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
@@ -9,6 +10,7 @@ import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.ui.screens.PostSessionModeOption
+import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.work.SecurityCheckPreferences
 import io.mockk.coEvery
@@ -294,6 +296,68 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `setIdleTimeout persists the selected minutes`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs()
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.setIdleTimeout(10)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { prefs.setIdleTimeoutMinutes(10) }
+    }
+
+    @Test
+    fun `state reflects the stored idle timeout minutes`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs(idleMinutes = 10)
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertEquals(10, state.idleTimeoutMinutes)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `setDisableTimeout persists the flag`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs()
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.setDisableTimeout(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { prefs.setIdleTimeoutDisabled(true) }
+    }
+
+    @Test
+    fun `state reflects the stored disable-timeout flag`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs(idleDisabled = true)
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertTrue(state.idleTimeoutDisabled)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `battery exempt hides the warning`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY, batteryExempt = true)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertTrue(state.batteryOptimizationExempt)
+            assertFalse("warning hidden when exempt", state.showBatteryWarning)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `not battery exempt shows the warning`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY, batteryExempt = false)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertFalse(state.batteryOptimizationExempt)
+            assertTrue("warning shown when not exempt", state.showBatteryWarning)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `spurious wake stats default to zero`() = runTest(testDispatcher) {
         val vm = createViewModel(PostSessionMode.SUMMARY)
         vm.state.test {
@@ -332,6 +396,13 @@ class SettingsViewModelTest {
         )
     }
 
+    /** Drain the initial loading emission(s) and return the first loaded state. */
+    private suspend fun ReceiveTurbine<SettingsState>.awaitLoaded(): SettingsState {
+        var item = awaitItem()
+        while (item.isLoading) item = awaitItem()
+        return item
+    }
+
     private fun freshSecurityPrefs(): SecurityCheckPreferences {
         val prefs = SecurityCheckPreferences(ApplicationProvider.getApplicationContext())
         runBlocking {
@@ -342,16 +413,41 @@ class SettingsViewModelTest {
         return prefs
     }
 
+    /**
+     * Mock [AppStatePreferences] with controllable idle-timeout reads. Avoids the
+     * real process-singleton DataStore, whose async writes would bleed between
+     * tests sharing this Robolectric VM.
+     */
+    private fun mockAppStatePrefs(
+        idleMinutes: Int = AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES,
+        idleDisabled: Boolean = false
+    ): AppStatePreferences = mockk(relaxed = true) {
+        every { observeIdleTimeoutMinutes() } returns flowOf(idleMinutes)
+        every { observeIdleTimeoutDisabled() } returns flowOf(idleDisabled)
+        every { observeSecurityCheckIntervalHours() } returns
+            flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
+    }
+
     private fun createViewModel(
         mode: PostSessionMode,
-        securityPrefs: SecurityCheckPreferences? = null
-    ): SettingsViewModel = createViewModel(mode, securityPrefs, provider = null)
+        securityPrefs: SecurityCheckPreferences? = null,
+        appStatePrefs: AppStatePreferences? = null,
+        batteryExempt: Boolean = false
+    ): SettingsViewModel = createViewModel(
+        mode,
+        securityPrefs,
+        provider = null,
+        appStatePrefs = appStatePrefs,
+        batteryExempt = batteryExempt
+    )
 
     private fun createViewModel(
         mode: PostSessionMode,
         securityPrefs: SecurityCheckPreferences?,
         provider: NotificationSettingsProvider?,
-        spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
+        spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY),
+        appStatePrefs: AppStatePreferences? = null,
+        batteryExempt: Boolean = false
     ): SettingsViewModel {
         val resolvedProvider = provider ?: mockk {
             val s = NotificationSettings(
@@ -366,7 +462,6 @@ class SettingsViewModelTest {
         val themePref = mockk<ThemePreference> {
             every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
         }
-        val appStatePrefs: AppStatePreferences? = null
         return SettingsViewModel(
             resolvedProvider,
             themePref,
@@ -375,6 +470,7 @@ class SettingsViewModelTest {
             emptyList(),
             securityPrefs,
             appStatePrefs,
+            batteryExemptProvider = { batteryExempt },
             spuriousWakesFlow = spuriousWakesFlow
         )
     }

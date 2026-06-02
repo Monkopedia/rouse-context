@@ -21,7 +21,7 @@ class IdleTimeoutTest {
     fun `CONNECTED without prior ACTIVE fires timeout`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -42,7 +42,7 @@ class IdleTimeoutTest {
     fun `timer starts on ACTIVE to CONNECTED transition`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -63,7 +63,7 @@ class IdleTimeoutTest {
     fun `stream arrival cancels timer`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -87,7 +87,7 @@ class IdleTimeoutTest {
     fun `timer restarts when returning to CONNECTED from ACTIVE`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -111,7 +111,7 @@ class IdleTimeoutTest {
     fun `DISCONNECTED cancels timer and resets hasBeenActive`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -139,7 +139,7 @@ class IdleTimeoutTest {
     fun `spurious wake recorded when timeout fires without ACTIVE`() = runTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { },
             recorder = recorder
         )
@@ -162,7 +162,7 @@ class IdleTimeoutTest {
     fun `non-spurious wake only increments total`() = runTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { },
             recorder = recorder
         )
@@ -185,7 +185,7 @@ class IdleTimeoutTest {
     fun `multiple wake cycles accumulate correctly`() = runTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
-            timeoutMillis = 30_000L,
+            timeoutProvider = { 30_000L },
             onTimeout = { },
             recorder = recorder
         )
@@ -216,6 +216,57 @@ class IdleTimeoutTest {
 
         assertEquals(2, recorder.spuriousCount)
         assertEquals(3, recorder.totalCount)
+        job.cancel()
+    }
+
+    @Test
+    fun `disabled provider never arms the timer`() = runTest {
+        val disconnected = CompletableDeferred<Unit>()
+        val manager = IdleTimeoutManager(
+            // null = idle timeout disabled by the user
+            timeoutProvider = { null },
+            onTimeout = { disconnected.complete(Unit) }
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(60 * 60 * 1000L)
+
+        assertFalse(
+            "Timeout must NOT fire when the provider reports disabled (null)",
+            disconnected.isCompleted
+        )
+        assertFalse("timeoutFired flag should stay false", manager.timeoutFired)
+        job.cancel()
+    }
+
+    @Test
+    fun `provider is re-read each cycle so a changed value takes effect`() = runTest {
+        val disconnected = CompletableDeferred<Unit>()
+        var current = 30_000L
+        val manager = IdleTimeoutManager(
+            timeoutProvider = { current },
+            onTimeout = { disconnected.complete(Unit) }
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        // First cycle uses 30s; complete it without firing by going ACTIVE.
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        // User shortens the timeout; the next CONNECTED cycle must honor it.
+        current = 2_000L
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(2_001L)
+
+        assertTrue(
+            "A value changed between cycles must take effect on the next arm",
+            disconnected.isCompleted
+        )
         job.cancel()
     }
 

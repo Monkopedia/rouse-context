@@ -14,6 +14,51 @@ Newest entries on top.
 
 ---
 
+## 2026-06-02 — Wire the dormant Connection settings; "Fix this" opens battery-optimization settings
+
+**Decision:** Make the previously-inert "Connection" settings cluster functional
+(#453): the idle-timeout dropdown now persists and changes the real timeout, the
+"Disable timeout" switch persists and means "no idle timer," the battery-
+optimization warning shows based on real status (not always-on), and its "Fix
+this" button launches the system battery-optimization settings screen
+(`ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`).
+
+**Approved by:** Jason, in-session 2026-06-02 — declared #453 a bug (these
+controls were always meant to work), approved rolling the whole cluster into one
+fix ("you can roll this all into one fix on the existing ticket").
+
+**Context:** The entire Connection settings group was built as UI but never wired
+to the ViewModel/destination: `setIdleTimeout` discarded its argument, the
+disable switch's callback was unwired and gated on a `batteryOptimizationExempt`
+flag that was hardcoded `false`, the battery warning's `showBatteryWarning` was
+hardcoded `true` (so every user saw a permanent, non-actionable warning), and the
+"Fix this" button did nothing. This is restoring intended behavior of shipped
+controls, not adding new surfaces — but it does newly *activate* a system screen,
+hence this entry.
+
+**Alternatives considered:**
+- **Direct exemption dialog** (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) —
+  one-tap allow/deny, but requires the `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`
+  permission, which Google Play restricts to apps whose core function needs it.
+  Rejected to avoid Play-policy risk; the settings-list route needs no permission.
+- **Fix only the dropdown, defer the switch/warning** — smaller, but leaves the
+  permanent false battery warning and a second dead control in place; the cluster
+  is one tangled knot, so splitting it ships a still-broken screen.
+
+**Trade-off accepted:** "Fix this" lands the user on the system battery-
+optimization *list* (they pick the app) rather than a one-tap dialog — an extra
+step, accepted in exchange for needing no Play-restricted permission. Also: with
+the idle timeout disabled, the tunnel stays foregrounded until the 6h `dataSync`
+FGS cap stops it (the #452 path) — the intended semantics of the control.
+
+**Relevant:**
+- Filed by the nightly code-health pass as #453; scope expanded in-session.
+- Battery-opt status read shared via `BatteryOptimization` (lifted from
+  `BugReportUriBuilder`). Idle timeout persisted in `AppStatePreferences`, read
+  dynamically by `IdleTimeoutManager` each wake cycle.
+
+---
+
 ## 2026-05-26 — Surface the FGS-budget notification on run-time timeout, not just at startup
 
 **Decision:** When Android calls `Service.onTimeout()` because the `dataSync`

@@ -38,6 +38,7 @@ import com.rousecontext.app.state.PreferencesSnapshotHolder
 import com.rousecontext.app.state.SecurityAlertGate
 import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
+import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.support.BugReportUriBuilder
 import com.rousecontext.app.support.FirebaseCrashReporter
 import com.rousecontext.app.token.RoomTokenStore
@@ -123,9 +124,6 @@ import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
-
-/** Idle timeout before disconnecting the tunnel after all streams close. */
-private const val IDLE_TIMEOUT_MS = 5 * 60 * 1000L
 
 /** How long to wait for graceful MCP session shutdown before forcing tunnel disconnect. */
 private const val GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000L
@@ -585,8 +583,18 @@ val appModule = module {
         val tunnelClient: TunnelClient = get()
         val mcpSession: McpSession = get()
         val recorder: SpuriousWakeRecorder = get()
+        val appStatePreferences: AppStatePreferences = get()
         IdleTimeoutManager(
-            timeoutMillis = IDLE_TIMEOUT_MS,
+            // Read the user's idle-timeout setting fresh each wake cycle.
+            // Disabled => null => the timer never arms (the service then runs
+            // until the FGS dataSync budget or an FCM idle-stop intervenes).
+            timeoutProvider = {
+                if (appStatePreferences.idleTimeoutDisabled()) {
+                    null
+                } else {
+                    appStatePreferences.idleTimeoutMinutes() * 60_000L
+                }
+            },
             onTimeout = {
                 withTimeoutOrNull(GRACEFUL_SHUTDOWN_TIMEOUT_MS) { mcpSession.shutdown() }
                 tunnelClient.disconnect()
@@ -626,6 +634,7 @@ val appModule = module {
             integrations = get(),
             securityCheckPreferences = get(),
             appStatePreferences = get(),
+            batteryExemptProvider = { BatteryOptimization.isExempt(androidContext()) },
             spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get())
         )
     }

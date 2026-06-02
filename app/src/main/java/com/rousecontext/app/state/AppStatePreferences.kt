@@ -37,6 +37,32 @@ class AppStatePreferences(private val context: Context) {
         }
     }
 
+    suspend fun idleTimeoutMinutes(): Int =
+        dataStore.data.first()[KEY_IDLE_TIMEOUT_MINUTES] ?: DEFAULT_IDLE_TIMEOUT_MINUTES
+
+    fun observeIdleTimeoutMinutes(): Flow<Int> = dataStore.data.map {
+        it[KEY_IDLE_TIMEOUT_MINUTES] ?: DEFAULT_IDLE_TIMEOUT_MINUTES
+    }
+
+    suspend fun setIdleTimeoutMinutes(value: Int) {
+        dataStore.edit { prefs ->
+            prefs[KEY_IDLE_TIMEOUT_MINUTES] = value
+        }
+    }
+
+    suspend fun idleTimeoutDisabled(): Boolean =
+        dataStore.data.first()[KEY_IDLE_TIMEOUT_DISABLED] ?: false
+
+    fun observeIdleTimeoutDisabled(): Flow<Boolean> = dataStore.data.map {
+        it[KEY_IDLE_TIMEOUT_DISABLED] ?: false
+    }
+
+    suspend fun setIdleTimeoutDisabled(value: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_IDLE_TIMEOUT_DISABLED] = value
+        }
+    }
+
     suspend fun hasLaunchedBefore(): Boolean =
         dataStore.data.first()[KEY_HAS_LAUNCHED_BEFORE] ?: false
 
@@ -53,14 +79,21 @@ class AppStatePreferences(private val context: Context) {
         dataStore.edit { prefs ->
             prefs.remove(KEY_SECURITY_CHECK_INTERVAL_HOURS)
             prefs.remove(KEY_HAS_LAUNCHED_BEFORE)
+            prefs.remove(KEY_IDLE_TIMEOUT_MINUTES)
+            prefs.remove(KEY_IDLE_TIMEOUT_DISABLED)
         }
     }
 
     companion object {
         const val DEFAULT_INTERVAL_HOURS = 12
 
+        /** Default idle timeout in minutes. Mirrors the historical `IDLE_TIMEOUT_MS` (5 min). */
+        const val DEFAULT_IDLE_TIMEOUT_MINUTES = 5
+
         private val KEY_SECURITY_CHECK_INTERVAL_HOURS =
             intPreferencesKey("security_check_interval_hours")
         private val KEY_HAS_LAUNCHED_BEFORE = booleanPreferencesKey("has_launched_before")
+        private val KEY_IDLE_TIMEOUT_MINUTES = intPreferencesKey("idle_timeout_minutes")
+        private val KEY_IDLE_TIMEOUT_DISABLED = booleanPreferencesKey("idle_timeout_disabled")
     }
 }
