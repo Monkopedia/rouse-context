@@ -3,7 +3,6 @@ package com.rousecontext.app.support
 import android.content.Context
 import android.net.Uri
 import android.os.Build
-import android.os.PowerManager
 import com.rousecontext.app.BuildConfig
 
 /**
@@ -44,13 +43,7 @@ class BugReportUriBuilder(private val context: Context) {
         append("- App version: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\n")
         append("- Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})\n")
         append("- Device: ${Build.MANUFACTURER} ${Build.MODEL}\n")
-        append("- Battery optimization exempt: ${isIgnoringBatteryOptimizations()}\n")
-    }
-
-    private fun isIgnoringBatteryOptimizations(): Boolean {
-        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            ?: return false
-        return pm.isIgnoringBatteryOptimizations(context.packageName)
+        append("- Battery optimization exempt: ${BatteryOptimization.isExempt(context)}\n")
     }
 
     private fun assemble(title: String, body: String): String = ISSUE_URL_BASE +

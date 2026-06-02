@@ -19,12 +19,15 @@ import kotlinx.coroutines.launch
  * optional [recorder] is notified so the app can track spurious wakes (wake
  * cycles that never reached ACTIVE).
  *
- * @param timeoutMillis How long to wait in CONNECTED state before triggering disconnect.
+ * @param timeoutProvider Supplies the idle timeout in milliseconds, read each
+ *   time the timer arms (on entering CONNECTED) so a user setting change takes
+ *   effect on the next wake cycle without restarting the service. Returning
+ *   `null` means the idle timeout is disabled — the timer is not armed at all.
  * @param onTimeout Called when the idle timeout fires.
  * @param recorder Optional sink for wake-cycle observability.
  */
 class IdleTimeoutManager(
-    private val timeoutMillis: Long,
+    private val timeoutProvider: suspend () -> Long?,
     private val onTimeout: suspend () -> Unit,
     private val recorder: SpuriousWakeRecorder? = null
 ) {
@@ -60,10 +63,16 @@ class IdleTimeoutManager(
                 when (state) {
                     TunnelState.CONNECTED -> {
                         cycleStarted = true
-                        timerJob = launch {
-                            delay(timeoutMillis)
-                            timeoutFired = true
-                            onTimeout()
+                        // Read the timeout fresh each cycle. null = disabled:
+                        // leave the timer unarmed so the tunnel stays up until
+                        // some other stop (FCM idle, FGS budget) intervenes.
+                        val timeoutMillis = timeoutProvider()
+                        if (timeoutMillis != null) {
+                            timerJob = launch {
+                                delay(timeoutMillis)
+                                timeoutFired = true
+                                onTimeout()
+                            }
                         }
                     }
                     TunnelState.ACTIVE -> {

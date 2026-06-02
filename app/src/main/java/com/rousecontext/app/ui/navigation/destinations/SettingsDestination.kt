@@ -9,14 +9,19 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.rousecontext.app.R
+import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.support.BugReportUriBuilder
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
@@ -74,9 +79,25 @@ private fun SettingsDestinationContent() {
     val showAll by viewModel.showAllMcpMessages.collectAsState()
     val bugReportUriBuilder: BugReportUriBuilder = koinInject()
     val settingsContext = LocalContext.current
+    // Re-read battery-optimization status when returning from the system
+    // settings screen the "Fix this" button opens (#453).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner.lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     SettingsContent(
         state = state.copy(showAllMcpMessages = showAll),
         onIdleTimeoutChanged = viewModel::setIdleTimeout,
+        onDisableTimeoutToggled = viewModel::setDisableTimeout,
+        onFixBatteryOptimization = {
+            startActivitySafely(settingsContext, BatteryOptimization.settingsIntent())
+        },
         onPostSessionModeChanged = viewModel::setPostSessionMode,
         onShowAllMcpMessagesChanged = viewModel::setShowAllMcpMessages,
         onThemeModeChanged = viewModel::setThemeMode,
@@ -105,5 +126,18 @@ private fun openUriSafely(context: Context, uri: Uri) {
         context.startActivity(intent)
     } catch (_: ActivityNotFoundException) {
         // No browser available; silently ignore.
+    }
+}
+
+/**
+ * Launch an arbitrary system [Intent], swallowing [ActivityNotFoundException]
+ * for the rare device/ROM that doesn't expose the target screen. Used for the
+ * battery-optimization settings deep-link behind "Fix this".
+ */
+private fun startActivitySafely(context: Context, intent: Intent) {
+    try {
+        context.startActivity(intent.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+    } catch (_: ActivityNotFoundException) {
+        // Settings screen not available on this device; silently ignore.
     }
 }
