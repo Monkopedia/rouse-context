@@ -83,6 +83,8 @@ import com.rousecontext.notifications.create
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.CertspotterCtLogFetcher
+import com.rousecontext.tunnel.CompositeCtLogFetcher
 import com.rousecontext.tunnel.CsrGenerator
 import com.rousecontext.tunnel.CtLogFetcher
 import com.rousecontext.tunnel.CtLogMonitor
@@ -414,7 +416,16 @@ val appModule = module {
     }
 
     // --- Security checks (SecurityCheckWorker dependencies) ---
-    single<CtLogFetcher> { HttpCtLogFetcher() }
+    // crt.sh (primary) flaps with 502/503 for minutes at a time, outlasting
+    // HttpCtLogFetcher's retry window. Certspotter is queried as a fallback so a
+    // crt.sh outage becomes a silent successful check instead of a false
+    // "Could not reach CT log service" warning. See CompositeCtLogFetcher.
+    single<CtLogFetcher> {
+        CompositeCtLogFetcher(
+            primary = HttpCtLogFetcher(),
+            fallback = CertspotterCtLogFetcher()
+        )
+    }
     single {
         CtLogMonitor(
             certificateStore = get(),
