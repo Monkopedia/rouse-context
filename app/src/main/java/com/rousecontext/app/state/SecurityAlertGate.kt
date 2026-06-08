@@ -1,8 +1,6 @@
 package com.rousecontext.app.state
 
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CompletableDeferred
+import com.rousecontext.mcp.core.ReadinessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,8 +34,7 @@ import kotlinx.coroutines.launch
  */
 class SecurityAlertGate(source: Flow<Boolean>, scope: CoroutineScope) {
 
-    private val readyDeferred = CompletableDeferred<Unit>()
-    private val readyLatch = CountDownLatch(1)
+    private val readinessGate = ReadinessGate()
     private val flag = MutableStateFlow(false)
 
     init {
@@ -50,11 +47,8 @@ class SecurityAlertGate(source: Flow<Boolean>, scope: CoroutineScope) {
     }
 
     private fun signalReady() {
-        // Idempotent: subsequent emissions just no-op on the already-completed signals.
-        readyDeferred.complete(Unit)
-        if (readyLatch.count > 0) {
-            readyLatch.countDown()
-        }
+        // Idempotent: subsequent emissions just no-op on the already-ready gate.
+        readinessGate.signalReady()
     }
 
     /**
@@ -62,7 +56,7 @@ class SecurityAlertGate(source: Flow<Boolean>, scope: CoroutineScope) {
      * immediately. After this returns, [isAlerting] reflects the loaded state.
      */
     suspend fun awaitReady() {
-        readyDeferred.await()
+        readinessGate.awaitReady()
     }
 
     /**
@@ -70,8 +64,7 @@ class SecurityAlertGate(source: Flow<Boolean>, scope: CoroutineScope) {
      * signalled within [timeoutMs], `false` otherwise. MUST NOT be called from
      * the main thread.
      */
-    fun awaitReadyBlocking(timeoutMs: Long): Boolean =
-        readyLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+    fun awaitReadyBlocking(timeoutMs: Long): Boolean = readinessGate.awaitReadyBlocking(timeoutMs)
 
     /**
      * Returns the current alert verdict. Suspends until the first emission of
