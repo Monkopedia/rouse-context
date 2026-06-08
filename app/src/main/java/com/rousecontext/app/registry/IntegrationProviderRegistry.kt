@@ -4,9 +4,7 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.ProviderRegistry
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CompletableDeferred
+import com.rousecontext.mcp.core.ReadinessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,8 +45,7 @@ class IntegrationProviderRegistry(
     /** Live snapshot of enabled integration IDs. Exposed for tests and UI. */
     val enabledIds: StateFlow<Set<String>> = _enabledIds.asStateFlow()
 
-    private val readyDeferred = CompletableDeferred<Unit>()
-    private val readyLatch = CountDownLatch(1)
+    private val readinessGate = ReadinessGate()
 
     init {
         val flows = integrations.map { integration ->
@@ -73,11 +70,8 @@ class IntegrationProviderRegistry(
     }
 
     private fun signalReady() {
-        // Idempotent: subsequent emissions just no-op on the already-completed signals.
-        readyDeferred.complete(Unit)
-        if (readyLatch.count > 0) {
-            readyLatch.countDown()
-        }
+        // Idempotent: subsequent emissions just no-op on the already-ready gate.
+        readinessGate.signalReady()
     }
 
     override fun providerForPath(path: String): McpServerProvider? {
@@ -92,9 +86,9 @@ class IntegrationProviderRegistry(
         .toSet()
 
     override suspend fun awaitReady() {
-        readyDeferred.await()
+        readinessGate.awaitReady()
     }
 
     override fun awaitReadyBlocking(timeoutMs: Long): Boolean =
-        readyLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        readinessGate.awaitReadyBlocking(timeoutMs)
 }

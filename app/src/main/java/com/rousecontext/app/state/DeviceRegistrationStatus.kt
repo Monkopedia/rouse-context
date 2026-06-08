@@ -1,8 +1,6 @@
 package com.rousecontext.app.state
 
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CompletableDeferred
+import com.rousecontext.mcp.core.ReadinessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,8 +48,7 @@ class DeviceRegistrationStatus internal constructor(
     private val _complete = MutableStateFlow(initiallyRegistered)
     val complete: StateFlow<Boolean> = _complete.asStateFlow()
 
-    private val readyDeferred = CompletableDeferred<Unit>()
-    private val readyLatch = CountDownLatch(1)
+    private val readinessGate = ReadinessGate()
 
     init {
         if (initiallyReady) {
@@ -64,10 +61,7 @@ class DeviceRegistrationStatus internal constructor(
     }
 
     internal fun signalReady() {
-        readyDeferred.complete(Unit)
-        if (readyLatch.count > 0) {
-            readyLatch.countDown()
-        }
+        readinessGate.signalReady()
     }
 
     /**
@@ -89,15 +83,14 @@ class DeviceRegistrationStatus internal constructor(
      * authoritative on-disk answer (i.e. it is no longer the pre-load default).
      */
     suspend fun awaitReady() {
-        readyDeferred.await()
+        readinessGate.awaitReady()
     }
 
     /**
      * Thread-blocking variant of [awaitReady]. MUST NOT be called from the main
      * thread.
      */
-    fun awaitReadyBlocking(timeoutMs: Long): Boolean =
-        readyLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+    fun awaitReadyBlocking(timeoutMs: Long): Boolean = readinessGate.awaitReadyBlocking(timeoutMs)
 
     companion object {
         /**

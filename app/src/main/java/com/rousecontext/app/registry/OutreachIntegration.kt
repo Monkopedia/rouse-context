@@ -8,9 +8,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.integrations.outreach.OutreachMcpProvider
 import com.rousecontext.mcp.core.McpServerProvider
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import kotlinx.coroutines.CompletableDeferred
+import com.rousecontext.mcp.core.ReadinessGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,7 +29,7 @@ import kotlinx.coroutines.launch
  * holds the `false` default — so a tool call that fired immediately after process
  * spawn would route through the notification fallback even when the user had
  * opted into direct launch. Tool callers go through [isDirectLaunchAllowed], which
- * suspends on [readyDeferred] until the first emission has been collected.
+ * suspends on [awaitReady] until the first emission has been collected.
  */
 class OutreachIntegration(
     private val context: Context,
@@ -55,8 +53,7 @@ class OutreachIntegration(
     private val _directLaunchEnabled = MutableStateFlow(false)
     val directLaunchEnabled: StateFlow<Boolean> = _directLaunchEnabled.asStateFlow()
 
-    private val readyDeferred = CompletableDeferred<Unit>()
-    private val readyLatch = CountDownLatch(1)
+    private val readinessGate = ReadinessGate()
 
     init {
         appScope.launch {
@@ -70,11 +67,8 @@ class OutreachIntegration(
     }
 
     private fun signalReady() {
-        // Idempotent: subsequent emissions just no-op on the already-completed signals.
-        readyDeferred.complete(Unit)
-        if (readyLatch.count > 0) {
-            readyLatch.countDown()
-        }
+        // Idempotent: subsequent emissions just no-op on the already-ready gate.
+        readinessGate.signalReady()
     }
 
     /**
@@ -83,7 +77,7 @@ class OutreachIntegration(
      * [com.rousecontext.mcp.core.ProviderRegistry.awaitReady] shape.
      */
     suspend fun awaitReady() {
-        readyDeferred.await()
+        readinessGate.awaitReady()
     }
 
     /**
@@ -91,8 +85,7 @@ class OutreachIntegration(
      * [com.rousecontext.mcp.core.ProviderRegistry.awaitReadyBlocking];
      * not currently exercised in production but provided for parity.
      */
-    fun awaitReadyBlocking(timeoutMs: Long): Boolean =
-        readyLatch.await(timeoutMs, TimeUnit.MILLISECONDS)
+    fun awaitReadyBlocking(timeoutMs: Long): Boolean = readinessGate.awaitReadyBlocking(timeoutMs)
 
     /**
      * Returns whether direct-activity launch is allowed right now. Suspends
