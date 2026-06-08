@@ -114,19 +114,16 @@ import com.rousecontext.work.SpuriousWakePreferences
 import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
 import com.rousecontext.work.WakelockManager
+import com.rousecontext.work.gracefulTunnelShutdown
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.singleOf
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
-
-/** How long to wait for graceful MCP session shutdown before forcing tunnel disconnect. */
-private const val GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000L
 
 /**
  * crt.sh issuer names that are legitimate for Rouse Context certificates.
@@ -596,8 +593,7 @@ val appModule = module {
                 }
             },
             onTimeout = {
-                withTimeoutOrNull(GRACEFUL_SHUTDOWN_TIMEOUT_MS) { mcpSession.shutdown() }
-                tunnelClient.disconnect()
+                gracefulTunnelShutdown(mcpSession, tunnelClient)
             },
             recorder = recorder
         )

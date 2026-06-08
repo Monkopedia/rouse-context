@@ -31,7 +31,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
 
@@ -315,8 +314,7 @@ class TunnelForegroundService : LifecycleService() {
         reconnectJob?.cancel()
         reconnectJob = null
         lifecycleScope.launch {
-            withTimeoutOrNull(GRACEFUL_SHUTDOWN_TIMEOUT_MS) { mcpSession.shutdown() }
-            tunnelClient.disconnect()
+            gracefulTunnelShutdown(mcpSession, tunnelClient)
         }
         super.onDestroy()
     }
@@ -374,7 +372,6 @@ class TunnelForegroundService : LifecycleService() {
         private const val TAG = "TunnelForegroundService"
         const val NOTIFICATION_ID = 1
 
-        private const val GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000L
         private const val INITIAL_RECONNECT_DELAY_MS = 1_000L
         private const val MAX_RECONNECT_DELAY_MS = 30_000L
         private const val RECONNECT_GIVE_UP_MS = 5 * 60 * 1000L
