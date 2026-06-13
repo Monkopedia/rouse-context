@@ -19,6 +19,41 @@ pub enum FirestoreError {
     Serialization(String),
 }
 
+/// Which push transport the relay uses to wake a device.
+///
+/// `google`-flavor devices use FCM (the wake target is
+/// [`DeviceRecord::fcm_token`]); `foss`-flavor devices use UnifiedPush (the
+/// target is [`DeviceRecord::push_endpoint`], an HTTP POST URL). Defaults to
+/// [`PushKind::Fcm`] so Firestore documents written before this field existed
+/// keep waking via FCM. See issue #463.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PushKind {
+    #[default]
+    Fcm,
+    UnifiedPush,
+}
+
+impl PushKind {
+    /// Wire string used in Firestore documents and the inbound WS control
+    /// message (`"fcm"` / `"unifiedpush"`).
+    pub fn as_wire(&self) -> &'static str {
+        match self {
+            PushKind::Fcm => "fcm",
+            PushKind::UnifiedPush => "unifiedpush",
+        }
+    }
+
+    /// Parse the wire string. Returns `None` for unrecognised values.
+    pub fn from_wire(s: &str) -> Option<PushKind> {
+        match s {
+            "fcm" => Some(PushKind::Fcm),
+            "unifiedpush" => Some(PushKind::UnifiedPush),
+            _ => None,
+        }
+    }
+}
+
 /// A device record stored in `devices/{subdomain}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceRecord {
@@ -44,6 +79,14 @@ pub struct DeviceRecord {
     /// Clients must connect to `{secret_prefix}.{subdomain}.rousecontext.com`.
     /// Deprecated: use `valid_secrets` for new registrations.
     pub secret_prefix: Option<String>,
+    /// Which push transport wakes this device (FCM vs UnifiedPush). Defaults to
+    /// [`PushKind::Fcm`] for legacy/`google` records. See issue #463.
+    #[serde(default)]
+    pub push_kind: PushKind,
+    /// UnifiedPush endpoint URL the relay POSTs wake/renew to (`foss` flavor).
+    /// Empty for FCM devices, which use [`Self::fcm_token`]. See issue #463.
+    #[serde(default)]
+    pub push_endpoint: String,
     /// Flat list of secret strings used by the SNI fast path for membership
     /// checks. Each entry is a valid first-label for the SNI hostname
     /// (e.g. "brave-health"). Authoritative for SNI routing; derived from

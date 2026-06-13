@@ -353,6 +353,14 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
         opt_string_val(&record.secret_prefix),
     );
     fields.insert(
+        "push_kind".to_string(),
+        string_val(record.push_kind.as_wire()),
+    );
+    fields.insert(
+        "push_endpoint".to_string(),
+        string_val(&record.push_endpoint),
+    );
+    fields.insert(
         "valid_secrets".to_string(),
         string_array_val(&record.valid_secrets),
     );
@@ -376,6 +384,12 @@ fn device_record_from_fields(
         last_rotation: read_opt_timestamp(fields, "last_rotation")?,
         renewal_nudge_sent: read_opt_timestamp(fields, "renewal_nudge_sent")?,
         secret_prefix: read_opt_string(fields, "secret_prefix"),
+        // Legacy documents predate push_kind/push_endpoint: a missing or
+        // unrecognised push_kind defaults to FCM, missing endpoint to empty.
+        push_kind: read_opt_string(fields, "push_kind")
+            .and_then(|s| crate::firestore::PushKind::from_wire(&s))
+            .unwrap_or_default(),
+        push_endpoint: read_opt_string(fields, "push_endpoint").unwrap_or_default(),
         valid_secrets: read_string_array(fields, "valid_secrets"),
         integration_secrets: read_string_map(fields, "integration_secrets"),
     })
@@ -903,6 +917,8 @@ mod tests {
             last_rotation: Some(UNIX_EPOCH + Duration::from_secs(1_713_000_000)),
             renewal_nudge_sent: None,
             secret_prefix: Some("brave-falcon".to_string()),
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: vec!["brave-health".to_string(), "swift-outreach".to_string()],
             integration_secrets: std::collections::HashMap::from([
                 ("health".to_string(), "brave-health".to_string()),
@@ -1020,6 +1036,8 @@ mod tests {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
         };
@@ -1044,6 +1062,8 @@ mod tests {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: vec!["brave-health".to_string(), "swift-outreach".to_string()],
             integration_secrets: std::collections::HashMap::from([
                 ("health".to_string(), "brave-health".to_string()),
@@ -1099,6 +1119,8 @@ mod tests {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: vec!["brave-health".to_string()],
             integration_secrets: std::collections::HashMap::new(),
         });
@@ -1108,6 +1130,60 @@ mod tests {
         assert!(back.integration_secrets.is_empty());
         // The SNI path still sees the flat list intact.
         assert_eq!(back.valid_secrets, vec!["brave-health".to_string()]);
+    }
+
+    #[test]
+    fn unifiedpush_device_record_roundtrip() {
+        // A foss device stores push_kind=unifiedpush + an endpoint URL and no
+        // fcm_token; the round-trip must preserve both.
+        let record = DeviceRecord {
+            fcm_token: String::new(),
+            firebase_uid: String::new(),
+            key_thumbprint: Some("thumb-abc".to_string()),
+            public_key: "k".to_string(),
+            cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            push_kind: crate::firestore::PushKind::UnifiedPush,
+            push_endpoint: "https://ntfy.sh/up_abc123".to_string(),
+            valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
+        };
+        let fields = device_record_to_fields(&record);
+        let back = device_record_from_fields(&fields).unwrap();
+        assert_eq!(back.push_kind, crate::firestore::PushKind::UnifiedPush);
+        assert_eq!(back.push_endpoint, "https://ntfy.sh/up_abc123");
+        assert!(back.fcm_token.is_empty());
+    }
+
+    #[test]
+    fn legacy_doc_without_push_fields_defaults_to_fcm() {
+        // A Firestore document written before #463 has neither push_kind nor
+        // push_endpoint. The reader must default push_kind to FCM and the
+        // endpoint to empty, so existing google devices keep waking via FCM.
+        let mut fields = device_record_to_fields(&DeviceRecord {
+            fcm_token: "tok".to_string(),
+            firebase_uid: "u".to_string(),
+            key_thumbprint: None,
+            public_key: "k".to_string(),
+            cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
+            valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
+        });
+        fields.remove("push_kind");
+        fields.remove("push_endpoint");
+        let back = device_record_from_fields(&fields).unwrap();
+        assert_eq!(back.push_kind, crate::firestore::PushKind::Fcm);
+        assert!(back.push_endpoint.is_empty());
+        assert_eq!(back.fcm_token, "tok");
     }
 
     #[test]

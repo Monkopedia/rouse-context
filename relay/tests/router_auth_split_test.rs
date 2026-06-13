@@ -34,6 +34,8 @@ fn make_device() -> DeviceRecord {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: Some("old-secret".to_string()),
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     }

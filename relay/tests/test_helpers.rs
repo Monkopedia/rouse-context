@@ -250,6 +250,49 @@ impl FcmClient for MockFcm {
     }
 }
 
+/// Mock UnifiedPush client that records (endpoint, payload) for each send.
+#[allow(dead_code)]
+pub struct MockUnifiedPush {
+    pub sent: Mutex<Vec<(String, FcmData)>>,
+    pub should_fail: Mutex<bool>,
+}
+
+impl Default for MockUnifiedPush {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(dead_code)]
+impl MockUnifiedPush {
+    pub fn new() -> Self {
+        Self {
+            sent: Mutex::new(Vec::new()),
+            should_fail: Mutex::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl rouse_relay::unifiedpush::UnifiedPushClient for MockUnifiedPush {
+    async fn send_data_message(
+        &self,
+        endpoint: &str,
+        data: &FcmData,
+    ) -> Result<(), rouse_relay::unifiedpush::UnifiedPushError> {
+        if *self.should_fail.lock().unwrap() {
+            return Err(rouse_relay::unifiedpush::UnifiedPushError::Http(
+                "mock failure".to_string(),
+            ));
+        }
+        self.sent
+            .lock()
+            .unwrap()
+            .push((endpoint.to_string(), data.clone()));
+        Ok(())
+    }
+}
+
 /// Mock ACME client that returns a fixed cert.
 #[allow(dead_code)]
 pub struct MockAcme {

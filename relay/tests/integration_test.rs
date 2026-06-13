@@ -29,6 +29,8 @@ fn dummy_device_record() -> DeviceRecord {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     }

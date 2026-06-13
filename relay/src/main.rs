@@ -167,6 +167,13 @@ async fn main() {
 
     let dns: Arc<dyn rouse_relay::dns::DnsClient> = build_dns_client(&config);
 
+    // UnifiedPush sender for `foss`-flavor devices. Unlike FCM it needs no
+    // service account — wake/renew is a plain HTTP POST to the device's stored
+    // endpoint URL — so it's always wired. Routing per device's push_kind
+    // happens in `push::dispatch_push` (passthrough wake + maintenance nudge).
+    let unifiedpush: Arc<dyn rouse_relay::unifiedpush::UnifiedPushClient> =
+        Arc::new(rouse_relay::unifiedpush::RealUnifiedPushClient::new());
+
     let request_subdomain_limiter_cfg = rouse_relay::rate_limit::RateLimitConfig {
         max_tokens: config.limits.request_subdomain_rate_burst,
         refill_interval: Duration::from_secs(config.limits.request_subdomain_rate_refill_secs),
@@ -224,6 +231,7 @@ async fn main() {
         maint_config,
         firestore.clone(),
         fcm.clone(),
+        unifiedpush.clone(),
         acme.clone(),
         dns,
         maint_shutdown,
@@ -299,6 +307,7 @@ async fn main() {
                     relay_state: relay_state.clone(),
                     firestore: firestore.clone(),
                     fcm: fcm.clone(),
+                    unifiedpush: unifiedpush.clone(),
                     fcm_timeout,
                     fcm_wake_throttle: fcm_wake_throttle.clone(),
                     conn_rate_limiter: conn_rate_limiter.clone(),
@@ -347,6 +356,7 @@ struct ConnectionContext {
     relay_state: Arc<RelayState>,
     firestore: Arc<dyn rouse_relay::firestore::FirestoreClient>,
     fcm: Arc<dyn rouse_relay::fcm::FcmClient>,
+    unifiedpush: Arc<dyn rouse_relay::unifiedpush::UnifiedPushClient>,
     fcm_timeout: Duration,
     fcm_wake_throttle: Arc<FcmWakeThrottle>,
     conn_rate_limiter: Arc<ConnectionRateLimiter>,
@@ -444,6 +454,7 @@ async fn handle_connection(
                 session_registry: ctx.session_registry,
                 firestore: ctx.firestore,
                 fcm: ctx.fcm,
+                unifiedpush: ctx.unifiedpush,
                 relay_hostname: ctx.relay_hostname,
                 fcm_wakeup_timeout: ctx.fcm_timeout,
                 fcm_wake_throttle: ctx.fcm_wake_throttle,

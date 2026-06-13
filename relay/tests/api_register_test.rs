@@ -202,6 +202,81 @@ async fn register_missing_fcm_token_returns_400() {
 }
 
 #[tokio::test]
+async fn register_with_push_endpoint_no_fcm_token_succeeds_and_stores_unifiedpush() {
+    // A foss device has no FCM token; it registers with a UnifiedPush endpoint
+    // instead. The relay must accept it and store push_kind=unifiedpush + the
+    // endpoint (closing the #469/#470 gap).
+    let firestore = Arc::new(MockFirestore::new());
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-up");
+
+    let state = build_test_state(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token",
+                "push_endpoint": "https://ntfy.sh/up_abc123"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let subdomain = json["subdomain"].as_str().unwrap().to_string();
+
+    let devices = firestore.devices.lock().unwrap();
+    let stored = devices
+        .get(&subdomain)
+        .expect("device missing in firestore");
+    assert_eq!(
+        stored.push_kind,
+        rouse_relay::firestore::PushKind::UnifiedPush
+    );
+    assert_eq!(stored.push_endpoint, "https://ntfy.sh/up_abc123");
+    assert!(stored.fcm_token.is_empty());
+}
+
+#[tokio::test]
+async fn register_with_neither_fcm_token_nor_push_endpoint_returns_400() {
+    let firestore = MockFirestore::new();
+    let acme = MockAcme::new("test-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-123");
+
+    let app = make_app(firestore, acme, auth);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "firebase_token": "valid-token"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
 async fn re_register_without_signature_returns_403() {
     // Pre-populate a device for uid-123
     let existing_record = DeviceRecord {
@@ -214,6 +289,8 @@ async fn re_register_without_signature_returns_403() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -273,6 +350,8 @@ async fn force_new_within_cooldown_returns_429() {
         last_rotation: Some(SystemTime::now()), // just rotated
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -334,6 +413,8 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -395,6 +476,8 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
         last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)), // 31 days ago
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -472,6 +555,8 @@ async fn force_new_deletes_old_dns_records() {
         last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)),
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -539,6 +624,8 @@ async fn force_new_succeeds_even_if_dns_cleanup_fails() {
         last_rotation: Some(SystemTime::now() - Duration::from_secs(31 * 86400)),
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -606,6 +693,8 @@ async fn re_register_same_subdomain_does_not_delete_dns() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -726,6 +815,8 @@ fn existing_record_with_pub_key(uid: &str, pub_key_b64: String) -> DeviceRecord 
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     }
@@ -745,6 +836,8 @@ async fn register_certs_fresh_registration_without_signature_succeeds() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -919,6 +1012,8 @@ async fn register_certs_rejects_csr_with_tampered_self_signature() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };

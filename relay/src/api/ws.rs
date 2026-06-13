@@ -137,6 +137,8 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
         };
@@ -336,16 +338,83 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
 struct ControlMessage {
     #[serde(rename = "type")]
     msg_type: String,
-    /// FCM registration token (present when msg_type == "fcm_token").
+    /// FCM registration token (legacy shape: `msg_type == "fcm_token"`).
     #[serde(default)]
     token: String,
+    /// Push transport (generalized shape: `msg_type == "push_endpoint"`),
+    /// `"fcm"` or `"unifiedpush"`.
+    #[serde(default)]
+    kind: String,
+    /// Push target value (generalized shape): an FCM token or a UnifiedPush
+    /// endpoint URL, per [`Self::kind`].
+    #[serde(default)]
+    value: String,
+}
+
+/// Parse a control message into a `(push_kind, target_value)` update, or `None`
+/// if it is not a (well-formed) push update.
+///
+/// Accepts two shapes:
+/// - legacy `{"type":"fcm_token","token":"..."}` → `(Fcm, token)`
+/// - generalized `{"type":"push_endpoint","kind":"fcm"|"unifiedpush","value":"..."}`
+///   → `(kind, value)`
+fn parse_push_update(msg: &ControlMessage) -> Option<(crate::firestore::PushKind, String)> {
+    use crate::firestore::PushKind;
+    match msg.msg_type.as_str() {
+        "fcm_token" => {
+            if msg.token.is_empty() {
+                None
+            } else {
+                Some((PushKind::Fcm, msg.token.clone()))
+            }
+        }
+        "push_endpoint" => {
+            if msg.value.is_empty() {
+                return None;
+            }
+            let kind = PushKind::from_wire(&msg.kind)?;
+            // Validate UnifiedPush endpoint URLs to prevent SSRF — the relay
+            // POSTs to this address on every wake/renew, so we must not accept
+            // loopback, link-local, RFC1918, or non-https URLs. FCM tokens are
+            // opaque strings (not URLs) and are not validated here.
+            if kind == PushKind::UnifiedPush {
+                crate::unifiedpush::validate_push_endpoint(&msg.value).ok()?;
+            }
+            Some((kind, msg.value.clone()))
+        }
+        _ => None,
+    }
+}
+
+/// Apply a parsed push update to a device record. Sets `push_kind` and the
+/// matching target field, clearing the opposite so routing has a clean
+/// discriminator.
+fn apply_push_update(
+    record: &mut crate::firestore::DeviceRecord,
+    push_kind: crate::firestore::PushKind,
+    value: String,
+) {
+    use crate::firestore::PushKind;
+    record.push_kind = push_kind;
+    match push_kind {
+        PushKind::Fcm => {
+            record.fcm_token = value;
+            record.push_endpoint = String::new();
+        }
+        PushKind::UnifiedPush => {
+            record.push_endpoint = value;
+            record.fcm_token = String::new();
+        }
+    }
 }
 
 /// Handle a text WebSocket message as a control-plane command.
 ///
-/// Currently supported:
-/// - `{"type":"fcm_token","token":"..."}` -- updates the device's FCM token
-///   in Firestore so the relay can wake it after a restart.
+/// Supported (both update the device's stored push target in Firestore so the
+/// relay can wake it after a restart):
+/// - `{"type":"fcm_token","token":"..."}` (legacy, `google` flavor)
+/// - `{"type":"push_endpoint","kind":"fcm"|"unifiedpush","value":"..."}`
+///   (generalized; carries the push kind + target)
 async fn handle_control_message(
     subdomain: &str,
     text: &str,
@@ -359,33 +428,40 @@ async fn handle_control_message(
         }
     };
 
-    match msg.msg_type.as_str() {
-        "fcm_token" => {
-            if msg.token.is_empty() {
-                warn!(subdomain = %subdomain, "Received empty FCM token, ignoring");
-                return;
+    let (push_kind, value) = match parse_push_update(&msg) {
+        Some(update) => update,
+        None => {
+            match msg.msg_type.as_str() {
+                "fcm_token" | "push_endpoint" => {
+                    warn!(subdomain = %subdomain, msg_type = %msg.msg_type, "Ignoring malformed push update");
+                }
+                other => {
+                    debug!(subdomain = %subdomain, msg_type = %other, "Unknown control message type");
+                }
             }
-            // Update the existing Firestore record's FCM token
-            match firestore.get_device(subdomain).await {
-                Ok(mut record) => {
-                    record.fcm_token = msg.token.clone();
-                    if let Err(e) = firestore.put_device(subdomain, &record).await {
-                        error!(subdomain = %subdomain, error = %e, "Failed to update FCM token");
-                    } else {
-                        info!(subdomain = %subdomain, "FCM token updated from device control message");
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        subdomain = %subdomain,
-                        error = %e,
-                        "No Firestore record to update FCM token on"
-                    );
-                }
+            return;
+        }
+    };
+
+    match firestore.get_device(subdomain).await {
+        Ok(mut record) => {
+            apply_push_update(&mut record, push_kind, value);
+            if let Err(e) = firestore.put_device(subdomain, &record).await {
+                error!(subdomain = %subdomain, error = %e, "Failed to update push target");
+            } else {
+                info!(
+                    subdomain = %subdomain,
+                    push_kind = push_kind.as_wire(),
+                    "Push target updated from device control message"
+                );
             }
         }
-        other => {
-            debug!(subdomain = %subdomain, msg_type = %other, "Unknown control message type");
+        Err(e) => {
+            warn!(
+                subdomain = %subdomain,
+                error = %e,
+                "No Firestore record to update push target on"
+            );
         }
     }
 }
@@ -449,6 +525,114 @@ async fn run_session_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::firestore::PushKind;
+
+    fn control(json: &str) -> ControlMessage {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn parse_legacy_fcm_token_shape() {
+        let msg = control(r#"{"type":"fcm_token","token":"abc"}"#);
+        assert_eq!(
+            parse_push_update(&msg),
+            Some((PushKind::Fcm, "abc".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_legacy_fcm_token_empty_is_none() {
+        let msg = control(r#"{"type":"fcm_token","token":""}"#);
+        assert_eq!(parse_push_update(&msg), None);
+    }
+
+    #[test]
+    fn parse_push_endpoint_fcm() {
+        let msg = control(r#"{"type":"push_endpoint","kind":"fcm","value":"tok"}"#);
+        assert_eq!(
+            parse_push_update(&msg),
+            Some((PushKind::Fcm, "tok".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_push_endpoint_unifiedpush() {
+        let msg =
+            control(r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://ntfy.sh/x"}"#);
+        assert_eq!(
+            parse_push_update(&msg),
+            Some((PushKind::UnifiedPush, "https://ntfy.sh/x".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_push_endpoint_bad_kind_is_none() {
+        let msg = control(r#"{"type":"push_endpoint","kind":"carrier-pigeon","value":"x"}"#);
+        assert_eq!(parse_push_update(&msg), None);
+    }
+
+    #[test]
+    fn parse_push_endpoint_ssrf_targets_rejected() {
+        // Non-https and internal-range endpoints must be rejected — the relay
+        // POSTs to device-supplied URLs and must not be weaponised as an SSRF
+        // proxy. FCM tokens (kind="fcm") are opaque strings, not URLs, and are
+        // not subject to URL validation.
+        for bad in &[
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"http://ntfy.sh/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://169.254.169.254/metadata"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://127.0.0.1/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://10.0.0.1/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://192.168.1.1/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://metadata.google.internal/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://localhost/x"}"#,
+        ] {
+            let msg = control(bad);
+            assert_eq!(
+                parse_push_update(&msg),
+                None,
+                "expected rejection for: {bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_push_endpoint_empty_value_is_none() {
+        let msg = control(r#"{"type":"push_endpoint","kind":"unifiedpush","value":""}"#);
+        assert_eq!(parse_push_update(&msg), None);
+    }
+
+    #[test]
+    fn parse_unknown_type_is_none() {
+        let msg = control(r#"{"type":"something_else"}"#);
+        assert_eq!(parse_push_update(&msg), None);
+    }
+
+    #[test]
+    fn apply_unifiedpush_sets_endpoint_and_clears_fcm_token() {
+        let mut record = crate::firestore::DeviceRecord {
+            fcm_token: "old-fcm".to_string(),
+            firebase_uid: "u".to_string(),
+            key_thumbprint: None,
+            public_key: String::new(),
+            cert_expires: std::time::SystemTime::UNIX_EPOCH,
+            registered_at: std::time::SystemTime::now(),
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            push_kind: PushKind::Fcm,
+            push_endpoint: String::new(),
+            valid_secrets: Vec::new(),
+            integration_secrets: std::collections::HashMap::new(),
+        };
+        apply_push_update(
+            &mut record,
+            PushKind::UnifiedPush,
+            "https://ntfy.sh/x".to_string(),
+        );
+        assert_eq!(record.push_kind, PushKind::UnifiedPush);
+        assert_eq!(record.push_endpoint, "https://ntfy.sh/x");
+        assert!(record.fcm_token.is_empty());
+    }
     use crate::api::{self, AppState};
     use crate::config::RelayConfig;
     use crate::passthrough::SessionRegistry;
@@ -477,6 +661,8 @@ mod tests {
                     last_rotation: None,
                     renewal_nudge_sent: None,
                     secret_prefix: None,
+                    push_kind: Default::default(),
+                    push_endpoint: String::new(),
                     valid_secrets: Vec::new(),
                     integration_secrets: std::collections::HashMap::new(),
                 })

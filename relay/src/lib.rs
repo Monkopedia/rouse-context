@@ -15,6 +15,7 @@ pub mod keypair_auth;
 pub mod maintenance;
 pub mod mux;
 pub mod passthrough;
+pub mod push;
 pub mod rate_limit;
 pub mod router;
 pub mod shutdown;
@@ -24,4 +25,5 @@ pub mod subdomain;
 #[cfg(feature = "test-mode")]
 pub mod test_mode;
 pub mod tls;
+pub mod unifiedpush;
 pub mod words;

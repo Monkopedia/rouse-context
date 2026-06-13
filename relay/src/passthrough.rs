@@ -15,8 +15,10 @@ use crate::fcm::{self, FcmClient};
 use crate::firestore::FirestoreClient;
 use crate::mux::frame::{Frame, FrameType};
 use crate::mux::lifecycle::{MuxHandle, StreamHandle};
+use crate::push;
 use crate::rate_limit::FcmWakeThrottle;
 use crate::state::RelayState;
+use crate::unifiedpush::UnifiedPushClient;
 use dashmap::DashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -236,6 +238,9 @@ pub struct PassthroughContext {
     pub session_registry: Arc<SessionRegistry>,
     pub firestore: Arc<dyn FirestoreClient>,
     pub fcm: Arc<dyn FcmClient>,
+    /// UnifiedPush sender for `foss`-flavor devices; the wake is routed to FCM
+    /// or UnifiedPush per the device's `push_kind`. See issue #463.
+    pub unifiedpush: Arc<dyn UnifiedPushClient>,
     pub relay_hostname: String,
     pub fcm_wakeup_timeout: Duration,
     pub fcm_wake_throttle: Arc<FcmWakeThrottle>,
@@ -334,10 +339,18 @@ pub async fn resolve_device_stream(
             })?;
 
         let payload = fcm::wake_payload();
-        ctx.fcm
-            .send_data_message(&device.fcm_token, &payload, true)
-            .await
-            .map_err(|e| PassthroughError::FcmFailed(e.to_string()))?;
+        // Route the wake by the device's push_kind: FCM (google) or UnifiedPush
+        // (foss). Throttle/retry behavior is unchanged — this only swaps the
+        // transport behind the existing wake gate.
+        push::dispatch_push(
+            &device,
+            ctx.fcm.as_ref(),
+            ctx.unifiedpush.as_ref(),
+            &payload,
+            true,
+        )
+        .await
+        .map_err(|e| PassthroughError::FcmFailed(e.to_string()))?;
     } else {
         debug!(subdomain, "FCM wake throttled, waiting for existing wake");
     }
