@@ -319,6 +319,7 @@ mod tests {
         DeviceRecord {
             fcm_token: "tok".to_string(),
             firebase_uid: "uid".to_string(),
+            key_thumbprint: None,
             public_key: "key".to_string(),
             cert_expires,
             registered_at,
@@ -366,6 +367,12 @@ mod tests {
         async fn find_device_by_uid(
             &self,
             _uid: &str,
+        ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
+            Ok(None)
+        }
+        async fn find_device_by_thumbprint(
+            &self,
+            _thumbprint: &str,
         ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
             Ok(None)
         }
@@ -553,6 +560,7 @@ mod tests {
         let record = DeviceRecord {
             fcm_token: "tok".to_string(),
             firebase_uid: "uid".to_string(),
+            key_thumbprint: None,
             public_key: "key".to_string(),
             cert_expires: now + Duration::from_secs(86400 * 90),
             registered_at: future_time,

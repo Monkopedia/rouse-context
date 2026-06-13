@@ -236,6 +236,7 @@ async fn fcm_sent_when_device_offline() {
     let device_record = rouse_relay::firestore::DeviceRecord {
         fcm_token: "fcm-token-123".to_string(),
         firebase_uid: "uid-1".to_string(),
+        key_thumbprint: None,
         public_key: "key".to_string(),
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -282,6 +283,7 @@ async fn fcm_timeout_returns_error() {
     let device_record = rouse_relay::firestore::DeviceRecord {
         fcm_token: "token".to_string(),
         firebase_uid: "uid".to_string(),
+        key_thumbprint: None,
         public_key: "key".to_string(),
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -335,6 +337,7 @@ async fn cold_client_fcm_then_device_connects() {
     let device_record = rouse_relay::firestore::DeviceRecord {
         fcm_token: "fcm-cold".to_string(),
         firebase_uid: "uid".to_string(),
+        key_thumbprint: None,
         public_key: "key".to_string(),
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -658,6 +661,7 @@ fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
     rouse_relay::firestore::DeviceRecord {
         fcm_token: fcm_token.to_string(),
         firebase_uid: "uid".to_string(),
+        key_thumbprint: None,
         public_key: "key".to_string(),
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),

@@ -10,6 +10,7 @@ import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertProvisioningResult
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import com.rousecontext.tunnel.UpdateSecretsResponse
@@ -67,7 +68,8 @@ class IntegrationSetupViewModelTest {
             coEvery { isUserEnabled(any()) } returns false
         }
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+            coEvery { execute(any<DeviceCredential>()) } returns
+                CertProvisioningResult.AlreadyProvisioned
         }
         val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -97,7 +99,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         vm.state.test {
@@ -124,7 +126,8 @@ class IntegrationSetupViewModelTest {
                 coEvery { isUserEnabled("usage") } returns true
             }
             val certProvisioningFlow = mockk<CertProvisioningFlow> {
-                coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+                coEvery { execute(any<DeviceCredential>()) } returns
+                    CertProvisioningResult.AlreadyProvisioned
             }
             val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
             val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -156,7 +159,7 @@ class IntegrationSetupViewModelTest {
                 relayApiClient = relayApiClient,
                 certStore = certStore,
                 integrationIds = listOf("health", "usage"),
-                firebaseTokenProvider = { "test-firebase-token" }
+                credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
             )
 
             vm.startSetup("usage")
@@ -183,7 +186,8 @@ class IntegrationSetupViewModelTest {
     fun `updateSecrets network error - retries 3 times then fails`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true)
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+            coEvery { execute(any<DeviceCredential>()) } returns
+                CertProvisioningResult.AlreadyProvisioned
         }
         val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -205,7 +209,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         vm.startSetup("usage")
@@ -227,7 +231,8 @@ class IntegrationSetupViewModelTest {
     fun `updateSecrets relay error - retries then fails`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true)
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+            coEvery { execute(any<DeviceCredential>()) } returns
+                CertProvisioningResult.AlreadyProvisioned
         }
         val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -249,7 +254,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         vm.startSetup("usage")
@@ -271,7 +276,8 @@ class IntegrationSetupViewModelTest {
         runTest(testDispatcher) {
             val stateStore = mockk<IntegrationStateStore>(relaxed = true)
             val certProvisioningFlow = mockk<CertProvisioningFlow> {
-                coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+                coEvery { execute(any<DeviceCredential>()) } returns
+                    CertProvisioningResult.AlreadyProvisioned
             }
             val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
             val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -309,7 +315,7 @@ class IntegrationSetupViewModelTest {
                 relayApiClient = relayApiClient,
                 certStore = certStore,
                 integrationIds = listOf("health", "usage"),
-                firebaseTokenProvider = { "test-firebase-token" }
+                credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
             )
 
             vm.startSetup("usage")
@@ -320,7 +326,7 @@ class IntegrationSetupViewModelTest {
 
             // After initial failure, cert flow called once.
             assertTrue(vm.state.value is IntegrationSetupState.Failed)
-            coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
+            coVerify(exactly = 1) { certProvisioningFlow.execute(any<DeviceCredential>()) }
             coVerify(exactly = 3) { relayApiClient.updateSecrets(any(), any()) }
 
             vm.retry()
@@ -331,14 +337,15 @@ class IntegrationSetupViewModelTest {
 
             assertEquals(IntegrationSetupState.Complete, vm.state.value)
             // Cert provisioning NOT called a second time — retry skipped it.
-            coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
+            coVerify(exactly = 1) { certProvisioningFlow.execute(any<DeviceCredential>()) }
         }
 
     @Test
     fun `retry after push failure still failing leaves state Failed`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true)
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+            coEvery { execute(any<DeviceCredential>()) } returns
+                CertProvisioningResult.AlreadyProvisioned
         }
         val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -360,7 +367,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         vm.startSetup("usage")
@@ -384,7 +391,7 @@ class IntegrationSetupViewModelTest {
         // Initial push: 3 attempts. Retry push: 3 more attempts.
         coVerify(exactly = 6) { relayApiClient.updateSecrets(any(), any()) }
         // Cert flow still only called once — retry skipped it.
-        coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
+        coVerify(exactly = 1) { certProvisioningFlow.execute(any<DeviceCredential>()) }
     }
 
     @Test
@@ -392,7 +399,7 @@ class IntegrationSetupViewModelTest {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true)
         var certAttempt = 0
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } answers {
+            coEvery { execute(any<DeviceCredential>()) } answers {
                 certAttempt++
                 if (certAttempt == 1) {
                     CertProvisioningResult.NetworkError(RuntimeException("no net"))
@@ -429,7 +436,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         vm.startSetup("usage")
@@ -439,7 +446,7 @@ class IntegrationSetupViewModelTest {
             "Expected Failed after cert provisioning error, got ${vm.state.value}",
             vm.state.value is IntegrationSetupState.Failed
         )
-        coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
+        coVerify(exactly = 1) { certProvisioningFlow.execute(any<DeviceCredential>()) }
         coVerify(exactly = 0) { relayApiClient.updateSecrets(any(), any()) }
 
         vm.retry()
@@ -447,7 +454,7 @@ class IntegrationSetupViewModelTest {
 
         assertEquals(IntegrationSetupState.Complete, vm.state.value)
         // Retry ran the full flow — cert provisioning executed a second time.
-        coVerify(exactly = 2) { certProvisioningFlow.execute(any()) }
+        coVerify(exactly = 2) { certProvisioningFlow.execute(any<DeviceCredential>()) }
         coVerify(exactly = 1) { relayApiClient.updateSecrets(any(), any()) }
     }
 
@@ -468,7 +475,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         // State is Idle — retry should do nothing.
@@ -476,7 +483,7 @@ class IntegrationSetupViewModelTest {
         advanceUntilIdle()
 
         assertEquals(IntegrationSetupState.Idle, vm.state.value)
-        coVerify(exactly = 0) { certProvisioningFlow.execute(any()) }
+        coVerify(exactly = 0) { certProvisioningFlow.execute(any<DeviceCredential>()) }
         coVerify(exactly = 0) { relayApiClient.updateSecrets(any(), any()) }
     }
 
@@ -492,7 +499,7 @@ class IntegrationSetupViewModelTest {
             val stateStore = mockk<IntegrationStateStore>(relaxed = true)
             val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
             val certProvisioningFlow = mockk<CertProvisioningFlow> {
-                coEvery { execute(any()) } coAnswers {
+                coEvery { execute(any<DeviceCredential>()) } coAnswers {
                     // Suspend so the second startSetup call arrives while the
                     // first is still in flight, reproducing the recomposition
                     // race.
@@ -525,7 +532,7 @@ class IntegrationSetupViewModelTest {
                 relayApiClient = relayApiClient,
                 certStore = certStore,
                 integrationIds = listOf("health"),
-                firebaseTokenProvider = { "test-firebase-token" }
+                credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
             )
 
             vm.startSetup("health")
@@ -545,7 +552,7 @@ class IntegrationSetupViewModelTest {
             advanceUntilIdle()
 
             assertEquals(IntegrationSetupState.Complete, vm.state.value)
-            coVerify(exactly = 1) { certProvisioningFlow.execute(any()) }
+            coVerify(exactly = 1) { certProvisioningFlow.execute(any<DeviceCredential>()) }
         }
 
     @Test
@@ -652,7 +659,8 @@ class IntegrationSetupViewModelTest {
             )
         }
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+            coEvery { execute(any<DeviceCredential>()) } returns
+                CertProvisioningResult.AlreadyProvisioned
         }
         return IntegrationSetupViewModel(
             stateStore = mockk(relaxed = true),
@@ -662,7 +670,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
     }
 
@@ -670,7 +678,8 @@ class IntegrationSetupViewModelTest {
     fun `updateSecrets succeeds on second attempt`() = runTest(testDispatcher) {
         val stateStore = mockk<IntegrationStateStore>(relaxed = true)
         val certProvisioningFlow = mockk<CertProvisioningFlow> {
-            coEvery { execute(any()) } returns CertProvisioningResult.AlreadyProvisioned
+            coEvery { execute(any<DeviceCredential>()) } returns
+                CertProvisioningResult.AlreadyProvisioned
         }
         val webSocketFactory = mockk<LazyWebSocketFactory>(relaxed = true)
         val registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true)
@@ -707,7 +716,7 @@ class IntegrationSetupViewModelTest {
             relayApiClient = relayApiClient,
             certStore = certStore,
             integrationIds = listOf("health", "usage"),
-            firebaseTokenProvider = { "test-firebase-token" }
+            credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
         )
 
         vm.startSetup("usage")

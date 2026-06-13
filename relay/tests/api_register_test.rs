@@ -207,6 +207,7 @@ async fn re_register_without_signature_returns_403() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: BASE64.encode(b"old-pubkey"),
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -265,6 +266,7 @@ async fn force_new_within_cooldown_returns_429() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -325,6 +327,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -385,6 +388,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now() - Duration::from_secs(60 * 86400),
@@ -461,6 +465,7 @@ async fn force_new_deletes_old_dns_records() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now() - Duration::from_secs(60 * 86400),
@@ -527,6 +532,7 @@ async fn force_new_succeeds_even_if_dns_cleanup_fails() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now() - Duration::from_secs(60 * 86400),
@@ -593,6 +599,7 @@ async fn re_register_same_subdomain_does_not_delete_dns() {
     let existing_record = DeviceRecord {
         fcm_token: "old-token".to_string(),
         firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -712,6 +719,7 @@ fn existing_record_with_pub_key(uid: &str, pub_key_b64: String) -> DeviceRecord 
     DeviceRecord {
         fcm_token: "old-fcm".to_string(),
         firebase_uid: uid.to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -730,6 +738,7 @@ async fn register_certs_fresh_registration_without_signature_succeeds() {
     let existing = DeviceRecord {
         fcm_token: "fcm".to_string(),
         firebase_uid: "uid-fresh".to_string(),
+        key_thumbprint: None,
         public_key: String::new(), // round 1 leaves this empty
         cert_expires: SystemTime::UNIX_EPOCH,
         registered_at: SystemTime::now(),
@@ -903,6 +912,7 @@ async fn register_certs_rejects_csr_with_tampered_self_signature() {
     let existing = DeviceRecord {
         fcm_token: "fcm".to_string(),
         firebase_uid: "uid-tamper".to_string(),
+        key_thumbprint: None,
         public_key: String::new(),
         cert_expires: SystemTime::UNIX_EPOCH,
         registered_at: SystemTime::now(),
@@ -1115,4 +1125,231 @@ async fn register_with_expired_reservation_generates_new_subdomain() {
 
     // Device stored under the generated subdomain.
     assert!(firestore.devices.lock().unwrap().contains_key(subdomain));
+}
+
+// ── Keypair-auth registration (foss flavor, issue #462) ──────────────
+
+/// Base64 SPKI DER of a p256 signing key's public key.
+fn spki_b64(key: &p256::ecdsa::SigningKey) -> String {
+    use p256::pkcs8::EncodePublicKey;
+    BASE64.encode(key.verifying_key().to_public_key_der().unwrap().as_bytes())
+}
+
+/// Sign a keypair registration proof (`PURPOSE_REGISTER`).
+fn sign_register_proof(key: &p256::ecdsa::SigningKey, ts: i64, nonce: &str) -> String {
+    use p256::ecdsa::{signature::Signer, Signature};
+    let msg = rouse_relay::keypair_auth::canonical_message(
+        rouse_relay::keypair_auth::PURPOSE_REGISTER,
+        ts,
+        nonce,
+    );
+    let sig: Signature = key.sign(&msg);
+    BASE64.encode(sig.to_der().as_bytes())
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+#[tokio::test]
+async fn register_keypair_path_keys_device_on_thumbprint() {
+    let key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let firestore = Arc::new(MockFirestore::new());
+    let acme = MockAcme::new("cert");
+    // No Firebase token provided anywhere.
+    let auth = MockFirebaseAuth::new();
+    let state = build_test_state(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(acme),
+        Arc::new(auth),
+    );
+    let app = build_router(state);
+
+    let ts = unix_now();
+    let proof = sign_register_proof(&key, ts, "reg-nonce-1");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "fcm_token": "device-fcm",
+                "public_key": spki_b64(&key),
+                "auth_timestamp": ts,
+                "auth_nonce": "reg-nonce-1",
+                "auth_signature": proof
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200, "keypair registration should succeed");
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let subdomain = json["subdomain"].as_str().unwrap().to_string();
+
+    let devices = firestore.devices.lock().unwrap();
+    let rec = devices.get(&subdomain).expect("device stored");
+    assert!(rec.firebase_uid.is_empty(), "keypair device has no UID");
+    let expected_tp = {
+        use p256::pkcs8::EncodePublicKey;
+        let spki = key.verifying_key().to_public_key_der().unwrap();
+        rouse_relay::keypair_auth::thumbprint(spki.as_bytes())
+    };
+    assert_eq!(rec.key_thumbprint.as_deref(), Some(expected_tp.as_str()));
+}
+
+#[tokio::test]
+async fn register_keypair_path_bad_signature_returns_403() {
+    let key = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let other = p256::ecdsa::SigningKey::random(&mut rand::thread_rng());
+    let firestore = Arc::new(MockFirestore::new());
+    let state = build_test_state(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(MockAcme::new("cert")),
+        Arc::new(MockFirebaseAuth::new()),
+    );
+    let app = build_router(state);
+
+    let ts = unix_now();
+    // Proof signed by `other`, but `key`'s public key supplied.
+    let proof = sign_register_proof(&other, ts, "reg-nonce-2");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "fcm_token": "device-fcm",
+                "public_key": spki_b64(&key),
+                "auth_timestamp": ts,
+                "auth_nonce": "reg-nonce-2",
+                "auth_signature": proof
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 403);
+}
+
+#[tokio::test]
+async fn register_no_auth_returns_400() {
+    let state = build_test_state(
+        Arc::new(MockFirestore::new()),
+        Arc::new(MockFcm::new()),
+        Arc::new(MockAcme::new("cert")),
+        Arc::new(MockFirebaseAuth::new()),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "fcm_token": "device-fcm" }).to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 400);
+}
+
+#[tokio::test]
+async fn register_certs_keypair_unknown_thumbprint_returns_404() {
+    let (csr_der, _key) = generate_test_csr("nobody.rousecontext.com");
+    let firestore = Arc::new(MockFirestore::new());
+    let state = build_test_state_with_ca(
+        firestore,
+        Arc::new(MockFcm::new()),
+        Arc::new(MockAcme::new("cert")),
+        Arc::new(MockFirebaseAuth::new()),
+    );
+    let app = build_router(state);
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "csr": BASE64.encode(&csr_der) }).to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn register_then_certs_keypair_end_to_end_binds_key() {
+    // Single device key used for both the registration proof and the CSR, so
+    // the round-2 thumbprint lookup resolves to the round-1 record.
+    let (csr_der, key) = generate_test_csr("e2e.rousecontext.com");
+    let firestore = Arc::new(MockFirestore::new());
+    let state = build_test_state_with_ca(
+        firestore.clone(),
+        Arc::new(MockFcm::new()),
+        Arc::new(MockAcme::new("e2e-cert")),
+        Arc::new(MockFirebaseAuth::new()),
+    );
+
+    // Round 1: register with a keypair proof.
+    let ts = unix_now();
+    let proof = sign_register_proof(&key, ts, "e2e-nonce");
+    let reg = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "fcm_token": "device-fcm",
+                "public_key": spki_b64(&key),
+                "auth_timestamp": ts,
+                "auth_nonce": "e2e-nonce",
+                "auth_signature": proof
+            })
+            .to_string(),
+        ))
+        .unwrap();
+    let reg_resp = tower::ServiceExt::oneshot(build_router(state.clone()), reg)
+        .await
+        .unwrap();
+    assert_eq!(reg_resp.status(), 200);
+    let reg_body = axum::body::to_bytes(reg_resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let reg_json: serde_json::Value = serde_json::from_slice(&reg_body).unwrap();
+    let subdomain = reg_json["subdomain"].as_str().unwrap().to_string();
+
+    // Round 2: issue certs with no Firebase token — identified by CSR thumbprint.
+    let certs = axum::http::Request::builder()
+        .method("POST")
+        .uri("/register/certs")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "csr": BASE64.encode(&csr_der) }).to_string(),
+        ))
+        .unwrap();
+    let certs_resp = tower::ServiceExt::oneshot(build_router(state.clone()), certs)
+        .await
+        .unwrap();
+    assert_eq!(certs_resp.status(), 200, "round-2 keypair issuance should succeed");
+
+    // The public key is now bound on the record.
+    let devices = firestore.devices.lock().unwrap();
+    let rec = devices.get(&subdomain).expect("device present");
+    assert!(!rec.public_key.is_empty(), "round 2 should bind the public key");
 }

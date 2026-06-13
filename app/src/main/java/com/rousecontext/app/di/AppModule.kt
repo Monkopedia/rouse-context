@@ -10,7 +10,7 @@ import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.MainActivity
 import com.rousecontext.app.McpUrlProvider
-import com.rousecontext.app.auth.DeviceAuthTokenProvider
+import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.cert.AndroidKeystoreDeviceKeyManager
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.FileMtlsCertSource
@@ -207,9 +207,10 @@ val appModule = module {
     }
 
     // --- Auth / FCM abstractions ---
-    // AnonymousAuthClient, FcmTokenProvider, and DeviceAuthTokenProvider are
-    // bound per-flavor in `distributionModule` (Firebase for `google`, stubs
-    // for `foss`). Issue #461.
+    // FcmTokenProvider and DeviceCredentialProvider are bound per-flavor in
+    // `distributionModule` (Firebase for `google`, keypair for `foss`). The
+    // `google` flavor additionally binds AnonymousAuthClient / DeviceAuthTokenProvider
+    // which its DeviceCredentialProvider wraps. Issues #461 / #462.
 
     // --- Onboarding ---
     single { CsrGenerator() }
@@ -660,7 +661,7 @@ val appModule = module {
             relayApiClient = get(),
             certStore = get(),
             integrationIds = get<List<McpIntegration>>().map { it.id },
-            firebaseTokenProvider = { get<DeviceAuthTokenProvider>().currentIdToken() },
+            credentialProvider = { get<DeviceCredentialProvider>().forProvisioning() },
             crashReporter = get()
         )
     }

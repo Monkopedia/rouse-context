@@ -8,6 +8,7 @@ import com.rousecontext.api.CrashReporter
 import com.rousecontext.tunnel.CertRenewalFlow
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.FirebaseRenewalCredentials
+import com.rousecontext.tunnel.KeypairRenewalCredentials
 import com.rousecontext.tunnel.RenewalResult
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -46,6 +47,16 @@ interface RenewalAuthProvider {
      * Both are required; returns `null` if either is unavailable.
      */
     suspend fun acquireFirebaseCredentials(csrDer: ByteArray): FirebaseCredentials?
+
+    /**
+     * Supply keypair credentials (CSR signature + signed renewal proof) for the expired-cert
+     * renewal path on the `foss` flavor (issue #462). Returns `null` by default — the
+     * `google` Firebase implementation does not provide keypair credentials, so the renewer
+     * falls back to [acquireFirebaseCredentials]. The `foss` implementation overrides this
+     * and returns `null` from [acquireFirebaseCredentials] instead.
+     */
+    suspend fun acquireKeypairRenewalCredentials(csrDer: ByteArray): KeypairRenewalCredentials? =
+        null
 }
 
 /**
@@ -83,8 +94,9 @@ class CertRenewalFlowRenewer(private val flow: CertRenewalFlow) : CertRenewer {
     override suspend fun renewWithFirebase(
         authProvider: RenewalAuthProvider,
         baseDomain: String
-    ): RenewalResult = flow.renewWithFirebase(
-        credentialsProvider = { csrDer -> authProvider.acquireFirebaseCredentials(csrDer) },
+    ): RenewalResult = flow.renewExpired(
+        keypairProvider = { csrDer -> authProvider.acquireKeypairRenewalCredentials(csrDer) },
+        firebaseProvider = { csrDer -> authProvider.acquireFirebaseCredentials(csrDer) },
         baseDomain = baseDomain
     )
 }

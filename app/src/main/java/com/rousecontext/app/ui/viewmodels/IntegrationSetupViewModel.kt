@@ -12,6 +12,7 @@ import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertProvisioningResult
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import java.text.SimpleDateFormat
@@ -71,11 +72,11 @@ class IntegrationSetupViewModel(
     private val relayApiClient: RelayApiClient,
     private val certStore: CertificateStore,
     private val integrationIds: List<String>,
-    // Supplies the device-auth ID token used to authorize cert provisioning.
-    // Defaults to "no token"; the production Koin binding injects the
-    // flavor-specific DeviceAuthTokenProvider (Firebase for `google`, a stub for
-    // `foss`). Tests inject their own provider. Issue #461.
-    private val firebaseTokenProvider: suspend () -> String? = { null },
+    // Supplies the device credential used to authorize cert provisioning.
+    // Defaults to "none"; the production Koin binding injects the flavor-specific
+    // DeviceCredentialProvider (Firebase token for `google`, keypair proof for
+    // `foss`). Tests inject their own provider. Issues #461 / #462.
+    private val credentialProvider: suspend () -> DeviceCredential? = { null },
     private val crashReporter: CrashReporter = CrashReporter.NoOp
 ) : ViewModel() {
 
@@ -167,9 +168,9 @@ class IntegrationSetupViewModel(
     private suspend fun beginProvisioningAsync() {
         awaitRegistrationIfNeeded()
 
-        val firebaseToken = try {
-            firebaseTokenProvider() ?: run {
-                setFailed("Failed to obtain Firebase ID token.")
+        val credential = try {
+            credentialProvider() ?: run {
+                setFailed("Failed to obtain device credential.")
                 return
             }
         } catch (e: Exception) {
@@ -177,7 +178,7 @@ class IntegrationSetupViewModel(
             return
         }
 
-        when (val result = certProvisioningFlow.execute(firebaseToken)) {
+        when (val result = certProvisioningFlow.execute(credential)) {
             is CertProvisioningResult.Success -> {
                 lazyWebSocketFactory.invalidate()
                 pushIntegrationSecrets()

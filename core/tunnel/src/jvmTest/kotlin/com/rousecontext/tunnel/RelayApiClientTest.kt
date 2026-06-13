@@ -254,4 +254,72 @@ class RelayApiClientTest {
 
         httpClient.close()
     }
+
+    @Test
+    fun `registerWithKeypair posts public key + proof and no firebase_token`(): Unit = runBlocking {
+        var capturedPath: String? = null
+        var capturedBody: String? = null
+
+        val httpClient = HttpClient(MockEngine) {
+            engine {
+                addHandler { request ->
+                    capturedPath = request.url.encodedPath
+                    capturedBody = (request.body as? TextContent)?.text ?: ""
+                    respond(
+                        content = ByteReadChannel(
+                            """{"subdomain":"zephyr","relay_host":"relay.rousecontext.com"}"""
+                        ),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json")
+                    )
+                }
+            }
+            install(ContentNegotiation) {
+                json(
+                    Json {
+                        ignoreUnknownKeys = true
+                        encodeDefaults = true
+                    }
+                )
+            }
+        }
+
+        val api = RelayApiClient(baseUrl = "https://relay.example", httpClient = httpClient)
+        val credential = DeviceCredential.Keypair(
+            publicKeyDer = byteArrayOf(1, 2, 3, 4),
+            registerProof = KeypairProof(
+                timestampSecs = 1_700_000_000L,
+                nonce = "nonce-xyz",
+                signature = "sig-abc"
+            )
+        )
+        val result = api.registerWithKeypair(credential, fcmToken = "fcm")
+
+        assertTrue(result is RelayApiResult.Success)
+        assertEquals("/register", capturedPath)
+        val parsed = Json.parseToJsonElement(capturedBody!!) as JsonObject
+        // No Firebase token on the keypair path.
+        assertEquals(JsonNull, parsed["firebase_token"])
+        assertEquals("AQIDBA==", parsed["public_key"]?.jsonPrimitive?.content)
+        assertEquals("1700000000", parsed["auth_timestamp"]?.jsonPrimitive?.content)
+        assertEquals("nonce-xyz", parsed["auth_nonce"]?.jsonPrimitive?.content)
+        assertEquals("sig-abc", parsed["auth_signature"]?.jsonPrimitive?.content)
+
+        httpClient.close()
+    }
+
+    @Test
+    fun `keypair canonical message matches the relay wire format`() {
+        // This exact byte layout is reproduced by relay/src/keypair_auth.rs; the
+        // two MUST stay in lock-step or proofs fail to verify.
+        val message = KeypairAuth.canonicalMessage(
+            KeypairAuth.PURPOSE_REGISTER,
+            1_700_000_000L,
+            "nonce-xyz"
+        )
+        assertEquals(
+            "rouse-context-keypair-auth:v1\nregister\n1700000000\nnonce-xyz",
+            String(message)
+        )
+    }
 }

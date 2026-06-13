@@ -837,6 +837,20 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
             .map(|(k, v)| (k.clone(), v.clone())))
     }
 
+    async fn find_device_by_thumbprint(
+        &self,
+        key_thumbprint: &str,
+    ) -> Result<
+        Option<(String, rouse_relay::firestore::DeviceRecord)>,
+        rouse_relay::firestore::FirestoreError,
+    > {
+        let devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(devices
+            .iter()
+            .find(|(_, r)| r.key_thumbprint.as_deref() == Some(key_thumbprint))
+            .map(|(k, v)| (k.clone(), v.clone())))
+    }
+
     async fn put_device(
         &self,
         subdomain: &str,

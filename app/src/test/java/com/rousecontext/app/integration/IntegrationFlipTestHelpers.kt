@@ -6,6 +6,7 @@ import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupState
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.RelayApiClient
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -45,7 +46,7 @@ internal fun AppIntegrationTestHarness.buildSetupViewModel(
         relayApiClient = koin.get<RelayApiClient>(),
         certStore = koin.get<CertificateStore>(),
         integrationIds = integrationIds,
-        firebaseTokenProvider = { TEST_FIREBASE_TOKEN }
+        credentialProvider = { DeviceCredential.Firebase(TEST_FIREBASE_TOKEN) }
     )
 }
 

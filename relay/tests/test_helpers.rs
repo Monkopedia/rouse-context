@@ -84,6 +84,19 @@ impl FirestoreClient for MockFirestore {
         Ok(None)
     }
 
+    async fn find_device_by_thumbprint(
+        &self,
+        key_thumbprint: &str,
+    ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
+        let devices = self.devices.lock().unwrap();
+        for (sub, rec) in devices.iter() {
+            if rec.key_thumbprint.as_deref() == Some(key_thumbprint) {
+                return Ok(Some((sub.clone(), rec.clone())));
+            }
+        }
+        Ok(None)
+    }
+
     async fn put_device(
         &self,
         subdomain: &str,

@@ -9,7 +9,7 @@ import android.os.Bundle
 import android.os.Process
 import android.util.Log
 import com.rousecontext.api.IntegrationStateStore
-import com.rousecontext.app.auth.AnonymousAuthClient
+import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.tunnel.CertProvisioningFlow
 import kotlinx.coroutines.runBlocking
@@ -72,11 +72,11 @@ class TestCommandProvider : ContentProvider() {
             }
             "provision_cert" -> {
                 val flow = getKoin().get<CertProvisioningFlow>()
-                val authClient = getKoin().get<AnonymousAuthClient>()
+                val credentialProvider = getKoin().get<DeviceCredentialProvider>()
                 val result = runBlocking {
-                    val token = authClient.signInAnonymouslyAndGetIdToken()
+                    val credential = credentialProvider.forProvisioning()
                         ?: return@runBlocking "auth failed"
-                    val r = flow.execute(token)
+                    val r = flow.execute(credential)
                     r.toString()
                 }
                 Log.i(TAG, "Cert provisioning result: $result")

@@ -11,6 +11,7 @@ pub mod firebase_auth;
 pub mod firestore;
 pub mod firestore_client;
 pub mod google_auth;
+pub mod keypair_auth;
 pub mod maintenance;
 pub mod mux;
 pub mod passthrough;

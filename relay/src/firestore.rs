@@ -23,7 +23,15 @@ pub enum FirestoreError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceRecord {
     pub fcm_token: String,
+    /// Firebase UID — the Firestore foreign key for `google`-flavor devices.
+    /// Empty for keypair (`foss`-flavor) devices, which are keyed on
+    /// [`Self::key_thumbprint`] instead. See issue #462.
     pub firebase_uid: String,
+    /// Stable identity for keypair (`foss`-flavor) devices:
+    /// `base64(SHA-256(public-key SPKI DER))`. `None` for legacy/`google`
+    /// devices, which are keyed on [`Self::firebase_uid`]. See issue #462.
+    #[serde(default)]
+    pub key_thumbprint: Option<String>,
     /// Base64-encoded DER SubjectPublicKeyInfo (ECDSA P-256).
     pub public_key: String,
     pub cert_expires: SystemTime,
@@ -90,6 +98,14 @@ pub trait FirestoreClient: Send + Sync {
     async fn find_device_by_uid(
         &self,
         firebase_uid: &str,
+    ) -> Result<Option<(String, DeviceRecord)>, FirestoreError>;
+
+    /// Find the subdomain registered to a public-key thumbprint (if any).
+    /// The keypair-auth (`foss`) analogue of [`Self::find_device_by_uid`].
+    /// See issue #462.
+    async fn find_device_by_thumbprint(
+        &self,
+        key_thumbprint: &str,
     ) -> Result<Option<(String, DeviceRecord)>, FirestoreError>;
 
     /// Create or update a device record.

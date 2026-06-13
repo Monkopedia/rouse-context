@@ -18,6 +18,7 @@ fn make_device(cert_expires: SystemTime) -> DeviceRecord {
     DeviceRecord {
         fcm_token: "test-fcm-token".to_string(),
         firebase_uid: "uid-1".to_string(),
+        key_thumbprint: None,
         public_key: "key".to_string(),
         cert_expires,
         registered_at: SystemTime::now(),

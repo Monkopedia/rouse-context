@@ -33,6 +33,17 @@ fun interface CsrSigner {
 }
 
 /**
+ * Supplies keypair credentials for the expired-cert renewal path (`foss`
+ * flavor, issue #462). Invoked by [CertRenewalFlow.renewExpired] after the
+ * renewal CSR is generated so both the CSR signature and the renewal proof
+ * cover the exact CSR bytes the relay will receive. Returns `null` when the
+ * device is not on the keypair flavor (Firebase fallback) or signing fails.
+ */
+fun interface KeypairRenewalCredentialsProvider {
+    suspend fun obtain(csrDer: ByteArray): KeypairRenewalCredentials?
+}
+
+/**
  * Orchestrates certificate renewal. Two authentication paths:
  * - Valid (non-expired) cert: mTLS /renew
  * - Expired cert: Firebase token + signature /renew
@@ -143,6 +154,56 @@ class CertRenewalFlow(
         }
 
         val credentials = credentialsProvider.obtain(csrResult.csrDer)
+            ?: return RenewalResult.FirebaseAuthUnavailable
+
+        return executeWithRetry {
+            val result = relayApiClient.renewWithFirebase(
+                csrPem = csrResult.csrPem,
+                subdomain = subdomain,
+                firebaseToken = credentials.token,
+                signature = credentials.signature
+            )
+            handleRenewResponse(result, null)
+        }
+    }
+
+    /**
+     * Renew an expired certificate, preferring the keypair path (`foss`) and
+     * falling back to Firebase (`google`). The keypair provider is consulted
+     * first; if it yields credentials the renewal uses the keypair proof,
+     * otherwise the Firebase provider is consulted. If neither yields
+     * credentials the result is [RenewalResult.FirebaseAuthUnavailable] so the
+     * worker retries later. Issue #462.
+     */
+    @Suppress("ReturnCount")
+    suspend fun renewExpired(
+        keypairProvider: KeypairRenewalCredentialsProvider,
+        firebaseProvider: FirebaseRenewalCredentialsProvider,
+        baseDomain: String = defaultBaseDomain
+    ): RenewalResult {
+        val subdomain = certificateStore.getSubdomain()
+            ?: return RenewalResult.NoCertificate
+
+        val csrResult = try {
+            val keyPair = deviceKeyManager.getOrCreateKeyPair()
+            csrGenerator.generate("*.$subdomain.$baseDomain", keyPair)
+        } catch (e: Exception) {
+            return RenewalResult.KeyGenerationFailed(e)
+        }
+
+        keypairProvider.obtain(csrResult.csrDer)?.let { keypair ->
+            return executeWithRetry {
+                val result = relayApiClient.renewWithKeypair(
+                    csrPem = csrResult.csrPem,
+                    subdomain = subdomain,
+                    csrSignature = keypair.csrSignature,
+                    proof = keypair.proof
+                )
+                handleRenewResponse(result, null)
+            }
+        }
+
+        val credentials = firebaseProvider.obtain(csrResult.csrDer)
             ?: return RenewalResult.FirebaseAuthUnavailable
 
         return executeWithRetry {

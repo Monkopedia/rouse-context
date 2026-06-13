@@ -130,6 +130,7 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
         let placeholder = crate::firestore::DeviceRecord {
             fcm_token: String::new(),
             firebase_uid: String::new(),
+            key_thumbprint: None,
             public_key: String::new(),
             cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400 * 90),
             registered_at: std::time::SystemTime::now(),
@@ -469,6 +470,7 @@ mod tests {
                 Ok(crate::firestore::DeviceRecord {
                     fcm_token: "tok".to_string(),
                     firebase_uid: "uid".to_string(),
+                    key_thumbprint: None,
                     public_key: String::new(),
                     cert_expires: std::time::SystemTime::now(),
                     registered_at: std::time::SystemTime::now(),
@@ -487,6 +489,15 @@ mod tests {
         async fn find_device_by_uid(
             &self,
             _uid: &str,
+        ) -> Result<
+            Option<(String, crate::firestore::DeviceRecord)>,
+            crate::firestore::FirestoreError,
+        > {
+            Ok(None)
+        }
+        async fn find_device_by_thumbprint(
+            &self,
+            _thumbprint: &str,
         ) -> Result<
             Option<(String, crate::firestore::DeviceRecord)>,
             crate::firestore::FirestoreError,

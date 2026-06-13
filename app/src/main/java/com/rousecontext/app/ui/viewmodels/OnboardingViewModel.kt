@@ -3,7 +3,7 @@ package com.rousecontext.app.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.rousecontext.app.auth.AnonymousAuthClient
+import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.tunnel.CertificateStore
@@ -58,7 +58,7 @@ class OnboardingViewModel(
     private val certificateStore: CertificateStore,
     private val onboardingFlow: OnboardingFlow,
     private val registrationStatus: DeviceRegistrationStatus,
-    private val authClient: AnonymousAuthClient,
+    private val credentialProvider: DeviceCredentialProvider,
     private val fcmTokenProvider: FcmTokenProvider,
     private val appScope: CoroutineScope
 ) : ViewModel() {
@@ -102,9 +102,10 @@ class OnboardingViewModel(
     }
 
     private suspend fun performRegistration() {
-        // Get Firebase anonymous auth token
-        val firebaseToken = try {
-            authClient.signInAnonymouslyAndGetIdToken()
+        // Acquire the device credential (google: Firebase anon sign-in; foss:
+        // keypair registration proof). Issue #462.
+        val credential = try {
+            credentialProvider.forRegistration()
                 ?: return fail("Couldn't sign in. Check your connection and try again.")
         } catch (e: Exception) {
             return fail("Authentication error: ${e.message ?: "unknown"}")
@@ -117,13 +118,13 @@ class OnboardingViewModel(
             return fail("Couldn't reach Firebase Cloud Messaging: ${e.message ?: "unknown"}")
         }
 
-        // scrub: previously logged 20-char token prefixes (see #379). Firebase ID
-        // tokens and FCM tokens are bearer credentials -- even prefixes are
-        // sensitive because logcat is reachable via adb / READ_LOGS, and FCM
-        // tokens can be used to replay wake events against the relay.
+        // scrub: previously logged 20-char token prefixes (see #379). Device
+        // credentials and FCM tokens are bearer/identity material -- even
+        // prefixes are sensitive because logcat is reachable via adb /
+        // READ_LOGS, and FCM tokens can be used to replay wake events.
         Log.i(
             TAG,
-            "Starting onboarding, firebaseToken=${firebaseToken.length} chars, " +
+            "Starting onboarding, credential=${credential::class.simpleName}, " +
                 "fcmToken=${fcmToken.length} chars"
         )
 
@@ -133,7 +134,7 @@ class OnboardingViewModel(
 
         handleResult(
             onboardingFlow.execute(
-                firebaseToken = firebaseToken,
+                credential = credential,
                 fcmToken = fcmToken
             )
         )

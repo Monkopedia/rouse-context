@@ -1,10 +1,11 @@
 package com.rousecontext.app.ui.viewmodels
 
 import androidx.lifecycle.ViewModelStore
-import com.rousecontext.app.auth.AnonymousAuthClient
+import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
 import io.mockk.coEvery
@@ -58,7 +59,7 @@ class OnboardingViewModelTest {
 
         coEvery { certStore.getSubdomain() } returns null
         coEvery {
-            onboardingFlow.execute(authToken, fcmToken)
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
         } returns OnboardingResult.Success("test-subdomain")
 
         val status = DeviceRegistrationStatus(initiallyRegistered = false)
@@ -75,7 +76,9 @@ class OnboardingViewModelTest {
         vm.startOnboarding()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) { onboardingFlow.execute(authToken, fcmToken) }
+        coVerify(exactly = 1) {
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
+        }
         assertTrue(status.complete.value)
         // #389: Onboarded state only after the full flow (incl. certs) succeeds.
         assertEquals(OnboardingState.Onboarded, vm.state.value)
@@ -99,7 +102,7 @@ class OnboardingViewModelTest {
         vm.startOnboarding()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 0) { onboardingFlow.execute(any(), any()) }
+        coVerify(exactly = 0) { onboardingFlow.execute(any<DeviceCredential>(), any()) }
         assertFalse(status.complete.value)
 
         coroutineContext.cancelChildren()
@@ -121,7 +124,7 @@ class OnboardingViewModelTest {
         vm.startOnboarding()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 0) { onboardingFlow.execute(any(), any()) }
+        coVerify(exactly = 0) { onboardingFlow.execute(any<DeviceCredential>(), any()) }
         assertFalse(status.complete.value)
 
         coroutineContext.cancelChildren()
@@ -143,7 +146,7 @@ class OnboardingViewModelTest {
         vm.startOnboarding()
         testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 0) { onboardingFlow.execute(any(), any()) }
+        coVerify(exactly = 0) { onboardingFlow.execute(any<DeviceCredential>(), any()) }
         assertFalse(status.complete.value)
 
         coroutineContext.cancelChildren()
@@ -181,11 +184,14 @@ class OnboardingViewModelTest {
         // and ViewModelStore.clear() races with the in-flight registration.
         val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        val authClient = object : AnonymousAuthClient {
-            override suspend fun signInAnonymouslyAndGetIdToken(): String? {
+        val credentialProvider = object : DeviceCredentialProvider {
+            override suspend fun forRegistration(): DeviceCredential {
                 delay(200) // simulate network latency
-                return "fake-firebase-token"
+                return DeviceCredential.Firebase("fake-firebase-token")
             }
+
+            override suspend fun forProvisioning(): DeviceCredential =
+                DeviceCredential.Firebase("fake-firebase-token")
         }
         val fcmProvider = object : FcmTokenProvider {
             override suspend fun currentToken(): String = "fake-fcm-token"
@@ -193,7 +199,10 @@ class OnboardingViewModelTest {
 
         coEvery { certStore.getSubdomain() } returns null
         coEvery {
-            onboardingFlow.execute("fake-firebase-token", "fake-fcm-token")
+            onboardingFlow.execute(
+                DeviceCredential.Firebase("fake-firebase-token"),
+                "fake-fcm-token"
+            )
         } returns OnboardingResult.Success("test-subdomain")
 
         val status = DeviceRegistrationStatus(initiallyRegistered = false)
@@ -202,7 +211,7 @@ class OnboardingViewModelTest {
             certificateStore = certStore,
             onboardingFlow = onboardingFlow,
             registrationStatus = status,
-            authClient = authClient,
+            credentialProvider = credentialProvider,
             fcmTokenProvider = fcmProvider,
             appScope = appScope
         )
@@ -241,7 +250,7 @@ class OnboardingViewModelTest {
 
         coEvery { certStore.getSubdomain() } returns null
         coEvery {
-            onboardingFlow.execute(authToken, fcmToken)
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
         } returns OnboardingResult.CertRateLimited(
             retryAfterSeconds = 300L,
             subdomain = "test-sub"
@@ -282,7 +291,7 @@ class OnboardingViewModelTest {
 
         coEvery { certStore.getSubdomain() } returns null
         coEvery {
-            onboardingFlow.execute(authToken, fcmToken)
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
         } returns OnboardingResult.CertStorageFailed(
             cause = RuntimeException("disk full"),
             subdomain = "test-sub"
@@ -314,7 +323,7 @@ class OnboardingViewModelTest {
 
         coEvery { certStore.getSubdomain() } returns null
         coEvery {
-            onboardingFlow.execute(authToken, fcmToken)
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
         } returns OnboardingResult.CertNetworkError(
             cause = RuntimeException("unreachable"),
             subdomain = "test-sub"
@@ -338,7 +347,9 @@ class OnboardingViewModelTest {
         // fail again but `onboardingFlow.execute` gets hit a second time.
         vm.retry()
         testDispatcher.scheduler.advanceUntilIdle()
-        coVerify(atLeast = 2) { onboardingFlow.execute(authToken, fcmToken) }
+        coVerify(atLeast = 2) {
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
+        }
 
         coroutineContext.cancelChildren()
     }
@@ -350,7 +361,7 @@ class OnboardingViewModelTest {
 
         coEvery { certStore.getSubdomain() } returns null
         coEvery {
-            onboardingFlow.execute(authToken, fcmToken)
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
         } returns OnboardingResult.Success("test-sub")
 
         val status = DeviceRegistrationStatus(initiallyRegistered = false)
@@ -370,7 +381,9 @@ class OnboardingViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         // Only one call — retry bails out when already Onboarded.
-        coVerify(exactly = 1) { onboardingFlow.execute(authToken, fcmToken) }
+        coVerify(exactly = 1) {
+            onboardingFlow.execute(DeviceCredential.Firebase(authToken), fcmToken)
+        }
 
         coroutineContext.cancelChildren()
     }
@@ -390,11 +403,14 @@ class OnboardingViewModelTest {
         fcmException: Exception? = null,
         status: DeviceRegistrationStatus = DeviceRegistrationStatus()
     ): OnboardingViewModel {
-        val authClient = object : AnonymousAuthClient {
-            override suspend fun signInAnonymouslyAndGetIdToken(): String? {
+        val credentialProvider = object : DeviceCredentialProvider {
+            override suspend fun forRegistration(): DeviceCredential? {
                 if (authException != null) throw authException
-                return authToken
+                return authToken?.let { DeviceCredential.Firebase(it) }
             }
+
+            override suspend fun forProvisioning(): DeviceCredential? =
+                authToken?.let { DeviceCredential.Firebase(it) }
         }
         val fcmProvider = object : FcmTokenProvider {
             override suspend fun currentToken(): String {
@@ -406,7 +422,7 @@ class OnboardingViewModelTest {
             certificateStore = certStore,
             onboardingFlow = onboardingFlow,
             registrationStatus = status,
-            authClient = authClient,
+            credentialProvider = credentialProvider,
             fcmTokenProvider = fcmProvider,
             appScope = this
         )

@@ -51,11 +51,20 @@ class OnboardingFlow(
      * cert issuance without a fresh `/register` hop.
      */
     suspend fun execute(firebaseToken: String, fcmToken: String): OnboardingResult =
-        registerAndPersist(firebaseToken, fcmToken).fold(
+        execute(DeviceCredential.Firebase(firebaseToken), fcmToken)
+
+    /**
+     * Flavor-agnostic onboarding entry point (issue #462). Behaves identically
+     * to the Firebase-token overload for [DeviceCredential.Firebase]; for
+     * [DeviceCredential.Keypair] (`foss`) it skips the Firebase-only subdomain
+     * reservation and registers directly with the keypair proof.
+     */
+    suspend fun execute(credential: DeviceCredential, fcmToken: String): OnboardingResult =
+        registerAndPersist(credential, fcmToken).fold(
             onFailure = { it },
             onSuccess = { subdomain ->
                 certProvisioningFlow?.let { provisioner ->
-                    provisionCerts(provisioner, firebaseToken, subdomain)
+                    provisionCerts(provisioner, credential, subdomain)
                 } ?: OnboardingResult.Success(subdomain = subdomain)
             }
         )
@@ -67,18 +76,29 @@ class OnboardingFlow(
      * the caller should propagate.
      */
     private suspend fun registerAndPersist(
-        firebaseToken: String,
+        credential: DeviceCredential,
         fcmToken: String
     ): RegisterOutcome {
-        relayApiClient.requestSubdomain(firebaseToken = firebaseToken)
-            .mapFailure()
-            ?.let { return RegisterOutcome.Failure(it) }
-
-        val registerResult = relayApiClient.register(
-            firebaseToken = firebaseToken,
-            fcmToken = fcmToken,
-            integrationIds = integrationIds
-        )
+        val registerResult = when (credential) {
+            is DeviceCredential.Firebase -> {
+                relayApiClient.requestSubdomain(firebaseToken = credential.idToken)
+                    .mapFailure()
+                    ?.let { return RegisterOutcome.Failure(it) }
+                relayApiClient.register(
+                    firebaseToken = credential.idToken,
+                    fcmToken = fcmToken,
+                    integrationIds = integrationIds
+                )
+            }
+            is DeviceCredential.Keypair ->
+                // Keypair (foss) registers directly: the reservation flow is
+                // Firebase-only, so the relay generates the subdomain here.
+                relayApiClient.registerWithKeypair(
+                    credential = credential,
+                    fcmToken = fcmToken,
+                    integrationIds = integrationIds
+                )
+        }
         registerResult.mapFailure()?.let { return RegisterOutcome.Failure(it) }
         val registerData = (registerResult as RelayApiResult.Success).data
 
@@ -109,9 +129,9 @@ class OnboardingFlow(
 
     private suspend fun provisionCerts(
         provisioner: CertProvisioningFlow,
-        firebaseToken: String,
+        credential: DeviceCredential,
         subdomain: String
-    ): OnboardingResult = when (val certResult = provisioner.execute(firebaseToken)) {
+    ): OnboardingResult = when (val certResult = provisioner.execute(credential)) {
         CertProvisioningResult.Success,
         CertProvisioningResult.AlreadyProvisioned ->
             OnboardingResult.Success(subdomain = subdomain)

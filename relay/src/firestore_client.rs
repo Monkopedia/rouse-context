@@ -327,6 +327,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
     let mut fields = serde_json::Map::new();
     fields.insert("fcm_token".to_string(), string_val(&record.fcm_token));
     fields.insert("firebase_uid".to_string(), string_val(&record.firebase_uid));
+    fields.insert(
+        "key_thumbprint".to_string(),
+        opt_string_val(&record.key_thumbprint),
+    );
     fields.insert("public_key".to_string(), string_val(&record.public_key));
     fields.insert(
         "cert_expires".to_string(),
@@ -365,6 +369,7 @@ fn device_record_from_fields(
     Ok(DeviceRecord {
         fcm_token: read_string(fields, "fcm_token")?,
         firebase_uid: read_string(fields, "firebase_uid")?,
+        key_thumbprint: read_opt_string(fields, "key_thumbprint"),
         public_key: read_string(fields, "public_key")?,
         cert_expires: read_timestamp(fields, "cert_expires")?,
         registered_at: read_timestamp(fields, "registered_at")?,
@@ -470,6 +475,60 @@ impl FirestoreClient for RealFirestoreClient {
                         "field": { "fieldPath": "firebase_uid" },
                         "op": "EQUAL",
                         "value": { "stringValue": firebase_uid }
+                    }
+                },
+                "limit": 1
+            }
+        });
+
+        let resp = self
+            .http
+            .post(&url)
+            .bearer_auth(token)
+            .json(&query)
+            .send()
+            .await
+            .map_err(|e| FirestoreError::Http(e.to_string()))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(FirestoreError::Http(format!(
+                "Firestore query returned {status}: {body}"
+            )));
+        }
+
+        let elements: Vec<RunQueryResponseElement> = resp
+            .json()
+            .await
+            .map_err(|e| FirestoreError::Serialization(e.to_string()))?;
+
+        for elem in elements {
+            if let Some(doc) = elem.document {
+                let id = doc_id_from_name(&doc.name);
+                let record = device_record_from_fields(&doc.fields)?;
+                return Ok(Some((id, record)));
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn find_device_by_thumbprint(
+        &self,
+        key_thumbprint: &str,
+    ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
+        let token = self.token().await?;
+        let url = format!("{}:runQuery", self.base_url);
+
+        let query = serde_json::json!({
+            "structuredQuery": {
+                "from": [{ "collectionId": "devices" }],
+                "where": {
+                    "fieldFilter": {
+                        "field": { "fieldPath": "key_thumbprint" },
+                        "op": "EQUAL",
+                        "value": { "stringValue": key_thumbprint }
                     }
                 },
                 "limit": 1
@@ -837,6 +896,7 @@ mod tests {
         let record = DeviceRecord {
             fcm_token: "tok123".to_string(),
             firebase_uid: "uid456".to_string(),
+            key_thumbprint: None,
             public_key: "cHVia2V5".to_string(),
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_750_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_712_000_000),
@@ -953,6 +1013,7 @@ mod tests {
         let record = DeviceRecord {
             fcm_token: "t".to_string(),
             firebase_uid: "u".to_string(),
+            key_thumbprint: None,
             public_key: "k".to_string(),
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
@@ -976,6 +1037,7 @@ mod tests {
         let record = DeviceRecord {
             fcm_token: "t".to_string(),
             firebase_uid: "u".to_string(),
+            key_thumbprint: None,
             public_key: "k".to_string(),
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
@@ -1030,6 +1092,7 @@ mod tests {
         let mut fields = device_record_to_fields(&DeviceRecord {
             fcm_token: "t".to_string(),
             firebase_uid: "u".to_string(),
+            key_thumbprint: None,
             public_key: "k".to_string(),
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
