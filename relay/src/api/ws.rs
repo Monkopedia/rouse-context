@@ -372,7 +372,15 @@ fn parse_push_update(msg: &ControlMessage) -> Option<(crate::firestore::PushKind
             if msg.value.is_empty() {
                 return None;
             }
-            PushKind::from_wire(&msg.kind).map(|kind| (kind, msg.value.clone()))
+            let kind = PushKind::from_wire(&msg.kind)?;
+            // Validate UnifiedPush endpoint URLs to prevent SSRF — the relay
+            // POSTs to this address on every wake/renew, so we must not accept
+            // loopback, link-local, RFC1918, or non-https URLs. FCM tokens are
+            // opaque strings (not URLs) and are not validated here.
+            if kind == PushKind::UnifiedPush {
+                crate::unifiedpush::validate_push_endpoint(&msg.value).ok()?;
+            }
+            Some((kind, msg.value.clone()))
         }
         _ => None,
     }
@@ -561,6 +569,30 @@ mod tests {
     fn parse_push_endpoint_bad_kind_is_none() {
         let msg = control(r#"{"type":"push_endpoint","kind":"carrier-pigeon","value":"x"}"#);
         assert_eq!(parse_push_update(&msg), None);
+    }
+
+    #[test]
+    fn parse_push_endpoint_ssrf_targets_rejected() {
+        // Non-https and internal-range endpoints must be rejected — the relay
+        // POSTs to device-supplied URLs and must not be weaponised as an SSRF
+        // proxy. FCM tokens (kind="fcm") are opaque strings, not URLs, and are
+        // not subject to URL validation.
+        for bad in &[
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"http://ntfy.sh/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://169.254.169.254/metadata"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://127.0.0.1/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://10.0.0.1/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://192.168.1.1/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://metadata.google.internal/x"}"#,
+            r#"{"type":"push_endpoint","kind":"unifiedpush","value":"https://localhost/x"}"#,
+        ] {
+            let msg = control(bad);
+            assert_eq!(
+                parse_push_update(&msg),
+                None,
+                "expected rejection for: {bad}"
+            );
+        }
     }
 
     #[test]

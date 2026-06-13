@@ -17,6 +17,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::api::{ApiError, AppState};
 use crate::firestore::{DeviceRecord, PushKind};
+use crate::unifiedpush::validate_push_endpoint;
 use crate::words::adjectives;
 
 /// Round 1: Register a device and receive a subdomain assignment.
@@ -159,6 +160,7 @@ fn resolve_register_push_target(
         return Ok((PushKind::Fcm, fcm_token.to_string(), String::new()));
     }
     if let Some(endpoint) = push_endpoint.filter(|e| !e.is_empty()) {
+        validate_push_endpoint(endpoint)?;
         return Ok((PushKind::UnifiedPush, String::new(), endpoint.to_string()));
     }
     Err("Provide either a non-empty fcm_token or a non-empty push_endpoint")
@@ -673,5 +675,27 @@ mod tests {
     fn push_target_rejects_when_neither_present() {
         assert!(resolve_register_push_target("", None).is_err());
         assert!(resolve_register_push_target("", Some("")).is_err());
+    }
+
+    #[test]
+    fn push_target_rejects_ssrf_endpoints() {
+        // SSRF guard: the relay POSTs to device-supplied URLs; internal/metadata
+        // targets must be rejected at registration time.
+        let bad = [
+            "http://ntfy.sh/x",                   // non-https
+            "https://127.0.0.1/x",                // loopback
+            "https://169.254.169.254/meta",       // GCP/AWS metadata
+            "https://10.0.0.1/x",                 // RFC1918
+            "https://192.168.1.1/x",              // RFC1918
+            "https://172.16.0.1/x",               // RFC1918
+            "https://localhost/x",                // loopback hostname
+            "https://metadata.google.internal/x", // internal DNS name
+        ];
+        for endpoint in &bad {
+            assert!(
+                resolve_register_push_target("", Some(endpoint)).is_err(),
+                "expected rejection for: {endpoint}"
+            );
+        }
     }
 }
