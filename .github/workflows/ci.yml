@@ -131,10 +131,16 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -alias debug \
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
-      - name: Build
-        run: ./gradlew assembleDebug
+      - name: Build (google flavor)
+        run: ./gradlew :app:assembleGoogleDebug
+      - name: Build (foss flavor, Firebase-free)
+        # Separate invocation so the foss-only build skips the Firebase Gradle
+        # plugins and proves it assembles without google-services. See #461.
+        run: ./gradlew :app:assembleFossDebug
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest :core:tunnel:jvmTest :core:mcp:jvmTest :core:bridge:jvmTest
+        # :app is flavored (#461) so its unit-test task is per-flavor; the
+        # library modules keep the plain `testDebugUnitTest` task name.
+        run: ./gradlew :app:testGoogleDebugUnitTest testDebugUnitTest :core:tunnel:jvmTest :core:mcp:jvmTest :core:bridge:jvmTest
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4

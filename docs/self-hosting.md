@@ -108,8 +108,11 @@ because the debug keystore is not a secret.
 All hostnames derive from a single Gradle property, `-Pdomain`:
 
 ```bash
-./gradlew :app:assembleDebug -Pdomain=coolapp.example
+./gradlew :app:assembleGoogleDebug -Pdomain=coolapp.example
 ```
+
+(`:app` has `google`/`foss` flavors — see #461. Use `:app:assembleFossDebug`
+for a Firebase-free build.)
 
 The app's `BuildConfig` will have:
 
@@ -122,7 +125,7 @@ Test the override wired correctly:
 ./gradlew -Pdomain=coolapp.example :app:compileDebugKotlin
 ```
 
-For production/release builds, use the same flag with `:app:assembleRelease` and your release keystore.
+For production/release builds, use the same flag with `:app:assembleGoogleRelease` and your release keystore.
 
 ### Package name
 

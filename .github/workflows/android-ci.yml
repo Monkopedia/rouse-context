@@ -62,8 +62,12 @@ jobs:
         # when interpolated values contain quotes, backslashes, or control
         # characters. Production code must use @Serializable + encodeToString.
         run: bash scripts/check-no-manual-json.sh
-      - name: Build
-        run: ./gradlew assembleDebug
+      - name: Build (google flavor)
+        run: ./gradlew :app:assembleGoogleDebug
+      - name: Build (foss flavor, Firebase-free)
+        # Separate invocation so the foss-only build skips the Firebase Gradle
+        # plugins and proves it assembles without google-services. See #461.
+        run: ./gradlew :app:assembleFossDebug
       - name: Unit tests
         timeout-minutes: 20
         run: |
@@ -75,7 +79,7 @@ jobs:
             :notifications:testDebugUnitTest \
             :work:testDebugUnitTest \
             :integrations:testDebugUnitTest \
-            :app:testDebugUnitTest
+            :app:testGoogleDebugUnitTest
       - name: Integration tests (relay)
         if: success() || failure()
         # Raised from 10 → 15 as the integration-scenario coverage grew

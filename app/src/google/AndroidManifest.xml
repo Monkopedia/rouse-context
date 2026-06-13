@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+            FCM receiver, present only in the `google` flavor. The class lives in
+            the shared `:work` module but its manifest entry is flavor-scoped here
+            so the Firebase Cloud Messaging service is absent from the `foss`
+            build's merged manifest. See issue #461.
+        -->
+        <service
+            android:name="com.rousecontext.work.FcmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

@@ -51,7 +51,7 @@
     <ID>ReturnCount:CtLogMonitor.kt$CtLogMonitor$suspend fun check(): SecurityCheckResult</ID>
     <ID>ReturnCount:TestCommandProvider.kt$TestCommandProvider$override fun call(method: String, arg: String?, extras: Bundle?): Bundle?</ID>
     <ID>ReturnCount:TlsAcceptTest.kt$TlsClientInputStream$override fun read(b: ByteArray, off: Int, len: Int): Int</ID>
-    <ID>SpreadOperator:RouseApplication.kt$RouseApplication$( scopeModule(), appModule, *debugModules().toTypedArray() )</ID>
+    <ID>SpreadOperator:RouseApplication.kt$RouseApplication$( scopeModule(), appModule, distributionModule, *debugModules().toTypedArray() )</ID>
     <ID>SwallowedException:HalfOpenDetectionTest.kt$TcpDropProxy$e: Exception</ID>
     <ID>ThrowsCount:MuxCodec.kt$MuxCodec$fun decode(data: ByteArray): MuxFrame</ID>
     <ID>UnusedParameter:Ipv4OnlyMtlsWebSocketFactory.kt$Ipv4OnlyMtlsWebSocketFactory.Companion$ctx: SSLContext</ID>

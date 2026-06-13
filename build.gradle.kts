@@ -58,7 +58,19 @@ subprojects {
         extensions.configure<kotlinx.kover.gradle.plugin.dsl.KoverProjectExtension>("kover") {
             currentProject {
                 instrumentation {
+                    // Release-variant unit tests have never been configured to
+                    // work (e.g. Roborazzi screenshot tests). Library modules
+                    // expose `testReleaseUnitTest`; the flavored `:app` (#461)
+                    // exposes per-flavor release tasks instead.
                     disabledForTestTasks.add("testReleaseUnitTest")
+                    disabledForTestTasks.add("testGoogleReleaseUnitTest")
+                    disabledForTestTasks.add("testFossReleaseUnitTest")
+                    // Coverage tracks the shipping `google` flavor only. The
+                    // `foss` flavor's seams are temporary NoOp/stub placeholders
+                    // (#461; real impls land in #462–#464) and its unit-test
+                    // variant intentionally omits the Firebase-backed tests, so
+                    // exclude it from the aggregated Kover report.
+                    disabledForTestTasks.add("testFossDebugUnitTest")
                 }
             }
         }

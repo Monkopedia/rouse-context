@@ -76,17 +76,21 @@ Source-of-truth for the module list is `settings.gradle.kts:25-35`.
 All Gradle commands need `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`.
 
 ```bash
-# Build a debug APK
-./gradlew :app:assembleDebug
-# → app/build/outputs/apk/debug/app-debug.apk
+# Build a debug APK. `:app` is split into google/foss flavors (#461):
+#   google = current build (Firebase/FCM/Crashlytics)
+#   foss   = Firebase-free (no google-services.json required)
+./gradlew :app:assembleGoogleDebug
+# → app/build/outputs/apk/google/debug/app-google-debug.apk
+./gradlew :app:assembleFossDebug
+# → app/build/outputs/apk/foss/debug/app-foss-debug.apk
 
-# Build a release APK
-./gradlew :app:assembleRelease
-# → app/build/outputs/apk/release/app-release.apk
+# Build a release APK (shipping build is the google flavor)
+./gradlew :app:assembleGoogleRelease
+# → app/build/outputs/apk/google/release/app-google-release.apk
 
 # Unit tests for one module
 ./gradlew :core:mcp:jvmTest                       # KMP/JVM
-./gradlew :app:testDebugUnitTest                  # Android-only
+./gradlew :app:testGoogleDebugUnitTest            # Android-only (flavored)
 ./gradlew :integrations:testDebugUnitTest         # Android-only
 
 # Tunnel integration tests (against real relay binary)
