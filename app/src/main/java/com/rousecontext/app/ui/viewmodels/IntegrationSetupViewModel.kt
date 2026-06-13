@@ -3,7 +3,6 @@ package com.rousecontext.app.ui.viewmodels
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
@@ -23,7 +22,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 /**
  * State emitted by [IntegrationSetupViewModel] to track cert provisioning progress.
@@ -73,7 +71,11 @@ class IntegrationSetupViewModel(
     private val relayApiClient: RelayApiClient,
     private val certStore: CertificateStore,
     private val integrationIds: List<String>,
-    private val firebaseTokenProvider: suspend () -> String? = { defaultFirebaseToken() },
+    // Supplies the device-auth ID token used to authorize cert provisioning.
+    // Defaults to "no token"; the production Koin binding injects the
+    // flavor-specific DeviceAuthTokenProvider (Firebase for `google`, a stub for
+    // `foss`). Tests inject their own provider. Issue #461.
+    private val firebaseTokenProvider: suspend () -> String? = { null },
     private val crashReporter: CrashReporter = CrashReporter.NoOp
 ) : ViewModel() {
 
@@ -306,10 +308,5 @@ class IntegrationSetupViewModel(
         internal const val SECRETS_PUSH_FAILED_MESSAGE =
             "Couldn't register integration with relay. Try again."
         private val DATE_FORMAT = SimpleDateFormat("MMM d", Locale.getDefault())
-
-        private suspend fun defaultFirebaseToken(): String? {
-            val user = FirebaseAuth.getInstance().currentUser ?: return null
-            return user.getIdToken(false).await().token
-        }
     }
 }

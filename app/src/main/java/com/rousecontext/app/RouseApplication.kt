@@ -7,6 +7,7 @@ import androidx.work.Configuration
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
+import com.rousecontext.app.di.distributionModule
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.tunnel.CertificateStore
@@ -59,6 +60,7 @@ class RouseApplication :
             modules(
                 scopeModule(),
                 appModule,
+                distributionModule,
                 *debugModules().toTypedArray()
             )
         }

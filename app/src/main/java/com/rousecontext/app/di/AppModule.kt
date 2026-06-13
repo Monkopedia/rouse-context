@@ -3,7 +3,6 @@ package com.rousecontext.app.di
 import android.app.NotificationManager
 import android.os.PowerManager
 import android.util.Log
-import com.rousecontext.api.CrashReporter
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
@@ -11,10 +10,7 @@ import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.MainActivity
 import com.rousecontext.app.McpUrlProvider
-import com.rousecontext.app.auth.AnonymousAuthClient
-import com.rousecontext.app.auth.FcmTokenProvider
-import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
-import com.rousecontext.app.auth.FirebaseFcmTokenProvider
+import com.rousecontext.app.auth.DeviceAuthTokenProvider
 import com.rousecontext.app.cert.AndroidKeystoreDeviceKeyManager
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.FileMtlsCertSource
@@ -40,7 +36,6 @@ import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.support.BugReportUriBuilder
-import com.rousecontext.app.support.FirebaseCrashReporter
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.token.createUnknownClientLabeler
@@ -105,11 +100,9 @@ import com.rousecontext.work.CtLogMonitorSource
 import com.rousecontext.work.DataStoreSpuriousWakeRecorder
 import com.rousecontext.work.DeviceKeystoreSigner
 import com.rousecontext.work.FcmTokenRegistrar
-import com.rousecontext.work.FirebaseRenewalAuthProvider
 import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.IntegrationSecretsSynchronizer
 import com.rousecontext.work.RealWakeLockHandle
-import com.rousecontext.work.RenewalAuthProvider
 import com.rousecontext.work.SecurityCheckPreferences
 import com.rousecontext.work.SecurityCheckSource
 import com.rousecontext.work.SpuriousWakePreferences
@@ -184,8 +177,9 @@ val appModule = module {
     // --- Bug report URI builder ---
     single { BugReportUriBuilder(androidContext()) }
 
-    // --- Crash reporting (Firebase Crashlytics). Issue #233. ---
-    single<CrashReporter> { FirebaseCrashReporter() }
+    // --- Crash reporting (CrashReporter) ---
+    // Bound per-flavor in `distributionModule` (Firebase Crashlytics for
+    // `google`, NoOp for `foss`). Issue #233 / #461.
 
     // --- Certificate store ---
     single {
@@ -212,9 +206,10 @@ val appModule = module {
         }
     }
 
-    // --- Firebase auth / FCM abstractions ---
-    single<AnonymousAuthClient> { FirebaseAnonymousAuthClient() }
-    single<FcmTokenProvider> { FirebaseFcmTokenProvider() }
+    // --- Auth / FCM abstractions ---
+    // AnonymousAuthClient, FcmTokenProvider, and DeviceAuthTokenProvider are
+    // bound per-flavor in `distributionModule` (Firebase for `google`, stubs
+    // for `foss`). Issue #461.
 
     // --- Onboarding ---
     single { CsrGenerator() }
@@ -270,7 +265,8 @@ val appModule = module {
     }
     single<CertRenewer> { CertRenewalFlowRenewer(get()) }
     single<DeviceKeystoreSigner> { AndroidKeystoreSigner() }
-    single<RenewalAuthProvider> { FirebaseRenewalAuthProvider(signer = get()) }
+    // RenewalAuthProvider is bound per-flavor in `distributionModule`
+    // (FirebaseRenewalAuthProvider for `google`, a stub for `foss`). Issue #461.
 
     // --- Token store ---
     singleOf(::RoomTokenStore) bind TokenStore::class
@@ -664,6 +660,7 @@ val appModule = module {
             relayApiClient = get(),
             certStore = get(),
             integrationIds = get<List<McpIntegration>>().map { it.id },
+            firebaseTokenProvider = { get<DeviceAuthTokenProvider>().currentIdToken() },
             crashReporter = get()
         )
     }

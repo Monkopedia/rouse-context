@@ -10,12 +10,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
-        <service
-            android:name=".FcmReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
+        <!--
+            The FCM `FcmReceiver` service is declared in the app's `google`
+            flavor manifest (app/src/google/AndroidManifest.xml), not here. The
+            `foss` flavor has no Firebase Cloud Messaging, so the service must
+            not appear in its merged manifest. See issue #461.
+        -->
     </application>
 </manifest>

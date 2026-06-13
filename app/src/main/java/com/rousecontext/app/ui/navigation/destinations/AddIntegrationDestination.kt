@@ -6,8 +6,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
-import com.google.firebase.auth.FirebaseAuth
 import com.rousecontext.app.R
+import com.rousecontext.app.auth.DeviceAuthTokenProvider
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
@@ -20,7 +20,6 @@ import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
 import com.rousecontext.tunnel.CertProvisioningFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.qualifier.named
@@ -37,6 +36,7 @@ fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
         val integrations by viewModel.pickerIntegrations
             .collectAsState()
         val certProvisioningFlow: CertProvisioningFlow = koinInject()
+        val deviceAuthTokenProvider: DeviceAuthTokenProvider = koinInject()
         val appScope: CoroutineScope = koinInject(named("appScope"))
         AddIntegrationPickerContent(
             integrations = integrations,
@@ -46,9 +46,7 @@ fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
                 // since it uses the app-scoped coroutine scope.
                 appScope.launch {
                     try {
-                        val token = FirebaseAuth.getInstance()
-                            .currentUser?.getIdToken(false)
-                            ?.await()?.token
+                        val token = deviceAuthTokenProvider.currentIdToken()
                         if (token != null) {
                             certProvisioningFlow.execute(token)
                         }

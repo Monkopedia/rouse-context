@@ -1,0 +1,34 @@
+package com.rousecontext.app.di
+
+import com.rousecontext.api.CrashReporter
+import com.rousecontext.app.auth.AnonymousAuthClient
+import com.rousecontext.app.auth.DeviceAuthTokenProvider
+import com.rousecontext.app.auth.FcmTokenProvider
+import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
+import com.rousecontext.app.auth.FirebaseDeviceAuthTokenProvider
+import com.rousecontext.app.auth.FirebaseFcmTokenProvider
+import com.rousecontext.app.support.FirebaseCrashReporter
+import com.rousecontext.work.FirebaseRenewalAuthProvider
+import com.rousecontext.work.RenewalAuthProvider
+import org.koin.dsl.module
+
+/**
+ * Flavor-specific Koin bindings for the `google` distribution.
+ *
+ * Wires the Firebase-backed implementations of the three cross-flavor seams
+ * (crash reporting, push-token retrieval, device auth) plus the cert-renewal
+ * auth provider. The parallel `foss` flavor binds NoOp/stub equivalents so the
+ * graph compiles without any Firebase dependency. See issue #461.
+ */
+val distributionModule = module {
+    // Crash reporting (Firebase Crashlytics). Issue #233.
+    single<CrashReporter> { FirebaseCrashReporter() }
+
+    // Firebase auth / FCM abstractions.
+    single<AnonymousAuthClient> { FirebaseAnonymousAuthClient() }
+    single<FcmTokenProvider> { FirebaseFcmTokenProvider() }
+    single<DeviceAuthTokenProvider> { FirebaseDeviceAuthTokenProvider() }
+
+    // Cert-renewal auth provider (Firebase ID token + Keystore signature).
+    single<RenewalAuthProvider> { FirebaseRenewalAuthProvider(signer = get()) }
+}
