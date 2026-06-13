@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.di.appModule
+import com.rousecontext.app.di.distributionModule
 import com.rousecontext.integrations.health.HealthConnectRepository
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertRenewalFlow
@@ -449,6 +450,10 @@ class AppIntegrationTestHarness(
             androidContext(appContext)
             modules(
                 appModule,
+                // Flavor module (google variant on the integrationTest classpath),
+                // mirroring RouseApplication's base + distribution composition.
+                // Listed before the test overrides so any harness fake still wins.
+                distributionModule,
                 buildTestOverrides(
                     ca = ca,
                     relayPort = relayPort,
