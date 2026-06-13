@@ -19,6 +19,7 @@ import com.rousecontext.tunnel.integration.TestRelayManager
 import com.rousecontext.tunnel.integration.findFreePort
 import com.rousecontext.tunnel.integration.findRelayBinary
 import com.rousecontext.work.CertRenewalWorker
+import com.rousecontext.work.DeviceKeystoreSigner
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -30,8 +31,10 @@ import java.security.KeyPair
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Security
+import java.security.Signature
 import java.security.cert.X509Certificate
 import java.security.spec.ECGenParameterSpec
+import java.util.Base64
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
@@ -726,6 +729,21 @@ private fun buildTestOverrides(
     // Android Keystore's persistence across process lifetimes. Issue #317.
     single<DeviceKeyManager> { deviceKeyManagerOverride ?: SoftwareDeviceKeyManager() }
 
+    // --- DeviceKeystoreSigner ---
+    // The `foss` keypair seams (KeypairDeviceCredentialProvider /
+    // KeypairRenewalAuthProvider, bound by the foss `distributionModule`) sign
+    // registration + renewal proofs and CSR DER bytes through this signer.
+    // Production binds `AndroidKeystoreSigner`, which (a) reaches for the
+    // `AndroidKeyStore` JCA provider that Robolectric does not ship and (b)
+    // signs with a *separate* Keystore key from the harness's in-memory
+    // [DeviceKeyManager]. The relay verifies every keypair proof + CSR
+    // signature against the public key the device registered, so the signer
+    // MUST use the same keypair the [DeviceKeyManager] exposes. Swap in a
+    // software signer over that shared keypair. The `google` integration suite
+    // never resolves this binding (its FirebaseRenewalAuthProvider isn't
+    // exercised end-to-end), so in practice this override is foss-only.
+    single<DeviceKeystoreSigner> { SoftwareDeviceKeystoreSigner(get()) }
+
     // --- RelayApiClient override ---
     // Production [appModule] builds one of these with BuildConfig.RELAY_HOST.
     // BuildConfig is baked at build time so we cannot mutate it; instead,
@@ -866,6 +884,28 @@ private class SoftwareDeviceKeyManager : DeviceKeyManager {
         cached ?: KeyPairGenerator.getInstance("EC").apply {
             initialize(ECGenParameterSpec("secp256r1"))
         }.generateKeyPair().also { cached = it }
+    }
+}
+
+/**
+ * Software [DeviceKeystoreSigner] that signs with the [DeviceKeyManager]'s
+ * in-memory keypair, mirroring `AndroidKeystoreSigner`'s wire contract:
+ * `SHA256withECDSA` over the supplied bytes, Base64-encoded (no line wraps —
+ * `java.util.Base64.getEncoder()` emits a single line, matching production's
+ * `android.util.Base64.NO_WRAP`).
+ *
+ * The shared keypair is the whole point: the relay verifies the keypair
+ * registration / renewal proofs and CSR signatures against the public key the
+ * device registers, which comes from the same [DeviceKeyManager].
+ */
+private class SoftwareDeviceKeystoreSigner(private val deviceKeyManager: DeviceKeyManager) :
+    DeviceKeystoreSigner {
+    override fun sign(data: ByteArray): String {
+        val signature = Signature.getInstance("SHA256withECDSA").apply {
+            initSign(deviceKeyManager.getOrCreateKeyPair().private)
+            update(data)
+        }
+        return Base64.getEncoder().encodeToString(signature.sign())
     }
 }
 

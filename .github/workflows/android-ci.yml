@@ -88,13 +88,24 @@ jobs:
         # handshake + Robolectric Android runtime), so each scenario costs
         # several real seconds; the 10-min cap started truncating CI at
         # ~120 tests (see the #285/#287 CI failures).
-        timeout-minutes: 15
+        # Three serial integration suites (:core:tunnel + :app + :app foss)
+        # share the relay binary; 15 min was sized for two, and adding the
+        # foss suite (#469) pushed the step over — bumped to 30. (A future
+        # optimization could split foss into a parallel job.)
+        timeout-minutes: 30
         # `:app:integrationTest` boots the real AppModule Koin graph against
         # the same `--test-mode` relay used by `:core:tunnel:integrationTest`
-        # (issue #250 scaffold; umbrella #247). Both tasks share the relay
-        # binary built above. Run together so Kover's aggregate report
-        # (`koverHtmlReport`) picks up coverage from both.
-        run: ./gradlew :core:tunnel:integrationTest :app:integrationTest
+        # (issue #250 scaffold; umbrella #247). `:app:fossIntegrationTest` runs
+        # the same harness under the FOSS variant so the keypair device-identity
+        # round trip (register → provision → renew, zero Firebase) is covered
+        # end-to-end against the relay (issue #469, part of #460). All three
+        # share the relay binary built above. Run together so Kover's aggregate
+        # report (`koverHtmlReport`) picks up coverage from each.
+        run: >-
+          ./gradlew
+          :core:tunnel:integrationTest
+          :app:integrationTest
+          :app:fossIntegrationTest
       - name: Coverage report (Kover)
         # Runs after unit + integration tests. Kover would also trigger tests
         # on its own, but the preceding steps already ran them — Gradle will
