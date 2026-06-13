@@ -20,9 +20,20 @@ use crate::firestore::DeviceRecord;
 use crate::words::adjectives;
 
 /// Round 1: Register a device and receive a subdomain assignment.
+///
+/// Two auth variants (issue #462):
+/// - **Firebase** (`google` flavor): `firebase_token` is present and is the
+///   sole authenticator; the UID becomes the Firestore foreign key.
+/// - **Keypair** (`foss` flavor): `firebase_token` is absent and the request
+///   instead carries `public_key` + a signed proof (`auth_timestamp`,
+///   `auth_nonce`, `auth_signature`). The relay verifies the proof with the
+///   supplied key and keys the device on the key thumbprint. See
+///   [`crate::keypair_auth`].
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
-    pub firebase_token: String,
+    /// Firebase ID token (google flavor). Absent on the keypair path.
+    #[serde(default)]
+    pub firebase_token: Option<String>,
     pub fcm_token: String,
     pub signature: Option<String>,
     #[serde(default)]
@@ -32,6 +43,21 @@ pub struct RegisterRequest {
     /// per entry and returns the mapping in [`RegisterResponse::secrets`].
     #[serde(default)]
     pub integrations: Vec<String>,
+
+    // ── Keypair-auth variant (foss flavor, issue #462) ──
+    /// Base64-encoded DER SubjectPublicKeyInfo (ECDSA P-256) of the device key.
+    #[serde(default)]
+    pub public_key: Option<String>,
+    /// Unix-seconds client timestamp the proof was signed at.
+    #[serde(default)]
+    pub auth_timestamp: Option<i64>,
+    /// Opaque client nonce included in the signed proof.
+    #[serde(default)]
+    pub auth_nonce: Option<String>,
+    /// Base64-encoded DER ECDSA signature over the canonical proof message
+    /// (see [`crate::keypair_auth::canonical_message`]).
+    #[serde(default)]
+    pub auth_signature: Option<String>,
 }
 
 /// Round 1 response: subdomain assigned, device should now generate CSR.
@@ -65,9 +91,14 @@ pub(crate) fn generate_one_secret(integration_id: &str, rng: &mut impl rand::Rng
 }
 
 /// Round 2: Submit CSR to receive certificates.
+///
+/// `firebase_token` is present for the `google` flavor (device looked up by
+/// UID) and absent for the `foss` keypair flavor, where the device is looked up
+/// by the thumbprint of the public key embedded in the CSR. See issue #462.
 #[derive(Debug, Deserialize)]
 pub struct CertRequest {
-    pub firebase_token: String,
+    #[serde(default)]
+    pub firebase_token: Option<String>,
     /// Base64-encoded DER CSR with correct FQDN (subdomain.rousecontext.com).
     pub csr: String,
     /// Base64-encoded DER ECDSA signature over the raw CSR DER bytes, using
@@ -92,39 +123,114 @@ pub struct CertResponse {
     pub relay_host: String,
 }
 
+/// The authenticated identity behind a `/register` request, after auth has
+/// been verified. Abstracts the two flavors so the rest of the handler is
+/// auth-agnostic. See issue #462.
+enum RegisterIdentity {
+    /// `google` flavor: keyed on the Firebase UID. Carries the raw token so the
+    /// re-registration proof (signature over the token bytes) can be checked.
+    Firebase { uid: String, token: String },
+    /// `foss` flavor: keyed on the public-key thumbprint. Possession of the key
+    /// was already proven by the verified registration proof, so no separate
+    /// re-registration signature is required.
+    Keypair { thumbprint: String },
+}
+
+/// Current Unix time in whole seconds (saturating at 0 before the epoch).
+fn now_unix_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Resolve and verify the caller's identity from the request. Returns the
+/// verified [`RegisterIdentity`] or a ready-to-return error response.
+async fn resolve_register_identity(
+    state: &Arc<AppState>,
+    req: &RegisterRequest,
+) -> Result<RegisterIdentity, Response> {
+    // Firebase path takes precedence when a token is present.
+    if let Some(token) = req.firebase_token.as_deref().filter(|t| !t.is_empty()) {
+        let claims = state
+            .firebase_auth
+            .verify_id_token(token)
+            .await
+            .map_err(|e| {
+                ApiError::unauthorized(format!("Invalid Firebase ID token: {e}")).into_response()
+            })?;
+        return Ok(RegisterIdentity::Firebase {
+            uid: claims.uid,
+            token: token.to_string(),
+        });
+    }
+
+    // Keypair path (foss): public key + signed proof.
+    let public_key_b64 = req
+        .public_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "Missing auth: provide firebase_token, or public_key + auth proof",
+            )
+            .into_response()
+        })?;
+    let public_key_der = BASE64
+        .decode(public_key_b64)
+        .map_err(|_| ApiError::bad_request("Invalid Base64 in public_key field").into_response())?;
+    let timestamp = req.auth_timestamp.ok_or_else(|| {
+        ApiError::bad_request("Missing required field: auth_timestamp").into_response()
+    })?;
+    let nonce = req.auth_nonce.as_deref().ok_or_else(|| {
+        ApiError::bad_request("Missing required field: auth_nonce").into_response()
+    })?;
+    let signature = req.auth_signature.as_deref().ok_or_else(|| {
+        ApiError::bad_request("Missing required field: auth_signature").into_response()
+    })?;
+
+    let thumbprint = crate::keypair_auth::verify_proof(
+        &public_key_der,
+        crate::keypair_auth::PURPOSE_REGISTER,
+        timestamp,
+        nonce,
+        signature,
+        now_unix_secs(),
+    )
+    .map_err(|e| ApiError::forbidden(format!("Keypair proof rejected: {e}")).into_response())?;
+
+    Ok(RegisterIdentity::Keypair { thumbprint })
+}
+
 /// Round 1: POST /register
 ///
-/// Device sends firebase_token + fcm_token. Relay assigns a subdomain and
-/// stores the device record. The device then generates a keypair + CSR with
-/// the assigned subdomain and calls POST /register/certs.
+/// Device authenticates with either a Firebase ID token (`google`) or a keypair
+/// proof (`foss`), plus an fcm_token. Relay assigns a subdomain and stores the
+/// device record. The device then generates a keypair + CSR with the assigned
+/// subdomain and calls POST /register/certs.
 pub async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Response {
     // 1. Validate required fields
-    if req.firebase_token.is_empty() {
-        return ApiError::bad_request("Missing required field: firebase_token").into_response();
-    }
     if req.fcm_token.is_empty() {
         return ApiError::bad_request("Missing required field: fcm_token").into_response();
     }
 
-    // 2. Verify Firebase ID token
-    let claims = match state
-        .firebase_auth
-        .verify_id_token(&req.firebase_token)
-        .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return ApiError::unauthorized(format!("Invalid Firebase ID token: {e}"))
-                .into_response()
+    // 2. Resolve + verify the caller's identity (Firebase token or keypair proof).
+    let identity = match resolve_register_identity(&state, &req).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+
+    // 3. Check if this identity already has a subdomain.
+    let existing = match &identity {
+        RegisterIdentity::Firebase { uid, .. } => state.firestore.find_device_by_uid(uid).await,
+        RegisterIdentity::Keypair { thumbprint } => {
+            state.firestore.find_device_by_thumbprint(thumbprint).await
         }
     };
-    let uid = claims.uid;
-
-    // 3. Check if UID already has a subdomain
-    let existing = match state.firestore.find_device_by_uid(&uid).await {
+    let existing = match existing {
         Ok(existing) => existing,
         Err(e) => {
             return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
@@ -132,23 +238,22 @@ pub async fn handle_register(
     };
 
     let subdomain = if let Some((existing_subdomain, existing_record)) = existing {
-        // Re-registration or rotation: signature required
-        let sig_b64 = match &req.signature {
-            Some(s) if !s.is_empty() => s,
-            _ => {
-                return ApiError::forbidden("Signature required for re-registration")
-                    .into_response()
+        // Re-registration or rotation. For Firebase, a signature over the token
+        // bytes proves key possession (the token alone is bearer-only). For the
+        // keypair path, the registration proof already proved possession.
+        if let RegisterIdentity::Firebase { token, .. } = &identity {
+            let sig_b64 = match &req.signature {
+                Some(s) if !s.is_empty() => s,
+                _ => {
+                    return ApiError::forbidden("Signature required for re-registration")
+                        .into_response()
+                }
+            };
+            if let Err(e) = verify_signature(&existing_record.public_key, token.as_bytes(), sig_b64)
+            {
+                return ApiError::forbidden(format!("Signature verification failed: {e}"))
+                    .into_response();
             }
-        };
-
-        // Verify signature over the firebase_token bytes
-        if let Err(e) = verify_signature(
-            &existing_record.public_key,
-            req.firebase_token.as_bytes(),
-            sig_b64,
-        ) {
-            return ApiError::forbidden(format!("Signature verification failed: {e}"))
-                .into_response();
         }
 
         if req.force_new {
@@ -198,50 +303,60 @@ pub async fn handle_register(
             existing_subdomain
         }
     } else {
-        // New registration. If this UID holds an active (non-expired)
-        // reservation created via POST /request-subdomain, consume it: adopt
-        // the reserved subdomain and delete the reservation (single-use).
+        // New registration. The reservation flow (POST /request-subdomain) is
+        // Firebase-only: it keys reservations on the UID. Keypair (foss) devices
+        // skip reservation and go straight to generation.
+        //
+        // If this UID holds an active (non-expired) reservation, consume it:
+        // adopt the reserved subdomain and delete the reservation (single-use).
         // Otherwise, fall through to the generator path.
         //
         // Errors looking up or deleting reservations are non-fatal: we log
         // and fall back to generation so /register never fails just because
         // the reservation bookkeeping had a hiccup.
-        match state.firestore.find_reservation_by_uid(&uid).await {
-            Ok(Some((reserved_subdomain, reservation)))
-                if reservation.expires_at > SystemTime::now() =>
-            {
-                if let Err(e) = state
-                    .firestore
-                    .delete_reservation(&reserved_subdomain)
-                    .await
+        let uid = match &identity {
+            RegisterIdentity::Firebase { uid, .. } => Some(uid.as_str()),
+            RegisterIdentity::Keypair { .. } => None,
+        };
+        match uid {
+            None => state.subdomain_generator.generate(),
+            Some(uid) => match state.firestore.find_reservation_by_uid(uid).await {
+                Ok(Some((reserved_subdomain, reservation)))
+                    if reservation.expires_at > SystemTime::now() =>
                 {
-                    tracing::warn!(
-                        subdomain = %reserved_subdomain,
-                        error = %e,
-                        "Failed to delete consumed reservation (non-fatal)"
-                    );
+                    if let Err(e) = state
+                        .firestore
+                        .delete_reservation(&reserved_subdomain)
+                        .await
+                    {
+                        tracing::warn!(
+                            subdomain = %reserved_subdomain,
+                            error = %e,
+                            "Failed to delete consumed reservation (non-fatal)"
+                        );
+                    }
+                    reserved_subdomain
                 }
-                reserved_subdomain
-            }
-            Ok(Some((expired_subdomain, _))) => {
-                // Expired reservation: best-effort cleanup, then generate.
-                if let Err(e) = state.firestore.delete_reservation(&expired_subdomain).await {
-                    tracing::warn!(
-                        subdomain = %expired_subdomain,
-                        error = %e,
-                        "Failed to delete expired reservation (non-fatal)"
-                    );
+                Ok(Some((expired_subdomain, _))) => {
+                    // Expired reservation: best-effort cleanup, then generate.
+                    if let Err(e) = state.firestore.delete_reservation(&expired_subdomain).await {
+                        tracing::warn!(
+                            subdomain = %expired_subdomain,
+                            error = %e,
+                            "Failed to delete expired reservation (non-fatal)"
+                        );
+                    }
+                    state.subdomain_generator.generate()
                 }
-                state.subdomain_generator.generate()
-            }
-            Ok(None) => state.subdomain_generator.generate(),
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "Reservation lookup failed; falling back to generator"
-                );
-                state.subdomain_generator.generate()
-            }
+                Ok(None) => state.subdomain_generator.generate(),
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Reservation lookup failed; falling back to generator"
+                    );
+                    state.subdomain_generator.generate()
+                }
+            },
         }
     };
 
@@ -252,10 +367,17 @@ pub async fn handle_register(
     let secrets_map = generate_integration_secrets(&req.integrations);
     let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
 
-    // 5. Store device record (public_key will be set in round 2 when CSR arrives)
+    // 5. Store device record (public_key will be set in round 2 when CSR
+    //    arrives — for the keypair path the round-2 CSR's public key is matched
+    //    to this record by its thumbprint).
+    let (firebase_uid, key_thumbprint) = match identity {
+        RegisterIdentity::Firebase { uid, .. } => (uid, None),
+        RegisterIdentity::Keypair { thumbprint } => (String::new(), Some(thumbprint)),
+    };
     let record = DeviceRecord {
         fcm_token: req.fcm_token,
-        firebase_uid: uid,
+        firebase_uid,
+        key_thumbprint,
         public_key: String::new(),            // set in round 2
         cert_expires: SystemTime::UNIX_EPOCH, // set in round 2
         registered_at: SystemTime::now(),
@@ -302,9 +424,6 @@ pub async fn handle_register_certs(
     Json(req): Json<CertRequest>,
 ) -> Response {
     // 1. Validate required fields
-    if req.firebase_token.is_empty() {
-        return ApiError::bad_request("Missing required field: firebase_token").into_response();
-    }
     if req.csr.is_empty() {
         return ApiError::bad_request("Missing required field: csr").into_response();
     }
@@ -315,33 +434,67 @@ pub async fn handle_register_certs(
         Err(_) => return ApiError::bad_request("Invalid Base64 in csr field").into_response(),
     };
 
-    // 3. Verify Firebase ID token
-    let claims = match state
-        .firebase_auth
-        .verify_id_token(&req.firebase_token)
-        .await
+    // 3. Resolve the device + subdomain by identity.
+    //
+    // Firebase (google): verify the token and look up by UID. Keypair (foss):
+    // no token; the device is identified by the thumbprint of the public key in
+    // the CSR. The thumbprint match against the round-1 record establishes
+    // identity, and the CSR self-signature (verified below) proves possession.
+    let (subdomain, record) = if let Some(token) =
+        req.firebase_token.as_deref().filter(|t| !t.is_empty())
     {
-        Ok(c) => c,
-        Err(e) => {
-            return ApiError::unauthorized(format!("Invalid Firebase ID token: {e}"))
+        let claims = match state.firebase_auth.verify_id_token(token).await {
+            Ok(c) => c,
+            Err(e) => {
+                return ApiError::unauthorized(format!("Invalid Firebase ID token: {e}"))
+                    .into_response()
+            }
+        };
+        match state.firestore.find_device_by_uid(&claims.uid).await {
+            Ok(Some(pair)) => pair,
+            Ok(None) => {
+                return ApiError::not_found(
+                    "No device registered for this UID. Call POST /register first.",
+                )
                 .into_response()
+            }
+            Err(e) => {
+                return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
+            }
+        }
+    } else {
+        // Keypair path needs the CSR's public key to derive the identity.
+        let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {
+            Ok(spki) => spki,
+            Err(e) => {
+                return ApiError::bad_request(format!("Failed to parse CSR: {e}")).into_response()
+            }
+        };
+        let thumbprint = crate::keypair_auth::thumbprint(&public_key_der);
+        match state.firestore.find_device_by_thumbprint(&thumbprint).await {
+            Ok(Some(pair)) => pair,
+            Ok(None) => {
+                return ApiError::not_found(
+                    "No device registered for this key. Call POST /register first.",
+                )
+                .into_response()
+            }
+            Err(e) => {
+                return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
+            }
         }
     };
-    let uid = claims.uid;
 
-    // 4. Look up existing device by UID
-    let (subdomain, _record) = match state.firestore.find_device_by_uid(&uid).await {
-        Ok(Some(pair)) => pair,
-        Ok(None) => {
-            return ApiError::not_found(
-                "No device registered for this UID. Call POST /register first.",
-            )
-            .into_response()
-        }
+    // 4. Extract the CSR public key (also verifies the CSR self-signature). For
+    //    the Firebase path this is where a malformed CSR is rejected — after the
+    //    device lookup, preserving the prior ordering.
+    let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {
+        Ok(spki) => spki,
         Err(e) => {
-            return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
+            return ApiError::bad_request(format!("Failed to parse CSR: {e}")).into_response()
         }
     };
+    let public_key_b64 = BASE64.encode(&public_key_der);
 
     // 4a. Proof-of-possession check (issue #201).
     //
@@ -349,11 +502,14 @@ pub async fn handle_register_certs(
     // /register/certs round 2 has completed — require the caller to sign the
     // raw CSR DER bytes with the registered private key. This prevents an
     // attacker who only holds a valid Firebase ID token from re-issuing a
-    // relay-CA client cert with an attacker-controlled key.
+    // relay-CA client cert with an attacker-controlled key. (On the keypair
+    // path the CSR thumbprint already had to match the registered identity, so
+    // this is belt-and-suspenders, but it stays uniform across both flavors.)
     //
     // Fresh registrations (record.public_key empty) still work without a
     // signature: round 2 is the step that binds the key for the first time.
-    if !_record.public_key.is_empty() {
+    let mut record = record;
+    if !record.public_key.is_empty() {
         let sig_b64 = match req.signature.as_deref() {
             Some(s) if !s.is_empty() => s,
             _ => {
@@ -364,22 +520,11 @@ pub async fn handle_register_certs(
                 .into_response()
             }
         };
-        if let Err(e) = verify_signature(&_record.public_key, &csr_der, sig_b64) {
+        if let Err(e) = verify_signature(&record.public_key, &csr_der, sig_b64) {
             return ApiError::forbidden(format!("Signature verification failed: {e}"))
                 .into_response();
         }
     }
-
-    // 5. Extract public key from CSR (also verifies the CSR self-signature).
-    let public_key_der = match crate::device_ca::extract_public_key_from_csr_der(&csr_der) {
-        Ok(spki) => spki,
-        Err(e) => {
-            return ApiError::bad_request(format!("Failed to parse CSR: {e}")).into_response()
-        }
-    };
-
-    // Store the public key fingerprint for future re-registration verification
-    let public_key_b64 = BASE64.encode(&public_key_der);
 
     // 6. Issue ACME server cert using the device's CSR
     let acme_bundle = match state
@@ -423,7 +568,6 @@ pub async fn handle_register_certs(
     };
 
     // 8. Update device record with public key and cert expiry
-    let mut record = _record;
     record.public_key = public_key_b64;
     record.cert_expires = SystemTime::now() + Duration::from_secs(90 * 86400);
 

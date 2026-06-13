@@ -44,6 +44,17 @@ class CertProvisioningFlow(
     suspend fun execute(
         firebaseToken: String,
         baseDomain: String = defaultBaseDomain
+    ): CertProvisioningResult = execute(DeviceCredential.Firebase(firebaseToken), baseDomain)
+
+    /**
+     * Flavor-agnostic provisioning entry point (issue #462). For
+     * [DeviceCredential.Firebase] the round-2 request carries the Firebase
+     * token; for [DeviceCredential.Keypair] (`foss`) it carries no token and the
+     * relay identifies the device by the thumbprint of the CSR's public key.
+     */
+    suspend fun execute(
+        credential: DeviceCredential,
+        baseDomain: String = defaultBaseDomain
     ): CertProvisioningResult = mutex.withLock {
         // Already provisioned? Re-checked under the lock so that a second caller
         // who arrived while the first call was in flight sees the freshly-stored
@@ -67,12 +78,16 @@ class CertProvisioningFlow(
         }
 
         // Submit CSR to get both certs
-        when (
-            val certResponse = relayApiClient.registerCerts(
+        val certResponse = when (credential) {
+            is DeviceCredential.Firebase -> relayApiClient.registerCerts(
                 csrPem = csrResult.csrPem,
-                firebaseToken = firebaseToken
+                firebaseToken = credential.idToken
             )
-        ) {
+            is DeviceCredential.Keypair -> relayApiClient.registerCertsWithKeypair(
+                csrPem = csrResult.csrPem
+            )
+        }
+        when (certResponse) {
             is RelayApiResult.Success -> {
                 try {
                     certificateStore.storeCertificate(certResponse.data.serverCert)

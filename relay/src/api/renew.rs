@@ -32,11 +32,22 @@ pub struct RenewRequest {
     pub csr: String,
     /// The device's assigned subdomain.
     pub subdomain: String,
-    /// Firebase ID token. Required for Path B (expired cert).
+    /// Firebase ID token. Used for Path B (expired cert) on the `google` flavor.
     pub firebase_token: Option<String>,
     /// Base64-encoded DER ECDSA signature over the raw CSR DER bytes, using
     /// the device's registered private key. Always required.
     pub signature: Option<String>,
+
+    // ── Keypair Path B (foss flavor, issue #462) ──
+    /// Unix-seconds client timestamp the renewal proof was signed at. Present
+    /// on the `foss` expired-cert path in lieu of a Firebase token.
+    pub auth_timestamp: Option<i64>,
+    /// Opaque client nonce included in the signed renewal proof.
+    pub auth_nonce: Option<String>,
+    /// Base64-encoded DER ECDSA signature over the canonical renewal proof
+    /// message (see [`crate::keypair_auth::canonical_message`]), verified
+    /// against the device's stored public key.
+    pub auth_signature: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,6 +129,56 @@ pub async fn handle_renew(
             return ApiError::internal(format!("Firestore lookup failed: {e}")).into_response()
         }
     };
+
+    // Keypair Path B (foss, issue #462): when a keypair renewal proof is
+    // supplied (in lieu of a Firebase token), verify it against the device's
+    // stored public key with the bounded replay window. This is the foss
+    // analogue of the Firebase re-authentication above; the CSR signature below
+    // is still always checked.
+    if req.auth_signature.is_some() || req.auth_timestamp.is_some() || req.auth_nonce.is_some() {
+        let timestamp = match req.auth_timestamp {
+            Some(t) => t,
+            None => {
+                return ApiError::bad_request("Missing required field: auth_timestamp")
+                    .into_response()
+            }
+        };
+        let nonce = match req.auth_nonce.as_deref() {
+            Some(n) => n,
+            None => {
+                return ApiError::bad_request("Missing required field: auth_nonce").into_response()
+            }
+        };
+        let auth_sig = match req.auth_signature.as_deref() {
+            Some(s) if !s.is_empty() => s,
+            _ => {
+                return ApiError::bad_request("Missing required field: auth_signature")
+                    .into_response()
+            }
+        };
+        let public_key_der = match BASE64.decode(&record.public_key) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return ApiError::internal(format!("Stored public key not decodable: {e}"))
+                    .into_response()
+            }
+        };
+        let now_secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if let Err(e) = crate::keypair_auth::verify_proof(
+            &public_key_der,
+            crate::keypair_auth::PURPOSE_RENEW,
+            timestamp,
+            nonce,
+            auth_sig,
+            now_secs,
+        ) {
+            return ApiError::forbidden(format!("Keypair renewal proof rejected: {e}"))
+                .into_response();
+        }
+    }
 
     // Verify signature over CSR DER using the registered public key.
     if let Err(e) = verify_signature(&record.public_key, &csr_der, sig_b64) {

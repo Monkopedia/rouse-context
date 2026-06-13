@@ -3,9 +3,11 @@ package com.rousecontext.app.di
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.app.auth.AnonymousAuthClient
 import com.rousecontext.app.auth.DeviceAuthTokenProvider
+import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
 import com.rousecontext.app.auth.FirebaseDeviceAuthTokenProvider
+import com.rousecontext.app.auth.FirebaseDeviceCredentialProvider
 import com.rousecontext.app.auth.FirebaseFcmTokenProvider
 import com.rousecontext.app.support.FirebaseCrashReporter
 import com.rousecontext.work.FirebaseRenewalAuthProvider
@@ -28,6 +30,11 @@ val distributionModule = module {
     single<AnonymousAuthClient> { FirebaseAnonymousAuthClient() }
     single<FcmTokenProvider> { FirebaseFcmTokenProvider() }
     single<DeviceAuthTokenProvider> { FirebaseDeviceAuthTokenProvider() }
+
+    // Device-auth seam (issue #462): wraps the Firebase anon/ID-token clients.
+    single<DeviceCredentialProvider> {
+        FirebaseDeviceCredentialProvider(anonymousAuth = get(), deviceAuth = get())
+    }
 
     // Cert-renewal auth provider (Firebase ID token + Keystore signature).
     single<RenewalAuthProvider> { FirebaseRenewalAuthProvider(signer = get()) }

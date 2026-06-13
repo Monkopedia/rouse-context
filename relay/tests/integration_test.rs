@@ -22,6 +22,7 @@ fn dummy_device_record() -> DeviceRecord {
     DeviceRecord {
         fcm_token: "test-fcm-token".to_string(),
         firebase_uid: "test-uid".to_string(),
+        key_thumbprint: None,
         public_key: String::new(),
         cert_expires: SystemTime::now(),
         registered_at: SystemTime::now(),

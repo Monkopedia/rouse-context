@@ -7,7 +7,7 @@ import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.rousecontext.app.R
-import com.rousecontext.app.auth.DeviceAuthTokenProvider
+import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
@@ -36,7 +36,7 @@ fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
         val integrations by viewModel.pickerIntegrations
             .collectAsState()
         val certProvisioningFlow: CertProvisioningFlow = koinInject()
-        val deviceAuthTokenProvider: DeviceAuthTokenProvider = koinInject()
+        val credentialProvider: DeviceCredentialProvider = koinInject()
         val appScope: CoroutineScope = koinInject(named("appScope"))
         AddIntegrationPickerContent(
             integrations = integrations,
@@ -46,9 +46,9 @@ fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
                 // since it uses the app-scoped coroutine scope.
                 appScope.launch {
                     try {
-                        val token = deviceAuthTokenProvider.currentIdToken()
-                        if (token != null) {
-                            certProvisioningFlow.execute(token)
+                        val credential = credentialProvider.forProvisioning()
+                        if (credential != null) {
+                            certProvisioningFlow.execute(credential)
                         }
                     } catch (_: Exception) {
                         // Best-effort; integrationSetup will retry

@@ -73,6 +73,83 @@ class RelayApiClient(
     }
 
     /**
+     * Round 1 (keypair / `foss` flavor): register a new device with no Firebase
+     * token. The request carries the device public key plus a signed
+     * registration proof; the relay verifies the proof, derives the key
+     * thumbprint, and keys the device on it. The reservation step
+     * ([requestSubdomain]) is Firebase-only, so the keypair path lets the relay
+     * generate the subdomain directly. See issue #462.
+     */
+    suspend fun registerWithKeypair(
+        credential: DeviceCredential.Keypair,
+        fcmToken: String,
+        integrationIds: List<String> = emptyList()
+    ): RelayApiResult<RegisterResponse> = executeRequest {
+        httpClient.post("$baseUrl/register") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                RegisterRequest(
+                    firebaseToken = null,
+                    fcmToken = fcmToken,
+                    integrations = integrationIds,
+                    publicKey = base64(credential.publicKeyDer),
+                    authTimestamp = credential.registerProof.timestampSecs,
+                    authNonce = credential.registerProof.nonce,
+                    authSignature = credential.registerProof.signature
+                )
+            )
+        }
+    }
+
+    /**
+     * Round 2 (keypair / `foss` flavor): submit the CSR to receive both
+     * certificates without a Firebase token. The relay identifies the device by
+     * the thumbprint of the public key embedded in the CSR. See issue #462.
+     */
+    suspend fun registerCertsWithKeypair(
+        csrPem: String,
+        signature: String? = null
+    ): RelayApiResult<CertResponse> = executeRequest {
+        httpClient.post("$baseUrl/register/certs") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                CertRequest(
+                    firebaseToken = null,
+                    csr = csrToBase64(csrPem),
+                    signature = signature
+                )
+            )
+        }
+    }
+
+    /**
+     * Renew an expired certificate using a keypair proof (`foss` flavor): the
+     * CSR signature proves key possession and the keypair proof re-authenticates
+     * the device against its stored public key, replacing the Firebase token.
+     * See issue #462.
+     */
+    suspend fun renewWithKeypair(
+        csrPem: String,
+        subdomain: String,
+        csrSignature: String,
+        proof: KeypairProof
+    ): RelayApiResult<RenewResponse> = executeRequest {
+        httpClient.post("$baseUrl/renew") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                RenewRequest(
+                    csr = csrToBase64(csrPem),
+                    subdomain = subdomain,
+                    signature = csrSignature,
+                    authTimestamp = proof.timestampSecs,
+                    authNonce = proof.nonce,
+                    authSignature = proof.signature
+                )
+            )
+        }
+    }
+
+    /**
      * Round 2: Submit CSR to receive both certificates.
      * The CSR must have CN={subdomain}.rousecontext.com.
      * Returns server cert (ACME/LE), client cert (relay CA), and relay CA cert.
@@ -172,6 +249,9 @@ class RelayApiClient(
         }
     }
 
+    private fun base64(bytes: ByteArray): String =
+        java.util.Base64.getEncoder().encodeToString(bytes)
+
     private fun csrToBase64(csrPem: String): String = csrPem
         .replace("-----BEGIN CERTIFICATE REQUEST-----", "")
         .replace("-----END CERTIFICATE REQUEST-----", "")
@@ -252,9 +332,14 @@ data class RequestSubdomainResponse(
 
 @Serializable
 data class RegisterRequest(
-    @SerialName("firebase_token") val firebaseToken: String,
+    @SerialName("firebase_token") val firebaseToken: String? = null,
     @SerialName("fcm_token") val fcmToken: String,
-    @SerialName("integrations") val integrations: List<String> = emptyList()
+    @SerialName("integrations") val integrations: List<String> = emptyList(),
+    // Keypair-auth variant (foss flavor, issue #462).
+    @SerialName("public_key") val publicKey: String? = null,
+    @SerialName("auth_timestamp") val authTimestamp: Long? = null,
+    @SerialName("auth_nonce") val authNonce: String? = null,
+    @SerialName("auth_signature") val authSignature: String? = null
 )
 
 @Serializable
@@ -275,7 +360,7 @@ data class UpdateSecretsResponse(
 
 @Serializable
 data class CertRequest(
-    @SerialName("firebase_token") val firebaseToken: String,
+    @SerialName("firebase_token") val firebaseToken: String? = null,
     @SerialName("csr") val csr: String,
     @SerialName("signature") val signature: String? = null
 )
@@ -294,7 +379,11 @@ data class RenewRequest(
     @SerialName("csr") val csr: String,
     @SerialName("subdomain") val subdomain: String,
     @SerialName("firebase_token") val firebaseToken: String? = null,
-    @SerialName("signature") val signature: String? = null
+    @SerialName("signature") val signature: String? = null,
+    // Keypair Path B (foss flavor, issue #462).
+    @SerialName("auth_timestamp") val authTimestamp: Long? = null,
+    @SerialName("auth_nonce") val authNonce: String? = null,
+    @SerialName("auth_signature") val authSignature: String? = null
 )
 
 @Serializable

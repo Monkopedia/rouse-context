@@ -50,6 +50,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
     let record = DeviceRecord {
         fcm_token: "device-fcm".to_string(),
         firebase_uid: "uid-456".to_string(),
+        key_thumbprint: None,
         public_key: pub_key_b64,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
@@ -60,6 +61,152 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
         integration_secrets: std::collections::HashMap::new(),
     };
     (signing_key, record)
+}
+
+/// Sign a keypair renewal proof (`PURPOSE_RENEW`) with the device key.
+fn sign_renew_proof(signing_key: &SigningKey, timestamp: i64, nonce: &str) -> String {
+    let msg = rouse_relay::keypair_auth::canonical_message(
+        rouse_relay::keypair_auth::PURPOSE_RENEW,
+        timestamp,
+        nonce,
+    );
+    let sig: Signature = signing_key.sign(&msg);
+    BASE64.encode(sig.to_der().as_bytes())
+}
+
+fn now_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+#[tokio::test]
+async fn renew_keypair_path_valid_proof_returns_certs() {
+    let (signing_key, record) = setup_device();
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
+    let acme = MockAcme::new("renewed-cert");
+    // No Firebase token will be supplied at all.
+    let auth = MockFirebaseAuth::new();
+
+    let app = make_app(firestore, acme, auth);
+
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let csr_sig: Signature = signing_key.sign(&csr_der);
+    let csr_sig_b64 = BASE64.encode(csr_sig.to_der().as_bytes());
+
+    let ts = now_secs();
+    let auth_sig = sign_renew_proof(&signing_key, ts, "renew-nonce-1");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/renew")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "subdomain": "brave-falcon",
+                "csr": csr_b64,
+                "signature": csr_sig_b64,
+                "auth_timestamp": ts,
+                "auth_nonce": "renew-nonce-1",
+                "auth_signature": auth_sig
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(
+        resp.status(),
+        200,
+        "keypair renewal proof should be accepted"
+    );
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["server_cert"].as_str().unwrap(), "renewed-cert");
+}
+
+#[tokio::test]
+async fn renew_keypair_path_stale_timestamp_returns_403() {
+    let (signing_key, record) = setup_device();
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
+    let acme = MockAcme::new("renewed-cert");
+    let auth = MockFirebaseAuth::new();
+
+    let app = make_app(firestore, acme, auth);
+
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let csr_sig: Signature = signing_key.sign(&csr_der);
+    let csr_sig_b64 = BASE64.encode(csr_sig.to_der().as_bytes());
+
+    // Timestamp far outside the replay window.
+    let ts = now_secs() - 3600;
+    let auth_sig = sign_renew_proof(&signing_key, ts, "renew-nonce-2");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/renew")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "subdomain": "brave-falcon",
+                "csr": csr_b64,
+                "signature": csr_sig_b64,
+                "auth_timestamp": ts,
+                "auth_nonce": "renew-nonce-2",
+                "auth_signature": auth_sig
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 403, "stale keypair proof must be rejected");
+}
+
+#[tokio::test]
+async fn renew_keypair_path_forged_proof_returns_403() {
+    let (signing_key, record) = setup_device();
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
+    let acme = MockAcme::new("renewed-cert");
+    let auth = MockFirebaseAuth::new();
+
+    let app = make_app(firestore, acme, auth);
+
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let csr_sig: Signature = signing_key.sign(&csr_der);
+    let csr_sig_b64 = BASE64.encode(csr_sig.to_der().as_bytes());
+
+    // Proof signed by an attacker key, not the device's registered key.
+    let attacker = SigningKey::random(&mut rand::thread_rng());
+    let ts = now_secs();
+    let auth_sig = sign_renew_proof(&attacker, ts, "renew-nonce-3");
+
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/renew")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "subdomain": "brave-falcon",
+                "csr": csr_b64,
+                "signature": csr_sig_b64,
+                "auth_timestamp": ts,
+                "auth_nonce": "renew-nonce-3",
+                "auth_signature": auth_sig
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 403, "forged keypair proof must be rejected");
 }
 
 #[tokio::test]
