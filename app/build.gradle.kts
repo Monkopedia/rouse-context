@@ -312,7 +312,7 @@ dependencies {
 // and depend on `relay/target/debug/rouse-relay` being built with
 // `--features test-mode`.
 //
-// They are excluded from the default `testDebugUnitTest` run (CI's "unit
+// They are excluded from the default `testGoogleDebugUnitTest` run (CI's "unit
 // tests" step stays fast) and fronted by a dedicated `:app:integrationTest`
 // task so CI can gate them separately. Both tasks are Android `Test` tasks
 // on the debug variant, so Kover's auto-discovery picks them up for the

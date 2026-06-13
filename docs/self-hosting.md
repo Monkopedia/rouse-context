@@ -122,7 +122,7 @@ The app's `BuildConfig` will have:
 Test the override wired correctly:
 
 ```bash
-./gradlew -Pdomain=coolapp.example :app:compileDebugKotlin
+./gradlew -Pdomain=coolapp.example :app:compileGoogleDebugKotlin
 ```
 
 For production/release builds, use the same flag with `:app:assembleGoogleRelease` and your release keystore.
