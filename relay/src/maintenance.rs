@@ -17,7 +17,9 @@ use crate::acme::AcmeClient;
 use crate::dns::DnsClient;
 use crate::fcm::{renew_payload, FcmClient};
 use crate::firestore::{DeviceRecord, FirestoreClient};
+use crate::push;
 use crate::shutdown::ShutdownController;
+use crate::unifiedpush::UnifiedPushClient;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tracing::{info, warn};
@@ -108,6 +110,7 @@ pub async fn run_maintenance_loop(
     config: MaintenanceConfig,
     firestore: Arc<dyn FirestoreClient>,
     fcm: Arc<dyn FcmClient>,
+    unifiedpush: Arc<dyn UnifiedPushClient>,
     acme: Arc<dyn AcmeClient>,
     dns: Arc<dyn DnsClient>,
     shutdown: ShutdownController,
@@ -120,7 +123,7 @@ pub async fn run_maintenance_loop(
     loop {
         tokio::select! {
             _ = tokio::time::sleep(config.interval) => {
-                let report = run_maintenance_once(&config, &firestore, &fcm, &acme, &dns).await;
+                let report = run_maintenance_once(&config, &firestore, &fcm, &unifiedpush, &acme, &dns).await;
                 info!(?report, "Maintenance run completed");
             }
             _ = shutdown.wait_for_shutdown() => {
@@ -136,6 +139,7 @@ pub async fn run_maintenance_once(
     config: &MaintenanceConfig,
     firestore: &Arc<dyn FirestoreClient>,
     fcm: &Arc<dyn FcmClient>,
+    unifiedpush: &Arc<dyn UnifiedPushClient>,
     acme: &Arc<dyn AcmeClient>,
     dns: &Arc<dyn DnsClient>,
 ) -> MaintenanceReport {
@@ -152,9 +156,17 @@ pub async fn run_maintenance_once(
                 // Cert expiry nudge
                 if needs_renewal_nudge(record, now, nudge_threshold) {
                     let payload = renew_payload();
-                    match fcm
-                        .send_data_message(&record.fcm_token, &payload, false)
-                        .await
+                    // Route the renew nudge by push_kind (FCM or UnifiedPush),
+                    // mirroring the wake path. Not high-priority — a nudge can
+                    // wait for the next maintenance window.
+                    match push::dispatch_push(
+                        record,
+                        fcm.as_ref(),
+                        unifiedpush.as_ref(),
+                        &payload,
+                        false,
+                    )
+                    .await
                     {
                         Ok(()) => {
                             // Mark the device as nudged so we don't re-send
@@ -326,6 +338,8 @@ mod tests {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
         }
@@ -499,6 +513,42 @@ mod tests {
         }
     }
 
+    struct StubUnifiedPush;
+    #[async_trait::async_trait]
+    impl UnifiedPushClient for StubUnifiedPush {
+        async fn send_data_message(
+            &self,
+            _endpoint: &str,
+            _data: &FcmData,
+        ) -> Result<(), crate::unifiedpush::UnifiedPushError> {
+            Ok(())
+        }
+    }
+
+    /// UnifiedPush mock that records (endpoint, payload) for routing assertions.
+    #[derive(Default)]
+    struct RecordingUnifiedPush {
+        sent: Mutex<Vec<(String, FcmData)>>,
+    }
+    #[async_trait::async_trait]
+    impl UnifiedPushClient for RecordingUnifiedPush {
+        async fn send_data_message(
+            &self,
+            endpoint: &str,
+            data: &FcmData,
+        ) -> Result<(), crate::unifiedpush::UnifiedPushError> {
+            self.sent
+                .lock()
+                .unwrap()
+                .push((endpoint.to_string(), data.clone()));
+            Ok(())
+        }
+    }
+
+    fn stub_unifiedpush() -> Arc<dyn UnifiedPushClient> {
+        Arc::new(StubUnifiedPush)
+    }
+
     struct StubAcme;
     #[async_trait::async_trait]
     impl AcmeClient for StubAcme {
@@ -567,6 +617,8 @@ mod tests {
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
         };
@@ -590,6 +642,7 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
@@ -621,6 +674,7 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
@@ -644,6 +698,7 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
@@ -670,6 +725,7 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
@@ -703,6 +759,7 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
@@ -748,6 +805,7 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
@@ -773,11 +831,49 @@ mod tests {
             &config,
             &(firestore.clone() as Arc<dyn FirestoreClient>),
             &fcm,
+            &stub_unifiedpush(),
             &acme,
             &(dns.clone() as Arc<dyn DnsClient>),
         )
         .await;
 
         assert_eq!(report.stale_devices_swept, 1);
+    }
+
+    #[tokio::test]
+    async fn renew_nudge_routes_unifiedpush_device_to_unifiedpush_client() {
+        // A foss device with push_kind=unifiedpush + an endpoint and an
+        // expiring cert must be nudged via the UnifiedPush client, not FCM.
+        let now = SystemTime::now();
+        let mut record = make_record(10, 3); // cert expires in 3 days → nudge
+        record.fcm_token = String::new();
+        record.push_kind = crate::firestore::PushKind::UnifiedPush;
+        record.push_endpoint = "https://ntfy.sh/up_xyz".to_string();
+        let _ = now;
+
+        let devices = vec![("foss-sub".to_string(), record)];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let up = Arc::new(RecordingUnifiedPush::default());
+        let up_dyn: Arc<dyn UnifiedPushClient> = up.clone();
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore as Arc<dyn FirestoreClient>),
+            &fcm,
+            &up_dyn,
+            &acme,
+            &(dns as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.nudges_sent, 1);
+        let sent = up.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0, "https://ntfy.sh/up_xyz");
+        assert_eq!(sent[0].1.message_type, "renew");
     }
 }

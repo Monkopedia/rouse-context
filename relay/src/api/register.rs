@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use crate::api::{ApiError, AppState};
-use crate::firestore::DeviceRecord;
+use crate::firestore::{DeviceRecord, PushKind};
 use crate::words::adjectives;
 
 /// Round 1: Register a device and receive a subdomain assignment.
@@ -34,7 +34,14 @@ pub struct RegisterRequest {
     /// Firebase ID token (google flavor). Absent on the keypair path.
     #[serde(default)]
     pub firebase_token: Option<String>,
+    /// FCM registration token (`google` flavor). Empty/absent for `foss`
+    /// devices, which supply [`Self::push_endpoint`] instead.
+    #[serde(default)]
     pub fcm_token: String,
+    /// UnifiedPush endpoint URL (`foss` flavor). Accepted in lieu of
+    /// `fcm_token`; foss devices have no FCM token (issues #463, #469, #470).
+    #[serde(default)]
+    pub push_endpoint: Option<String>,
     pub signature: Option<String>,
     #[serde(default)]
     pub force_new: bool,
@@ -136,6 +143,27 @@ enum RegisterIdentity {
     Keypair { thumbprint: String },
 }
 
+/// Resolve a device's push target from a `/register` request.
+///
+/// Accepts EITHER a non-empty `fcm_token` (→ [`PushKind::Fcm`]) OR a non-empty
+/// UnifiedPush `push_endpoint` (→ [`PushKind::UnifiedPush`]); `fcm_token` wins
+/// if both are present (preserving existing `google` behavior). Returns the
+/// chosen `(push_kind, fcm_token, push_endpoint)` tuple, or an error message
+/// when neither is supplied. Closes the #469/#470 gap where `foss` devices —
+/// which have no FCM token — could not register.
+fn resolve_register_push_target(
+    fcm_token: &str,
+    push_endpoint: Option<&str>,
+) -> Result<(PushKind, String, String), &'static str> {
+    if !fcm_token.is_empty() {
+        return Ok((PushKind::Fcm, fcm_token.to_string(), String::new()));
+    }
+    if let Some(endpoint) = push_endpoint.filter(|e| !e.is_empty()) {
+        return Ok((PushKind::UnifiedPush, String::new(), endpoint.to_string()));
+    }
+    Err("Provide either a non-empty fcm_token or a non-empty push_endpoint")
+}
+
 /// Current Unix time in whole seconds (saturating at 0 before the epoch).
 fn now_unix_secs() -> i64 {
     SystemTime::now()
@@ -212,10 +240,13 @@ pub async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> Response {
-    // 1. Validate required fields
-    if req.fcm_token.is_empty() {
-        return ApiError::bad_request("Missing required field: fcm_token").into_response();
-    }
+    // 1. Resolve the push target: accept EITHER an FCM token (`google`) OR a
+    //    UnifiedPush endpoint (`foss`). At least one is required.
+    let (push_kind, fcm_token, push_endpoint) =
+        match resolve_register_push_target(&req.fcm_token, req.push_endpoint.as_deref()) {
+            Ok(target) => target,
+            Err(msg) => return ApiError::bad_request(msg).into_response(),
+        };
 
     // 2. Resolve + verify the caller's identity (Firebase token or keypair proof).
     let identity = match resolve_register_identity(&state, &req).await {
@@ -375,7 +406,7 @@ pub async fn handle_register(
         RegisterIdentity::Keypair { thumbprint } => (String::new(), Some(thumbprint)),
     };
     let record = DeviceRecord {
-        fcm_token: req.fcm_token,
+        fcm_token,
         firebase_uid,
         key_thumbprint,
         public_key: String::new(),            // set in round 2
@@ -388,6 +419,8 @@ pub async fn handle_register(
         },
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind,
+        push_endpoint,
         valid_secrets: valid_secrets.clone(),
         integration_secrets: secrets_map.clone(),
     };
@@ -612,4 +645,33 @@ fn verify_signature(
     verifying_key
         .verify(data, &signature)
         .map_err(|e| format!("signature mismatch: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_target_prefers_fcm_token() {
+        let (kind, fcm, ep) =
+            resolve_register_push_target("fcm-tok", Some("https://ntfy.sh/x")).unwrap();
+        assert_eq!(kind, PushKind::Fcm);
+        assert_eq!(fcm, "fcm-tok");
+        assert!(ep.is_empty());
+    }
+
+    #[test]
+    fn push_target_accepts_endpoint_without_fcm_token() {
+        let (kind, fcm, ep) =
+            resolve_register_push_target("", Some("https://ntfy.sh/up123")).unwrap();
+        assert_eq!(kind, PushKind::UnifiedPush);
+        assert!(fcm.is_empty());
+        assert_eq!(ep, "https://ntfy.sh/up123");
+    }
+
+    #[test]
+    fn push_target_rejects_when_neither_present() {
+        assert!(resolve_register_push_target("", None).is_err());
+        assert!(resolve_register_push_target("", Some("")).is_err());
+    }
 }

@@ -20,7 +20,7 @@ use rouse_relay::rate_limit::FcmWakeThrottle;
 use rouse_relay::state::RelayState;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use test_helpers::{MockFcm, MockFirestore};
+use test_helpers::{MockFcm, MockFirestore, MockUnifiedPush};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -68,6 +68,7 @@ fn make_ctx(
         session_registry: registry,
         firestore,
         fcm,
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -243,6 +244,8 @@ async fn fcm_sent_when_device_offline() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -255,6 +258,7 @@ async fn fcm_sent_when_device_offline() {
         session_registry: registry,
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_millis(200),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -290,6 +294,8 @@ async fn fcm_timeout_returns_error() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -301,6 +307,7 @@ async fn fcm_timeout_returns_error() {
         session_registry: registry,
         firestore,
         fcm,
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_millis(50),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -344,6 +351,8 @@ async fn cold_client_fcm_then_device_connects() {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     };
@@ -355,6 +364,7 @@ async fn cold_client_fcm_then_device_connects() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -413,6 +423,7 @@ async fn valid_secret_prefix_proceeds_to_wake() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_millis(200),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -451,6 +462,7 @@ async fn invalid_secret_prefix_rejects_without_fcm() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_millis(200),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -668,6 +680,8 @@ fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
     }
@@ -744,6 +758,7 @@ async fn cold_wake_full_data_roundtrip() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -863,6 +878,7 @@ async fn multiple_clients_wake_same_device() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -936,6 +952,7 @@ async fn cold_wake_stream_refused_max_streams_zero() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -982,6 +999,7 @@ async fn client_hello_preserved_through_wake_delay() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         fcm_wakeup_timeout: Duration::from_secs(5),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
@@ -1098,6 +1116,7 @@ async fn fcm_refires_after_register_disconnect_within_cooldown() {
         session_registry: registry.clone(),
         firestore,
         fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
         relay_hostname: "relay.rousecontext.com".to_string(),
         // Short timeout so the *broken* path fails fast (~50ms each call)
         // instead of stalling CI for the whole cooldown if the bug regresses.
