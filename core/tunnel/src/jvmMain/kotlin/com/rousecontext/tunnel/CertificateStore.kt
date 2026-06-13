@@ -76,6 +76,23 @@ interface CertificateStore {
     /** Retrieve the stored subdomain, or null if not onboarded. */
     suspend fun getSubdomain(): String?
 
+    /**
+     * Mark first-run onboarding as finished even when the device is not yet
+     * registered (no subdomain). Used by the `foss` flavor's deferred-activation
+     * flow (issue #463): a user who skips picking a UnifiedPush distributor
+     * completes onboarding and lands on a degraded Home, with registration
+     * deferred until a delivery app is chosen. The `google` flavor never sets
+     * this — it always registers at the end of onboarding, so [getSubdomain] is
+     * the authoritative "onboarded" signal there.
+     */
+    suspend fun markOnboardingComplete() = Unit
+
+    /**
+     * Whether [markOnboardingComplete] has been recorded. Default `false` for
+     * implementations that don't persist the flag (e.g. in-memory test fakes).
+     */
+    suspend fun isOnboardingComplete(): Boolean = false
+
     /** Store per-integration secrets (e.g. {"health": "brave-health"}). */
     suspend fun storeIntegrationSecrets(secrets: Map<String, String>)
 

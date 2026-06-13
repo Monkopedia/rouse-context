@@ -17,6 +17,7 @@ import androidx.core.animation.doOnEnd
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.ui.navigation.RouseContextApp
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.notifications.AuthRequestNotifier
@@ -28,6 +29,7 @@ import org.koin.android.ext.android.inject
 
 class MainActivity : ComponentActivity() {
     private val certStore: CertificateStore by inject()
+    private val backgroundDelivery: BackgroundDelivery by inject()
 
     /**
      * Deep-link route delivered by [onNewIntent] when the activity is already
@@ -65,12 +67,19 @@ class MainActivity : ComponentActivity() {
         // the user taps "Get Started" and lands on Home immediately.
         lifecycleScope.launch {
             val hasSubdomain = certStore.getSubdomain() != null
+            // foss deferred activation (#463): a foss device that finished
+            // onboarding but skipped picking a UnifiedPush distributor has no
+            // subdomain yet, but is still "onboarded" — it belongs on a degraded
+            // Home (with the set-up-delivery banner), not bounced back to
+            // onboarding forever. The google gate is unchanged (subdomain only).
+            val onboarded = hasSubdomain ||
+                (backgroundDelivery.isSupported && certStore.isOnboardingComplete())
             val notificationDestination = destinationForNotificationIntent(intent)
             startDestination = when {
                 // ONBOARDING_BASE (not the full arg pattern) is the concrete
                 // route; NavHost resolves it to the composable registered
                 // with the optional ?autostart={autostart} arg (#392).
-                !hasSubdomain -> Routes.ONBOARDING_BASE
+                !onboarded -> Routes.ONBOARDING_BASE
                 notificationDestination != null -> notificationDestination
                 else -> Routes.HOME
             }

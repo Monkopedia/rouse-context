@@ -58,7 +58,8 @@ class RelayApiClient(
     suspend fun register(
         firebaseToken: String,
         fcmToken: String,
-        integrationIds: List<String> = emptyList()
+        integrationIds: List<String> = emptyList(),
+        pushEndpoint: String? = null
     ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
             contentType(ContentType.Application.Json)
@@ -66,6 +67,7 @@ class RelayApiClient(
                 RegisterRequest(
                     firebaseToken = firebaseToken,
                     fcmToken = fcmToken,
+                    pushEndpoint = pushEndpoint,
                     integrations = integrationIds
                 )
             )
@@ -83,7 +85,8 @@ class RelayApiClient(
     suspend fun registerWithKeypair(
         credential: DeviceCredential.Keypair,
         fcmToken: String,
-        integrationIds: List<String> = emptyList()
+        integrationIds: List<String> = emptyList(),
+        pushEndpoint: String? = null
     ): RelayApiResult<RegisterResponse> = executeRequest {
         httpClient.post("$baseUrl/register") {
             contentType(ContentType.Application.Json)
@@ -91,6 +94,7 @@ class RelayApiClient(
                 RegisterRequest(
                     firebaseToken = null,
                     fcmToken = fcmToken,
+                    pushEndpoint = pushEndpoint,
                     integrations = integrationIds,
                     publicKey = base64(credential.publicKeyDer),
                     authTimestamp = credential.registerProof.timestampSecs,
@@ -334,6 +338,10 @@ data class RequestSubdomainResponse(
 data class RegisterRequest(
     @SerialName("firebase_token") val firebaseToken: String? = null,
     @SerialName("fcm_token") val fcmToken: String,
+    // UnifiedPush wake path (foss flavor, issue #463). A foss device has no FCM
+    // token; its push target is a UnifiedPush endpoint URL. The relay accepts
+    // either a non-empty `fcm_token` or a non-empty `push_endpoint`.
+    @SerialName("push_endpoint") val pushEndpoint: String? = null,
     @SerialName("integrations") val integrations: List<String> = emptyList(),
     // Keypair-auth variant (foss flavor, issue #462).
     @SerialName("public_key") val publicKey: String? = null,

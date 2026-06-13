@@ -174,6 +174,10 @@ class TunnelSessionManagerTest {
             // no-op for tests
         }
 
+        override suspend fun sendPushEndpoint(kind: String, value: String) {
+            // no-op for tests
+        }
+
         override suspend fun healthCheck(timeout: kotlin.time.Duration): Boolean = true
 
         /**

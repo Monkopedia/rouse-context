@@ -250,6 +250,11 @@
     <string name="screen_dashboard_disconnected">Disconnected</string>
     <string name="screen_dashboard_notifications_disabled_title">Notifications disabled</string>
     <string name="screen_dashboard_notifications_disabled_subtitle">Approval requests won\'t alert you. Tap to enable.</string>
+    <string name="screen_settings_background_delivery_title">Background delivery</string>
+    <string name="screen_settings_background_delivery_not_set">Not set up — tap to choose a delivery app</string>
+    <string name="screen_dashboard_delivery_off_title">On-demand wake is off</string>
+    <string name="screen_dashboard_delivery_off_subtitle">Set up a delivery app so AI clients can reach your phone while it\'s asleep.</string>
+    <string name="screen_dashboard_delivery_off_action">Set up</string>
     <string name="screen_dashboard_spurious_wake_title">Background activity higher than expected</string>
     <string name="screen_dashboard_spurious_wake_subtitle">The relay may be sending spurious wakes (%1$d in the last 24h). Tap for details.</string>
     <string name="screen_dashboard_cert_renewing_title">Provisioning your certificate...</string>

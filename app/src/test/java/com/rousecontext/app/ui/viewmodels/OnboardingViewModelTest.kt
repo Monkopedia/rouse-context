@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.viewmodels
 import androidx.lifecycle.ViewModelStore
 import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
+import com.rousecontext.app.delivery.NoOpBackgroundDelivery
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.DeviceCredential
@@ -213,6 +214,7 @@ class OnboardingViewModelTest {
             registrationStatus = status,
             credentialProvider = credentialProvider,
             fcmTokenProvider = fcmProvider,
+            backgroundDelivery = NoOpBackgroundDelivery,
             appScope = appScope
         )
 
@@ -388,6 +390,76 @@ class OnboardingViewModelTest {
         coroutineContext.cancelChildren()
     }
 
+    @Test
+    fun `foss onboarding completes without registering and marks onboarding complete`() =
+        runBlocking {
+            // foss deferred activation (#463): with a supported BackgroundDelivery
+            // and no subdomain, startOnboarding must NOT register — it marks
+            // onboarding complete and lands Onboarded (degraded Home).
+            coEvery { certStore.getSubdomain() } returns null
+            coEvery { certStore.isOnboardingComplete() } returns false
+            io.mockk.coJustRun { certStore.markOnboardingComplete() }
+            val status = DeviceRegistrationStatus(initiallyRegistered = false)
+
+            val vm = OnboardingViewModel(
+                certificateStore = certStore,
+                onboardingFlow = onboardingFlow,
+                registrationStatus = status,
+                credentialProvider = mockk(relaxed = true),
+                fcmTokenProvider = mockk(relaxed = true),
+                backgroundDelivery = FossDelivery(),
+                appScope = this
+            )
+
+            testDispatcher.scheduler.advanceUntilIdle()
+            vm.startOnboarding()
+            testDispatcher.scheduler.advanceUntilIdle()
+            yield()
+
+            assertEquals(OnboardingState.Onboarded, vm.state.value)
+            coVerify { certStore.markOnboardingComplete() }
+            coVerify(exactly = 0) { onboardingFlow.execute(any(), any(), any()) }
+            assertFalse("device is not registered when delivery is skipped", status.complete.value)
+
+            coroutineContext.cancelChildren()
+        }
+
+    @Test
+    fun `foss returning user with onboarding-complete flag lands Onboarded`() = runBlocking {
+        coEvery { certStore.getSubdomain() } returns null
+        coEvery { certStore.isOnboardingComplete() } returns true
+
+        val vm = OnboardingViewModel(
+            certificateStore = certStore,
+            onboardingFlow = onboardingFlow,
+            registrationStatus = DeviceRegistrationStatus(initiallyRegistered = false),
+            credentialProvider = mockk(relaxed = true),
+            fcmTokenProvider = mockk(relaxed = true),
+            backgroundDelivery = FossDelivery(),
+            appScope = this
+        )
+
+        testDispatcher.scheduler.advanceUntilIdle()
+        yield()
+
+        assertEquals(OnboardingState.Onboarded, vm.state.value)
+        coroutineContext.cancelChildren()
+    }
+
+    /** Fake foss [com.rousecontext.app.delivery.BackgroundDelivery] (isSupported = true). */
+    private class FossDelivery : com.rousecontext.app.delivery.BackgroundDelivery {
+        override val isSupported = true
+        override val activation =
+            kotlinx.coroutines.flow.MutableStateFlow(
+                com.rousecontext.app.delivery.DeliveryActivation.NeedsSetup
+            )
+        override fun distributorOptions() =
+            emptyList<com.rousecontext.app.delivery.DistributorOption>()
+        override fun selectDistributor(id: String) = Unit
+        override fun installIntent(option: com.rousecontext.app.delivery.DistributorOption) = null
+        override fun activeDistributorName(): String? = null
+    }
+
     /**
      * Helper to create the VM with configurable fake auth/FCM behavior.
      *
@@ -424,6 +496,7 @@ class OnboardingViewModelTest {
             registrationStatus = status,
             credentialProvider = credentialProvider,
             fcmTokenProvider = fcmProvider,
+            backgroundDelivery = NoOpBackgroundDelivery,
             appScope = this
         )
     }

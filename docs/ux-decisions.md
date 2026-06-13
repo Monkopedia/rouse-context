@@ -14,6 +14,93 @@ Newest entries on top.
 
 ---
 
+## 2026-06-13 — FOSS flavor adds a "Background delivery" picker (deferred activation)
+
+**Decision:** The fully-FOSS build flavor (`foss`, for F-Droid — see #460) replaces
+FCM with [UnifiedPush](https://unifiedpush.org/), which needs a separate
+*distributor* app on the device. This adds one new first-run step, **"Background
+delivery,"** placed after Welcome. It is a single **picker screen** (not a
+multi-step install→connect→continue wizard): it lists the UnifiedPush distributors
+already installed as one-tap rows, plus an "Install another app" row that
+deep-links to a store. Specifics:
+- **ntfy is the cold-start fallback only.** If *no* distributor is installed, the
+  list suggests ntfy + "install another app." If *any* supported distributor is
+  present — even a non-ntfy one — the list shows exactly what's installed +
+  "install another app," and never injects an "install ntfy" row.
+- **Degrade, don't block (deferred activation).** "Skip for now" completes
+  onboarding to Home without forcing a distributor install — but because a FOSS
+  device has no push endpoint until a distributor is chosen and the relay
+  requires a push target to register, a skipped device is **not yet
+  registered/active** and shows a persistent "On-demand wake is off — set up a
+  delivery app" banner. Choosing a delivery app reports its endpoint, registers
+  the device, and activates it. *(The 2026-06-11 draft said it "serves
+  foregrounded meanwhile"; that assumed endpoint-less registration, which the
+  merged relay #472 doesn't allow — Jason chose this app-only deferred-activation
+  model on 2026-06-13, over a relay change or making the picker mandatory.)*
+- **Changeable later.** A persistent "Background delivery" row in Settings reopens
+  the same picker (active distributor marked), so the choice isn't one-time-only.
+- **Default backend for now is the public ntfy.sh instance** (whatever the chosen
+  distributor points at). Self-hosting our own UnifiedPush server is a noted
+  follow-up, not in scope for the first cut.
+- The picker **re-scans installed distributors on `ON_RESUME`**, so leaving to
+  install a distributor and returning refreshes the list.
+- This entry is the `google`-flavor-invisible side of the build: the `google`
+  flavor keeps FCM and shows none of this; its onboarding gate/flow is unchanged.
+
+**Approved by:** Jason, in-session 2026-06-11 — reviewed rendered Roborazzi mocks
+(picker cold-start / some-installed / non-ntfy-only / active-from-Settings /
+Settings row / degraded banner), directed the picker-not-wizard redesign and the
+condensed copy, confirmed ntfy-as-default and ntfy-only-when-empty. The
+deferred-activation correction above was decided in-session 2026-06-13 (option A)
+after the merged relay (#472) made a push target mandatory at register time.
+
+**Context:** F-Droid won't accept a build that links Firebase, so the FOSS flavor
+can't use FCM for on-demand wake. UnifiedPush is the FOSS-standard replacement, but
+unlike FCM it requires the user to have a distributor app — an unavoidable new
+onboarding surface that code review alone can't vet, hence this entry. Push *is* the
+product for FOSS (the device is woken on demand), so the step can't be deferred to
+"first integration" the way an optional permission could. The relay half (#472)
+landed first and made `/register` require a non-empty push target (`fcm_token` or
+`push_endpoint`); a FOSS device only obtains a `push_endpoint` after a distributor
+is chosen, which is why registration is deferred to that moment.
+
+**Alternatives considered:**
+- **Multi-step wizard** (install → detect → connect → continue, gated Continue
+  button) — the first mock. Rejected as overkill; a one-tap picker conveys the same
+  thing with far fewer controls.
+- **Hard-block onboarding until a distributor is connected** — guarantees wake
+  works, but stranding a user who can't immediately install a second app from
+  another store is hostile; degrade-with-banner matches how the app already
+  surfaces cert/battery/notification gaps.
+- **Relay change so FOSS can register without a push target** (subdomain/cert
+  issued, wake disabled until an endpoint is reported) — would make the *original*
+  2026-06-11 "serves foregrounded meanwhile" promise literally true, but needs a
+  new relay PR on top of the already-merged relay half. Deferred as a follow-up;
+  option A (app-only deferred activation) ships now without touching the relay.
+- **Self-host our own UnifiedPush server as the default backend** — strongest
+  privacy story, but real infra work; deferred as a follow-up. ntfy.sh's metadata
+  exposure is ≈ parity with today's FCM, so this isn't a regression from `google`.
+
+**Trade-off accepted:** FOSS users take on a one-time "install a delivery app" step
+that `google`-flavor users never see — the genuine UX cost of dropping Firebase.
+A FOSS device that taps "Skip for now" finishes onboarding but is **not registered
+and not reachable** (not even foregrounded) until a delivery app is set up — the
+deferred-activation cost of the merged relay requiring a push target at register
+time. Foregrounded-only operation has little value for an on-demand MCP server, so
+this is acceptable; the optional relay follow-up above could restore a
+"serves-foregrounded-while-wake-is-off" mode later. And with the public ntfy.sh
+default, wake-timing metadata transits a third party (no worse than FCM today, but
+not yet eliminated).
+
+**Relevant:**
+- Epic #460; this is issue **#463** (UnifiedPush wake path). Relay half merged in
+  #472 (per-device push target, `push_endpoint` at `/register` + WS refresh).
+- The 2026-06-11 in-session mock review established the picker design; this entry
+  supersedes its skip-path wording only (picker-not-wizard, ntfy-only-when-empty,
+  Settings entry, ON_RESUME rescan, ntfy.sh default all still hold).
+
+---
+
 ## 2026-06-02 — Wire the dormant Connection settings; "Fix this" opens battery-optimization settings
 
 **Decision:** Make the previously-inert "Connection" settings cluster functional

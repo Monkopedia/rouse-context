@@ -9,6 +9,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.SettingUpContent
@@ -20,6 +21,7 @@ import com.rousecontext.app.ui.viewmodels.OnboardingStep
 import com.rousecontext.app.ui.viewmodels.OnboardingViewModel
 import kotlinx.coroutines.flow.StateFlow
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 
 fun NavGraphBuilder.onboardingDestination(navController: NavController) {
     composable(
@@ -39,6 +41,7 @@ fun NavGraphBuilder.onboardingDestination(navController: NavController) {
         )
         val onboardingViewModel: OnboardingViewModel =
             koinViewModel()
+        val backgroundDelivery: BackgroundDelivery = koinInject()
         // #392: Fresh-install onboarding used to fail because
         // NotificationPreferences called startOnboarding() on its own
         // VM (scoped to its own NavBackStackEntry), then navigated here
@@ -57,7 +60,14 @@ fun NavGraphBuilder.onboardingDestination(navController: NavController) {
             onStartOnboarding = { onboardingViewModel.startOnboarding() },
             onRetry = { onboardingViewModel.retry() },
             onGetStarted = {
-                navController.navigate(Routes.NOTIFICATION_PREFERENCES)
+                // foss inserts the "Background delivery" picker after Welcome
+                // (#463); google goes straight to notification preferences.
+                val next = if (backgroundDelivery.isSupported) {
+                    Routes.BACKGROUND_DELIVERY_BASE
+                } else {
+                    Routes.NOTIFICATION_PREFERENCES
+                }
+                navController.navigate(next)
             },
             onOnboarded = {
                 navController.navigate(Routes.HOME) {

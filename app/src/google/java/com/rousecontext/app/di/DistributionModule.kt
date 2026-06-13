@@ -9,6 +9,8 @@ import com.rousecontext.app.auth.FirebaseAnonymousAuthClient
 import com.rousecontext.app.auth.FirebaseDeviceAuthTokenProvider
 import com.rousecontext.app.auth.FirebaseDeviceCredentialProvider
 import com.rousecontext.app.auth.FirebaseFcmTokenProvider
+import com.rousecontext.app.delivery.BackgroundDelivery
+import com.rousecontext.app.delivery.NoOpBackgroundDelivery
 import com.rousecontext.app.support.FirebaseCrashReporter
 import com.rousecontext.work.FirebaseRenewalAuthProvider
 import com.rousecontext.work.RenewalAuthProvider
@@ -25,6 +27,10 @@ import org.koin.dsl.module
 val distributionModule = module {
     // Crash reporting (Firebase Crashlytics). Issue #233.
     single<CrashReporter> { FirebaseCrashReporter() }
+
+    // Background delivery: google wakes via FCM, so no UnifiedPush picker /
+    // banner / Settings row. Issue #463.
+    single<BackgroundDelivery> { NoOpBackgroundDelivery }
 
     // Firebase auth / FCM abstractions.
     single<AnonymousAuthClient> { FirebaseAnonymousAuthClient() }

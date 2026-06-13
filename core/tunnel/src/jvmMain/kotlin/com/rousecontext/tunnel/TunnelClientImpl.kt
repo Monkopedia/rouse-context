@@ -230,6 +230,12 @@ class TunnelClientImpl(
         handle.sendText(json)
     }
 
+    override suspend fun sendPushEndpoint(kind: String, value: String) {
+        val handle = wsHandle ?: return
+        val json = """{"type":"push_endpoint","kind":"$kind","value":"$value"}"""
+        handle.sendText(json)
+    }
+
     override suspend fun disconnect() {
         try {
             muxDemux?.closeAll()

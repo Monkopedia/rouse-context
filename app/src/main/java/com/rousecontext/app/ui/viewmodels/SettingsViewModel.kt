@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.delivery.BackgroundDelivery
+import com.rousecontext.app.delivery.NoOpBackgroundDelivery
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.ui.screens.BackgroundDeliveryRowState
 import com.rousecontext.app.ui.screens.PostSessionModeOption
 import com.rousecontext.app.ui.screens.SecurityCheckIntervalOption
 import com.rousecontext.app.ui.screens.SettingsState
@@ -48,6 +51,7 @@ data class SpuriousWakeStats(val rolling24h: Int, val total: Long) {
  * Reads and writes settings: idle timeout, notification mode,
  * battery optimization status, trust status from security checks.
  */
+@Suppress("LongParameterList")
 class SettingsViewModel(
     private val notificationSettingsProvider: NotificationSettingsProvider,
     private val themePreference: ThemePreference,
@@ -63,7 +67,13 @@ class SettingsViewModel(
      * conservative "not exempt" when absent (tests only).
      */
     private val batteryExemptProvider: () -> Boolean = { false },
-    spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY)
+    spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY),
+    /**
+     * Background-delivery seam (issue #463). On the foss flavor this drives the
+     * "Background delivery" Settings row; on google it is [NoOpBackgroundDelivery]
+     * ([BackgroundDelivery.isSupported] == false) so the row is absent.
+     */
+    private val backgroundDelivery: BackgroundDelivery = NoOpBackgroundDelivery
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -144,6 +154,16 @@ class SettingsViewModel(
             trustStatus = trust,
             canRotateAddress = !rotating,
             rotationCooldownMessage = rotateErr,
+            // foss only: read synchronously here (re-read on each refresh()
+            // trigger, e.g. ON_RESUME) so a distributor chosen in the picker is
+            // reflected when returning to Settings. Null on google → no row.
+            backgroundDelivery = if (backgroundDelivery.isSupported) {
+                BackgroundDeliveryRowState(
+                    distributorName = backgroundDelivery.activeDistributorName()
+                )
+            } else {
+                null
+            },
             spuriousWakesLast24h = spurious.rolling24h,
             totalWakesLifetime = spurious.total,
             isLoading = false,

@@ -17,12 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
@@ -135,6 +137,13 @@ data class TrustStatusState(
 )
 
 @Immutable
+/**
+ * Settings "Background delivery" row content (foss flavor, issue #463).
+ * [distributorName] is the active distributor's display name, or null when no
+ * delivery app is set up yet (the row then prompts the user to choose one).
+ */
+data class BackgroundDeliveryRowState(val distributorName: String?)
+
 data class SettingsState(
     val idleTimeoutMinutes: Int = 5,
     val idleTimeoutDisabled: Boolean = false,
@@ -144,6 +153,12 @@ data class SettingsState(
     val securityCheckInterval: SecurityCheckIntervalOption = SecurityCheckIntervalOption.HOURS_12,
     val canRotateAddress: Boolean = true,
     val rotationCooldownMessage: String? = null,
+    /**
+     * Background-delivery (UnifiedPush) row, foss flavor only (issue #463).
+     * Null on the google flavor — the row is then absent. [subtitle] shows the
+     * active distributor name, or a "not set up" prompt when none is chosen.
+     */
+    val backgroundDelivery: BackgroundDeliveryRowState? = null,
     val showBatteryWarning: Boolean = true,
     val versionName: String = "0.1.0",
     val trustStatus: TrustStatusState? = null,
@@ -179,6 +194,7 @@ fun SettingsContent(
     onSecurityCheckIntervalChanged: (SecurityCheckIntervalOption) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
+    onOpenBackgroundDelivery: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
     onReportBug: () -> Unit = {},
     onOpenPrivacy: () -> Unit = {},
@@ -259,6 +275,12 @@ fun SettingsContent(
                 onCheckedChange = onDisableTimeoutToggled,
                 enabled = state.batteryOptimizationExempt
             )
+            // Background-delivery (UnifiedPush) row, foss flavor only (#463).
+            // Reopens the "Background delivery" picker so the choice is
+            // changeable later. Absent when state.backgroundDelivery is null.
+            state.backgroundDelivery?.let { delivery ->
+                BackgroundDeliveryRow(state = delivery, onClick = onOpenBackgroundDelivery)
+            }
         }
 
         Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
@@ -583,6 +605,7 @@ fun SettingsScreen(
     onSecurityCheckIntervalChanged: (SecurityCheckIntervalOption) -> Unit = {},
     onGenerateNewAddress: () -> Unit = {},
     onFixBatteryOptimization: () -> Unit = {},
+    onOpenBackgroundDelivery: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
     onReportBug: () -> Unit = {},
     onOpenPrivacy: () -> Unit = {},
@@ -656,6 +679,7 @@ fun SettingsScreen(
             onSecurityCheckIntervalChanged = onSecurityCheckIntervalChanged,
             onGenerateNewAddress = onGenerateNewAddress,
             onFixBatteryOptimization = onFixBatteryOptimization,
+            onOpenBackgroundDelivery = onOpenBackgroundDelivery,
             onAcknowledgeAlert = onAcknowledgeAlert,
             onReportBug = onReportBug,
             onOpenPrivacy = onOpenPrivacy,
@@ -917,6 +941,51 @@ private fun formatTimeAgo(epochMillis: Long): String {
         else -> stringResource(
             R.string.screen_settings_time_days_ago,
             diffMinutes / 1440
+        )
+    }
+}
+
+/**
+ * "Background delivery" row inside the Connection settings card (foss flavor,
+ * issue #463). Taps through to the distributor picker; the subtitle shows the
+ * active distributor name (green when set) or a "set up" prompt.
+ */
+@Composable
+private fun BackgroundDeliveryRow(state: BackgroundDeliveryRowState, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(dimensionResource(R.dimen.spacing_lg)),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Notifications,
+            contentDescription = null,
+            modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.screen_settings_background_delivery_title),
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = state.distributorName
+                    ?: stringResource(R.string.screen_settings_background_delivery_not_set),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.distributorName != null) {
+                    SuccessGreen
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
