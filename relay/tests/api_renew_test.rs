@@ -117,7 +117,11 @@ async fn renew_keypair_path_valid_proof_returns_certs() {
         .unwrap();
 
     let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
-    assert_eq!(resp.status(), 200, "keypair renewal proof should be accepted");
+    assert_eq!(
+        resp.status(),
+        200,
+        "keypair renewal proof should be accepted"
+    );
 
     let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
         .await

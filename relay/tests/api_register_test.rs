@@ -1346,10 +1346,17 @@ async fn register_then_certs_keypair_end_to_end_binds_key() {
     let certs_resp = tower::ServiceExt::oneshot(build_router(state.clone()), certs)
         .await
         .unwrap();
-    assert_eq!(certs_resp.status(), 200, "round-2 keypair issuance should succeed");
+    assert_eq!(
+        certs_resp.status(),
+        200,
+        "round-2 keypair issuance should succeed"
+    );
 
     // The public key is now bound on the record.
     let devices = firestore.devices.lock().unwrap();
     let rec = devices.get(&subdomain).expect("device present");
-    assert!(!rec.public_key.is_empty(), "round 2 should bind the public key");
+    assert!(
+        !rec.public_key.is_empty(),
+        "round 2 should bind the public key"
+    );
 }

@@ -212,8 +212,8 @@ mod tests {
         let now = 1_000_000;
         // Sign for a different nonce than we verify against.
         let sig = sign(&d, PURPOSE_REGISTER, now, "nonce-signed");
-        let err = verify_proof(&d.spki_der, PURPOSE_REGISTER, now, "nonce-other", &sig, now)
-            .unwrap_err();
+        let err =
+            verify_proof(&d.spki_der, PURPOSE_REGISTER, now, "nonce-other", &sig, now).unwrap_err();
         assert_eq!(err, KeypairAuthError::SignatureMismatch);
     }
 
@@ -281,8 +281,15 @@ mod tests {
     fn malformed_signature_is_rejected() {
         let d = new_device();
         let now = 1_000_000;
-        let err = verify_proof(&d.spki_der, PURPOSE_REGISTER, now, "n", "!!!not-base64!!!", now)
-            .unwrap_err();
+        let err = verify_proof(
+            &d.spki_der,
+            PURPOSE_REGISTER,
+            now,
+            "n",
+            "!!!not-base64!!!",
+            now,
+        )
+        .unwrap_err();
         assert!(matches!(err, KeypairAuthError::MalformedSignature(_)));
     }
 

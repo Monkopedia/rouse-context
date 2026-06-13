@@ -176,9 +176,9 @@ async fn resolve_register_identity(
             )
             .into_response()
         })?;
-    let public_key_der = BASE64.decode(public_key_b64).map_err(|_| {
-        ApiError::bad_request("Invalid Base64 in public_key field").into_response()
-    })?;
+    let public_key_der = BASE64
+        .decode(public_key_b64)
+        .map_err(|_| ApiError::bad_request("Invalid Base64 in public_key field").into_response())?;
     let timestamp = req.auth_timestamp.ok_or_else(|| {
         ApiError::bad_request("Missing required field: auth_timestamp").into_response()
     })?;
@@ -249,8 +249,7 @@ pub async fn handle_register(
                         .into_response()
                 }
             };
-            if let Err(e) =
-                verify_signature(&existing_record.public_key, token.as_bytes(), sig_b64)
+            if let Err(e) = verify_signature(&existing_record.public_key, token.as_bytes(), sig_b64)
             {
                 return ApiError::forbidden(format!("Signature verification failed: {e}"))
                     .into_response();
