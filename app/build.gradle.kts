@@ -359,3 +359,34 @@ tasks.register<Test>("integrationTest") {
     // generation) so fail if something hangs instead of wedging CI.
     timeout.set(Duration.ofMinutes(10L))
 }
+
+tasks.register<Test>("fossIntegrationTest") {
+    group = "verification"
+    description =
+        "Runs `$integrationPackage.*` tests against the real relay binary under the " +
+        "FOSS variant (keypair device identity, zero Firebase). " +
+        "Requires `cd relay && cargo build --features test-mode` first."
+
+    // Mirror `integrationTest`, but reuse `testFossDebugUnitTest` so the FOSS
+    // `distributionModule` (KeypairDeviceCredentialProvider /
+    // KeypairRenewalAuthProvider) is the flavor module live in the harness
+    // (issue #469). The keypair round-trip scenario lives in the
+    // `app/src/testFoss` source set so it only compiles/runs under this
+    // classpath, never under the google `integrationTest` above.
+    val source = tasks.named<Test>("testFossDebugUnitTest").get()
+    testClassesDirs = source.testClassesDirs
+    classpath = source.classpath
+    systemProperty("repo.root", rootProject.projectDir.absolutePath)
+    // Mirror Robolectric graphics config from `testOptions.unitTests.all`.
+    systemProperty("robolectric.graphicsMode", "NATIVE")
+
+    filter {
+        includeTestsMatching("$integrationPackage.*")
+        isFailOnNoMatchingTests = false
+    }
+
+    useJUnit()
+
+    // Same hang-guard as `integrationTest`.
+    timeout.set(Duration.ofMinutes(10L))
+}
