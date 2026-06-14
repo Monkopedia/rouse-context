@@ -4,19 +4,16 @@ import app.cash.turbine.test
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.NotificationMode
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -24,15 +21,8 @@ class NotificationPreferencesViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
     @Test
     fun `initial state reflects persisted mode`() = runTest(testDispatcher) {

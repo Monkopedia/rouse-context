@@ -17,7 +17,8 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.After
@@ -87,7 +88,10 @@ class ToolCallViaSniPassthroughTest {
         sessionManager = null
         runBlocking { tunnel?.disconnect() }
         tunnel = null
-        tunnelScope.cancel()
+        // Join, not just cancel: a leftover tunnel coroutine that outlives
+        // teardown could resume onto Main and race a later test's setMain in
+        // the shared unit-test JVM (#376).
+        runBlocking { tunnelScope.coroutineContext.job.cancelAndJoin() }
         harness.stop()
     }
 

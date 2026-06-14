@@ -2,6 +2,7 @@ package com.rousecontext.app.integration
 
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.integration.harness.AppIntegrationTestHarness
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.integrations.health.HealthConnectMcpServer
 import com.rousecontext.integrations.health.HealthConnectRepository
 import com.rousecontext.mcp.core.McpServerProvider
@@ -11,14 +12,13 @@ import com.rousecontext.notifications.audit.AuditDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -68,16 +68,22 @@ class HealthToolSmokeTest {
         }
     )
 
+    // Main = Unconfined: VM / IntegrationSetup coroutines dispatch on
+    // Dispatchers.Main, and Robolectric's main looper isn't pumped under
+    // runBlocking, so Unconfined runs them inline on the runBlocking caller.
+    // Routed through the shared rule so setMain is always paired with
+    // resetMain in a finally and can't leak into a sibling test (#376).
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(Dispatchers.Unconfined)
+
     @Before
     fun setUp() {
-        Dispatchers.setMain(Dispatchers.Unconfined)
         harness.start()
     }
 
     @After
     fun tearDown() {
         harness.stop()
-        Dispatchers.resetMain()
     }
 
     @Test

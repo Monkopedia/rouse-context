@@ -2,25 +2,22 @@ package com.rousecontext.app.ui.viewmodels
 
 import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.integrations.health.HEALTH_DATA_HISTORY_PERMISSION
 import com.rousecontext.integrations.health.HealthConnectRepository
 import java.time.Instant
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonObject
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -28,15 +25,8 @@ class HealthConnectSetupViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
     @Test
     fun `initial state reports historical access not granted`() = runTest(testDispatcher) {

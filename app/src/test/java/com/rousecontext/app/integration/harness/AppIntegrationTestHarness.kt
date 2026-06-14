@@ -43,7 +43,10 @@ import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.job
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -345,8 +348,7 @@ class AppIntegrationTestHarness(
         runCatching { stopKoin() }
         koinInstance = null
 
-        harnessScope?.cancel()
-        harnessScope = null
+        drainHarnessScope()
         fakeHealth = null
 
         // On purpose: we do NOT clear capturedRotateSecretPayloads. Callers
@@ -406,8 +408,7 @@ class AppIntegrationTestHarness(
         runCatching { stopKoin() }
         koinInstance = null
 
-        harnessScope?.cancel()
-        harnessScope = null
+        drainHarnessScope()
         fakeHealth = null
 
         // Same intentional skip as restartKoinPreservingState: the accumulated
@@ -481,8 +482,7 @@ class AppIntegrationTestHarness(
         runCatching { if (GlobalContext.getOrNull() != null) stopKoin() }
         koinInstance = null
 
-        harnessScope?.cancel()
-        harnessScope = null
+        drainHarnessScope()
 
         relayManager?.let { relay ->
             // Dump relay stdout/stderr on teardown — the fixture itself does
@@ -505,6 +505,30 @@ class AppIntegrationTestHarness(
         // [start] so the next test class in the same JVM is not affected
         // by BC's position.
         restoreSecurityProviders()
+    }
+
+    /**
+     * Cancel the harness coroutine scope (the injected `appScope`) and **join**
+     * it to quiescence before returning.
+     *
+     * A plain `cancel()` is fire-and-forget: a production coroutine launched on
+     * `appScope` can still be unwinding (or resuming a continuation onto
+     * `Dispatchers.Main`) after teardown returns. In the single-JVM unit-test
+     * run that orphan outlives the test and, when it next dispatches onto Main,
+     * races a *later* test class's `setMain`/`resetMain` — the moving-target
+     * `TestMainDispatcher` flake from issue #376. Joining guarantees no
+     * appScope coroutine survives this method, so nothing can leak Main into a
+     * sibling test. The timeout is a safety net against a wedged coroutine; in
+     * practice cancelled coroutines unwind near-instantly.
+     */
+    private fun drainHarnessScope() {
+        val scope = harnessScope ?: return
+        harnessScope = null
+        runBlocking {
+            withTimeoutOrNull(SCOPE_DRAIN_TIMEOUT_MS) {
+                scope.coroutineContext.job.cancelAndJoin()
+            }
+        }
     }
 
     private var snapshotProviderNames: List<String>? = null
@@ -1220,6 +1244,11 @@ private class RotateSecretBodyCaptureInterceptor(private val sink: (List<String>
 
 // Shorter than production timeouts — integration tests hit a local subprocess
 // so multi-minute waits would only mask hangs.
+// Upper bound for draining cancelled appScope coroutines off the harness scope
+// in tearDown (issue #376). Cancelled coroutines unwind near-instantly; this is
+// a safety net against a wedged coroutine, not an expected wait.
+private const val SCOPE_DRAIN_TIMEOUT_MS = 10_000L
+
 private const val FIXTURE_REQUEST_TIMEOUT_MS = 30_000L
 private const val FIXTURE_CONNECT_TIMEOUT_MS = 10_000L
 private const val FIXTURE_SOCKET_TIMEOUT_MS = 30_000L

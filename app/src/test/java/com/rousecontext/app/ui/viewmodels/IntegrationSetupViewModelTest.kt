@@ -6,6 +6,7 @@ import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
 import com.rousecontext.tunnel.CertProvisioningResult
@@ -20,19 +21,15 @@ import io.mockk.coVerify
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -50,15 +47,8 @@ class IntegrationSetupViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
     @Test
     fun `enable integration - updateSecrets succeeds - Complete state`() = runTest(testDispatcher) {

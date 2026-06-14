@@ -9,6 +9,7 @@ import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.PostSessionModeOption
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
@@ -17,23 +18,19 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -44,15 +41,8 @@ class SettingsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
     @Test
     fun `initial state uses default settings`() = runTest(testDispatcher) {

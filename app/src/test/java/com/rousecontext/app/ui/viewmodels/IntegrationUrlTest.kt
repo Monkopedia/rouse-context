@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.TokenInfo
@@ -13,18 +14,14 @@ import com.rousecontext.tunnel.CertificateStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /**
@@ -36,15 +33,8 @@ class IntegrationUrlTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
 
     @Test
     fun `URL uses real subdomain and integration secret`() = runTest(testDispatcher) {

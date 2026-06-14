@@ -4,18 +4,18 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.integration.harness.AppIntegrationTestHarness
 import com.rousecontext.app.integration.harness.TestEchoMcpIntegration
 import com.rousecontext.app.integration.harness.TestSecondMcpIntegration
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.work.IntegrationSecretsSynchronizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -44,16 +44,22 @@ class DisableIntegrationTest {
         integrationsFactory = { listOf(TestEchoMcpIntegration(), TestSecondMcpIntegration()) }
     )
 
+    // Main = Unconfined: VM / IntegrationSetup coroutines dispatch on
+    // Dispatchers.Main, and Robolectric's main looper isn't pumped under
+    // runBlocking, so Unconfined runs them inline on the runBlocking caller.
+    // Routed through the shared rule so setMain is always paired with
+    // resetMain in a finally and can't leak into a sibling test (#376).
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(Dispatchers.Unconfined)
+
     @Before
     fun setUp() {
-        Dispatchers.setMain(Dispatchers.Unconfined)
         harness.start()
     }
 
     @After
     fun tearDown() {
         harness.stop()
-        Dispatchers.resetMain()
     }
 
     @Test
