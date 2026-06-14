@@ -2,6 +2,7 @@
 //!
 //! All endpoints are served over HTTPS on `relay.rousecontext.com`.
 
+pub mod crash;
 pub mod register;
 pub mod renew;
 pub mod request_subdomain;
@@ -189,6 +190,10 @@ pub struct AppState {
     /// window still triggers a fresh FCM push. Wrapped in `Arc` because the
     /// passthrough connection handlers also hold a clone.
     pub fcm_wake_throttle: std::sync::Arc<crate::rate_limit::FcmWakeThrottle>,
+    /// Crash-report ingestion for `foss`-flavor devices (`POST /crash`, #464).
+    /// Owns the per-IP limiter, dedup/spike-cap registry, and (optional) GitHub
+    /// issue filer.
+    pub crash: std::sync::Arc<crate::crash::CrashService>,
     pub config: crate::config::RelayConfig,
     pub device_ca: Option<crate::device_ca::DeviceCa>,
     /// Optional test-mode instrumentation. `None` in production. When `Some`,
@@ -199,6 +204,12 @@ pub struct AppState {
     #[cfg(feature = "test-mode")]
     pub test_metrics: Option<std::sync::Arc<crate::test_mode::TestMetrics>>,
 }
+
+/// Source IP of an inbound relay-API request, injected as a request extension
+/// by the connection handler. Used by `POST /crash` for per-IP rate limiting.
+/// Optional at the handler (the in-process test router doesn't set it).
+#[derive(Debug, Clone, Copy)]
+pub struct ClientIp(pub std::net::IpAddr);
 
 /// Tower middleware that rejects requests without a `DeviceIdentity`
 /// extension (i.e. without a valid mTLS client certificate) before the
@@ -249,6 +260,7 @@ pub fn build_router(state: std::sync::Arc<AppState>) -> axum::Router {
             axum::routing::post(request_subdomain::handle_request_subdomain),
         )
         .route("/renew", axum::routing::post(renew::handle_renew))
+        .route("/crash", axum::routing::post(crash::handle_crash))
         .route("/status", axum::routing::get(status::handle_status));
 
     let authed_router = axum::Router::new()

@@ -24,6 +24,7 @@ pub struct RelayConfig {
     pub limits: LimitsConfig,
     pub acme: AcmeConfig,
     pub device_ca: DeviceCaConfig,
+    pub github: GitHubConfig,
     /// Known integration names. Each device gets a per-integration secret
     /// in the format `{adjective}-{integration}`.
     pub integrations: Vec<String>,
@@ -39,7 +40,52 @@ impl Default for RelayConfig {
             limits: LimitsConfig::default(),
             acme: AcmeConfig::default(),
             device_ca: DeviceCaConfig::default(),
+            github: GitHubConfig::default(),
             integrations: default_integrations(),
+        }
+    }
+}
+
+/// GitHub configuration for the `POST /crash` endpoint (issue #464).
+///
+/// Crash reports from `foss`-flavor devices are filed as GitHub issues. This
+/// needs a GitHub token with `issues:write` on the target repo — an OPS
+/// DEPENDENCY the operator provisions (a fine-grained PAT or app token), stored
+/// in the env var named by `token_env`. When `crash_repo` is empty OR the token
+/// env var is unset, the endpoint still runs (sanitize + dedup + log) but
+/// gracefully no-ops the GitHub filing instead of crashing.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct GitHubConfig {
+    /// `owner/repo` that crash issues are filed against (e.g.
+    /// `Monkopedia/rouse-context`). Empty disables filing.
+    pub crash_repo: String,
+    /// Name of the environment variable holding the GitHub token. Default
+    /// `GITHUB_CRASH_TOKEN`. The token itself is NEVER stored in the config
+    /// file — only the name of the env var that holds it (mirrors the
+    /// Cloudflare `api_token_env` pattern).
+    pub token_env: String,
+    /// GitHub REST API base URL. Override only for testing against a fake API.
+    pub api_base_url: String,
+}
+
+impl Default for GitHubConfig {
+    fn default() -> Self {
+        Self {
+            crash_repo: String::new(),
+            token_env: "GITHUB_CRASH_TOKEN".to_string(),
+            api_base_url: "https://api.github.com".to_string(),
+        }
+    }
+}
+
+impl GitHubConfig {
+    /// Resolve the GitHub token from the configured env var. Returns `None`
+    /// when the var is unset or empty (filing is then a graceful no-op).
+    pub fn resolve_token(&self) -> Option<String> {
+        match std::env::var(&self.token_env) {
+            Ok(v) if !v.is_empty() => Some(v),
+            _ => None,
         }
     }
 }
@@ -438,6 +484,15 @@ impl RelayConfig {
         }
         if let Ok(val) = std::env::var("DEVICE_CA_CERT_PATH") {
             self.device_ca.ca_cert_path = val;
+        }
+        if let Ok(val) = std::env::var("RELAY_GITHUB_CRASH_REPO") {
+            self.github.crash_repo = val;
+        }
+        if let Ok(val) = std::env::var("RELAY_GITHUB_TOKEN_ENV") {
+            self.github.token_env = val;
+        }
+        if let Ok(val) = std::env::var("RELAY_GITHUB_API_BASE_URL") {
+            self.github.api_base_url = val;
         }
     }
 }

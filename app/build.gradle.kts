@@ -253,6 +253,15 @@ dependencies {
     // flavor-agnostic BackgroundDelivery seam.
     "fossImplementation"(libs.unifiedpush.connector)
 
+    // ACRA — scoped to the `foss` flavor only (issue #464). Crashlytics is not
+    // FOSS, so the foss flavor reports crashes via ACRA's HttpSender, which
+    // POSTs JSON crash reports to the relay's `POST /crash` endpoint. The relay
+    // sanitizes/dedups them into GitHub issues (mirroring the Crashlytics→issue
+    // convention). The google flavor never links ACRA — it keeps Crashlytics
+    // behind the same flavor-agnostic CrashReporter seam.
+    "fossImplementation"(libs.acra.core)
+    "fossImplementation"(libs.acra.http)
+
     // Health Connect (for HealthConnectIntegration availability check)
     implementation(libs.health.connect)
 

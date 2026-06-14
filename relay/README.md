@@ -26,6 +26,44 @@ overrides (see `src/config.rs::apply_env_overrides`).
 
 ## Operational notes
 
+### Crash reporting (`POST /crash`, foss flavor)
+
+`foss`-flavor app builds report crashes via ACRA's `HttpSender`, which POSTs a
+JSON crash report to `POST /crash`. The relay **sanitizes** it (allowlists a few
+non-identifying fields, redacts emails/IPs/on-device paths/tokens from the stack
+trace), **dedups** by stack-trace fingerprint, **spike-caps** crash loops, and
+files/append a GitHub issue labeled `crash` (mirroring the Crashlytics→issue
+convention; Crashlytics has no server-side ingestion API).
+
+**Abuse surface.** The endpoint takes unauthenticated external POSTs and files
+GitHub issues, so it is rate-limited rather than open: a per-IP token bucket
+(429 on flood), a per-fingerprint spike-cap, and a **global new-issue cap** that
+bounds how many issues can be opened per window even under fingerprint/IP
+rotation. Device mTLS auth is intentionally NOT required — ACRA can't present
+the device client cert and crashes must be reportable before a device is
+provisioned.
+
+**Ops dependency — GitHub token.** Filing needs a GitHub token with
+`issues:write` on the target repo (a fine-grained PAT scoped to Issues, or a
+GitHub App token). Configure:
+
+```toml
+[github]
+crash_repo = "Monkopedia/rouse-context"
+token_env  = "GITHUB_CRASH_TOKEN"   # name of the env var holding the token
+```
+
+Set the token in `/etc/rouse-relay/env` (loaded like `CF_API_TOKEN`):
+
+```
+GITHUB_CRASH_TOKEN=github_pat_...
+```
+
+If `crash_repo` is empty or the token env var is unset, `/crash` still
+sanitizes + dedups + logs and returns `202` — it just skips the GitHub filing
+(no crash, graceful no-op). The repo and env-var name can also be overridden via
+`RELAY_GITHUB_CRASH_REPO` / `RELAY_GITHUB_TOKEN_ENV`.
+
 ### ACME provider
 
 The relay uses Google Trust Services (GTS) as its default ACME provider

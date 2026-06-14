@@ -27,6 +27,7 @@ fn make_app(relay_state: Arc<RelayState>) -> axum::Router {
         fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
             std::time::Duration::from_secs(10),
         )),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
         #[cfg(feature = "test-mode")]

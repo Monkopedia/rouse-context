@@ -18,6 +18,21 @@ service_account_path = "/etc/relay/firebase-sa.json"
 zone_id = "your-cloudflare-zone-id"
 api_token_env = "CF_API_TOKEN"
 
+[github]
+# Crash-report sink for `foss`-flavor devices (issue #464). ACRA POSTs JSON
+# crash reports to `POST /crash`; the relay sanitizes/dedups them into GitHub
+# issues labeled `crash`. Leave `crash_repo` empty to disable filing — the
+# endpoint then still sanitizes + dedups + logs and returns 202 (no-op filing).
+#
+# OPS DEPENDENCY: filing needs a GitHub token with `issues:write` on the repo
+# (a fine-grained PAT scoped to Issues, or a GitHub App token). The token is
+# NOT stored here — only the NAME of the env var that holds it (set it in
+# /etc/rouse-relay/env alongside CF_API_TOKEN). Default env var:
+# GITHUB_CRASH_TOKEN.
+# crash_repo = "Monkopedia/rouse-context"
+token_env = "GITHUB_CRASH_TOKEN"
+# api_base_url = "https://api.github.com"   # override only for testing
+
 [acme]
 # ACME provider directory URL. Default (when omitted) is Google Trust Services
 # production: https://dv.acme-v02.api.pki.goog/directory — 100 new orders/hour

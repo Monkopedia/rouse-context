@@ -189,6 +189,12 @@ async fn main() {
     // allows a retry on the next client connection.
     let fcm_wake_throttle = Arc::new(FcmWakeThrottle::new(Duration::from_secs(10)));
 
+    // Crash-report ingestion (#464). The GitHub filer is `None` when no repo /
+    // token is configured — the endpoint then sanitizes + dedups + logs and
+    // returns 202 without filing (graceful no-op).
+    let crash_filer = rouse_relay::crash::build_filer_from_config(&config.github);
+    let crash = Arc::new(rouse_relay::crash::CrashService::with_filer(crash_filer));
+
     let app_state = Arc::new(AppState {
         relay_state: relay_state.clone(),
         session_registry: session_registry.clone(),
@@ -205,6 +211,7 @@ async fn main() {
             request_subdomain_limiter_cfg,
         ),
         fcm_wake_throttle: fcm_wake_throttle.clone(),
+        crash,
         config: config.clone(),
         device_ca,
         #[cfg(feature = "test-mode")]
@@ -490,12 +497,16 @@ async fn handle_connection(
 
 async fn handle_relay_api(
     stream: tokio::net::TcpStream,
-    _peer_addr: std::net::SocketAddr,
+    peer_addr: std::net::SocketAddr,
     tls_config: Option<Arc<rustls::ServerConfig>>,
     base_domain: &str,
     app_state: Arc<AppState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let router = api::build_router(app_state);
+    // Source IP for per-IP rate limiting (e.g. `POST /crash`, #464). Injected
+    // as a request extension since the in-handler axum context otherwise has no
+    // access to the TCP peer address.
+    let client_ip = api::ClientIp(peer_addr.ip());
+    let router = api::build_router(app_state).layer(axum::Extension(client_ip));
 
     match tls_config {
         Some(tls_cfg) => {
