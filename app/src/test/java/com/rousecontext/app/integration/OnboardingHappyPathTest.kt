@@ -3,6 +3,7 @@ package com.rousecontext.app.integration
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.integration.harness.AppIntegrationTestHarness
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupState
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
 import com.rousecontext.tunnel.CertificateStore
@@ -12,13 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -50,21 +50,22 @@ class OnboardingHappyPathTest {
 
     private val harness = AppIntegrationTestHarness()
 
+    // Main = Unconfined: VM / IntegrationSetup coroutines dispatch on
+    // Dispatchers.Main, and Robolectric's main looper isn't pumped under
+    // runBlocking, so Unconfined runs them inline on the runBlocking caller.
+    // Routed through the shared rule so setMain is always paired with
+    // resetMain in a finally and can't leak into a sibling test (#376).
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(Dispatchers.Unconfined)
+
     @Before
     fun setUp() {
-        // viewModelScope dispatches on Dispatchers.Main. Under runBlocking the
-        // Android Main Looper isn't automatically pumped, so without a test
-        // dispatcher the VM coroutine never actually runs and the test wedges
-        // on `vm.state.first { Complete }`. Switch Main to Unconfined — a
-        // runBlocking caller then runs VM coroutines inline.
-        Dispatchers.setMain(Dispatchers.Unconfined)
         harness.start()
     }
 
     @After
     fun tearDown() {
         harness.stop()
-        Dispatchers.resetMain()
     }
 
     @Test

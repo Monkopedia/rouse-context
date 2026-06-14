@@ -5,6 +5,7 @@ import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.delivery.NoOpBackgroundDelivery
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.OnboardingFlow
@@ -21,15 +22,12 @@ import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -40,18 +38,11 @@ class OnboardingViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
 
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
+
     private val certStore = mockk<CertificateStore>()
     private val onboardingFlow = mockk<OnboardingFlow>()
-
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
 
     @Test
     fun `startOnboarding passes auth and fcm tokens to onboarding flow`() = runBlocking {

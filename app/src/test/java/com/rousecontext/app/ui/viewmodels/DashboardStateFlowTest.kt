@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.TokenStore
@@ -15,19 +16,15 @@ import com.rousecontext.tunnel.TunnelState
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 /**
@@ -39,18 +36,11 @@ import org.junit.Test
 class DashboardStateFlowTest {
 
     private val testDispatcher = StandardTestDispatcher()
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
     private val fakeTunnelClient = mockk<TunnelClient> {
         every { state } returns MutableStateFlow(TunnelState.DISCONNECTED)
-    }
-
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
     }
 
     @Test

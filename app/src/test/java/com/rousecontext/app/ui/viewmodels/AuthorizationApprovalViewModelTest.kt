@@ -2,41 +2,31 @@ package com.rousecontext.app.ui.viewmodels
 
 import android.app.NotificationManager
 import app.cash.turbine.test
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.AuthorizationApprovalUiState
 import com.rousecontext.mcp.core.AuthorizationCodeManager
 import com.rousecontext.mcp.core.InMemoryTokenStore
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthorizationApprovalViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(testDispatcher)
     private val mockNotificationManager: NotificationManager = mockk(relaxed = true)
 
     private val defaultRedirectUri = "http://localhost/callback"
     private val validCodeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
-
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
 
     private fun createManager(): AuthorizationCodeManager {
         val manager = AuthorizationCodeManager(tokenStore = InMemoryTokenStore())

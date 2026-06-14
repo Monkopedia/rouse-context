@@ -6,6 +6,7 @@ import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.integration.harness.AppIntegrationTestHarness
 import com.rousecontext.app.integration.harness.TestEchoMcpIntegration
+import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.PerToolCallNotifier
@@ -17,16 +18,16 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -57,18 +58,22 @@ class PerCallNotifierModeTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var observerJob: Job? = null
 
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(Dispatchers.Unconfined)
+
     @Before
     fun setUp() {
-        Dispatchers.setMain(Dispatchers.Unconfined)
         harness.start()
     }
 
     @After
     fun tearDown() {
-        observerJob?.cancel()
+        // Drain the observer to quiescence before the rule resets Main:
+        // a fire-and-forget cancel() could leave a coroutine resuming
+        // onto Main after resetMain, racing a later test's setMain (#376).
+        runBlocking { observerJob?.cancelAndJoin() }
         scope.cancel()
         harness.stop()
-        Dispatchers.resetMain()
     }
 
     @Test
