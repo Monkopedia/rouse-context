@@ -1,10 +1,12 @@
-package com.rousecontext.work
+package com.rousecontext.app.push
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.google.firebase.messaging.RemoteMessage
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.core.ProviderRegistry
+import com.rousecontext.work.FcmTokenRegistrar
+import com.rousecontext.work.TunnelForegroundService
 import io.mockk.mockk
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -33,6 +35,9 @@ import org.robolectric.Shadows.shadowOf
  * dispatches through it. These tests exercise the dispatch path without hitting
  * Firebase Cloud Messaging itself by constructing [FcmReceiver] directly under
  * Robolectric and feeding it a synthetic [RemoteMessage].
+ *
+ * Lives in the `testGoogle` source set (issue #476): [FcmReceiver] is a `google`-flavor
+ * `FirebaseMessagingService`, so its test compiles only against the google variant.
  */
 @RunWith(RobolectricTestRunner::class)
 class FcmReceiverTest {

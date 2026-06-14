@@ -1,7 +1,10 @@
-package com.rousecontext.work
+package com.rousecontext.app.auth
 
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.rousecontext.work.DeviceKeystoreSigner
+import com.rousecontext.work.FirebaseCredentials
+import com.rousecontext.work.RenewalAuthProvider
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -15,6 +18,10 @@ fun interface FirebaseIdTokenSource {
 /**
  * Default [RenewalAuthProvider] implementation bridging [FirebaseAuth] (for the ID token)
  * and the Android Keystore (for the SHA256withECDSA signature over the CSR DER).
+ *
+ * `google`-flavor-only (issue #476): lives in the `:app` `google` source set so the
+ * shared `:work` module links no `firebase-auth`. The `foss` flavor binds
+ * `KeypairRenewalAuthProvider` instead.
  *
  * Returning `null` is the correct failure mode: the worker treats it as a transient
  * condition and retries on the next periodic tick. This keeps us from retry-storming when

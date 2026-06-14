@@ -37,9 +37,11 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.koin.android)
     implementation(libs.workmanager)
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.messaging)
+    // NOTE: no firebase-* dependencies. The Firebase-coupled classes
+    // (FirebaseRenewalAuthProvider, FcmReceiver, and the per-connect FCM-token
+    // push) live in the :app `google` source set behind the RenewalAuthProvider
+    // / ConnectPushReporter seams declared here, so :work links zero Firebase
+    // and the `foss` APK is genuinely firebase-free (issue #476).
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

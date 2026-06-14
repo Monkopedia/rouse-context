@@ -11,10 +11,11 @@
             android:foregroundServiceType="dataSync" />
 
         <!--
-            The FCM `FcmReceiver` service is declared in the app's `google`
-            flavor manifest (app/src/google/AndroidManifest.xml), not here. The
-            `foss` flavor has no Firebase Cloud Messaging, so the service must
-            not appear in its merged manifest. See issue #461.
+            The FCM receiver (com.rousecontext.app.push.FcmReceiver) is declared
+            in the app's `google` flavor manifest (app/src/google/AndroidManifest.xml)
+            and its class lives in that same `google` source set, so neither the
+            service nor any firebase-messaging bytecode appears in the `foss`
+            build. See issues #461, #476.
         -->
     </application>
 </manifest>
