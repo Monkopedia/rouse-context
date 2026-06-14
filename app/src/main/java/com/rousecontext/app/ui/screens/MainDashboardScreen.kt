@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -35,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -111,6 +113,15 @@ data object NotificationBanner
  */
 data class SpuriousWakeBanner(val rolling24hCount: Int)
 
+/**
+ * Shown on the foss flavor when on-demand wake is off because no UnifiedPush
+ * distributor has been chosen yet (issue #463, "degrade, don't block"). Tapping
+ * "Set up" opens the "Background delivery" picker. Never shown on the google
+ * flavor (its [com.rousecontext.app.delivery.BackgroundDelivery] reports
+ * [com.rousecontext.app.delivery.DeliveryActivation.NotApplicable]).
+ */
+data object DeliveryBanner
+
 private const val MAX_RECENT_ITEMS = 5
 
 @Immutable
@@ -120,6 +131,7 @@ data class DashboardState(
     val integrations: List<IntegrationItem> = emptyList(),
     val recentActivity: List<AuditHistoryEntry> = emptyList(),
     val certBanner: CertBanner? = null,
+    val deliveryBanner: DeliveryBanner? = null,
     val notificationBanner: NotificationBanner? = null,
     val spuriousWakeBanner: SpuriousWakeBanner? = null,
     val hasMoreIntegrationsToAdd: Boolean = true,
@@ -140,6 +152,7 @@ fun HomeDashboardContent(
     onRetryRenewal: () -> Unit = {},
     onOpenNotificationSettings: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onSetUpDelivery: () -> Unit = {},
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -164,7 +177,8 @@ fun HomeDashboardContent(
             state = state,
             onRetryRenewal = onRetryRenewal,
             onOpenNotificationSettings = onOpenNotificationSettings,
-            onOpenSettings = onOpenSettings
+            onOpenSettings = onOpenSettings,
+            onSetUpDelivery = onSetUpDelivery
         )
 
         // Integrations header
@@ -393,17 +407,69 @@ private fun NotificationBannerCard(onClick: () -> Unit) {
     }
 }
 
+@Composable
+private fun DeliveryBannerCard(onSetUp: () -> Unit) {
+    val ext = com.rousecontext.app.ui.theme.LocalExtendedColors.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = ext.warningContainer)
+    ) {
+        Row(
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
+                tint = ext.onWarningContainer
+            )
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.screen_dashboard_delivery_off_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = ext.onWarningContainer
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.screen_dashboard_delivery_off_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ext.onWarningContainer
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(onClick = onSetUp) {
+                    Text(stringResource(R.string.screen_dashboard_delivery_off_action))
+                }
+            }
+        }
+    }
+}
+
 private fun LazyListScope.dashboardBannerItems(
     state: DashboardState,
     onRetryRenewal: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onSetUpDelivery: () -> Unit
 ) {
     // Cert banner (most urgent — show first).
     state.certBanner?.let { banner ->
         item {
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             CertBannerCard(banner, onRetryRenewal)
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+        }
+    }
+
+    // Background-delivery banner (foss: on-demand wake off until a distributor
+    // is chosen). High priority — without it the device can't be woken at all.
+    if (state.deliveryBanner != null) {
+        item {
+            if (state.certBanner == null) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+            }
+            DeliveryBannerCard(onSetUp = onSetUpDelivery)
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         }
     }

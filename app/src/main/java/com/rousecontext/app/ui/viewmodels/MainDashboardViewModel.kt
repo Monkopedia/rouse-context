@@ -7,9 +7,11 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.delivery.DeliveryActivation
 import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
+import com.rousecontext.app.ui.screens.DeliveryBanner
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.app.ui.screens.NotificationBanner
@@ -58,6 +60,14 @@ class MainDashboardViewModel(
     notificationsEnabled: Flow<Boolean> = flowOf(true),
     spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY),
     /**
+     * On-demand wake activation (issue #463). For the foss flavor this is
+     * [com.rousecontext.app.delivery.BackgroundDelivery.activation]; a
+     * [DeliveryActivation.NeedsSetup] emission drives the degraded-Home
+     * "set up a delivery app" banner. The google flavor always emits
+     * [DeliveryActivation.NotApplicable] (no banner).
+     */
+    deliveryActivation: Flow<DeliveryActivation> = flowOf(DeliveryActivation.NotApplicable),
+    /**
      * Ticker driving the rolling-24h "Recent Activity" cutoff. Each emission
      * is a fresh wall-clock timestamp that `flatMapLatest` uses to restart
      * the DAO query with a moved-forward lower bound. Fixes #370: the
@@ -89,6 +99,8 @@ class MainDashboardViewModel(
     private val spuriousWakesFlowStarted = spuriousWakesFlow.onStart {
         emit(SpuriousWakeStats.EMPTY)
     }
+    private val deliveryActivationStarted =
+        deliveryActivation.onStart { emit(DeliveryActivation.NotApplicable) }
 
     val state: StateFlow<DashboardState> = combine(
         combine(
@@ -100,8 +112,9 @@ class MainDashboardViewModel(
         ) { tunnelState, _, recentEntries, certBanner, notifsEnabled ->
             BannerInputs(tunnelState, recentEntries, certBanner, notifsEnabled)
         },
-        spuriousWakesFlowStarted
-    ) { inputs, spurious ->
+        spuriousWakesFlowStarted,
+        deliveryActivationStarted
+    ) { inputs, spurious, deliveryState ->
         val tunnelState = inputs.tunnelState
         val recentEntries = inputs.recentEntries
         val certBanner = inputs.certBanner
@@ -154,6 +167,11 @@ class MainDashboardViewModel(
             integrations = items,
             recentActivity = recent,
             certBanner = certBanner,
+            deliveryBanner = if (deliveryState == DeliveryActivation.NeedsSetup) {
+                DeliveryBanner
+            } else {
+                null
+            },
             notificationBanner = if (notifsEnabled) null else NotificationBanner,
             spuriousWakeBanner = if (spurious.rolling24h > SPURIOUS_WAKE_BANNER_THRESHOLD) {
                 SpuriousWakeBanner(rolling24hCount = spurious.rolling24h)

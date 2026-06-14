@@ -59,13 +59,12 @@ import org.robolectric.RobolectricTestRunner
  * proves the relay accepted the foss proofs end-to-end. test-mode only stubs
  * ACME / Firestore / Firebase; the keypair verification path is the real one.
  *
- * Note on the FCM token: the relay still requires a non-empty `fcm_token` on
- * `/register` (a push-wake concern, not a keypair-auth one), while the foss
- * flavor currently ships a `NoOpFcmTokenProvider` returning `""`. A real foss
- * push token / wake endpoint lands with UnifiedPush (#463); until then this
- * test passes a placeholder so the keypair-auth round trip — the gap #469
- * closes — is exercised independently of the push transport. See the PR for
- * the surfaced friction.
+ * Note on the push target: the relay requires a non-empty push target on
+ * `/register` — either an `fcm_token` (google) or, since #463, a
+ * `push_endpoint` (foss/UnifiedPush). The foss flavor has no FCM token, so this
+ * test registers the way the foss app now does: an empty `fcm_token` plus a
+ * UnifiedPush `push_endpoint`, exercising the real deferred-activation push
+ * target alongside the keypair-auth round trip (the gap #469 closes).
  */
 @RunWith(RobolectricTestRunner::class)
 class KeypairRoundTripIntegrationTest {
@@ -109,9 +108,12 @@ class KeypairRoundTripIntegrationTest {
             )
 
             val onboardingFlow: OnboardingFlow = harness.koin.get()
+            // foss registers with no FCM token — the push target is a
+            // UnifiedPush endpoint URL (#463 deferred-activation path).
             val onboardResult = onboardingFlow.execute(
                 credential = registerCredential!!,
-                fcmToken = PLACEHOLDER_PUSH_TOKEN
+                fcmToken = "",
+                pushEndpoint = PLACEHOLDER_PUSH_ENDPOINT
             )
             assertTrue(
                 "keypair onboarding must succeed, got: $onboardResult",
@@ -200,10 +202,9 @@ class KeypairRoundTripIntegrationTest {
         }
 
     private companion object {
-        // The relay requires a non-empty fcm_token on /register; the foss
-        // NoOpFcmTokenProvider returns "" until UnifiedPush (#463) supplies a
-        // real push endpoint. Stand in a placeholder so the keypair-auth round
-        // trip is exercised independently of the push transport.
-        const val PLACEHOLDER_PUSH_TOKEN = "foss-keypair-it-placeholder-push-token"
+        // The relay requires a non-empty push target on /register. foss has no
+        // FCM token, so it registers with a UnifiedPush endpoint URL (#463).
+        // A placeholder endpoint stands in for the distributor-minted one.
+        const val PLACEHOLDER_PUSH_ENDPOINT = "https://ntfy.example/up/foss-keypair-it"
     }
 }

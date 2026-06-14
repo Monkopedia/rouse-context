@@ -6,7 +6,17 @@ import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.auth.KeypairDeviceCredentialProvider
 import com.rousecontext.app.auth.KeypairRenewalAuthProvider
 import com.rousecontext.app.auth.NoOpFcmTokenProvider
+import com.rousecontext.app.delivery.BackgroundDelivery
+import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
+import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.OnboardingFlow
+import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.work.RenewalAuthProvider
+import kotlinx.coroutines.CoroutineScope
+import org.koin.android.ext.koin.androidContext
+import org.koin.core.qualifier.named
+import org.koin.dsl.bind
 import org.koin.dsl.module
 
 /**
@@ -22,8 +32,25 @@ val distributionModule = module {
     // Crash reporting — no-op until a FOSS crash backend lands (#464).
     single { CrashReporter.NoOp }
 
-    // Push-token retrieval — stubbed until the UnifiedPush wake path lands (#463).
+    // Push-token retrieval — foss has no FCM token; its push target is the
+    // UnifiedPush endpoint (reported via BackgroundDelivery), so the FCM-token
+    // seam stays a no-op (empty token). Issue #463.
     single<FcmTokenProvider> { NoOpFcmTokenProvider() }
+
+    // Background delivery (UnifiedPush wake path). Bound as the concrete type so
+    // UnifiedPushReceiver can invoke its endpoint callbacks, and exposed via the
+    // flavor-agnostic BackgroundDelivery seam for the shared UI. Issue #463.
+    single {
+        UnifiedPushBackgroundDelivery(
+            appContext = androidContext(),
+            onboardingFlow = get<OnboardingFlow>(),
+            credentialProvider = get<DeviceCredentialProvider>(),
+            certificateStore = get<CertificateStore>(),
+            registrationStatus = get<DeviceRegistrationStatus>(),
+            tunnelClient = get<TunnelClient>(),
+            appScope = get<CoroutineScope>(named("appScope"))
+        )
+    } bind BackgroundDelivery::class
 
     // Device-auth seam — keypair credentials, zero Firebase. Issue #462.
     single<DeviceCredentialProvider> {

@@ -126,6 +126,11 @@ fun NavGraphBuilder.mainDashboardDestination(navController: NavController) {
                     launchSingleTop = true
                 }
             },
+            onSetUpDelivery = {
+                // foss-only: the degraded-wake banner is the only caller and it
+                // never renders on google. Opens the "Background delivery" picker.
+                navController.navigate(Routes.BACKGROUND_DELIVERY_BASE)
+            },
             onRetry = { viewModel.retry() }
         )
     }

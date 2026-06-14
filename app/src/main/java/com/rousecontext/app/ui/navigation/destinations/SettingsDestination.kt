@@ -35,7 +35,6 @@ import org.koin.compose.koinInject
 /** User-facing privacy page on the Jekyll docs site (see `docs/user/privacy.md`). */
 internal const val PRIVACY_URL = "https://rousecontext.com/privacy"
 
-@Suppress("UNUSED_PARAMETER")
 fun NavGraphBuilder.settingsDestination(navController: NavController) {
     composable(
         Routes.SETTINGS,
@@ -62,7 +61,11 @@ fun NavGraphBuilder.settingsDestination(navController: NavController) {
             title = stringResource(R.string.destination_title_settings),
             showBottomBar = true
         )
-        SettingsDestinationContent()
+        SettingsDestinationContent(
+            onOpenBackgroundDelivery = {
+                navController.navigate(Routes.BACKGROUND_DELIVERY_SETTINGS)
+            }
+        )
     }
 }
 
@@ -73,7 +76,7 @@ fun NavGraphBuilder.settingsDestination(navController: NavController) {
  * "Renew cert now" callback into [SettingsContent].
  */
 @Composable
-private fun SettingsDestinationContent() {
+private fun SettingsDestinationContent(onOpenBackgroundDelivery: () -> Unit) {
     val viewModel: SettingsViewModel = koinViewModel()
     val state by viewModel.state.collectAsState()
     val showAll by viewModel.showAllMcpMessages.collectAsState()
@@ -103,6 +106,7 @@ private fun SettingsDestinationContent() {
         onThemeModeChanged = viewModel::setThemeMode,
         onSecurityCheckIntervalChanged = viewModel::setSecurityCheckInterval,
         onGenerateNewAddress = viewModel::rotateSecret,
+        onOpenBackgroundDelivery = onOpenBackgroundDelivery,
         onAcknowledgeAlert = viewModel::acknowledgeAlert,
         onReportBug = { openUriSafely(settingsContext, bugReportUriBuilder.build()) },
         onOpenPrivacy = { openUriSafely(settingsContext, Uri.parse(PRIVACY_URL)) },

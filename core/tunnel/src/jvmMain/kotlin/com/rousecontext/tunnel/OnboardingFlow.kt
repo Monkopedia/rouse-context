@@ -59,15 +59,18 @@ class OnboardingFlow(
      * [DeviceCredential.Keypair] (`foss`) it skips the Firebase-only subdomain
      * reservation and registers directly with the keypair proof.
      */
-    suspend fun execute(credential: DeviceCredential, fcmToken: String): OnboardingResult =
-        registerAndPersist(credential, fcmToken).fold(
-            onFailure = { it },
-            onSuccess = { subdomain ->
-                certProvisioningFlow?.let { provisioner ->
-                    provisionCerts(provisioner, credential, subdomain)
-                } ?: OnboardingResult.Success(subdomain = subdomain)
-            }
-        )
+    suspend fun execute(
+        credential: DeviceCredential,
+        fcmToken: String,
+        pushEndpoint: String? = null
+    ): OnboardingResult = registerAndPersist(credential, fcmToken, pushEndpoint).fold(
+        onFailure = { it },
+        onSuccess = { subdomain ->
+            certProvisioningFlow?.let { provisioner ->
+                provisionCerts(provisioner, credential, subdomain)
+            } ?: OnboardingResult.Success(subdomain = subdomain)
+        }
+    )
 
     /**
      * Runs the relay registration + local persistence half of onboarding.
@@ -77,7 +80,8 @@ class OnboardingFlow(
      */
     private suspend fun registerAndPersist(
         credential: DeviceCredential,
-        fcmToken: String
+        fcmToken: String,
+        pushEndpoint: String?
     ): RegisterOutcome {
         val registerResult = when (credential) {
             is DeviceCredential.Firebase -> {
@@ -87,7 +91,8 @@ class OnboardingFlow(
                 relayApiClient.register(
                     firebaseToken = credential.idToken,
                     fcmToken = fcmToken,
-                    integrationIds = integrationIds
+                    integrationIds = integrationIds,
+                    pushEndpoint = pushEndpoint
                 )
             }
             is DeviceCredential.Keypair ->
@@ -96,7 +101,8 @@ class OnboardingFlow(
                 relayApiClient.registerWithKeypair(
                     credential = credential,
                     fcmToken = fcmToken,
-                    integrationIds = integrationIds
+                    integrationIds = integrationIds,
+                    pushEndpoint = pushEndpoint
                 )
         }
         registerResult.mapFailure()?.let { return RegisterOutcome.Failure(it) }

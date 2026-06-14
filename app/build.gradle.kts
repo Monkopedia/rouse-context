@@ -246,6 +246,13 @@ dependencies {
     "googleImplementation"(libs.firebase.messaging)
     "googleImplementation"(libs.firebase.crashlytics)
 
+    // UnifiedPush — scoped to the `foss` flavor only (issue #463). The foss
+    // build wakes via a UnifiedPush distributor instead of FCM; this library
+    // provides the MessagingReceiver base + distributor registration API. The
+    // google flavor never links it — all UnifiedPush calls sit behind the
+    // flavor-agnostic BackgroundDelivery seam.
+    "fossImplementation"(libs.unifiedpush.connector)
+
     // Health Connect (for HealthConnectIntegration availability check)
     implementation(libs.health.connect)
 

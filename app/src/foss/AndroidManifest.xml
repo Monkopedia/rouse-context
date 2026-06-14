@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+            UnifiedPush message receiver, present only in the `foss` flavor
+            (issue #463). The Firebase-free counterpart of the google flavor's
+            FcmReceiver. It receives wake/renew messages and endpoint
+            registration callbacks from the user's chosen UnifiedPush
+            distributor. No Firebase Cloud Messaging service in this flavor.
+        -->
+        <receiver
+            android:name="com.rousecontext.app.push.UnifiedPushReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.MESSAGE" />
+                <action android:name="org.unifiedpush.android.connector.UNREGISTERED" />
+                <action android:name="org.unifiedpush.android.connector.NEW_ENDPOINT" />
+                <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

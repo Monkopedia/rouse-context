@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
+import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
@@ -60,6 +61,7 @@ class OnboardingViewModel(
     private val registrationStatus: DeviceRegistrationStatus,
     private val credentialProvider: DeviceCredentialProvider,
     private val fcmTokenProvider: FcmTokenProvider,
+    private val backgroundDelivery: BackgroundDelivery,
     private val appScope: CoroutineScope
 ) : ViewModel() {
 
@@ -69,11 +71,20 @@ class OnboardingViewModel(
     init {
         viewModelScope.launch {
             val subdomain = certificateStore.getSubdomain()
-            if (subdomain != null) {
-                registrationStatus.markComplete()
-                _state.value = OnboardingState.Onboarded
-            } else {
-                _state.value = OnboardingState.NotOnboarded
+            when {
+                subdomain != null -> {
+                    registrationStatus.markComplete()
+                    _state.value = OnboardingState.Onboarded
+                }
+                // foss deferred activation (#463): a device that finished
+                // onboarding but skipped picking a UnifiedPush distributor has
+                // no subdomain yet. It is a valid (degraded) onboarded state —
+                // land on Home, not back on Welcome forever. Registration fires
+                // later when a delivery app is chosen (BackgroundDelivery).
+                backgroundDelivery.isSupported && certificateStore.isOnboardingComplete() -> {
+                    _state.value = OnboardingState.Onboarded
+                }
+                else -> _state.value = OnboardingState.NotOnboarded
             }
         }
     }
@@ -90,6 +101,18 @@ class OnboardingViewModel(
         if (current is OnboardingState.Onboarded) return
         if (current is OnboardingState.InProgress) return
 
+        // foss deferred activation (#463): there is no push endpoint to register
+        // with until the user picks a UnifiedPush distributor, and the relay
+        // requires a push target to register. So foss onboarding COMPLETES
+        // without registering — the device lands on a (possibly degraded) Home,
+        // and registration fires later when a delivery app reports its endpoint
+        // (BackgroundDelivery). The google flavor registers here as before.
+        if (backgroundDelivery.isSupported) {
+            _state.value = OnboardingState.InProgress(OnboardingStep.Registering)
+            appScope.launch { completeWithoutRegistration() }
+            return
+        }
+
         _state.value = OnboardingState.InProgress(OnboardingStep.Registering)
 
         // Launch on the Application-scoped coroutine so we don't get killed
@@ -99,6 +122,22 @@ class OnboardingViewModel(
         appScope.launch {
             performRegistration()
         }
+    }
+
+    /**
+     * foss deferred-activation completion (#463): if a distributor was already
+     * picked during onboarding its endpoint may have registered the device by
+     * now (subdomain present) — treat that as fully onboarded. Otherwise mark
+     * onboarding complete and land on a degraded Home; the BackgroundDelivery
+     * banner nudges the user to set up a delivery app.
+     */
+    private suspend fun completeWithoutRegistration() {
+        if (certificateStore.getSubdomain() != null) {
+            registrationStatus.markComplete()
+        } else {
+            certificateStore.markOnboardingComplete()
+        }
+        _state.value = OnboardingState.Onboarded
     }
 
     private suspend fun performRegistration() {

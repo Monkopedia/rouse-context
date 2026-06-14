@@ -25,6 +25,7 @@ import com.rousecontext.app.ui.navigation.destinations.allClientsDestination
 import com.rousecontext.app.ui.navigation.destinations.auditDetailDestination
 import com.rousecontext.app.ui.navigation.destinations.auditHistoryDestination
 import com.rousecontext.app.ui.navigation.destinations.authApprovalDestination
+import com.rousecontext.app.ui.navigation.destinations.backgroundDeliveryDestination
 import com.rousecontext.app.ui.navigation.destinations.healthConnectSetupDestination
 import com.rousecontext.app.ui.navigation.destinations.integrationEnabledDestination
 import com.rousecontext.app.ui.navigation.destinations.integrationManageDestination
@@ -55,6 +56,19 @@ object Routes {
     const val ONBOARDING_BASE = "onboarding"
     const val AUTOSTART_ARG = "autostart"
     const val NOTIFICATION_PREFERENCES = "onboarding/notification_preferences"
+
+    /**
+     * "Background delivery" UnifiedPush distributor picker (foss flavor, #463).
+     * Registered unconditionally but only ever navigated to in the foss flavor
+     * (the google flavor's [com.rousecontext.app.delivery.BackgroundDelivery] is
+     * a no-op, so no surface routes here). The optional [SETTINGS_ARG] flips the
+     * screen between the onboarding step (Skip for now) and the Settings entry
+     * (back arrow, active distributor marked).
+     */
+    const val BACKGROUND_DELIVERY = "background_delivery?settings={settings}"
+    const val BACKGROUND_DELIVERY_BASE = "background_delivery"
+    const val BACKGROUND_DELIVERY_SETTINGS = "background_delivery?settings=true"
+    const val SETTINGS_ARG = "settings"
     const val HOME = "home"
     const val AUDIT = "audit?provider={provider}&scrollToCallId={scrollToCallId}"
     const val AUDIT_BASE = "audit"
@@ -99,7 +113,9 @@ object Routes {
 private val ONBOARDING_ROUTES = setOf(
     Routes.ONBOARDING,
     Routes.ONBOARDING_BASE,
-    Routes.NOTIFICATION_PREFERENCES
+    Routes.NOTIFICATION_PREFERENCES,
+    Routes.BACKGROUND_DELIVERY,
+    Routes.BACKGROUND_DELIVERY_BASE
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -172,6 +188,7 @@ fun AppNavigation(
             ) {
                 onboardingDestination(navController)
                 notificationPreferencesDestination(navController)
+                backgroundDeliveryDestination(navController)
                 mainDashboardDestination(navController)
                 auditHistoryDestination(navController)
                 settingsDestination(navController)

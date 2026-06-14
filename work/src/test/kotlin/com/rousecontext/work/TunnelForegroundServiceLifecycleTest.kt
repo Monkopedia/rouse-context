@@ -387,6 +387,10 @@ class TunnelForegroundServiceLifecycleTest {
             // no-op
         }
 
+        override suspend fun sendPushEndpoint(kind: String, value: String) {
+            // no-op for tests
+        }
+
         override suspend fun healthCheck(timeout: Duration): Boolean {
             healthCheckCalled = true
             return healthCheckResult

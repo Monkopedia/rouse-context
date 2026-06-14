@@ -33,6 +33,20 @@ interface TunnelClient {
     suspend fun sendFcmToken(token: String)
 
     /**
+     * Send the device's push endpoint to the relay so it can deliver wakeups.
+     *
+     * Generalises [sendFcmToken] for the `foss` flavor (issue #463): a foss
+     * device wakes via UnifiedPush, whose push target is an endpoint URL rather
+     * than an FCM token. [kind] discriminates the backend (`"unifiedpush"`),
+     * [value] is the endpoint URL. Emits the relay's `push_endpoint` WS message
+     * (parsed in `ws.rs`).
+     *
+     * Must be called after [connect] succeeds. Safe to call repeatedly (e.g.
+     * when the UnifiedPush distributor rotates the endpoint).
+     */
+    suspend fun sendPushEndpoint(kind: String, value: String)
+
+    /**
      * Actively probe whether the tunnel is alive.
      *
      * Sends an application-layer Ping on the mux channel and waits up to

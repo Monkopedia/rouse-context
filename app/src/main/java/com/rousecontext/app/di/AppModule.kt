@@ -15,6 +15,7 @@ import com.rousecontext.app.cert.AndroidKeystoreDeviceKeyManager
 import com.rousecontext.app.cert.FileCertificateStore
 import com.rousecontext.app.cert.FileMtlsCertSource
 import com.rousecontext.app.cert.LazyWebSocketFactory
+import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.receivers.AuthApprovalReceiver
 import com.rousecontext.app.registry.HealthConnectIntegration
 import com.rousecontext.app.registry.IntegrationProviderRegistry
@@ -42,6 +43,7 @@ import com.rousecontext.app.token.createUnknownClientLabeler
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
+import com.rousecontext.app.ui.viewmodels.BackgroundDeliveryViewModel
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
@@ -623,7 +625,8 @@ val appModule = module {
                 context = androidContext(),
                 triggers = refresher.ticks
             ),
-            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get())
+            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get()),
+            deliveryActivation = get<BackgroundDelivery>().activation
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
@@ -639,7 +642,8 @@ val appModule = module {
             securityCheckPreferences = get(),
             appStatePreferences = get(),
             batteryExemptProvider = { BatteryOptimization.isExempt(androidContext()) },
-            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get())
+            spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get()),
+            backgroundDelivery = get()
         )
     }
     viewModel {
@@ -665,6 +669,9 @@ val appModule = module {
             crashReporter = get()
         )
     }
-    viewModel { OnboardingViewModel(get(), get(), get(), get(), get(), get(named("appScope"))) }
+    viewModel {
+        OnboardingViewModel(get(), get(), get(), get(), get(), get(), get(named("appScope")))
+    }
     viewModel { NotificationPreferencesViewModel(get()) }
+    viewModel { BackgroundDeliveryViewModel(get()) }
 }

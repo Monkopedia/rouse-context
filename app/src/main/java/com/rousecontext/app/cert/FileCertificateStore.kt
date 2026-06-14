@@ -37,6 +37,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     private val filesDir get() = context.filesDir
     private val certFile get() = File(filesDir, CERT_PEM_FILE)
     private val subdomainFile get() = File(filesDir, SUBDOMAIN_FILE)
+    private val onboardingCompleteFile get() = File(filesDir, ONBOARDING_COMPLETE_MARKER_FILE)
     private val integrationSecretsFile get() = File(filesDir, INTEGRATION_SECRETS_FILE)
     private val legacySecretPrefixFile get() = File(filesDir, LEGACY_SECRET_PREFIX_FILE)
     private val fingerprintsFile get() = File(filesDir, FINGERPRINTS_FILE)
@@ -89,6 +90,14 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         val text = subdomainFile.readText().trim()
         return text.ifBlank { null }
     }
+
+    override suspend fun markOnboardingComplete() {
+        // A marker file (presence == complete). Issue #463: lets the foss
+        // deferred-activation flow reach a degraded Home without a subdomain.
+        atomicWrite(onboardingCompleteFile, "1")
+    }
+
+    override suspend fun isOnboardingComplete(): Boolean = onboardingCompleteFile.exists()
 
     override suspend fun storeIntegrationSecrets(secrets: Map<String, String>) {
         val json = JsonObject(secrets.mapValues { (_, v) -> JsonPrimitive(v) })
@@ -189,6 +198,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
     override suspend fun clear() {
         clearCertificates()
         subdomainFile.delete()
+        onboardingCompleteFile.delete()
         integrationSecretsFile.delete()
         legacySecretPrefixFile.delete()
         // Full reset: drop the hardware-backed device identity too. This is ONLY
@@ -371,6 +381,7 @@ class FileCertificateStore(private val context: Context) : CertificateStore {
         private const val CLIENT_CERT_PEM_FILE = "rouse_client_cert.pem"
         private const val RELAY_CA_PEM_FILE = "rouse_relay_ca.pem"
         private const val SUBDOMAIN_FILE = "rouse_subdomain.txt"
+        private const val ONBOARDING_COMPLETE_MARKER_FILE = "rouse_onboarding_complete"
         private const val INTEGRATION_SECRETS_FILE = "rouse_integration_secrets.json"
         private const val LEGACY_SECRET_PREFIX_FILE = "rouse_secret_prefix.txt"
         private const val FINGERPRINTS_FILE = "rouse_fingerprints.txt"
