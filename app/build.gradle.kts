@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.roborazzi)
     alias(libs.plugins.kover)
+    alias(libs.plugins.test.retry)
 }
 
 // The Firebase Gradle plugins (`google-services`, `firebase-crashlytics`) are
@@ -336,6 +337,16 @@ dependencies {
 private val integrationPackage = "com.rousecontext.app.integration"
 
 tasks.withType<Test>().configureEach {
+    // Cheap backstop for the stubborn single-JVM `TestMainDispatcher` leak flake
+    // (#376): retry only the FAILED tests in a fresh JVM, so an intermittent
+    // leak-induced failure passes on the isolated retry while a real
+    // deterministic failure still fails every attempt (no masking). Only kicks
+    // in on failure, so the green path is unaffected — far cheaper than the ~7x
+    // `forkEvery = 1` isolation tax.
+    retry {
+        maxRetries.set(2)
+        failOnPassedAfterRetry.set(false)
+    }
     // Per-flavor debug unit-test tasks (testGoogleDebugUnitTest /
     // testFossDebugUnitTest) keep the fast unit-test run lean by excluding the
     // slow relay-backed integration scenarios, which run via `integrationTest`.
