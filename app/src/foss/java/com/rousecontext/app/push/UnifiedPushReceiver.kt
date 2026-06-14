@@ -12,7 +12,8 @@ import org.unifiedpush.android.connector.MessagingReceiver
 
 /**
  * UnifiedPush message receiver for the `foss` flavor (issue #463) — the
- * Firebase-free counterpart of [com.rousecontext.work.FcmReceiver].
+ * Firebase-free counterpart of the `google` flavor's
+ * `com.rousecontext.app.push.FcmReceiver`.
  *
  * - [onMessage] routes the relay's `{"type":"wake"}` / `{"type":"renew"}`
  *   payload (delivered as the POST body by the relay's UnifiedPushClient)

@@ -1,5 +1,7 @@
-package com.rousecontext.work
+package com.rousecontext.app.auth
 
+import com.rousecontext.work.DeviceKeystoreSigner
+import com.rousecontext.work.FirebaseCredentials
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -10,10 +12,13 @@ import org.robolectric.RobolectricTestRunner
 /**
  * Unit tests for [FirebaseRenewalAuthProvider] using injected fakes for both the
  * Firebase token source and the Keystore signer. Real FirebaseAuth + Keystore paths are
- * covered by the thin [DefaultFirebaseIdTokenSource] / [AndroidKeystoreSigner] classes.
+ * covered by the thin [DefaultFirebaseIdTokenSource] / `AndroidKeystoreSigner` classes.
  *
  * Robolectric is used only so `android.util.Log` calls resolve to no-ops (the provider logs
  * on each non-success path). No Firebase or Keystore infrastructure is exercised here.
+ *
+ * Lives in the `testGoogle` source set (issue #476): [FirebaseRenewalAuthProvider] is a
+ * `google`-flavor class, so its test compiles only against the google variant.
  */
 @RunWith(RobolectricTestRunner::class)
 class FirebaseRenewalAuthProviderTest {

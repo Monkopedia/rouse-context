@@ -43,8 +43,8 @@ import org.robolectric.RobolectricTestRunner
  *    is through the provisioned identity.
  * 3. An incoming FCM `type: "wake"` payload is dispatched through
  *    [FcmDispatch.resolve] and asserted to land on [FcmAction.StartService]. In
- *    production that action triggers
- *    [com.rousecontext.work.FcmReceiver.startTunnelService] which calls
+ *    production that action triggers the shared `WakeDispatcher` (invoked by the
+ *    `google` flavor's `com.rousecontext.app.push.FcmReceiver`), which calls
  *    `startForegroundService` to bring up
  *    [com.rousecontext.work.TunnelForegroundService]. (See below for what's
  *    skipped in this simulation.)

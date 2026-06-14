@@ -13,7 +13,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import com.google.firebase.messaging.FirebaseMessaging
 import com.rousecontext.api.CrashReporter
 import com.rousecontext.bridge.SessionHandler
 import com.rousecontext.mcp.core.McpSession
@@ -24,13 +23,10 @@ import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.notifications.SessionSummaryNotifier
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
 
@@ -58,6 +54,7 @@ class TunnelForegroundService : LifecycleService() {
     private val securityCheckPreferences: SecurityCheckPreferences by inject()
     private val relayUrl: String by inject(named("relayUrl"))
     private val crashReporter: CrashReporter by inject()
+    private val connectPushReporter: ConnectPushReporter by inject()
 
     /** Set true when idle timeout fires or user explicitly stops - suppresses reconnect. */
     @Volatile
@@ -205,7 +202,7 @@ class TunnelForegroundService : LifecycleService() {
         intentionalDisconnect = false
         try {
             tunnelClient.connect(relayUrl)
-            sendFcmToken()
+            connectPushReporter.reportOnConnect()
             triggerOpportunisticSecurityCheck()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect to relay", e)
@@ -227,20 +224,6 @@ class TunnelForegroundService : LifecycleService() {
                 ExistingWorkPolicy.REPLACE,
                 request
             )
-        }
-    }
-
-    private suspend fun sendFcmToken() {
-        try {
-            val token = suspendCancellableCoroutine { cont ->
-                FirebaseMessaging.getInstance().token
-                    .addOnSuccessListener { cont.resume(it) }
-                    .addOnFailureListener { cont.resumeWithException(it) }
-            }
-            tunnelClient.sendFcmToken(token)
-            Log.i(TAG, "Sent FCM token to relay")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to send FCM token to relay", e)
         }
     }
 
@@ -358,7 +341,7 @@ class TunnelForegroundService : LifecycleService() {
                 try {
                     tunnelClient.connect(relayUrl)
                     Log.i(TAG, "Reconnect succeeded")
-                    sendFcmToken()
+                    connectPushReporter.reportOnConnect()
                     return@launch
                 } catch (e: Exception) {
                     Log.w(TAG, "Reconnect attempt failed", e)

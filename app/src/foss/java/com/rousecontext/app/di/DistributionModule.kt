@@ -8,11 +8,13 @@ import com.rousecontext.app.auth.KeypairRenewalAuthProvider
 import com.rousecontext.app.auth.NoOpFcmTokenProvider
 import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
+import com.rousecontext.app.push.NoOpConnectPushReporter
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.support.AcraCrashReporter
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.work.ConnectPushReporter
 import com.rousecontext.work.RenewalAuthProvider
 import kotlinx.coroutines.CoroutineScope
 import org.koin.android.ext.koin.androidContext
@@ -40,6 +42,12 @@ val distributionModule = module {
     // UnifiedPush endpoint (reported via BackgroundDelivery), so the FCM-token
     // seam stays a no-op (empty token). Issue #463.
     single<FcmTokenProvider> { NoOpFcmTokenProvider() }
+
+    // Per-connect push-target sync (issue #476): no-op for foss. The UnifiedPush
+    // endpoint is reported to the relay by UnifiedPushBackgroundDelivery on
+    // endpoint delivery/rotation, not on each tunnel connect — and there is no
+    // FCM token to push, keeping firebase-messaging out of the foss build.
+    single<ConnectPushReporter> { NoOpConnectPushReporter }
 
     // Background delivery (UnifiedPush wake path). Bound as the concrete type so
     // UnifiedPushReceiver can invoke its endpoint callbacks, and exposed via the

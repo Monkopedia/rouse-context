@@ -98,6 +98,10 @@ class TunnelForegroundServiceLifecycleTest {
                     single { mockk<SecurityCheckPreferences>(relaxed = true) }
                     single<String>(named("relayUrl")) { "wss://test.rousecontext.com" }
                     single<CrashReporter> { CrashReporter.NoOp }
+                    // Per-connect push sync seam (issue #476). Production binds a
+                    // flavor impl (FCM token push / UnifiedPush no-op); the
+                    // lifecycle tests only need it to resolve.
+                    single<ConnectPushReporter> { ConnectPushReporter { } }
                 }
             )
         }
