@@ -106,7 +106,14 @@ pub fn sanitize_text(input: &str) -> String {
     let s = ipv4_re().replace_all(&s, "[redacted-ip]");
     let s = user_path_re().replace_all(&s, "$1/[redacted-path]");
     let s = long_token_re().replace_all(&s, "[redacted-token]");
-    s.into_owned()
+    // Defang GitHub markup: the sanitized text is interpolated into a public
+    // GitHub issue title/body (the allowlisted fields render outside the fenced
+    // code block). A crafted crash report could otherwise inject `@mentions`
+    // (notification-email spam) or `#123` issue refs (cross-reference spam) to
+    // arbitrary users/issues, bounded only by the 20/hr global cap. A zero-width
+    // space after `@`/`#` breaks GitHub's parser without changing the displayed
+    // text.
+    s.replace('@', "@\u{200B}").replace('#', "#\u{200B}")
 }
 
 // ---------------------------------------------------------------------------
@@ -700,6 +707,17 @@ mod tests {
         let out = sanitize_text(SAMPLE_STACK);
         assert!(out.contains("com.rousecontext.app.Foo.bar"));
         assert!(out.contains("IllegalStateException"));
+    }
+
+    #[test]
+    fn sanitize_neutralizes_github_mentions_and_refs() {
+        let out = sanitize_text("crash near @evil and ref #1337 in 1.0.3");
+        // @mention notification spam and #issue cross-ref spam are defanged
+        // with a zero-width space; the visible text is unchanged.
+        assert!(!out.contains("@evil"), "{out}");
+        assert!(out.contains("@\u{200B}evil"), "{out}");
+        assert!(!out.contains("#1337"), "{out}");
+        assert!(out.contains("#\u{200B}1337"), "{out}");
     }
 
     #[test]
