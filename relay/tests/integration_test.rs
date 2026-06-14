@@ -158,6 +158,7 @@ async fn ws_upgrade_with_device_identity() {
         fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
             std::time::Duration::from_secs(10),
         )),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
         #[cfg(feature = "test-mode")]
@@ -279,6 +280,7 @@ async fn mux_frame_round_trip_through_ws() {
         fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
             std::time::Duration::from_secs(10),
         )),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: None,
         #[cfg(feature = "test-mode")]

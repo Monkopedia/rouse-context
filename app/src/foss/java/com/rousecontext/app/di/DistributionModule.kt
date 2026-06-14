@@ -9,6 +9,7 @@ import com.rousecontext.app.auth.NoOpFcmTokenProvider
 import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.support.AcraCrashReporter
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.TunnelClient
@@ -26,11 +27,14 @@ import org.koin.dsl.module
  * registration and provisioning go through [KeypairDeviceCredentialProvider]
  * (signed registration proof, no Firebase), and expired-cert renewal goes
  * through [KeypairRenewalAuthProvider] (keypair-signed timestamp proof). Crash
- * reporting (#464) and push (#463) remain stubbed until their tickets land.
+ * reporting is ACRA-backed (issue #464); push (#463) remains stubbed until its
+ * ticket lands.
  */
 val distributionModule = module {
-    // Crash reporting — no-op until a FOSS crash backend lands (#464).
-    single { CrashReporter.NoOp }
+    // Crash reporting — ACRA, the FOSS Crashlytics replacement (#464). ACRA is
+    // initialized in CrashReporterInitializer (attachBaseContext); this binding
+    // forwards caught-exception logging / collection toggling to it.
+    single<CrashReporter> { AcraCrashReporter() }
 
     // Push-token retrieval — foss has no FCM token; its push target is the
     // UnifiedPush endpoint (reported via BackgroundDelivery), so the FCM-token

@@ -833,6 +833,7 @@ mod tests {
             fcm_wake_throttle: Arc::new(crate::rate_limit::FcmWakeThrottle::new(
                 Duration::from_secs(10),
             )),
+            crash: Arc::new(crate::crash::CrashService::disabled()),
             config: RelayConfig::default(),
             device_ca: None,
             #[cfg(feature = "test-mode")]
@@ -945,6 +946,7 @@ mod tests {
             fcm_wake_throttle: Arc::new(crate::rate_limit::FcmWakeThrottle::new(
                 Duration::from_secs(10),
             )),
+            crash: Arc::new(crate::crash::CrashService::disabled()),
             config,
             device_ca: None,
             #[cfg(feature = "test-mode")]

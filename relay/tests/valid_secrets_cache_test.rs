@@ -126,6 +126,7 @@ async fn rotate_secret_updates_cache_and_passthrough_accepts_new_secret() {
             },
         ),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(10))),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),
         #[cfg(feature = "test-mode")]
@@ -235,6 +236,7 @@ async fn rotate_secret_cache_rejects_secrets_not_in_list() {
             },
         ),
         fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(10))),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
         config: rouse_relay::config::RelayConfig::default(),
         device_ca: Some(ca),
         #[cfg(feature = "test-mode")]

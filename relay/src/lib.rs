@@ -3,6 +3,7 @@ pub mod api;
 pub mod caa_check;
 pub mod cloudflare_dns;
 pub mod config;
+pub mod crash;
 pub mod device_ca;
 pub mod dns;
 pub mod dns_challenge;

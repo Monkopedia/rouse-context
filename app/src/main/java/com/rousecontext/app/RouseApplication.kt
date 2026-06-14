@@ -1,6 +1,7 @@
 package com.rousecontext.app
 
 import android.app.Application
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import androidx.work.Configuration
@@ -9,6 +10,7 @@ import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.app.di.distributionModule
 import com.rousecontext.app.state.AppStatePreferences
+import com.rousecontext.app.support.CrashReporterInitializer
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.work.CertRenewalScheduler
@@ -46,6 +48,20 @@ class RouseApplication :
         get() = Configuration.Builder()
             .setWorkerFactory(KoinWorkerFactory(GlobalContext.get()))
             .build()
+
+    /**
+     * Crash-reporting backends that hook the process-wide uncaught-exception
+     * handler MUST install before any other init runs, and ACRA specifically
+     * requires [attachBaseContext] (it inspects the base context and forks a
+     * dedicated sender process). [CrashReporterInitializer] is flavor-specific:
+     * the `foss` source set initializes ACRA here; the `google` source set is a
+     * no-op (Crashlytics self-initializes via its Gradle-plugin ContentProvider).
+     * Issue #464.
+     */
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        CrashReporterInitializer.initialize(this)
+    }
 
     override fun onCreate() {
         super.onCreate()
