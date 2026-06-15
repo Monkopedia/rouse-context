@@ -33,8 +33,15 @@ jobs:
             -alias debug \
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: ktlint
-        run: ./gradlew ktlintCheck
+        # Distribution is a build flag, not a flavor (#467): a single ktlintCheck
+        # only lints the selected (FOSS, default) `src` dir, so a second
+        # `-Pgoogle` pass lints the Firebase distribution sources (`:app` only).
+        run: |
+          ./gradlew ktlintCheck
+          ./gradlew :app:ktlintCheck -Pgoogle
       - name: detekt
+        # detekt's source set is the raw `src` glob across modules, so it already
+        # scans both the FOSS and Google distribution dirs in one pass (#467).
         run: ./gradlew detekt
       - name: Block production runBlocking (issue #136)
         run: |
@@ -131,16 +138,22 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -alias debug \
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
-      - name: Build (google flavor)
-        run: ./gradlew :app:assembleGoogleDebug
-      - name: Build (foss flavor, Firebase-free)
-        # Separate invocation so the foss-only build skips the Firebase Gradle
-        # plugins and proves it assembles without google-services. See #461.
-        run: ./gradlew :app:assembleFossDebug
+      - name: Build (Google distribution)
+        run: ./gradlew :app:assembleDebug -Pgoogle
+      - name: Build (FOSS distribution, Firebase-free)
+        # Bare build (no `-Pgoogle`) is the FOSS distribution: it skips the
+        # Firebase Gradle plugins and proves it assembles without
+        # google-services. See #467.
+        run: ./gradlew :app:assembleDebug
       - name: Unit tests
-        # :app is flavored (#461) so its unit-test task is per-flavor; the
-        # library modules keep the plain `testDebugUnitTest` task name.
-        run: ./gradlew :app:testGoogleDebugUnitTest testDebugUnitTest :core:tunnel:jvmTest :core:mcp:jvmTest :core:bridge:jvmTest
+        # Distribution is a build flag (#467): `:app` unit tests run once bare
+        # (FOSS) and once with `-Pgoogle` (Firebase). `testDebugUnitTest`
+        # (unqualified) covers the library modules' `:app` foss run plus the
+        # distribution-agnostic modules; the `-Pgoogle` pass covers the Firebase
+        # distribution.
+        run: |
+          ./gradlew testDebugUnitTest :core:tunnel:jvmTest :core:mcp:jvmTest :core:bridge:jvmTest
+          ./gradlew :app:testDebugUnitTest -Pgoogle
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4

@@ -53,7 +53,13 @@ jobs:
             -alias debug \
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
       - name: Lint
-        run: ./gradlew ktlintCheck
+        # Distribution is a build flag, not a flavor (#467), so a single
+        # ktlintCheck only sees the selected (FOSS, default) `src` dir. Run a
+        # second pass with `-Pgoogle` so the Firebase distribution sources are
+        # linted too. (`:app` is the only module whose sources vary by flag.)
+        run: |
+          ./gradlew ktlintCheck
+          ./gradlew :app:ktlintCheck -Pgoogle
       - name: Check for zombie screen files
         run: bash scripts/check-zombie-screens.sh
       - name: Check for manual-template JSON in production code
@@ -62,14 +68,18 @@ jobs:
         # when interpolated values contain quotes, backslashes, or control
         # characters. Production code must use @Serializable + encodeToString.
         run: bash scripts/check-no-manual-json.sh
-      - name: Build (google flavor)
-        run: ./gradlew :app:assembleGoogleDebug
-      - name: Build (foss flavor, Firebase-free)
-        # Separate invocation so the foss-only build skips the Firebase Gradle
-        # plugins and proves it assembles without google-services. See #461.
-        run: ./gradlew :app:assembleFossDebug
+      - name: Build (Google distribution)
+        run: ./gradlew :app:assembleDebug -Pgoogle
+      - name: Build (FOSS distribution, Firebase-free)
+        # Bare build (no `-Pgoogle`) is the FOSS distribution: it skips the
+        # Firebase Gradle plugins and proves it assembles without
+        # google-services. See #467.
+        run: ./gradlew :app:assembleDebug
       - name: Unit tests
         timeout-minutes: 20
+        # Distribution is a build flag (#467), so `:app` unit tests run twice:
+        # bare = FOSS (ACRA / keypair seams), `-Pgoogle` = Firebase-backed. The
+        # library modules are distribution-agnostic and run once.
         run: |
           ./gradlew \
             :core:tunnel:jvmTest \
@@ -79,7 +89,8 @@ jobs:
             :notifications:testDebugUnitTest \
             :work:testDebugUnitTest \
             :integrations:testDebugUnitTest \
-            :app:testGoogleDebugUnitTest
+            :app:testDebugUnitTest
+          ./gradlew :app:testDebugUnitTest -Pgoogle
       - name: Integration tests (relay)
         if: success() || failure()
         # Raised from 10 → 15 as the integration-scenario coverage grew
@@ -88,31 +99,32 @@ jobs:
         # handshake + Robolectric Android runtime), so each scenario costs
         # several real seconds; the 10-min cap started truncating CI at
         # ~120 tests (see the #285/#287 CI failures).
-        # Three serial integration suites (:core:tunnel + :app + :app foss)
-        # share the relay binary; 15 min was sized for two, and adding the
-        # foss suite (#469) pushed the step over — bumped to 30. (A future
-        # optimization could split foss into a parallel job.)
+        # Three serial integration suites (:core:tunnel + :app FOSS + :app
+        # Google) share the relay binary; 15 min was sized for two, and adding
+        # the second :app suite (#469) pushed the step over — bumped to 30.
         timeout-minutes: 30
-        # `:app:integrationTest` boots the real AppModule Koin graph against
-        # the same `--test-mode` relay used by `:core:tunnel:integrationTest`
-        # (issue #250 scaffold; umbrella #247). `:app:fossIntegrationTest` runs
-        # the same harness under the FOSS variant so the keypair device-identity
-        # round trip (register → provision → renew, zero Firebase) is covered
-        # end-to-end against the relay (issue #469, part of #460). All three
-        # share the relay binary built above. Run together so Kover's aggregate
-        # report (`koverHtmlReport`) picks up coverage from each.
-        run: >-
-          ./gradlew
-          :core:tunnel:integrationTest
-          :app:integrationTest
-          :app:fossIntegrationTest
+        # `:app:integrationTest` boots the real AppModule Koin graph against the
+        # same `--test-mode` relay used by `:core:tunnel:integrationTest` (issue
+        # #250 scaffold; umbrella #247). With distribution as a build flag (#467)
+        # it runs once bare — FOSS, so the keypair device-identity round trip
+        # (register → provision → renew, zero Firebase) is covered (#469, part of
+        # #460) — and once with `-Pgoogle` for the Firebase-backed path. The
+        # FOSS pass (with :core:tunnel) runs first, then the Google pass; both
+        # reuse the relay binary built above. The Google pass runs last so the
+        # `koverHtmlReport` step (also `-Pgoogle`) reuses its results UP-TO-DATE.
+        run: |
+          ./gradlew :core:tunnel:integrationTest :app:integrationTest
+          ./gradlew :app:integrationTest -Pgoogle
       - name: Coverage report (Kover)
         # Runs after unit + integration tests. Kover would also trigger tests
         # on its own, but the preceding steps already ran them — Gradle will
         # reuse those results via `UP-TO-DATE`, so this step just aggregates.
+        # `-Pgoogle` so the `:app` coverage tracks the shipping Firebase
+        # distribution (matching the pre-#467 google-flavor-only coverage); its
+        # Google unit + integration runs above are reused UP-TO-DATE.
         if: success() || failure()
         timeout-minutes: 10
-        run: ./gradlew koverHtmlReport koverXmlReport
+        run: ./gradlew koverHtmlReport koverXmlReport -Pgoogle
       - name: Per-module coverage summary
         if: success() || failure()
         run: |
