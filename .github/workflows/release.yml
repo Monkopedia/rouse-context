@@ -40,21 +40,22 @@ jobs:
           mkdir -p .signing
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > .signing/release.keystore
 
-      - name: Build release APK + AAB (google flavor)
+      - name: Build release APK + AAB (Google distribution)
         env:
           ROUSE_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           ROUSE_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-        # #461 introduced google/foss flavors. The release pipeline ships the
-        # `google` flavor only (current behaviour, Firebase included). A
-        # dual-flavor FOSS release is a later ticket (#465).
+        # Distribution is a build flag (#467). The release pipeline ships the
+        # Google distribution (Firebase included) via `-Pgoogle`. A FOSS release
+        # (bare build) is a later ticket (#465). Without a flavor, the outputs
+        # land under the un-prefixed `release/` paths.
         run: |
-          ./gradlew :app:assembleGoogleRelease :app:bundleGoogleRelease
+          ./gradlew :app:assembleRelease :app:bundleRelease -Pgoogle
 
       - name: Extract version from APK
         id: version
         run: |
           # Pull versionName from the build output metadata
-          VERSION=$(grep -oP '"versionName"\s*:\s*"\K[^"]+' app/build/outputs/apk/google/release/output-metadata.json || echo "unknown")
+          VERSION=$(grep -oP '"versionName"\s*:\s*"\K[^"]+' app/build/outputs/apk/release/output-metadata.json || echo "unknown")
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_REF_NAME:-${{ github.event.inputs.version || format('v{0}', env.VERSION) }}}" >> "$GITHUB_OUTPUT"
 
@@ -62,13 +63,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
-          path: app/build/outputs/apk/google/release/app-google-release.apk
+          path: app/build/outputs/apk/release/app-release.apk
 
       - name: Upload AAB artifact (for Play Console)
         uses: actions/upload-artifact@v4
         with:
           name: release-aab
-          path: app/build/outputs/bundle/googleRelease/app-google-release.aab
+          path: app/build/outputs/bundle/release/app-release.aab
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -77,5 +78,5 @@ jobs:
           name: Rouse Context ${{ steps.version.outputs.name }}
           generate_release_notes: true
           files: |
-            app/build/outputs/apk/google/release/app-google-release.apk
-            app/build/outputs/bundle/googleRelease/app-google-release.aab
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab

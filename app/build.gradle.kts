@@ -11,21 +11,22 @@ plugins {
     alias(libs.plugins.test.retry)
 }
 
+// Distribution is selected by a build flag, not a product flavor (issue #467).
+// A bare build is the FOSS distribution (no secrets, buildable by anyone /
+// F-Droid); `-Pgoogle` opts into the credentialed Firebase build. This encodes
+// the real relationship — FOSS is the universal base, Google a credentialed
+// superset — instead of the symmetric flavor framing that made the safe build
+// non-default and forced task-name sniffing to re-derive "is this credentialed?".
+val googleBuild = project.hasProperty("google")
+
 // The Firebase Gradle plugins (`google-services`, `firebase-crashlytics`) are
-// applied only when the `google` product flavor is part of the build. A
-// foss-only build skips them entirely so that:
-//   * `google-services.json` is NOT required to assemble the foss variant, and
-//   * no Play-Services / Firebase Gradle processing runs for foss.
-// Detection is by requested task name (CI invokes the flavored tasks directly,
-// e.g. `assembleFossDebug` / `assembleGoogleDebug`). A build that mentions
-// neither flavor (e.g. `ktlintCheck`, bare `assemble`) keeps the plugins, which
-// matches the pre-flavor behaviour. See issue #461.
-val requestedTaskNames = gradle.startParameter.taskNames
-val isFossOnlyBuild = requestedTaskNames.isNotEmpty() &&
-    requestedTaskNames.any { it.contains("Foss", ignoreCase = true) } &&
-    requestedTaskNames.none { it.contains("Google", ignoreCase = true) }
-val applyFirebasePlugins = !isFossOnlyBuild
-if (applyFirebasePlugins) {
+// applied only for the Google build. The FOSS build skips them entirely so that:
+//   * `google-services.json` is NOT required to assemble it, and
+//   * no Play-Services / Firebase Gradle processing runs.
+// Keeping the plugins behind the flag preserves the google-services plugin's
+// hard-fail-on-missing-credentials — a `-Pgoogle` build with no
+// `google-services.json` fails loudly rather than producing a broken APK.
+if (googleBuild) {
     apply(plugin = "com.google.gms.google-services")
     apply(plugin = "com.google.firebase.crashlytics")
 }
@@ -75,12 +76,9 @@ android {
     // and `packageReleaseUnitTestForUnitTest`) don't spuriously require the keys.
     gradle.taskGraph.whenReady {
         val releaseSigningTasks = setOf(
-            "assembleGoogleRelease",
-            "packageGoogleRelease",
-            "bundleGoogleRelease",
-            "assembleFossRelease",
-            "packageFossRelease",
-            "bundleFossRelease"
+            "assembleRelease",
+            "packageRelease",
+            "bundleRelease"
         )
         val needsReleaseSigning = allTasks.any { task ->
             task.project == project && task.name in releaseSigningTasks
@@ -121,32 +119,34 @@ android {
         buildConfigField("String", "RELAY_SCHEME", "\"$relayScheme\"")
     }
 
-    // Distribution flavor split (issue #461). `google` is the unchanged
-    // Firebase/FCM/Crashlytics build; `foss` compiles with no Firebase /
-    // google-services / Play-Services dependencies. Both flavors ship the same
-    // `applicationId` (com.rousecontext) — the foss build is the same app,
-    // Firebase-free, not a separate package.
-    flavorDimensions += "distribution"
-    productFlavors {
-        create("google") {
-            dimension = "distribution"
-        }
-        create("foss") {
-            dimension = "distribution"
-        }
-    }
+    // Distribution code is selected by the `-Pgoogle` flag (issue #467) instead
+    // of product-flavor source sets. The FOSS sources are the default; `-Pgoogle`
+    // swaps in the Firebase-backed sources. The directories themselves are
+    // unchanged from the former `google`/`foss` flavor source sets — they are
+    // just no longer registered as flavor source sets. Both distributions ship
+    // the same `applicationId` (com.rousecontext); the FOSS build is the same
+    // app, Firebase-free, not a separate package.
+    //
+    // The matching `test{Google,Foss}` source sets carry the distribution's
+    // unit tests (Firebase-backed vs ACRA/keypair), selected the same way so the
+    // tests only compile/run against the classpath that has their deps.
+    sourceSets["main"].java.srcDir(
+        if (googleBuild) "src/google/java" else "src/foss/java"
+    )
+    sourceSets["test"].java.srcDir(
+        if (googleBuild) "src/testGoogle/java" else "src/testFoss/java"
+    )
 
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             // No mapping upload in debug — the Crashlytics plugin runs even here
-            // (for the `google` flavor) because the library is linked in that
-            // variant. We still skip the slow symbol upload work to keep debug
-            // assembly fast for iteration. Guarded so foss-only builds, which
-            // never apply the Crashlytics plugin, don't reference a missing
-            // extension.
-            if (applyFirebasePlugins) {
+            // (under `-Pgoogle`) because the library is linked in that build. We
+            // still skip the slow symbol upload work to keep debug assembly fast
+            // for iteration. Guarded so FOSS builds, which never apply the
+            // Crashlytics plugin, don't reference a missing extension.
+            if (googleBuild) {
                 configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
                     mappingFileUploadEnabled = false
                     nativeSymbolUploadEnabled = false
@@ -162,8 +162,8 @@ android {
             )
             // Release builds ship R8-obfuscated code; upload the mapping so
             // Crashlytics deobfuscates stacks. We have no NDK code, so native
-            // symbol upload stays off. Guarded as above for foss-only builds.
-            if (applyFirebasePlugins) {
+            // symbol upload stays off. Guarded as above for FOSS builds.
+            if (googleBuild) {
                 configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
                     mappingFileUploadEnabled = true
                     nativeSymbolUploadEnabled = false
@@ -206,6 +206,19 @@ android {
     }
 }
 
+// Overlay the distribution-specific manifest (FcmReceiver for Google,
+// UnifiedPushReceiver for FOSS) by flag, using AGP's Variant Sources API
+// (issue #467). `addStaticManifestFile` feeds the overlay into the standard
+// manifest merger as a highest-priority source — no module split, no
+// duplication of the shared manifest body. Path is relative to the :app dir.
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.manifests.addStaticManifestFile(
+            if (googleBuild) "src/google/AndroidManifest.xml" else "src/foss/AndroidManifest.xml"
+        )
+    }
+}
+
 dependencies {
     implementation(project(":core:tunnel"))
     implementation(project(":core:mcp"))
@@ -239,29 +252,23 @@ dependencies {
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
 
-    // Firebase — scoped to the `google` flavor only (issue #461). The `foss`
-    // flavor compiles with zero firebase-* dependencies; its Koin seams bind
-    // NoOp/stub implementations instead (see app/src/foss).
-    "googleImplementation"(platform(libs.firebase.bom))
-    "googleImplementation"(libs.firebase.auth)
-    "googleImplementation"(libs.firebase.messaging)
-    "googleImplementation"(libs.firebase.crashlytics)
-
-    // UnifiedPush — scoped to the `foss` flavor only (issue #463). The foss
-    // build wakes via a UnifiedPush distributor instead of FCM; this library
-    // provides the MessagingReceiver base + distributor registration API. The
-    // google flavor never links it — all UnifiedPush calls sit behind the
-    // flavor-agnostic BackgroundDelivery seam.
-    "fossImplementation"(libs.unifiedpush.connector)
-
-    // ACRA — scoped to the `foss` flavor only (issue #464). Crashlytics is not
-    // FOSS, so the foss flavor reports crashes via ACRA's HttpSender, which
-    // POSTs JSON crash reports to the relay's `POST /crash` endpoint. The relay
-    // sanitizes/dedups them into GitHub issues (mirroring the Crashlytics→issue
-    // convention). The google flavor never links ACRA — it keeps Crashlytics
-    // behind the same flavor-agnostic CrashReporter seam.
-    "fossImplementation"(libs.acra.core)
-    "fossImplementation"(libs.acra.http)
+    // Distribution-specific dependencies, selected by the `-Pgoogle` flag
+    // (issue #467). The Google build links Firebase (FCM wake + Crashlytics);
+    // the FOSS build links UnifiedPush (distributor-based wake) + ACRA (crash
+    // reporting via the relay's `POST /crash`) and zero firebase-* artifacts.
+    // Both distributions sit behind the same distribution-agnostic Koin seams
+    // (BackgroundDelivery, CrashReporter, device-identity providers — see
+    // app/src/{google,foss}).
+    if (googleBuild) {
+        implementation(platform(libs.firebase.bom))
+        implementation(libs.firebase.auth)
+        implementation(libs.firebase.messaging)
+        implementation(libs.firebase.crashlytics)
+    } else {
+        implementation(libs.unifiedpush.connector)
+        implementation(libs.acra.core)
+        implementation(libs.acra.http)
+    }
 
     // Health Connect (for HealthConnectIntegration availability check)
     implementation(libs.health.connect)
@@ -329,11 +336,14 @@ dependencies {
 // and depend on `relay/target/debug/rouse-relay` being built with
 // `--features test-mode`.
 //
-// They are excluded from the default `testGoogleDebugUnitTest` run (CI's "unit
+// They are excluded from the default `testDebugUnitTest` run (CI's "unit
 // tests" step stays fast) and fronted by a dedicated `:app:integrationTest`
 // task so CI can gate them separately. Both tasks are Android `Test` tasks
 // on the debug variant, so Kover's auto-discovery picks them up for the
-// aggregated coverage report (issue #248).
+// aggregated coverage report (issue #248). With the distribution flag (issue
+// #467) `integrationTest` covers whichever distribution is selected — CI runs
+// it once bare (FOSS, incl. the keypair round-trip from src/testFoss) and once
+// with `-Pgoogle` (Firebase-backed), so both are exercised end-to-end.
 private val integrationPackage = "com.rousecontext.app.integration"
 
 tasks.withType<Test>().configureEach {
@@ -347,10 +357,9 @@ tasks.withType<Test>().configureEach {
         maxRetries.set(2)
         failOnPassedAfterRetry.set(false)
     }
-    // Per-flavor debug unit-test tasks (testGoogleDebugUnitTest /
-    // testFossDebugUnitTest) keep the fast unit-test run lean by excluding the
-    // slow relay-backed integration scenarios, which run via `integrationTest`.
-    if (name == "testGoogleDebugUnitTest" || name == "testFossDebugUnitTest") {
+    // The fast `testDebugUnitTest` run stays lean by excluding the slow
+    // relay-backed integration scenarios, which run via `integrationTest`.
+    if (name == "testDebugUnitTest") {
         filter {
             excludeTestsMatching("$integrationPackage.*")
             isFailOnNoMatchingTests = false
@@ -364,11 +373,13 @@ tasks.register<Test>("integrationTest") {
         "Runs `$integrationPackage.*` tests against the real relay binary. " +
         "Requires `cd relay && cargo build --features test-mode` first."
 
-    // Reuse everything about `testGoogleDebugUnitTest` (Robolectric runtime,
-    // compiled test classes, android resources, JVM args) — we just want a
-    // different filter applied to the same test task classpath. The integration
-    // scenarios exercise the Firebase-backed `google` variant.
-    val source = tasks.named<Test>("testGoogleDebugUnitTest").get()
+    // Reuse everything about `testDebugUnitTest` (Robolectric runtime, compiled
+    // test classes, android resources, JVM args) — we just want a different
+    // filter applied to the same test task classpath. The selected distribution
+    // (issue #467) determines which `DistributionModule` and distribution test
+    // source set are live: bare = FOSS (keypair device identity, zero Firebase,
+    // incl. the keypair round-trip from src/testFoss); `-Pgoogle` = Firebase.
+    val source = tasks.named<Test>("testDebugUnitTest").get()
     testClassesDirs = source.testClassesDirs
     classpath = source.classpath
     systemProperty("repo.root", rootProject.projectDir.absolutePath)
@@ -384,36 +395,5 @@ tasks.register<Test>("integrationTest") {
 
     // Integration tests are I/O-heavy (relay subprocess + real TLS + cert
     // generation) so fail if something hangs instead of wedging CI.
-    timeout.set(Duration.ofMinutes(10L))
-}
-
-tasks.register<Test>("fossIntegrationTest") {
-    group = "verification"
-    description =
-        "Runs `$integrationPackage.*` tests against the real relay binary under the " +
-        "FOSS variant (keypair device identity, zero Firebase). " +
-        "Requires `cd relay && cargo build --features test-mode` first."
-
-    // Mirror `integrationTest`, but reuse `testFossDebugUnitTest` so the FOSS
-    // `distributionModule` (KeypairDeviceCredentialProvider /
-    // KeypairRenewalAuthProvider) is the flavor module live in the harness
-    // (issue #469). The keypair round-trip scenario lives in the
-    // `app/src/testFoss` source set so it only compiles/runs under this
-    // classpath, never under the google `integrationTest` above.
-    val source = tasks.named<Test>("testFossDebugUnitTest").get()
-    testClassesDirs = source.testClassesDirs
-    classpath = source.classpath
-    systemProperty("repo.root", rootProject.projectDir.absolutePath)
-    // Mirror Robolectric graphics config from `testOptions.unitTests.all`.
-    systemProperty("robolectric.graphicsMode", "NATIVE")
-
-    filter {
-        includeTestsMatching("$integrationPackage.*")
-        isFailOnNoMatchingTests = false
-    }
-
-    useJUnit()
-
-    // Same hang-guard as `integrationTest`.
     timeout.set(Duration.ofMinutes(10L))
 }

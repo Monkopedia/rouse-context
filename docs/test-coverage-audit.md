@@ -957,12 +957,12 @@ fun `all screens use material design 3 colors from theme`() {
 # MCP tests
 ./gradlew :core:mcp:jvmTest
 
-# App UI tests
-./gradlew :app:testGoogleDebugUnitTest --tests "*.MainDashboardViewModelTest"
+# App UI tests (distribution-agnostic; add -Pgoogle for the Firebase build)
+./gradlew :app:testDebugUnitTest --tests "*.MainDashboardViewModelTest"
 
 # Screenshot tests (requires graphics)
 JAVA_HOME=/usr/lib/jvm/java-21-openjdk \
-  ./gradlew :app:testGoogleDebugUnitTest --tests "*.ScreenScreenshotTest"
+  ./gradlew :app:testDebugUnitTest --tests "*.ScreenScreenshotTest"
 
 # Relay tests
 cd relay && cargo test
