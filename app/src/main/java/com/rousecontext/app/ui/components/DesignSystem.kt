@@ -24,6 +24,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarItemColors
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
@@ -172,6 +174,24 @@ fun ListDivider(padding: Dp = dimensionResource(R.dimen.spacing_lg)) {
     )
 }
 
+/**
+ * Colors for the shared [SwitchRow] toggle.
+ *
+ * The Material3 default unchecked palette (track `surfaceContainerHighest`,
+ * thumb/border `outline`) reads as low-contrast in the navy+amber theme, so an
+ * off-but-enabled switch looked disabled (#484). Override the unchecked state
+ * with `surfaceVariant` track and `onSurfaceVariant` thumb/border so an off
+ * switch is clearly an interactive control, distinct from the dimmed disabled
+ * appearance. Checked and disabled states keep the Material defaults (checked =
+ * `primary`; disabled applies the standard dimming alpha on top).
+ */
+@Composable
+private fun switchRowColors(): SwitchColors = SwitchDefaults.colors(
+    uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+    uncheckedBorderColor = MaterialTheme.colorScheme.onSurfaceVariant
+)
+
 @Composable
 fun SwitchRow(
     title: String,
@@ -213,7 +233,8 @@ fun SwitchRow(
             Switch(
                 checked = checked,
                 onCheckedChange = null,
-                enabled = enabled
+                enabled = enabled,
+                colors = switchRowColors()
             )
         }
         if (checked && expandedContent != null) {

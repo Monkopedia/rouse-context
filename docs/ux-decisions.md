@@ -61,6 +61,34 @@ silent registration stall is one tap away from fixed.
 
 ---
 
+## 2026-06-16 — Notification-listener access deep-links to our own toggle on API 30+ (#487)
+
+**Decision:** In the notification-capture setup step, "Grant access" now deep-links
+straight to our listener's own enable toggle on API 30+ via
+`ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS` +
+`EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME` (our `NotificationCaptureService`
+`ComponentName`). On API < 30 it falls back to the existing
+`ACTION_NOTIFICATION_LISTENER_SETTINGS` (the full list). minSdk is 24, so the
+fallback is required.
+
+**Approved by:** Jason, in-session 2026-06-16 — greenlit the audit-driven
+permission-UX improvements.
+
+**Context:** The 2026-06-16 permission-UX audit flagged that the old action drops
+the user on the full list of every notification-listener app, where they have to
+hunt for ours. The detail action lands them on our toggle directly.
+
+**Alternatives considered:** Keep the list action everywhere (rejected — extra
+hunting for no benefit on capable devices).
+
+**Trade-off accepted:** None of substance — same onboarding step, same intent
+purpose; only the deep-link target tightens (list → our toggle). Treated as a
+targeting improvement, not a flow change.
+
+**Relevant:** #487.
+
+---
+
 ## 2026-06-16 — FOSS Home battery-optimization warning; "Fix this" becomes the one-tap OS dialog (supersedes 2026-06-02 #453)
 
 **Decision:** Two parts (#483).
