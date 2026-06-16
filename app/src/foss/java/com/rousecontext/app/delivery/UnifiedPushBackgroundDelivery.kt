@@ -152,23 +152,29 @@ class UnifiedPushBackgroundDelivery(
             Log.e(TAG, "Couldn't obtain device credential for deferred registration", e)
             null
         } ?: return
-        when (
-            val result = onboardingFlow.execute(
-                credential,
-                fcmToken = "",
-                pushEndpoint = endpoint
-            )
-        ) {
-            is OnboardingResult.Success -> {
-                registrationStatus.markComplete()
-                _activation.value = DeliveryActivation.Active
-                Log.i(TAG, "Deferred foss registration complete; on-demand wake active")
-            }
-            else -> {
-                Log.w(TAG, "Deferred foss registration did not complete: $result")
-                _activation.value = DeliveryActivation.NeedsSetup
-            }
+        val result = onboardingFlow.execute(
+            credential,
+            fcmToken = "",
+            pushEndpoint = endpoint
+        )
+        if (result is OnboardingResult.Success) {
+            registrationStatus.markComplete()
         }
+        // Wake-activation tracks "is there a registered push wake target?", which
+        // is exactly "did we persist a subdomain?" — NOT "did the whole flow incl.
+        // certs succeed" (#486). `execute` registers + persists the subdomain
+        // before chaining ACME cert provisioning (#389), so a cert-stage failure
+        // (Cert*) returns non-Success while the device is already registered with
+        // its endpoint reported. Keying off the persisted subdomain (mirroring the
+        // init seeding and refreshEndpoint) keeps the delivery banner Active in
+        // that case; cert problems are surfaced separately by the cert-renewal
+        // banner. Only pre-subdomain failures leave wake needing setup.
+        _activation.value = if (certificateStore.getSubdomain() != null) {
+            DeliveryActivation.Active
+        } else {
+            DeliveryActivation.NeedsSetup
+        }
+        Log.i(TAG, "Deferred foss registration result=$result; activation=${_activation.value}")
     }
 
     private suspend fun refreshEndpoint(endpoint: String) {
