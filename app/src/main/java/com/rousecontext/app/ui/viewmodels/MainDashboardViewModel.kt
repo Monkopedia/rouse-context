@@ -8,6 +8,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
 import com.rousecontext.app.McpUrlProvider
 import com.rousecontext.app.delivery.DeliveryActivation
+import com.rousecontext.app.ui.screens.BatteryOptimizationBanner
 import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
@@ -68,6 +69,23 @@ class MainDashboardViewModel(
      */
     deliveryActivation: Flow<DeliveryActivation> = flowOf(DeliveryActivation.NotApplicable),
     /**
+     * Whether this app is currently exempt from Doze battery optimization
+     * (issue #483). Re-read on each ON_RESUME tick (see
+     * [com.rousecontext.app.support.batteryExemptFlow]) so returning from the
+     * OS allow dialog clears the banner. Combined with [deliveryWakeSupported]
+     * to drive the foss-only battery-optimization Home banner. Defaults to
+     * `true` (no banner) for tests and the google flavor.
+     */
+    batteryOptimizationExempt: Flow<Boolean> = flowOf(true),
+    /**
+     * Whether this distribution wakes via a UnifiedPush distributor (foss),
+     * i.e. [com.rousecontext.app.delivery.BackgroundDelivery.isSupported]. Only
+     * then is the battery-optimization exemption load-bearing for background
+     * wake, so the battery banner is gated on it — the google/FCM build (where
+     * this is `false`) never shows it. Issue #483.
+     */
+    private val deliveryWakeSupported: Boolean = false,
+    /**
      * Ticker driving the rolling-24h "Recent Activity" cutoff. Each emission
      * is a fresh wall-clock timestamp that `flatMapLatest` uses to restart
      * the DAO query with a moved-forward lower bound. Fixes #370: the
@@ -101,6 +119,7 @@ class MainDashboardViewModel(
     }
     private val deliveryActivationStarted =
         deliveryActivation.onStart { emit(DeliveryActivation.NotApplicable) }
+    private val batteryExemptStarted = batteryOptimizationExempt.onStart { emit(true) }
 
     val state: StateFlow<DashboardState> = combine(
         combine(
@@ -113,8 +132,9 @@ class MainDashboardViewModel(
             BannerInputs(tunnelState, recentEntries, certBanner, notifsEnabled)
         },
         spuriousWakesFlowStarted,
-        deliveryActivationStarted
-    ) { inputs, spurious, deliveryState ->
+        deliveryActivationStarted,
+        batteryExemptStarted
+    ) { inputs, spurious, deliveryState, batteryExempt ->
         val tunnelState = inputs.tunnelState
         val recentEntries = inputs.recentEntries
         val certBanner = inputs.certBanner
@@ -169,6 +189,11 @@ class MainDashboardViewModel(
             certBanner = certBanner,
             deliveryBanner = if (deliveryState == DeliveryActivation.NeedsSetup) {
                 DeliveryBanner
+            } else {
+                null
+            },
+            batteryOptimizationBanner = if (deliveryWakeSupported && !batteryExempt) {
+                BatteryOptimizationBanner
             } else {
                 null
             },

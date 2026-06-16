@@ -26,6 +26,19 @@
     -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_HISTORY" />
 
+    <!--
+      Lets the "Fix this" battery-optimization action open the one-tap
+      allow/deny dialog (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) instead of
+      the settings list the user has to hunt through. On the FOSS build the
+      exemption is required for background wake to fire at all (issue #483); on
+      the Google build it improves wake reliability (#453). Google Play
+      restricts this permission, but we don't ship to Play — the Google build is
+      GitHub-distributed and the FOSS build goes to F-Droid, which accepts it
+      (ntfy uses the same permission). Declared in the shared manifest because
+      the Settings "Fix this" exists on both builds.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:name=".RouseApplication"
         android:allowBackup="false"

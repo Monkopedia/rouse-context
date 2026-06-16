@@ -30,8 +30,9 @@ class BatteryOptimizationTest {
     }
 
     @Test
-    fun `settingsIntent targets the battery-optimization settings screen`() {
-        val intent = BatteryOptimization.settingsIntent()
-        assertEquals(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS, intent.action)
+    fun `requestExemptionIntent targets the one-tap allow dialog for this package`() {
+        val intent = BatteryOptimization.requestExemptionIntent(context)
+        assertEquals(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, intent.action)
+        assertEquals("package:${context.packageName}", intent.data.toString())
     }
 }

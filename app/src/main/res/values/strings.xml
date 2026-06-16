@@ -255,6 +255,9 @@
     <string name="screen_dashboard_delivery_off_title">On-demand wake is off</string>
     <string name="screen_dashboard_delivery_off_subtitle">Set up a delivery app so AI clients can reach your phone while it\'s asleep.</string>
     <string name="screen_dashboard_delivery_off_action">Set up</string>
+    <string name="screen_dashboard_battery_off_title">Battery optimization is on</string>
+    <string name="screen_dashboard_battery_off_subtitle">Allow this app to ignore battery optimization, or AI clients can\'t wake your phone while it\'s asleep. Your delivery app may need the same.</string>
+    <string name="screen_dashboard_battery_off_action">Fix this</string>
     <string name="screen_dashboard_spurious_wake_title">Background activity higher than expected</string>
     <string name="screen_dashboard_spurious_wake_subtitle">The relay may be sending spurious wakes (%1$d in the last 24h). Tap for details.</string>
     <string name="screen_dashboard_cert_renewing_title">Provisioning your certificate...</string>

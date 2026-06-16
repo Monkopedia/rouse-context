@@ -122,6 +122,18 @@ data class SpuriousWakeBanner(val rolling24hCount: Int)
  */
 data object DeliveryBanner
 
+/**
+ * Shown on the foss flavor when the app is NOT exempt from Doze battery
+ * optimization (issue #483). On foss that exemption is required for background
+ * wake to fire at all: a UnifiedPush distributor can't grant our app the
+ * temporary power-allowlist that Play Services hands the FCM build, so without
+ * the standing exemption the background start of the tunnel foreground service
+ * is blocked and the wake is dropped. Tapping "Fix this" opens the one-tap OS
+ * allow dialog. Distinct from [DeliveryBanner] (no distributor chosen) and can
+ * co-exist with it. Never shown on the google flavor, which wakes via FCM.
+ */
+data object BatteryOptimizationBanner
+
 private const val MAX_RECENT_ITEMS = 5
 
 @Immutable
@@ -132,6 +144,7 @@ data class DashboardState(
     val recentActivity: List<AuditHistoryEntry> = emptyList(),
     val certBanner: CertBanner? = null,
     val deliveryBanner: DeliveryBanner? = null,
+    val batteryOptimizationBanner: BatteryOptimizationBanner? = null,
     val notificationBanner: NotificationBanner? = null,
     val spuriousWakeBanner: SpuriousWakeBanner? = null,
     val hasMoreIntegrationsToAdd: Boolean = true,
@@ -153,6 +166,7 @@ fun HomeDashboardContent(
     onOpenNotificationSettings: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
     onSetUpDelivery: () -> Unit = {},
+    onFixBatteryOptimization: () -> Unit = {},
     onRetry: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -178,7 +192,8 @@ fun HomeDashboardContent(
             onRetryRenewal = onRetryRenewal,
             onOpenNotificationSettings = onOpenNotificationSettings,
             onOpenSettings = onOpenSettings,
-            onSetUpDelivery = onSetUpDelivery
+            onSetUpDelivery = onSetUpDelivery,
+            onFixBatteryOptimization = onFixBatteryOptimization
         )
 
         // Integrations header
@@ -446,12 +461,52 @@ private fun DeliveryBannerCard(onSetUp: () -> Unit) {
     }
 }
 
+@Composable
+private fun BatteryOptimizationBannerCard(onFix: () -> Unit) {
+    val ext = com.rousecontext.app.ui.theme.LocalExtendedColors.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = ext.warningContainer)
+    ) {
+        Row(
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
+                tint = ext.onWarningContainer
+            )
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.screen_dashboard_battery_off_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = ext.onWarningContainer
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.screen_dashboard_battery_off_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ext.onWarningContainer
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedButton(onClick = onFix) {
+                    Text(stringResource(R.string.screen_dashboard_battery_off_action))
+                }
+            }
+        }
+    }
+}
+
 private fun LazyListScope.dashboardBannerItems(
     state: DashboardState,
     onRetryRenewal: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSetUpDelivery: () -> Unit
+    onSetUpDelivery: () -> Unit,
+    onFixBatteryOptimization: () -> Unit
 ) {
     // Cert banner (most urgent — show first).
     state.certBanner?.let { banner ->
@@ -470,6 +525,19 @@ private fun LazyListScope.dashboardBannerItems(
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
             }
             DeliveryBannerCard(onSetUp = onSetUpDelivery)
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+        }
+    }
+
+    // Battery-optimization banner (foss: background wake can't fire while the
+    // app is still battery-optimized). Distinct from the delivery banner; both
+    // can show at once.
+    if (state.batteryOptimizationBanner != null) {
+        item {
+            if (state.certBanner == null && state.deliveryBanner == null) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+            }
+            BatteryOptimizationBannerCard(onFix = onFixBatteryOptimization)
             Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
         }
     }

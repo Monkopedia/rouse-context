@@ -20,6 +20,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.rousecontext.app.R
 import com.rousecontext.app.state.NotificationPermissionRefresher
+import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.navigation.TAB_INDEX
@@ -130,6 +131,15 @@ fun NavGraphBuilder.mainDashboardDestination(navController: NavController) {
                 // foss-only: the degraded-wake banner is the only caller and it
                 // never renders on google. Opens the "Background delivery" picker.
                 navController.navigate(Routes.BACKGROUND_DELIVERY_BASE)
+            },
+            onFixBatteryOptimization = {
+                // foss-only battery banner: open the one-tap OS allow dialog
+                // (#483). The ON_RESUME refresh above re-reads the exemption so
+                // the banner clears when the user returns from the dialog.
+                startActivitySafely(
+                    context,
+                    BatteryOptimization.requestExemptionIntent(context)
+                )
             },
             onRetry = { viewModel.retry() }
         )

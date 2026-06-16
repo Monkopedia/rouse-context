@@ -426,6 +426,73 @@ class MainDashboardViewModelTest {
     }
 
     @Test
+    fun `battery banner appears on foss when not exempt`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            deliveryWakeSupported = true,
+            batteryExemptFlow = flowOf(false)
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading || state.batteryOptimizationBanner == null) {
+                state = awaitItem()
+            }
+            assertNotNull(state.batteryOptimizationBanner)
+        }
+    }
+
+    @Test
+    fun `battery banner absent on foss when exempt`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            deliveryWakeSupported = true,
+            batteryExemptFlow = flowOf(true)
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.batteryOptimizationBanner)
+        }
+    }
+
+    @Test
+    fun `battery banner absent on google flavor even when not exempt`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            deliveryWakeSupported = false,
+            batteryExemptFlow = flowOf(false)
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.batteryOptimizationBanner)
+        }
+    }
+
+    @Test
+    fun `battery banner clears reactively when exemption is granted`() = runTest(testDispatcher) {
+        val exemptFlow = MutableStateFlow(false)
+        val vm = createViewModel(
+            deliveryWakeSupported = true,
+            batteryExemptFlow = exemptFlow
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading || state.batteryOptimizationBanner == null) {
+                state = awaitItem()
+            }
+            assertNotNull(state.batteryOptimizationBanner)
+
+            // User grants the exemption via the OS dialog; an ON_RESUME re-read
+            // flips the flow.
+            exemptFlow.value = true
+            state = awaitItem()
+            assertNull(state.batteryOptimizationBanner)
+        }
+    }
+
+    @Test
     fun `connection status reflects tunnel state`() = runTest(testDispatcher) {
         val vm = createViewModel()
         vm.state.test {
@@ -514,7 +581,9 @@ class MainDashboardViewModelTest {
         certRenewalFlow: kotlinx.coroutines.flow.Flow<CertBanner?> = flowOf(null),
         notificationsEnabledFlow: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(true),
         spuriousWakesFlow: kotlinx.coroutines.flow.Flow<SpuriousWakeStats> =
-            flowOf(SpuriousWakeStats.EMPTY)
+            flowOf(SpuriousWakeStats.EMPTY),
+        batteryExemptFlow: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(true),
+        deliveryWakeSupported: Boolean = false
     ): MainDashboardViewModel {
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
@@ -537,7 +606,9 @@ class MainDashboardViewModelTest {
             tunnelClient = fakeTunnelClient,
             certRenewalBanner = certRenewalFlow,
             notificationsEnabled = notificationsEnabledFlow,
-            spuriousWakesFlow = spuriousWakesFlow
+            spuriousWakesFlow = spuriousWakesFlow,
+            batteryOptimizationExempt = batteryExemptFlow,
+            deliveryWakeSupported = deliveryWakeSupported
         )
     }
 

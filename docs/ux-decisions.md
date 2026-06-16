@@ -14,6 +14,67 @@ Newest entries on top.
 
 ---
 
+## 2026-06-16 — FOSS Home battery-optimization warning; "Fix this" becomes the one-tap OS dialog (supersedes 2026-06-02 #453)
+
+**Decision:** Two parts (#483).
+1. **New FOSS-only Home banner.** On the FOSS build, Home shows a persistent
+   warning banner ("Battery optimization is on") whenever the app is NOT on the
+   battery-optimization allowlist. On FOSS that exemption is required for
+   background wake to fire at all — a UnifiedPush distributor can't grant our app
+   the temporary power-allowlist that Play Services hands the FCM build, so
+   without the standing exemption the background start of the tunnel foreground
+   service is blocked and the wake is dropped. The banner mirrors how ntfy
+   surfaces its own battery warning, and sits alongside (and can co-exist with)
+   the existing "On-demand wake is off" delivery banner — a distinct condition
+   (that one = no distributor chosen; this one = distributor set up but the app
+   can't start the FGS from background without the exemption). Never shown on the
+   google/FCM build, which gets the temporary allowlist automatically.
+2. **"Fix this" now opens the one-tap OS dialog.** Both the new Home banner's
+   action AND the existing #453 Connection-settings "Fix this" now launch
+   `ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (the one-tap allow/deny dialog,
+   with a `package:` URI) instead of `ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS`
+   (the settings list the user hunts through). This declares the
+   `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` permission. **This supersedes the
+   2026-06-02 #453 decision** ("Fix this opens battery-optimization settings").
+
+**Approved by:** Jason, in-session 2026-06-16 — picked the detect-and-warn option
+and, in a follow-up amendment, the one-tap dialog mechanism for both surfaces.
+
+**Context:** Found during the 2026-06-16 FCM-vs-ntfy wake benchmark (#483): the
+FOSS ntfy wake path didn't fire at all until the app was battery-exempt. The
+#453 "Fix this" deliberately used the settings-list action solely to dodge the
+Google Play policy restriction on `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. We
+don't ship to Play — the Google build is GitHub-distributed and the FOSS build
+goes to F-Droid, which accepts the permission (ntfy itself uses it and ships on
+F-Droid) — so that constraint no longer binds, and the better one-tap flow is
+available.
+
+**Alternatives considered:**
+- **Request the exemption up front during FOSS delivery setup** (option (a) on
+  #483) — most reliable, but adds an onboarding permission surface. Rejected in
+  favor of degrade-and-warn, consistent with the delivery banner's "degrade,
+  don't block" model.
+- **Document-only** (option (c)) — weakest; leaves wake quietly unreliable.
+- **Keep the settings-list action for "Fix this"** — no Play risk, but a multi-tap
+  hunt-for-the-app flow when a one-tap dialog is available and policy no longer
+  blocks it.
+
+**Trade-off accepted:** The app now declares a Play-restricted permission, so it
+could not ship to Google Play as-is — acceptable because we never do (Google
+build is GitHub-distributed, FOSS goes to F-Droid). The Home banner is one more
+warning surface FOSS users may see, but it is the only signal that an otherwise
+silent background-wake failure is fixable.
+
+**Relevant:**
+- #483 (this change); part of epic #460 (the FOSS distribution).
+- Supersedes the 2026-06-02 #453 "Fix this opens battery-optimization settings"
+  decision below.
+- Battery-opt status + intent shared via `BatteryOptimization`; foss-gated at
+  runtime via `BackgroundDelivery.isSupported` (the same seam the delivery banner
+  uses). Exemption re-read on ON_RESUME via `batteryExemptFlow`.
+
+---
+
 ## 2026-06-16 — Add integration on an unregistered FOSS device redirects to the delivery picker (auto-resume)
 
 **Decision:** Option A — auto-redirect + auto-resume. On a not-yet-registered
