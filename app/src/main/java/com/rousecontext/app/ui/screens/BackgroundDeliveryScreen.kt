@@ -14,6 +14,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,11 @@ import com.rousecontext.app.ui.theme.SuccessGreen
  * don't block). Reached from Settings ([settingsMode] = true) it shows a back
  * arrow and marks the active distributor.
  *
+ * [contextNote], when non-null, renders a contextual strip above the picker.
+ * #474 uses it when the user was redirected here mid "Add integration" on a
+ * not-yet-registered foss device ("Set up a delivery app to finish adding
+ * integrations.").
+ *
  * Pure/state-driven so it renders in Roborazzi without UnifiedPush or Koin.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,7 +59,8 @@ fun BackgroundDeliveryScreen(
     settingsMode: Boolean,
     onSelect: (DistributorOption) -> Unit,
     onSkip: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    contextNote: String? = null
 ) {
     Scaffold(
         topBar = {
@@ -80,6 +87,10 @@ fun BackgroundDeliveryScreen(
                 .padding(horizontal = 24.dp)
         ) {
             Spacer(Modifier.height(20.dp))
+            if (contextNote != null) {
+                ContextNoteStrip(contextNote)
+                Spacer(Modifier.height(16.dp))
+            }
             Text(
                 text = "Pick an app to wake your phone when an AI client connects.",
                 style = MaterialTheme.typography.bodyLarge
@@ -98,6 +109,27 @@ fun BackgroundDeliveryScreen(
                 }
                 Spacer(Modifier.height(16.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun ContextNoteStrip(note: String) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = note,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }

@@ -31,6 +31,7 @@ import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.state.IntegrationSettingsStore
 import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.state.OAuthHostnameProvider
+import com.rousecontext.app.state.PendingIntegrationSetup
 import com.rousecontext.app.state.PreferencesSnapshotHolder
 import com.rousecontext.app.state.SecurityAlertGate
 import com.rousecontext.app.state.ThemePreference
@@ -175,6 +176,9 @@ val appModule = module {
 
     // --- Notification permission refresher ---
     single { NotificationPermissionRefresher() }
+
+    // --- Pending-integration carry across the Background delivery detour (#474) ---
+    single { PendingIntegrationSetup() }
 
     // --- Bug report URI builder ---
     single { BugReportUriBuilder(androidContext()) }
