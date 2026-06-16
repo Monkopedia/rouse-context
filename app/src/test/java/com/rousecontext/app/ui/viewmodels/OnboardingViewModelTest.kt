@@ -444,11 +444,13 @@ class OnboardingViewModelTest {
             kotlinx.coroutines.flow.MutableStateFlow(
                 com.rousecontext.app.delivery.DeliveryActivation.NeedsSetup
             )
+        override val endpointArrived = kotlinx.coroutines.flow.MutableStateFlow(false)
         override fun distributorOptions() =
             emptyList<com.rousecontext.app.delivery.DistributorOption>()
         override fun selectDistributor(id: String) = Unit
         override fun installIntent(option: com.rousecontext.app.delivery.DistributorOption) = null
         override fun activeDistributorName(): String? = null
+        override fun launchIntent(id: String): android.content.Intent? = null
     }
 
     /**

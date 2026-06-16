@@ -14,8 +14,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import com.rousecontext.app.delivery.DistributorOption
 import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.theme.SuccessGreen
+import com.rousecontext.app.ui.viewmodels.DistributorNudge
 
 /**
  * The "Background delivery" picker (issue #463, foss flavor). Lists the
@@ -60,7 +63,10 @@ fun BackgroundDeliveryScreen(
     onSelect: (DistributorOption) -> Unit,
     onSkip: () -> Unit,
     onBack: () -> Unit,
-    contextNote: String? = null
+    contextNote: String? = null,
+    nudge: DistributorNudge? = null,
+    onOpenDistributor: (DistributorNudge) -> Unit = {},
+    onDismissNudge: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -102,12 +108,63 @@ fun BackgroundDeliveryScreen(
                 Spacer(Modifier.height(12.dp))
             }
 
+            if (nudge != null) {
+                DistributorNudgeCard(
+                    nudge = nudge,
+                    onOpen = { onOpenDistributor(nudge) },
+                    onDismiss = onDismissNudge
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
             if (!settingsMode) {
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onSkip, modifier = Modifier.fillMaxWidth()) {
                     Text("Skip for now")
                 }
                 Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+}
+
+/**
+ * The freshly-installed-distributor nudge (issue #480). Shown after the user
+ * picks a distributor that hasn't reported an endpoint within the wait window —
+ * the Android "stopped state" case. The action launches the distributor (which
+ * clears the stopped state so its registration fires); the nudge then clears
+ * automatically once the endpoint arrives.
+ */
+@Composable
+private fun DistributorNudgeCard(
+    nudge: DistributorNudge,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    text = "We haven't heard from ${nudge.distributorName} yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Dismiss"
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+                Text("Open ${nudge.distributorName} to enable")
             }
         }
     }

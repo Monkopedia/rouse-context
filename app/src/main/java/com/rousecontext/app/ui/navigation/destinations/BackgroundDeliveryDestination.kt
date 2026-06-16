@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.navigation.destinations
 import android.content.ActivityNotFoundException
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +67,7 @@ private fun BackgroundDeliveryDestinationContent(
     val pendingSetup: PendingIntegrationSetup = koinInject()
     val context = LocalContext.current
     val rows by viewModel.rows.collectAsState()
+    val nudge by viewModel.nudge.collectAsState()
     // #474: non-null when the picker was reached from "Add integration" on a
     // not-yet-registered foss device. Drives the contextual strip + auto-resume.
     val pendingIntegration by pendingSetup.pendingId.collectAsState()
@@ -113,16 +115,22 @@ private fun BackgroundDeliveryDestinationContent(
         Unit
     }
 
+    // #480: advancing is deferred until the chosen distributor reports an
+    // endpoint (the VM emits `proceed`). A freshly-installed distributor may sit
+    // in Android's "stopped state" and report nothing until launched, so the VM
+    // also surfaces a nudge to open it; once the endpoint arrives the nudge
+    // clears and `proceed` fires.
+    LaunchedEffect(Unit) {
+        viewModel.proceed.collect { onChosen() }
+    }
+
     BackgroundDeliveryScreen(
         rows = rows,
         settingsMode = settingsMode,
         onSelect = { option ->
             when (option.kind) {
                 DistributorOption.Kind.INSTALLED,
-                DistributorOption.Kind.ACTIVE -> {
-                    viewModel.select(option.id)
-                    onChosen()
-                }
+                DistributorOption.Kind.ACTIVE -> viewModel.select(option.id)
                 DistributorOption.Kind.INSTALL_NTFY,
                 DistributorOption.Kind.INSTALL_OTHER -> {
                     delivery.installIntent(option)?.let { intent ->
@@ -139,6 +147,17 @@ private fun BackgroundDeliveryDestinationContent(
         onBack = { navController.popBackStack() },
         contextNote = pendingIntegration?.let {
             "Set up a delivery app to finish adding integrations."
-        }
+        },
+        nudge = nudge,
+        onOpenDistributor = { distributorNudge ->
+            delivery.launchIntent(distributorNudge.distributorId)?.let { intent ->
+                try {
+                    context.startActivity(intent)
+                } catch (_: ActivityNotFoundException) {
+                    // Distributor has no launchable entry; leave the nudge up.
+                }
+            }
+        },
+        onDismissNudge = viewModel::dismissNudge
     )
 }

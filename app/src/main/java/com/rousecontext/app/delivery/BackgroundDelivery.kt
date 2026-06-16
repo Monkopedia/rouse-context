@@ -41,6 +41,17 @@ interface BackgroundDelivery {
     val activation: StateFlow<DeliveryActivation>
 
     /**
+     * Whether a push endpoint has arrived from the active distributor (issue
+     * #480). The picker waits on this after the user selects a distributor; if
+     * it stays `false` past a short timeout — the freshly-installed distributor
+     * "stopped state" case, where Android drops our `REGISTER` broadcast until
+     * the app is launched once — the picker surfaces a nudge to open the chosen
+     * distributor. Flips to `true` when the endpoint arrives, clearing the
+     * nudge. Seeded `true` for already-set-up devices.
+     */
+    val endpointArrived: StateFlow<Boolean>
+
+    /**
      * Build the picker rows from the currently-installed UnifiedPush
      * distributors. Suggests ntfy + "install another app" only when **no**
      * distributor is installed; otherwise lists exactly what's installed plus
@@ -66,6 +77,15 @@ interface BackgroundDelivery {
 
     /** Display name of the active distributor for the Settings subtitle, or null. */
     fun activeDistributorName(): String?
+
+    /**
+     * Launch intent for an installed distributor (issue #480), or `null` if it
+     * has no launcher entry / isn't installed. Used by the picker nudge to open
+     * the chosen distributor, which clears Android's "stopped" state so the
+     * distributor finally processes our UnifiedPush `REGISTER` and mints an
+     * endpoint. No-op (null) for the `google` flavor.
+     */
+    fun launchIntent(id: String): Intent?
 }
 
 /**
@@ -77,10 +97,13 @@ object NoOpBackgroundDelivery : BackgroundDelivery {
     override val isSupported: Boolean = false
     override val activation: StateFlow<DeliveryActivation> =
         MutableStateFlow(DeliveryActivation.NotApplicable).asStateFlow()
+    override val endpointArrived: StateFlow<Boolean> =
+        MutableStateFlow(false).asStateFlow()
     override fun distributorOptions(): List<DistributorOption> = emptyList()
     override fun selectDistributor(id: String) = Unit
     override fun installIntent(option: DistributorOption): Intent? = null
     override fun activeDistributorName(): String? = null
+    override fun launchIntent(id: String): Intent? = null
 }
 
 /** On-demand wake activation state, surfaced to the shared Home/Settings UI. */
