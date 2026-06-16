@@ -99,7 +99,10 @@ private fun SettingsDestinationContent(onOpenBackgroundDelivery: () -> Unit) {
         onIdleTimeoutChanged = viewModel::setIdleTimeout,
         onDisableTimeoutToggled = viewModel::setDisableTimeout,
         onFixBatteryOptimization = {
-            startActivitySafely(settingsContext, BatteryOptimization.settingsIntent())
+            startActivitySafely(
+                settingsContext,
+                BatteryOptimization.requestExemptionIntent(settingsContext)
+            )
         },
         onPostSessionModeChanged = viewModel::setPostSessionMode,
         onShowAllMcpMessagesChanged = viewModel::setShowAllMcpMessages,
@@ -136,9 +139,9 @@ private fun openUriSafely(context: Context, uri: Uri) {
 /**
  * Launch an arbitrary system [Intent], swallowing [ActivityNotFoundException]
  * for the rare device/ROM that doesn't expose the target screen. Used for the
- * battery-optimization settings deep-link behind "Fix this".
+ * battery-optimization request dialog behind "Fix this".
  */
-private fun startActivitySafely(context: Context, intent: Intent) {
+internal fun startActivitySafely(context: Context, intent: Intent) {
     try {
         context.startActivity(intent.apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
     } catch (_: ActivityNotFoundException) {

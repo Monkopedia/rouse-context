@@ -38,6 +38,7 @@ import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.support.BugReportUriBuilder
+import com.rousecontext.app.support.batteryExemptFlow
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.app.token.createUnknownClientLabeler
@@ -630,7 +631,12 @@ val appModule = module {
                 triggers = refresher.ticks
             ),
             spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get()),
-            deliveryActivation = get<BackgroundDelivery>().activation
+            deliveryActivation = get<BackgroundDelivery>().activation,
+            batteryOptimizationExempt = batteryExemptFlow(
+                context = androidContext(),
+                triggers = refresher.ticks
+            ),
+            deliveryWakeSupported = get<BackgroundDelivery>().isSupported
         )
     }
     viewModel { AddIntegrationViewModel(get(), get(), get()) }
