@@ -73,12 +73,14 @@ private fun BackgroundDeliveryDestinationContent(
     val pendingIntegration by pendingSetup.pendingId.collectAsState()
 
     // Re-scan installed distributors when the user returns (e.g. after
-    // installing one from the store the "install" rows deep-link to).
+    // installing one from the store the "install" rows deep-link to). #493: also
+    // re-register a selected-but-unacked distributor, in case the user opened it
+    // from the nudge and lingered there past the VM's re-register delay.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner.lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                viewModel.rescan()
+                viewModel.onResume()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -153,6 +155,10 @@ private fun BackgroundDeliveryDestinationContent(
             delivery.launchIntent(distributorNudge.distributorId)?.let { intent ->
                 try {
                     context.startActivity(intent)
+                    // #493: launching alone won't register — the original REGISTER
+                    // was dropped while the distributor was stopped. Re-issue it
+                    // once the distributor has had a moment to come up.
+                    viewModel.onDistributorOpened(distributorNudge.distributorId)
                 } catch (_: ActivityNotFoundException) {
                     // Distributor has no launchable entry; leave the nudge up.
                 }
