@@ -14,6 +14,53 @@ Newest entries on top.
 
 ---
 
+## 2026-06-16 — FOSS delivery picker nudges the user to open a freshly-installed distributor (#480)
+
+**Decision:** Option (a) detect-and-nudge. After the user picks a UnifiedPush
+distributor in the Background-delivery picker, the picker waits briefly for the
+push endpoint to arrive. If it doesn't (the freshly-installed "stopped state"
+case), the picker surfaces a non-blocking, dismissible nudge with an action
+button that **launches the chosen distributor** (its launch intent), which
+clears Android's stopped state so the distributor processes our UnifiedPush
+`REGISTER` and mints an endpoint. The endpoint then flows back, the device
+registers, the nudge clears automatically, and the flow advances. The action
+button copy is **"Open {distributor} to enable"** — the chosen distributor's
+display name is interpolated (e.g. "Open ntfy to enable"); ntfy is the common
+case but the picker can land on other distributors, so it is never hardcoded.
+Advancing past the picker is now gated on the endpoint arriving (or the user
+skipping) rather than firing immediately on tap.
+
+**Approved by:** Jason, in-session 2026-06-16.
+
+**Context:** A freshly-INSTALLED UnifiedPush distributor sits in Android's
+"stopped" state and ignores broadcasts — including our `REGISTER` — until it's
+launched once. So a user could pick a distributor in onboarding and have no
+endpoint (`NEW_ENDPOINT`) ever arrive: the device stayed silently degraded with
+no signal that opening the distributor once would fix it. Only the very first
+setup is affected (once the distributor has been opened ever, it is no longer
+stopped).
+
+**Alternatives considered:**
+- **(b) Proactively launch the distributor** for the user right after selection —
+  more magical but yanks the user into another app unprompted, and may be blocked
+  from the background. Rejected in favor of a visible, user-driven action.
+- **(c) Document-only** — weakest; leaves the silent degrade in place with only a
+  help-doc mention. Rejected.
+
+**Trade-off accepted:** The picker no longer advances the instant a distributor
+is tapped; it holds for the short endpoint-arrival window (then advances, or
+shows the nudge / lets the user skip). A healthy already-launched distributor
+adds a few seconds before auto-advance. The nudge is one more surface a
+first-setup FOSS user may see, but it is the only signal that an otherwise
+silent registration stall is one tap away from fixed.
+
+**Relevant:**
+- #480 (this change); follows the #463 picker and #460 FOSS-distribution epic.
+- Builds on #486 (deferred-registration activation in
+  `UnifiedPushBackgroundDelivery`).
+
+---
+
 ## 2026-06-16 — Notification-listener access deep-links to our own toggle on API 30+ (#487)
 
 **Decision:** In the notification-capture setup step, "Grant access" now deep-links

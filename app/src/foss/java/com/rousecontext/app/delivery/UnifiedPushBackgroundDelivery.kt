@@ -56,6 +56,13 @@ class UnifiedPushBackgroundDelivery(
     private val registerMutex = Mutex()
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    // Endpoint-arrival signal for the picker nudge (#480). Seeded from the
+    // persisted endpoint so an already-set-up device never shows the nudge.
+    private val _endpointArrived = MutableStateFlow(
+        prefs.getString(KEY_ENDPOINT, null) != null
+    )
+    override val endpointArrived: StateFlow<Boolean> = _endpointArrived.asStateFlow()
+
     init {
         // Seed activation from persisted state: a device with a subdomain is
         // already registered and active; otherwise it needs a delivery app.
@@ -104,6 +111,11 @@ class UnifiedPushBackgroundDelivery(
         return active?.let(::resolveLabel)
     }
 
+    override fun launchIntent(id: String): Intent? =
+        appContext.packageManager.getLaunchIntentForPackage(id)?.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
     /**
      * Called by `UnifiedPushReceiver.onNewEndpoint`. Persists the endpoint and
      * reports it to the relay: registers the device on the first endpoint (the
@@ -113,6 +125,7 @@ class UnifiedPushBackgroundDelivery(
     fun onEndpoint(endpoint: String) {
         if (endpoint.isBlank()) return
         prefs.edit().putString(KEY_ENDPOINT, endpoint).apply()
+        _endpointArrived.value = true
         appScope.launch {
             registerMutex.withLock {
                 if (certificateStore.getSubdomain() == null) {
@@ -138,6 +151,7 @@ class UnifiedPushBackgroundDelivery(
     fun onUnregistered() {
         Log.i(TAG, "UnifiedPush distributor unregistered")
         prefs.edit().remove(KEY_ENDPOINT).apply()
+        _endpointArrived.value = false
         appScope.launch {
             if (certificateStore.getSubdomain() == null) {
                 _activation.value = DeliveryActivation.NeedsSetup
