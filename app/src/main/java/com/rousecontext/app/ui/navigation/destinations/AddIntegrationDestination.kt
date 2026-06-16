@@ -8,15 +8,13 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.rousecontext.app.R
 import com.rousecontext.app.auth.DeviceCredentialProvider
+import com.rousecontext.app.delivery.BackgroundDelivery
+import com.rousecontext.app.state.PendingIntegrationSetup
+import com.rousecontext.app.state.deliveryNeedsSetupBeforeIntegration
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
-import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
-import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
-import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
-import com.rousecontext.app.ui.viewmodels.OutreachSetupViewModel
-import com.rousecontext.app.ui.viewmodels.UsageSetupViewModel
 import com.rousecontext.tunnel.CertProvisioningFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -38,52 +36,36 @@ fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
         val certProvisioningFlow: CertProvisioningFlow = koinInject()
         val credentialProvider: DeviceCredentialProvider = koinInject()
         val appScope: CoroutineScope = koinInject(named("appScope"))
+        val delivery: BackgroundDelivery = koinInject()
+        val pendingSetup: PendingIntegrationSetup = koinInject()
+        val activation by delivery.activation.collectAsState()
         AddIntegrationPickerContent(
             integrations = integrations,
             onSetUp = { id ->
-                // Kick off cert provisioning in the background while
-                // user configures the integration. Survives navigation
-                // since it uses the app-scoped coroutine scope.
-                appScope.launch {
-                    try {
-                        val credential = credentialProvider.forProvisioning()
-                        if (credential != null) {
-                            certProvisioningFlow.execute(credential)
+                // #474: a foss device that skipped Background delivery has no
+                // push endpoint and isn't registered yet, so setup would block
+                // silently in IntegrationSetupViewModel.awaitRegistrationIfNeeded.
+                // Remember the integration and redirect to the picker; the
+                // picker auto-resumes here once a distributor is chosen. On
+                // google/registered foss this is a no-op (NotApplicable/Active).
+                if (deliveryNeedsSetupBeforeIntegration(activation)) {
+                    pendingSetup.remember(id)
+                    navController.navigate(Routes.BACKGROUND_DELIVERY_BASE)
+                } else {
+                    // Kick off cert provisioning in the background while the
+                    // user configures the integration. Survives navigation
+                    // since it uses the app-scoped coroutine scope.
+                    appScope.launch {
+                        try {
+                            val credential = credentialProvider.forProvisioning()
+                            if (credential != null) {
+                                certProvisioningFlow.execute(credential)
+                            }
+                        } catch (_: Exception) {
+                            // Best-effort; integrationSetup will retry
                         }
-                    } catch (_: Exception) {
-                        // Best-effort; integrationSetup will retry
                     }
-                }
-                when (id) {
-                    HealthConnectSetupViewModel
-                        .HEALTH_INTEGRATION_ID ->
-                        navController.navigate(
-                            Routes.healthConnectSetup(
-                                SetupMode.SETUP
-                            )
-                        )
-                    NotificationSetupViewModel.INTEGRATION_ID ->
-                        navController.navigate(
-                            Routes.notificationSetup(
-                                SetupMode.SETUP
-                            )
-                        )
-                    OutreachSetupViewModel.INTEGRATION_ID ->
-                        navController.navigate(
-                            Routes.outreachSetup(
-                                SetupMode.SETUP
-                            )
-                        )
-                    UsageSetupViewModel.INTEGRATION_ID ->
-                        navController.navigate(
-                            Routes.usageSetup(
-                                SetupMode.SETUP
-                            )
-                        )
-                    else ->
-                        navController.navigate(
-                            Routes.integrationSetup(id)
-                        )
+                    navController.navigate(setupRouteForIntegration(id))
                 }
             }
         )

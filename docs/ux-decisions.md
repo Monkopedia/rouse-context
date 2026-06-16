@@ -14,6 +14,57 @@ Newest entries on top.
 
 ---
 
+## 2026-06-16 — Add integration on an unregistered FOSS device redirects to the delivery picker (auto-resume)
+
+**Decision:** Option A — auto-redirect + auto-resume. On a not-yet-registered
+FOSS device (one that tapped "Skip for now" on Background delivery, so it sits on
+a degraded Home with no push endpoint), tapping **Add integration** no longer
+silently blocks in `IntegrationSetupViewModel.awaitRegistrationIfNeeded` (which
+read like a hang). Instead:
+- It **redirects to the existing Background delivery picker** (#463), topped with
+  a contextual strip: **"Set up a delivery app to finish adding integrations."**
+- It **remembers the integration the user was adding** (a single pending-integration
+  id carried across the picker round-trip).
+- **Auto-resume:** once a distributor is chosen, the user drops straight back into
+  that integration's setup flow (not back to Home). The setup screen's existing
+  "Registering" indicator covers the brief deferred-registration wait, so the
+  hand-off is legitimate rather than a silent block.
+- If the user instead taps "Skip for now" on the picker, the pending integration
+  is dropped and they return to Add integration (nothing to resume into).
+- **Gated on the delivery-not-set-up state** (`DeliveryActivation.NeedsSetup`), so
+  it is a no-op on `google` (FCM, `NotApplicable`) and on already-registered FOSS
+  devices (`Active`), which proceed straight into setup as before.
+
+**Approved by:** Jason, in-session 2026-06-15 — reviewed rendered Roborazzi mocks of
+four candidate shapes (silent-hang baseline, A auto-redirect, B explanatory dialog,
+C inline banner) and picked **Option A + auto-resume**.
+
+**Context:** The FOSS deferred-activation model (2026-06-13 entry) lets a user skip
+Background delivery and reach a degraded Home. But the integration-setup flow waits
+for registration to complete before provisioning, and on a skipped device that
+registration never starts — so "Add integration" appeared to hang with no
+explanation and no way forward.
+
+**Alternatives considered:**
+- **B — explanatory dialog** before routing onward. Adds the most net-new UI for
+  the least payoff; the picker itself already explains what's needed.
+- **C — inline banner on a dead-end screen.** Leaves the user parked on a screen
+  they have to back out of, rather than moving them toward the fix.
+- **Return to Home after registration** (instead of auto-resume). Rejected: it
+  breaks the "finish what you started" flow the strip copy promises and forces the
+  user to re-find and re-tap the integration.
+- A is the most faithful to the existing flow (it *is* the real #463 picker),
+  the lowest-risk build, and the smallest new surface.
+
+**Trade-off accepted:** "Add integration" can now detour through a second screen
+before setup, and the carried pending-integration id is process-scoped (not
+persisted) — if the process dies mid-detour, the user simply re-taps the
+integration. We accept that over a heavier persisted-resume mechanism.
+
+**Relevant:** #474 (this change), #463 (the picker), #460 (the FOSS flavor).
+
+---
+
 ## 2026-06-13 — FOSS flavor adds a "Background delivery" picker (deferred activation)
 
 **Decision:** The fully-FOSS build flavor (`foss`, for F-Droid — see #460) replaces

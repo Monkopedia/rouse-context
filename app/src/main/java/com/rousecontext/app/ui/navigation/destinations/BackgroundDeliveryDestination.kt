@@ -16,6 +16,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.delivery.DistributorOption
+import com.rousecontext.app.state.PendingIntegrationSetup
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.BackgroundDeliveryScreen
@@ -62,8 +63,12 @@ private fun BackgroundDeliveryDestinationContent(
 ) {
     val viewModel: BackgroundDeliveryViewModel = koinViewModel()
     val delivery: BackgroundDelivery = koinInject()
+    val pendingSetup: PendingIntegrationSetup = koinInject()
     val context = LocalContext.current
     val rows by viewModel.rows.collectAsState()
+    // #474: non-null when the picker was reached from "Add integration" on a
+    // not-yet-registered foss device. Drives the contextual strip + auto-resume.
+    val pendingIntegration by pendingSetup.pendingId.collectAsState()
 
     // Re-scan installed distributors when the user returns (e.g. after
     // installing one from the store the "install" rows deep-link to).
@@ -78,8 +83,29 @@ private fun BackgroundDeliveryDestinationContent(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val advance = {
-        if (settingsMode) {
+    // A distributor was chosen. #474: if we got here from Add integration,
+    // auto-resume straight into that integration's setup (popping the picker so
+    // back lands on Add integration). Otherwise keep the onboarding/Settings
+    // behaviour (advance to notification preferences / pop).
+    val onChosen = {
+        val pending = pendingSetup.consume()
+        if (pending != null) {
+            navController.navigate(setupRouteForIntegration(pending)) {
+                popUpTo(Routes.BACKGROUND_DELIVERY_BASE) { inclusive = true }
+            }
+        } else if (settingsMode) {
+            navController.popBackStack()
+        } else {
+            navController.navigate(Routes.NOTIFICATION_PREFERENCES)
+        }
+        Unit
+    }
+
+    // "Skip for now". When redirected here from Add integration there is
+    // nothing to resume into, so drop the pending integration and pop back to
+    // Add integration. Otherwise keep the onboarding skip behaviour.
+    val onSkip = {
+        if (pendingSetup.consume() != null) {
             navController.popBackStack()
         } else {
             navController.navigate(Routes.NOTIFICATION_PREFERENCES)
@@ -95,7 +121,7 @@ private fun BackgroundDeliveryDestinationContent(
                 DistributorOption.Kind.INSTALLED,
                 DistributorOption.Kind.ACTIVE -> {
                     viewModel.select(option.id)
-                    advance()
+                    onChosen()
                 }
                 DistributorOption.Kind.INSTALL_NTFY,
                 DistributorOption.Kind.INSTALL_OTHER -> {
@@ -109,7 +135,10 @@ private fun BackgroundDeliveryDestinationContent(
                 }
             }
         },
-        onSkip = advance,
-        onBack = { navController.popBackStack() }
+        onSkip = onSkip,
+        onBack = { navController.popBackStack() },
+        contextNote = pendingIntegration?.let {
+            "Set up a delivery app to finish adding integrations."
+        }
     )
 }

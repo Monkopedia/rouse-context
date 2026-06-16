@@ -381,6 +381,67 @@ class BackStackFlowTest {
         )
     }
 
+    // ---------- #474 redirect + auto-resume ----------
+
+    /**
+     * #474: a not-yet-registered foss device (skipped Background delivery)
+     * taps an integration on Add integration. Instead of silently blocking in
+     * IntegrationSetupViewModel.awaitRegistrationIfNeeded, it is redirected to
+     * the Background delivery picker. Once a distributor is chosen, it
+     * auto-resumes straight into the integration's setup flow — popping the
+     * picker so back from setup lands on Add integration, not the picker.
+     */
+    @Test
+    fun `unregistered add-integration redirects to picker then resumes into setup`() {
+        val stack = FakeBackStack(Routes.HOME)
+
+        // HOME -> ADD_INTEGRATION
+        stack.navigate(Routes.ADD_INTEGRATION)
+        // Tap an integration while unregistered -> redirect to the picker
+        // (instead of navigating to the integration's setup route).
+        stack.navigate(Routes.BACKGROUND_DELIVERY_BASE)
+        assertEquals(
+            listOf(Routes.HOME, Routes.ADD_INTEGRATION, Routes.BACKGROUND_DELIVERY_BASE),
+            stack.asList
+        )
+
+        // Distributor chosen -> auto-resume into the pending integration's
+        // setup, popping the picker inclusive.
+        stack.navigate(
+            route = Routes.INTEGRATION_SETUP,
+            popTarget = Routes.BACKGROUND_DELIVERY_BASE,
+            inclusive = true
+        )
+
+        // Lands on setup (NOT back on HOME); the picker is gone from the stack.
+        assertEquals(
+            listOf(Routes.HOME, Routes.ADD_INTEGRATION, Routes.INTEGRATION_SETUP),
+            stack.asList
+        )
+        assertEquals(Routes.INTEGRATION_SETUP, stack.current)
+    }
+
+    /**
+     * #474: if the redirected user taps "Skip for now" on the picker rather
+     * than choosing a distributor, there is nothing to resume into — drop the
+     * pending integration and pop back to Add integration.
+     */
+    @Test
+    fun `unregistered add-integration redirect then skip returns to add integration`() {
+        val stack = FakeBackStack(Routes.HOME)
+
+        stack.navigate(Routes.ADD_INTEGRATION)
+        stack.navigate(Routes.BACKGROUND_DELIVERY_BASE)
+
+        // "Skip for now" with a pending integration -> popBackStack.
+        stack.popBackStack()
+
+        assertEquals(
+            listOf(Routes.HOME, Routes.ADD_INTEGRATION),
+            stack.asList
+        )
+    }
+
     // ---------- IntegrationManage back behaviour ----------
 
     /**
