@@ -1,6 +1,8 @@
 package com.rousecontext.app.ui.navigation.destinations
 
+import android.content.ComponentName
 import android.content.Intent
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +23,7 @@ import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.NotificationSetupContent
 import com.rousecontext.app.ui.screens.SetupMode
 import com.rousecontext.app.ui.viewmodels.NotificationSetupViewModel
+import com.rousecontext.integrations.notifications.NotificationCaptureService
 import org.koin.androidx.compose.koinViewModel
 
 @Suppress("LongMethod")
@@ -73,11 +76,26 @@ fun NavGraphBuilder.notificationSetupDestination(navController: NavController) {
             mode = mode,
             isDirty = isDirty,
             onGrantAccess = {
-                val intent = Intent(
-                    Settings
-                        .ACTION_NOTIFICATION_LISTENER_SETTINGS
-                )
-                navController.context.startActivity(intent)
+                val context = navController.context
+                val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    // API 30+: deep-link straight to our listener's own toggle
+                    // instead of the full list of every listener app.
+                    val component = ComponentName(
+                        context,
+                        NotificationCaptureService::class.java
+                    )
+                    Intent(
+                        Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS
+                    ).putExtra(
+                        Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME,
+                        component.flattenToString()
+                    )
+                } else {
+                    Intent(
+                        Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS
+                    )
+                }
+                context.startActivity(intent)
             },
             onRetentionChanged = viewModel::setRetentionDays,
             onAllowActionsChanged = viewModel::setAllowActions,
