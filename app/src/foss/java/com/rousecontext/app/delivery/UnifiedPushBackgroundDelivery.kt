@@ -208,6 +208,14 @@ class UnifiedPushBackgroundDelivery(
         }
     }
 
+    /**
+     * The currently-persisted UnifiedPush endpoint, or `null` if none has been
+     * reported yet. Exposes the single source of truth (the same prefs entry
+     * [onEndpoint] writes) so the connect-time reporter can re-report a
+     * rotated-while-disconnected endpoint without duplicating the prefs key.
+     */
+    fun currentEndpoint(): String? = prefs.getString(KEY_ENDPOINT, null)
+
     private fun resolveLabel(packageId: String): String = try {
         val pm = appContext.packageManager
         pm.getApplicationLabel(pm.getApplicationInfo(packageId, 0)).toString()
@@ -217,7 +225,9 @@ class UnifiedPushBackgroundDelivery(
 
     companion object {
         private const val TAG = "UnifiedPushDelivery"
-        private const val PUSH_KIND = "unifiedpush"
+
+        /** Push-target discriminator sent to the relay (see [TunnelClient.sendPushEndpoint]). */
+        const val PUSH_KIND = "unifiedpush"
         private const val PREFS = "unifiedpush_delivery"
         private const val KEY_ENDPOINT = "endpoint"
     }

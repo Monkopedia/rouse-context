@@ -8,7 +8,7 @@ import com.rousecontext.app.auth.KeypairRenewalAuthProvider
 import com.rousecontext.app.auth.NoOpFcmTokenProvider
 import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
-import com.rousecontext.app.push.NoOpConnectPushReporter
+import com.rousecontext.app.push.UnifiedPushConnectPushReporter
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.support.AcraCrashReporter
 import com.rousecontext.tunnel.CertificateStore
@@ -43,11 +43,18 @@ val distributionModule = module {
     // seam stays a no-op (empty token). Issue #463.
     single<FcmTokenProvider> { NoOpFcmTokenProvider() }
 
-    // Per-connect push-target sync (issue #476): no-op for foss. The UnifiedPush
-    // endpoint is reported to the relay by UnifiedPushBackgroundDelivery on
-    // endpoint delivery/rotation, not on each tunnel connect — and there is no
-    // FCM token to push, keeping firebase-messaging out of the foss build.
-    single<ConnectPushReporter> { NoOpConnectPushReporter }
+    // Per-connect push-target sync (issues #476, #485): re-report the persisted
+    // UnifiedPush endpoint on every tunnel connect. UnifiedPushBackgroundDelivery
+    // only pushes endpoint rotations while the tunnel is already up; if the
+    // endpoint rotates while the tunnel is DOWN it persists locally and defers to
+    // "a future reconnect re-reports it" — this reporter is that reconnect path,
+    // mirroring the google flavor's FcmConnectPushReporter. No firebase linkage.
+    single<ConnectPushReporter> {
+        UnifiedPushConnectPushReporter(
+            tunnelClient = get<TunnelClient>(),
+            delivery = get<UnifiedPushBackgroundDelivery>()
+        )
+    }
 
     // Background delivery (UnifiedPush wake path). Bound as the concrete type so
     // UnifiedPushReceiver can invoke its endpoint callbacks, and exposed via the
