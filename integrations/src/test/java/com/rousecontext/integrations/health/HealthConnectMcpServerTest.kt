@@ -226,6 +226,42 @@ class HealthConnectMcpServerTest {
     }
 
     @Test
+    fun `get_health_summary today anchors range to local start of today`() = runBlocking {
+        val before = java.time.Instant.now()
+        callTool("get_health_summary", buildJsonObject { put("period", "today") })
+        val after = java.time.Instant.now()
+
+        // #496: zone is local (not UTC) and the window starts at the start of
+        // today in the local zone.
+        val zone = java.time.ZoneId.systemDefault()
+        val expectedStart = java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant()
+        assertEquals(expectedStart, repo.lastSummaryFrom)
+
+        val to = repo.lastSummaryTo!!
+        assertTrue("end should be ~now", !to.isBefore(before) && !to.isAfter(after))
+    }
+
+    @Test
+    fun `get_health_summary week anchors 7 days before local start of today`() = runBlocking {
+        callTool("get_health_summary", buildJsonObject { put("period", "week") })
+
+        val zone = java.time.ZoneId.systemDefault()
+        val startOfToday = java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant()
+        val expectedStart = startOfToday.minus(7, java.time.temporal.ChronoUnit.DAYS)
+        assertEquals(expectedStart, repo.lastSummaryFrom)
+    }
+
+    @Test
+    fun `get_health_summary month anchors 30 days before local start of today`() = runBlocking {
+        callTool("get_health_summary", buildJsonObject { put("period", "month") })
+
+        val zone = java.time.ZoneId.systemDefault()
+        val startOfToday = java.time.LocalDate.now(zone).atStartOfDay(zone).toInstant()
+        val expectedStart = startOfToday.minus(30, java.time.temporal.ChronoUnit.DAYS)
+        assertEquals(expectedStart, repo.lastSummaryFrom)
+    }
+
+    @Test
     fun `get_health_summary returns error for invalid period`() = runBlocking {
         val result = callTool(
             "get_health_summary",
