@@ -4,7 +4,6 @@ import java.io.ByteArrayInputStream
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.time.Instant
-import javax.naming.ldap.LdapName
 import kotlinx.coroutines.delay
 
 /**
@@ -342,12 +341,59 @@ open class CertInspector {
         CertInfo()
     }
 
-    private fun extractCommonName(cert: X509Certificate): String? = runCatching {
-        LdapName(cert.subjectX500Principal.name).rdns
-            .firstOrNull { it.type.equals("CN", ignoreCase = true) }
-            ?.value
-            ?.toString()
-    }.getOrNull()
+    /**
+     * Extract the subject CN without JNDI. `javax.naming.ldap.LdapName` is part of JNDI, which is
+     * **absent from the Android runtime** — using it throws [NoClassDefFoundError] on-device, which
+     * a swallowing `runCatching` would silently turn into a permanently-null CN (issue #499). So we
+     * parse [java.security.cert.X509Certificate.getSubjectX500Principal]'s RFC 2253 string directly.
+     *
+     * The RFC 2253 form looks like `CN=test123.rousecontext.com,O=Example,C=US`: comma-separated
+     * RDNs. We split on unescaped commas (`\,` is an RFC 2253 escape) and return the value of the
+     * first `CN=` component. Returns `null` when no CN is present. Our certs only ever carry
+     * `CN=*.<subdomain>.rousecontext.com`, so escaped commas never occur, but we honour the escape
+     * anyway since it's cheap.
+     */
+    private fun extractCommonName(cert: X509Certificate): String? {
+        val subject = cert.subjectX500Principal.name
+        return splitRfc2253(subject)
+            .map { it.trim() }
+            .firstOrNull {
+                it.length > CN_PREFIX_LEN &&
+                    it.regionMatches(0, "CN=", 0, CN_PREFIX_LEN, ignoreCase = true)
+            }
+            ?.substring(CN_PREFIX_LEN)
+            ?.trim()
+    }
+
+    /** Splits an RFC 2253 distinguished name on commas that are not backslash-escaped. */
+    private fun splitRfc2253(dn: String): List<String> {
+        val parts = mutableListOf<String>()
+        val current = StringBuilder()
+        var escaped = false
+        for (ch in dn) {
+            when {
+                escaped -> {
+                    current.append(ch)
+                    escaped = false
+                }
+                ch == '\\' -> {
+                    current.append(ch)
+                    escaped = true
+                }
+                ch == ',' -> {
+                    parts.add(current.toString())
+                    current.setLength(0)
+                }
+                else -> current.append(ch)
+            }
+        }
+        parts.add(current.toString())
+        return parts
+    }
+
+    private companion object {
+        const val CN_PREFIX_LEN = 3 // length of "CN="
+    }
 }
 
 data class CertInfo(val commonName: String? = null, val isExpired: Boolean = false)

@@ -295,6 +295,21 @@ class CertRenewalTest {
     }
 
     @Test
+    fun `real CertInspector extracts CN via the JNDI-free X500Principal path`() {
+        // Guards issue #499: CN extraction must parse the X500Principal RFC 2253 string directly,
+        // not via javax.naming.ldap.LdapName (JNDI is absent from the Android runtime). Both
+        // fixtures must yield their real subject CN through CertificateFactory + the new parser.
+        assertEquals(
+            "test123.rousecontext.com",
+            CertInspector().inspect(REAL_CERT_TEST123).commonName
+        )
+        assertEquals(
+            "other-cn.rousecontext.com",
+            CertInspector().inspect(REAL_CERT_OTHER).commonName
+        )
+    }
+
+    @Test
     fun `real CertInspector flags an expired cert`() {
         val info = CertInspector().inspect(REAL_CERT_EXPIRED)
         assertEquals("test123.rousecontext.com", info.commonName)
