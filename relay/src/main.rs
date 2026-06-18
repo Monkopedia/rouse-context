@@ -811,7 +811,8 @@ fn build_firestore_client(
 
 /// In-memory Firestore implementation for development/testing.
 /// Persists data for the relay's lifetime but not across restarts.
-/// TODO: Replace with RealFirestoreClient backed by Firestore REST API.
+/// Deliberate fallback when no service account is configured; the default is
+/// `RealFirestoreClient` (see `build_firestore_client`).
 struct InMemoryFirestore {
     devices:
         std::sync::Mutex<std::collections::HashMap<String, rouse_relay::firestore::DeviceRecord>>,
