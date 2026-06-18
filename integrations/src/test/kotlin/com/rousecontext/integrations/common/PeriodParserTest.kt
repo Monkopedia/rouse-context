@@ -77,6 +77,34 @@ class PeriodParserTest {
     }
 
     @Test
+    fun `week start is local midnight 7 days prior across a DST spring-forward`() {
+        // America/New_York springs forward on 2026-03-08 (EST UTC-5 -> EDT UTC-4).
+        // now = 2026-03-12 10:30 EDT, so today = the 12th (EDT, UTC-4) and the
+        // window starts at the 5th, which is still EST (UTC-4 vs UTC-5).
+        val zone = ZoneId.of("America/New_York")
+        val springNow = Instant.parse("2026-03-12T14:30:00Z")
+        val range = PeriodParser.parse("week", zone, springNow)!!
+
+        // Local midnight of 2026-03-05 in EST is 05:00Z; the flat 7*86400s
+        // version lands at 04:00Z (an hour off).
+        assertEquals(Instant.parse("2026-03-05T05:00:00Z"), range.start)
+        assertEquals(springNow, range.end)
+    }
+
+    @Test
+    fun `month start is local midnight 30 days prior across a DST spring-forward`() {
+        // now = 2026-03-12 10:30 EDT; 30 days prior is 2026-02-10, still EST.
+        val zone = ZoneId.of("America/New_York")
+        val springNow = Instant.parse("2026-03-12T14:30:00Z")
+        val range = PeriodParser.parse("month", zone, springNow)!!
+
+        // Local midnight of 2026-02-10 in EST is 05:00Z; the flat 30*86400s
+        // version lands at 04:00Z (an hour off).
+        assertEquals(Instant.parse("2026-02-10T05:00:00Z"), range.start)
+        assertEquals(springNow, range.end)
+    }
+
+    @Test
     fun `week is exactly 7 days before start of today`() {
         val zone = ZoneId.of("UTC")
         val range = PeriodParser.parse("week", zone, now)!!

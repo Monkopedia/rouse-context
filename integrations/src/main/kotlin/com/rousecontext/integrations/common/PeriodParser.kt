@@ -2,7 +2,6 @@ package com.rousecontext.integrations.common
 
 import java.time.Instant
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 
 /**
  * A resolved time range for a `period` argument: `[start, end]`.
@@ -54,11 +53,12 @@ object PeriodParser {
         zone: ZoneId = ZoneId.systemDefault(),
         now: Instant = Instant.now()
     ): PeriodRange? {
-        val startOfToday = now.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()
+        val today = now.atZone(zone).toLocalDate()
+        val startOfToday = today.atStartOfDay(zone).toInstant()
         val start = when (period) {
             "today" -> startOfToday
-            "week" -> startOfToday.minus(WEEK_DAYS, ChronoUnit.DAYS)
-            "month" -> startOfToday.minus(MONTH_DAYS, ChronoUnit.DAYS)
+            "week" -> today.minusDays(WEEK_DAYS).atStartOfDay(zone).toInstant()
+            "month" -> today.minusDays(MONTH_DAYS).atStartOfDay(zone).toInstant()
             else -> return null
         }
         return PeriodRange(start, now)
