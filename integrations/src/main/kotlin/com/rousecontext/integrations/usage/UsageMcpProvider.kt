@@ -12,10 +12,8 @@ import com.rousecontext.mcp.tool.ToolResult
 import com.rousecontext.mcp.tool.registerTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.TimeZone
 import kotlinx.serialization.encodeToString
@@ -370,14 +368,22 @@ internal fun usageError(message: String): ToolResult =
  * the start of today). `yesterday` is a usage-only extra resolved here: the
  * prior calendar day, `[start-of-yesterday, start-of-today]`.
  */
-internal fun parsePeriod(period: String): Pair<Long, Long>? {
+internal fun parsePeriod(
+    period: String,
+    zone: ZoneId = ZoneId.systemDefault(),
+    now: Instant = Instant.now()
+): Pair<Long, Long>? {
     if (period == "yesterday") {
-        val zone = ZoneId.systemDefault()
-        val startOfToday = LocalDate.now(zone).atStartOfDay(zone).toInstant()
-        val startOfYesterday = startOfToday.minus(1, ChronoUnit.DAYS)
+        // Stay in LocalDate arithmetic so the zone handles DST: the window is
+        // local-midnight to local-midnight, which is 23h on spring-forward days
+        // and 25h on fall-back days. Subtracting a flat 86_400s off an Instant
+        // would ignore DST and land an hour off (see #500 review).
+        val today = now.atZone(zone).toLocalDate()
+        val startOfYesterday = today.minusDays(1).atStartOfDay(zone).toInstant()
+        val startOfToday = today.atStartOfDay(zone).toInstant()
         return startOfYesterday.toEpochMilli() to startOfToday.toEpochMilli()
     }
-    return PeriodParser.parse(period)?.let { it.startMillis to it.endMillis }
+    return PeriodParser.parse(period, zone, now)?.let { it.startMillis to it.endMillis }
 }
 
 // ---------- Event type mapping ----------
