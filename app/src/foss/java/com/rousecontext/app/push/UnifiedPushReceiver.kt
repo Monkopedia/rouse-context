@@ -5,7 +5,6 @@ import android.util.Log
 import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
 import com.rousecontext.mcp.core.ProviderRegistry
 import com.rousecontext.work.WakeDispatcher
-import org.json.JSONObject
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.unifiedpush.android.connector.MessagingReceiver
@@ -32,7 +31,7 @@ class UnifiedPushReceiver :
     private val delivery: UnifiedPushBackgroundDelivery by inject()
 
     override fun onMessage(context: Context, message: ByteArray, instance: String) {
-        val data = parsePayload(message)
+        val data = UnifiedPushPayload.parse(message)
         Log.d(TAG, "UnifiedPush message received: type=${data["type"]}")
         WakeDispatcher(context, providerRegistry).dispatch(data)
     }
@@ -48,21 +47,6 @@ class UnifiedPushReceiver :
 
     override fun onUnregistered(context: Context, instance: String) {
         delivery.onUnregistered()
-    }
-
-    /**
-     * Parse the wake payload into the flat string map [WakeDispatcher] expects.
-     * The relay sends a small JSON object (e.g. `{"type":"wake"}`); be lenient
-     * about malformed bodies and fall back to an empty map (ignored downstream).
-     */
-    private fun parsePayload(message: ByteArray): Map<String, String> = try {
-        val json = JSONObject(String(message, Charsets.UTF_8))
-        buildMap {
-            json.keys().forEach { key -> put(key, json.optString(key)) }
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "Unparseable UnifiedPush payload; ignoring", e)
-        emptyMap()
     }
 
     companion object {
