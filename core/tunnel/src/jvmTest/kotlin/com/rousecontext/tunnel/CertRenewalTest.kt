@@ -8,6 +8,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -284,6 +285,87 @@ class CertRenewalTest {
         assertEquals("other-cn", result.actual)
     }
 
+    // --- Real (production) CertInspector tests (issue #495) ---
+
+    @Test
+    fun `real CertInspector parses CN and reports non-expired`() {
+        val info = CertInspector().inspect(REAL_CERT_TEST123)
+        assertEquals("test123.rousecontext.com", info.commonName)
+        assertFalse(info.isExpired, "fixture cert is valid until 2036")
+    }
+
+    @Test
+    fun `real CertInspector flags an expired cert`() {
+        val info = CertInspector().inspect(REAL_CERT_EXPIRED)
+        assertEquals("test123.rousecontext.com", info.commonName)
+        assertTrue(info.isExpired, "fixture cert expired in 2021")
+    }
+
+    @Test
+    fun `real CertInspector degrades to empty CertInfo on a malformed cert`() {
+        val info = CertInspector().inspect("not a real certificate")
+        assertNull(info.commonName)
+        assertFalse(info.isExpired)
+    }
+
+    @Test
+    fun `mTLS CN mismatch fires end-to-end with the real inspector`(): Unit = runBlocking {
+        store.storeCertificate(REAL_CERT_TEST123)
+        store.storeSubdomain("test123")
+        val flow = createFlow(inspector = CertInspector())
+
+        mockServer.renewHandler = { _ ->
+            MockRenewResponse(
+                status = 200,
+                body = RenewResponse(
+                    serverCert = REAL_CERT_OTHER,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM
+                )
+            )
+        }
+
+        val result = flow.renewWithMtls(signature = "sig")
+        assertTrue(result is RenewalResult.CnMismatch, "expected CnMismatch, got $result")
+        assertEquals("test123.rousecontext.com", result.expected)
+        assertEquals("other-cn.rousecontext.com", result.actual)
+    }
+
+    @Test
+    fun `Firebase path CN mismatch fires end-to-end with the real inspector`(): Unit = runBlocking {
+        // Guards the firebase-path wiring: the current cert must be passed into
+        // handleRenewResponse so the CN-mismatch safety net runs on this path too.
+        store.storeCertificate(REAL_CERT_TEST123)
+        store.storeSubdomain("test123")
+        val flow = createFlow(inspector = CertInspector())
+
+        mockServer.renewHandler = { _ ->
+            MockRenewResponse(
+                status = 200,
+                body = RenewResponse(
+                    serverCert = REAL_CERT_OTHER,
+                    clientCert = MockRelayServer.MOCK_CLIENT_CERT_PEM,
+                    relayCaCert = MockRelayServer.MOCK_RELAY_CA_PEM
+                )
+            )
+        }
+
+        val result = flow.renewWithFirebase(firebaseToken = "t", signature = "s")
+        assertTrue(result is RenewalResult.CnMismatch, "expected CnMismatch, got $result")
+        assertEquals("test123.rousecontext.com", result.expected)
+        assertEquals("other-cn.rousecontext.com", result.actual)
+    }
+
+    @Test
+    fun `expired current cert returns CertExpired with the real inspector`(): Unit = runBlocking {
+        store.storeCertificate(REAL_CERT_EXPIRED)
+        store.storeSubdomain("test123")
+        val flow = createFlow(inspector = CertInspector())
+
+        val result = flow.renewWithMtls(signature = "unused")
+        assertTrue(result is RenewalResult.CertExpired, "expected CertExpired, got $result")
+    }
+
     @Test
     fun `rate limited schedules retry`(): Unit = runBlocking {
         store.storeCertificate(MockRelayServer.MOCK_CERT_PEM)
@@ -418,5 +500,49 @@ class CertRenewalTest {
 
     private companion object {
         val lenientJson = Json { ignoreUnknownKeys = true }
+
+        // Real self-signed ECDSA P-256 certs (openssl) used to exercise the production
+        // CertInspector. Unlike the hand-built MockRelayServer PEMs, these parse via
+        // CertificateFactory so CN + expiry extraction is real (issue #495).
+
+        // CN=test123.rousecontext.com, valid until 2036-06-15.
+        const val REAL_CERT_TEST123 = """-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIUMZZKurrSJOfzTdyw1djx+MBhlhMwCgYIKoZIzj0EAwIw
+IzEhMB8GA1UEAwwYdGVzdDEyMy5yb3VzZWNvbnRleHQuY29tMB4XDTI2MDYxODE5
+NTgwOFoXDTM2MDYxNTE5NTgwOFowIzEhMB8GA1UEAwwYdGVzdDEyMy5yb3VzZWNv
+bnRleHQuY29tMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErYaEDbL/A/2zsnJD
+arWcJJPqvV6KZdqn+7Vj4UkgJihvNzUJ9CzfKevOg2+fc+5rvTUV+8MP7mVJiCW9
+gg1lvaNTMFEwHQYDVR0OBBYEFAhAgnv2Gl1r5H1Rg4spGlmmrLrEMB8GA1UdIwQY
+MBaAFAhAgnv2Gl1r5H1Rg4spGlmmrLrEMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZI
+zj0EAwIDSAAwRQIgALN5eRW0AqhfU/Qrk9UiYFxfGBY7pO6bis/aC/32By8CIQDj
+AgNLz8OO6pAjGBI6UOCPjMVrHxqo7nwHj+dSw0BT6A==
+-----END CERTIFICATE-----"""
+
+        // CN=other-cn.rousecontext.com, valid until 2036-06-15. Different subject CN
+        // than REAL_CERT_TEST123 to trigger the CN-mismatch safety net.
+        const val REAL_CERT_OTHER = """-----BEGIN CERTIFICATE-----
+MIIBnTCCAUOgAwIBAgIUO51XPyr4cBUmtS/NUQfLFQDXQZkwCgYIKoZIzj0EAwIw
+JDEiMCAGA1UEAwwZb3RoZXItY24ucm91c2Vjb250ZXh0LmNvbTAeFw0yNjA2MTgx
+OTU4MDhaFw0zNjA2MTUxOTU4MDhaMCQxIjAgBgNVBAMMGW90aGVyLWNuLnJvdXNl
+Y29udGV4dC5jb20wWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAATXmnFgOPwXF6Ds
+4JkhLZWQG5nxWh4ZFac48uS6lIGdSkPGJX9geC/yKUsAeH55KdzrHnu7IvMDUfqh
+BwIwTFbPo1MwUTAdBgNVHQ4EFgQUQtRk1OzPkFDxyKTjlWr1sEwQigQwHwYDVR0j
+BBgwFoAUQtRk1OzPkFDxyKTjlWr1sEwQigQwDwYDVR0TAQH/BAUwAwEB/zAKBggq
+hkjOPQQDAgNIADBFAiBeH3eUvuWUIxNH1wk3OFRGFfmudXSn7MMQfrHwYVh67QIh
+ALRZfL7MdyG1WYqTbWCLCfJrm4+Bfp0mebM5afDJo2uB
+-----END CERTIFICATE-----"""
+
+        // CN=test123.rousecontext.com, expired (2020-01-01 .. 2021-01-01).
+        const val REAL_CERT_EXPIRED = """-----BEGIN CERTIFICATE-----
+MIIBmzCCAUGgAwIBAgIUCj2Eei46jccndtKjced6sLBEHr0wCgYIKoZIzj0EAwIw
+IzEhMB8GA1UEAwwYdGVzdDEyMy5yb3VzZWNvbnRleHQuY29tMB4XDTIwMDEwMTAw
+MDAwMFoXDTIxMDEwMTAwMDAwMFowIzEhMB8GA1UEAwwYdGVzdDEyMy5yb3VzZWNv
+bnRleHQuY29tMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEy95XyDTAqJXo3swZ
+CgEoipmVqx4LmxQpHdWtfsKOtAe6tVXZukwjC/1JKMAC7OiWRPkp3X2GZiWCAkft
+RGvL+6NTMFEwHQYDVR0OBBYEFIgBC5XzzINobe/UBwXJTZ3SVmu3MB8GA1UdIwQY
+MBaAFIgBC5XzzINobe/UBwXJTZ3SVmu3MA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZI
+zj0EAwIDSAAwRQIhANcXWPuTCGFPopswAwEH6Ts7kHkl17QuUuu71Cz6wrz0AiAw
+0DZ+vyzoHioE5Rmi23+PUoNGu6o7dUvuym03n7FEQg==
+-----END CERTIFICATE-----"""
     }
 }

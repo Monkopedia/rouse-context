@@ -1,5 +1,10 @@
 package com.rousecontext.tunnel
 
+import java.io.ByteArrayInputStream
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
+import java.time.Instant
+import javax.naming.ldap.LdapName
 import kotlinx.coroutines.delay
 
 /**
@@ -145,6 +150,9 @@ class CertRenewalFlow(
     ): RenewalResult {
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate
+        // The current (typically expired) cert still carries a valid subject CN, so pass it
+        // into validation: the CN-mismatch safety net must fire on the expired-cert path too.
+        val currentCert = certificateStore.getCertificate()
 
         val csrResult = try {
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
@@ -163,7 +171,7 @@ class CertRenewalFlow(
                 firebaseToken = credentials.token,
                 signature = credentials.signature
             )
-            handleRenewResponse(result, null)
+            handleRenewResponse(result, currentCert)
         }
     }
 
@@ -183,6 +191,9 @@ class CertRenewalFlow(
     ): RenewalResult {
         val subdomain = certificateStore.getSubdomain()
             ?: return RenewalResult.NoCertificate
+        // The current (expired) cert still carries a valid subject CN; pass it into validation
+        // so the CN-mismatch safety net runs on both the keypair and Firebase fallback branches.
+        val currentCert = certificateStore.getCertificate()
 
         val csrResult = try {
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
@@ -199,7 +210,7 @@ class CertRenewalFlow(
                     csrSignature = keypair.csrSignature,
                     proof = keypair.proof
                 )
-                handleRenewResponse(result, null)
+                handleRenewResponse(result, currentCert)
             }
         }
 
@@ -213,7 +224,7 @@ class CertRenewalFlow(
                 firebaseToken = credentials.token,
                 signature = credentials.signature
             )
-            handleRenewResponse(result, null)
+            handleRenewResponse(result, currentCert)
         }
     }
 
@@ -309,10 +320,34 @@ sealed class RenewalResult {
 }
 
 /**
- * Inspects PEM certificate properties. Expect/actual or injectable for testing.
+ * Inspects PEM certificate properties (subject CN and expiry). `open` so tests can inject
+ * deterministic fakes.
+ *
+ * The default implementation parses the PEM with [CertificateFactory] into an
+ * [X509Certificate]. A malformed or unparseable input degrades safely to an empty [CertInfo]
+ * (null CN, not expired) rather than throwing inside the renewal flow — a parse failure must
+ * not abort a renewal nor be mistaken for an expiry/CN-mismatch signal.
  */
 open class CertInspector {
-    open fun inspect(pemCertificate: String): CertInfo = CertInfo()
+    open fun inspect(pemCertificate: String): CertInfo = try {
+        val cert = CertificateFactory.getInstance("X.509")
+            .generateCertificate(
+                ByteArrayInputStream(pemCertificate.toByteArray(Charsets.UTF_8))
+            ) as X509Certificate
+        CertInfo(
+            commonName = extractCommonName(cert),
+            isExpired = cert.notAfter.toInstant().isBefore(Instant.now())
+        )
+    } catch (_: Exception) {
+        CertInfo()
+    }
+
+    private fun extractCommonName(cert: X509Certificate): String? = runCatching {
+        LdapName(cert.subjectX500Principal.name).rdns
+            .firstOrNull { it.type.equals("CN", ignoreCase = true) }
+            ?.value
+            ?.toString()
+    }.getOrNull()
 }
 
 data class CertInfo(val commonName: String? = null, val isExpired: Boolean = false)
