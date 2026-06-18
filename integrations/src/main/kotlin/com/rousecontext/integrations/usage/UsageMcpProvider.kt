@@ -5,6 +5,7 @@ import android.app.usage.UsageStats
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.PackageManager
+import com.rousecontext.integrations.common.PeriodParser
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.tool.McpTool
 import com.rousecontext.mcp.tool.ToolResult
@@ -42,6 +43,15 @@ class UsageMcpProvider(private val context: Context) : McpServerProvider {
         internal const val MS_PER_MIN = 60_000L
 
         /**
+         * Shared `period` description with the usage-only `yesterday` extra.
+         * Documents the unified semantics (see [PeriodParser]) so calling
+         * agents know the zone and anchoring.
+         */
+        internal const val PERIOD_DESCRIPTION =
+            "today|yesterday|week|month - local time; week/month = last 7/30 days " +
+                "from the start of today; yesterday = the prior calendar day"
+
+        /**
          * Packages filtered out by default from usage events to reduce noise.
          * Includes Rouse Context itself and Android system intelligence services.
          */
@@ -68,7 +78,7 @@ internal class GetUsageSummaryTool(private val context: Context) : McpTool() {
     override val name = "get_usage_summary"
     override val description = "Screen time totals and top apps for a period."
 
-    val period by stringParam("period", "today|yesterday|week|month")
+    val period by stringParam("period", UsageMcpProvider.PERIOD_DESCRIPTION)
     val limit by intParam("limit", "Max apps (default 10)").optional()
 
     override suspend fun execute(): ToolResult {
@@ -110,7 +120,7 @@ internal class GetAppUsageTool(private val context: Context) : McpTool() {
     override val description = "Per-day usage for one app."
 
     val packageName by stringParam("package_name", "")
-    val period by stringParam("period", "today|yesterday|week|month")
+    val period by stringParam("period", UsageMcpProvider.PERIOD_DESCRIPTION)
 
     override suspend fun execute(): ToolResult {
         val pkg = packageName!!
@@ -148,8 +158,8 @@ internal class GetUsageEventsTool(private val context: Context) : McpTool() {
     override val name = "get_usage_events"
     override val description = "Raw app foreground/background events over a range."
 
-    val since by stringParam("since", "today|yesterday|week|month")
-    val until by stringParam("until", "today|yesterday|week|month")
+    val since by stringParam("since", "Range start - " + UsageMcpProvider.PERIOD_DESCRIPTION)
+    val until by stringParam("until", "Range end - " + UsageMcpProvider.PERIOD_DESCRIPTION)
     val packageFilter by stringParam("package", "").optional()
     val includeSystem by boolParam(
         "include_system",
@@ -183,8 +193,8 @@ internal class CompareUsageTool(private val context: Context) : McpTool() {
     override val name = "compare_usage"
     override val description = "Compare screen time between two periods; biggest deltas first."
 
-    val period1 by stringParam("period1", "today|yesterday|week|month")
-    val period2 by stringParam("period2", "today|yesterday|week|month")
+    val period1 by stringParam("period1", UsageMcpProvider.PERIOD_DESCRIPTION)
+    val period2 by stringParam("period2", UsageMcpProvider.PERIOD_DESCRIPTION)
     val limit by intParam("limit", "Max apps (default 10)").optional()
 
     override suspend fun execute(): ToolResult {
@@ -352,38 +362,28 @@ internal fun usageError(message: String): ToolResult =
 /**
  * Parse a period string into a start/end epoch millis pair.
  * Returns null for unrecognised values.
+ *
+ * `today`, `week`, and `month` delegate to the shared [PeriodParser] so all
+ * three MCP providers agree on zone (local) and anchoring (sliding window from
+ * the start of today). `yesterday` is a usage-only extra resolved here: the
+ * prior calendar day, `[start-of-yesterday, start-of-today]`.
  */
-internal fun parsePeriod(period: String): Pair<Long, Long>? {
-    val now = System.currentTimeMillis()
-    val cal = Calendar.getInstance(TimeZone.getDefault())
-
-    return when (period) {
-        "today" -> {
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            cal.timeInMillis to now
-        }
-        "yesterday" -> {
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            val todayMidnight = cal.timeInMillis
-            cal.add(Calendar.DAY_OF_YEAR, -1)
-            cal.timeInMillis to todayMidnight
-        }
-        "week" -> {
-            cal.add(Calendar.DAY_OF_YEAR, -7)
-            cal.timeInMillis to now
-        }
-        "month" -> {
-            cal.add(Calendar.DAY_OF_YEAR, -30)
-            cal.timeInMillis to now
-        }
-        else -> null
+internal fun parsePeriod(
+    period: String,
+    zone: ZoneId = ZoneId.systemDefault(),
+    now: Instant = Instant.now()
+): Pair<Long, Long>? {
+    if (period == "yesterday") {
+        // Stay in LocalDate arithmetic so the zone handles DST: the window is
+        // local-midnight to local-midnight, which is 23h on spring-forward days
+        // and 25h on fall-back days. Subtracting a flat 86_400s off an Instant
+        // would ignore DST and land an hour off (see #500 review).
+        val today = now.atZone(zone).toLocalDate()
+        val startOfYesterday = today.minusDays(1).atStartOfDay(zone).toInstant()
+        val startOfToday = today.atStartOfDay(zone).toInstant()
+        return startOfYesterday.toEpochMilli() to startOfToday.toEpochMilli()
     }
+    return PeriodParser.parse(period, zone, now)?.let { it.startMillis to it.endMillis }
 }
 
 // ---------- Event type mapping ----------

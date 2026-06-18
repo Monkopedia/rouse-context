@@ -1,6 +1,7 @@
 package com.rousecontext.integrations.notifications
 
 import android.service.notification.StatusBarNotification
+import com.rousecontext.integrations.common.PeriodParser
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.tool.McpTool
 import com.rousecontext.mcp.tool.ToolResult
@@ -10,7 +11,6 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.ChronoUnit
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -221,7 +221,10 @@ internal class GetNotificationStatsTool(private val dao: NotificationDao) : McpT
     override val name = "get_notification_stats"
     override val description = "Notification counts, top apps, and busiest hour for a period."
 
-    val period by stringParam("period", "today|week|month, default today").optional()
+    val period by stringParam(
+        "period",
+        PeriodParser.PERIOD_DESCRIPTION + " (default today)"
+    ).optional()
 
     override suspend fun execute(): ToolResult {
         val periodStr = period ?: "today"
@@ -317,14 +320,9 @@ private fun parseIsoToMillis(iso: String): Long = try {
 }
 
 private fun periodToRange(period: String): Pair<Long, Long> {
-    val now = Instant.now()
-    val zone = ZoneId.systemDefault()
-    val todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant()
-    val since = when (period) {
-        "today" -> todayStart
-        "week" -> todayStart.minus(7, ChronoUnit.DAYS)
-        "month" -> todayStart.minus(30, ChronoUnit.DAYS)
-        else -> todayStart
-    }
-    return since.toEpochMilli() to now.toEpochMilli()
+    // Delegate to the shared parser so all MCP providers agree on zone (local)
+    // and anchoring (sliding window from the start of today). Unknown values
+    // fall back to "today" (preserves prior behaviour).
+    val range = PeriodParser.parse(period) ?: PeriodParser.parse("today")!!
+    return range.startMillis to range.endMillis
 }

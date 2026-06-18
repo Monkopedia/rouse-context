@@ -23,6 +23,10 @@ class FakeHealthConnectRepository : HealthConnectRepository {
     /** Canned summary response. */
     var summaryResponse: JsonObject = JsonObject(emptyMap())
 
+    /** Captures the `from`/`to` passed to the most recent [getSummary] call. */
+    var lastSummaryFrom: Instant? = null
+    var lastSummaryTo: Instant? = null
+
     /** When non-null, all methods throw this exception. */
     var shouldThrow: Exception? = null
 
@@ -49,6 +53,8 @@ class FakeHealthConnectRepository : HealthConnectRepository {
 
     override suspend fun getSummary(from: Instant, to: Instant): JsonObject {
         shouldThrow?.let { throw it }
+        lastSummaryFrom = from
+        lastSummaryTo = to
         return summaryResponse
     }
 }

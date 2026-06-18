@@ -1,11 +1,11 @@
 package com.rousecontext.integrations.health
 
+import com.rousecontext.integrations.common.PeriodParser
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.tool.McpTool
 import com.rousecontext.mcp.tool.ToolResult
 import com.rousecontext.mcp.tool.registerTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -39,9 +39,6 @@ class HealthConnectMcpServer(private val repository: HealthConnectRepository) : 
     }
 
     companion object {
-        internal const val DAYS_IN_WEEK = 7L
-        internal const val DAYS_IN_MONTH = 30L
-
         /**
          * Parses an ISO 8601 datetime or date-only string to [Instant].
          * Returns null if parsing fails.
@@ -135,20 +132,17 @@ internal class GetHealthSummaryTool(private val repository: HealthConnectReposit
     override val name = "get_health_summary"
     override val description = "Health summary across permitted types for a period."
 
-    val period by stringParam("period", "today|week|month")
+    val period by stringParam("period", PeriodParser.PERIOD_DESCRIPTION)
 
     override suspend fun execute(): ToolResult {
-        val now = Instant.now()
-        val from = when (period) {
-            "today" -> LocalDate.now().atStartOfDay().toInstant(ZoneOffset.UTC)
-            "week" -> now.minus(Duration.ofDays(HealthConnectMcpServer.DAYS_IN_WEEK))
-            "month" -> now.minus(Duration.ofDays(HealthConnectMcpServer.DAYS_IN_MONTH))
-            else -> return ToolResult.Error(
+        // Delegate to the shared parser so all MCP providers agree on zone
+        // (local) and anchoring (sliding window from the start of today).
+        val range = PeriodParser.parse(period!!)
+            ?: return ToolResult.Error(
                 "Invalid period: $period. Must be today, week, or month."
             )
-        }
 
-        val summary = repository.getSummary(from, now)
+        val summary = repository.getSummary(range.start, range.end)
         return ToolResult.Success(Json.encodeToString(summary))
     }
 }
