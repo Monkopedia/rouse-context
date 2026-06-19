@@ -59,7 +59,17 @@ import org.junit.jupiter.api.Timeout
  */
 @Suppress("LargeClass")
 @Tag("integration")
-@Timeout(value = 180, unit = TimeUnit.SECONDS)
+// SEPARATE_THREAD makes the class timeout a real hard ceiling that abandons a
+// thread blocked in `Socket.read()` and FAILS FAST, instead of the default
+// SAME_THREAD mode which can never interrupt a blocked read (#499 hang). The
+// per-scenario connection-drop probes keep their own short, deliberately tight
+// soTimeouts (paired with an outer `withTimeout`) -- only the relay-routed
+// handshake helpers below adopt the generous shared read timeout.
+@Timeout(
+    value = 180,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class EndToEndSessionTest {
 
     companion object {
@@ -1097,7 +1107,7 @@ class EndToEndSessionTest {
             relayPort
         ) as SSLSocket
 
-        socket.soTimeout = 10_000
+        IntegrationHttpSupport.applyReadTimeout(socket)
         val params = socket.sslParameters
         params.serverNames = listOf(javax.net.ssl.SNIHostName(CLIENT_SNI))
         socket.sslParameters = params
@@ -1111,7 +1121,7 @@ class EndToEndSessionTest {
      */
     private fun connectRawAiClient(subdomain: String = DEVICE_SUBDOMAIN): java.net.Socket {
         val socket = java.net.Socket("127.0.0.1", relayPort)
-        socket.soTimeout = 10_000
+        IntegrationHttpSupport.applyReadTimeout(socket)
 
         val sniHost = "$INTEGRATION_SECRET.$subdomain.$RELAY_HOSTNAME"
         val clientHello = buildSyntheticClientHello(sniHost)
