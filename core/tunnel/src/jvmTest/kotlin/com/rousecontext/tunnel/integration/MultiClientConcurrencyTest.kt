@@ -39,6 +39,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -107,6 +108,24 @@ class MultiClientConcurrencyTest {
 
     private val backgroundScope = CoroutineScope(Dispatchers.IO)
 
+    /**
+     * Deterministic readiness signals between the device-side session collector
+     * (running on [backgroundScope]) and the test coroutine. Each AI-client TLS
+     * connection maps 1:1 to a device mux stream: the collector emits on
+     * [deviceSessionOpened] the instant the relay surfaces the stream on
+     * [TunnelClientImpl.incomingSessions], and on [deviceSessionClosed] when
+     * that stream's handler returns (the AI client closed and the relay
+     * propagated the CLOSE).
+     *
+     * The test awaits these *actual* lifecycle events instead of racing fixed
+     * `delay(...)`s, so it can neither flake-timeout (each wait tracks a real
+     * event, not a wall clock) nor wedge (each await is bounded). See #501.
+     * Unlimited capacity so the collector never blocks on a send the test
+     * hasn't reached yet.
+     */
+    private val deviceSessionOpened = Channel<Unit>(Channel.UNLIMITED)
+    private val deviceSessionClosed = Channel<Unit>(Channel.UNLIMITED)
+
     @BeforeAll
     fun setUp() = runBlocking {
         val relayBinary = findRelayBinary()
@@ -147,8 +166,19 @@ class MultiClientConcurrencyTest {
         tunnelClient = createTunnelClient()
         backgroundScope.launch {
             tunnelClient.incomingSessions.collect { stream ->
+                // Signal BEFORE launching the handler: the AI-client TLS
+                // handshake only completes once `handleDeviceSession` reaches
+                // its TLS accept, so emitting here lets the test confirm the
+                // stream surfaced without racing handler startup (#501).
+                deviceSessionOpened.trySend(Unit)
                 launch(Dispatchers.IO) {
-                    handleDeviceSession(stream, registry, tokenStore)
+                    try {
+                        handleDeviceSession(stream, registry, tokenStore)
+                    } finally {
+                        // Handler returned => the AI client closed and the
+                        // relay propagated the CLOSE for this stream.
+                        deviceSessionClosed.trySend(Unit)
+                    }
                 }
             }
         }
@@ -176,14 +206,23 @@ class MultiClientConcurrencyTest {
 
     @Test
     @Suppress("LongMethod")
+    // Preemptive hard ceiling: a method-level `SEPARATE_THREAD` timeout
+    // *interrupts and abandons* a wedged run, unlike the class-level default
+    // (`SAME_THREAD`), which only checks elapsed time AFTER the test returns
+    // and so never unsticks a thread blocked in a socket `read()`. This is the
+    // fail-fast guard that turns the #501 35-minute CI hang into a ~2-minute
+    // failure. With the deterministic waits below the test runs in well under
+    // a minute; this ceiling only fires if something genuinely wedges.
+    @Timeout(value = 120, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     fun `two concurrent clients with independent disconnect and third client`() = runBlocking {
         // --- Phase 1: open two concurrent AI clients ---
         val client1 = withTimeout(15_000) { openAiClient() }
-        // Small delay so the relay/mux fully registers the first stream
-        delay(500)
+        // Deterministic: wait until the device side has surfaced client 1's
+        // stream before opening client 2, instead of a fixed delay (#501).
+        withTimeout(15_000) { deviceSessionOpened.receive() }
         val client2 = withTimeout(15_000) { openAiClient() }
-        // Allow device-side session handlers to spin up
-        delay(500)
+        // Deterministic: wait until client 2's stream surfaced on the device.
+        withTimeout(15_000) { deviceSessionOpened.receive() }
 
         // Full OAuth + MCP initialize on both, sequentially to avoid
         // BufferedReader interleaving issues (each client has its own
@@ -216,8 +255,11 @@ class MultiClientConcurrencyTest {
         // --- Phase 3: close client 1, verify client 2 still works ---
         client1.socket.close()
 
-        // Give the relay/mux layer time to propagate the CLOSE frame
-        delay(1_000)
+        // Deterministic: wait until the device-side handler for client 1's
+        // stream actually returns (the relay propagated the CLOSE), instead of
+        // guessing a propagation delay (#501). Only client 1 closed, so exactly
+        // one close signal is in flight here.
+        withTimeout(15_000) { deviceSessionClosed.receive() }
 
         // Client 2 should still be usable
         val echo2After = callEcho(client2, session2, "still-alive")
@@ -232,6 +274,8 @@ class MultiClientConcurrencyTest {
 
         // --- Phase 4: open a third client on the same tunnel ---
         val client3 = withTimeout(15_000) { openAiClient() }
+        // Deterministic: confirm client 3's stream surfaced on the device.
+        withTimeout(15_000) { deviceSessionOpened.receive() }
         val session3 = withTimeout(30_000) { performOAuthAndInitialize(client3, "client-3") }
 
         assertNotNull(session3.mcpSessionId, "Client 3 should have an Mcp-Session-Id")
@@ -265,7 +309,18 @@ class MultiClientConcurrencyTest {
         client2.socket.close()
         client3.socket.close()
 
-        // Wait for CLOSE propagation
+        // Deterministic: wait for both device-side handlers to return before
+        // asserting the tunnel state, instead of a fixed propagation delay
+        // (#501). Two streams remained open (clients 2 and 3), so two close
+        // signals are expected.
+        withTimeout(15_000) {
+            deviceSessionClosed.receive()
+            deviceSessionClosed.receive()
+        }
+
+        // The TunnelState transition lags the handler return by the time it
+        // takes the mux layer to drop the last stream; poll the real state
+        // with a bounded ceiling rather than asserting immediately.
         withTimeout(5_000) {
             while (tunnelClient.state.value == TunnelState.ACTIVE) {
                 delay(100)
