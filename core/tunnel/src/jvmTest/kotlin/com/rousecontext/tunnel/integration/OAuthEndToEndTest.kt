@@ -63,15 +63,15 @@ import org.junit.jupiter.api.Timeout
  */
 @Suppress("LargeClass")
 @Tag("integration")
-// SEPARATE_THREAD makes the class timeout a real hard ceiling that abandons a
-// thread blocked in `Socket.read()` and FAILS FAST, instead of the default
-// SAME_THREAD mode which can never interrupt a blocked read (#499 hang). Covers
-// every @Test and the @BeforeEach relay setup. See `IntegrationHttpSupport`.
-@Timeout(
-    value = 180,
-    unit = TimeUnit.SECONDS,
-    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
-)
+// Fail-fast is provided by the GENEROUS socket read timeout
+// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`): every blocking read is
+// bounded, so a stuck round trip raises `SocketTimeoutException` in ~60s instead
+// of hanging the CI job, while a slow-but-progressing run never trips it. The
+// default SAME_THREAD timeout mode is kept deliberately -- a SEPARATE_THREAD
+// per-method timeout makes the test's long-lived background-coroutine logging
+// race Gradle's per-test output store and corrupt it ("Could not write XML test
+// results ... EOFException"). See `IntegrationHttpSupport` (#501, #504).
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class OAuthEndToEndTest {
 
     companion object {

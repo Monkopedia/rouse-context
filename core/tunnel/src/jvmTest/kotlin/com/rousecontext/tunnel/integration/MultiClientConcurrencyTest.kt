@@ -70,13 +70,12 @@ import org.junit.jupiter.api.Timeout
 @Suppress("LargeClass")
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-// SEPARATE_THREAD so the class ceiling also covers the @BeforeAll relay setup
-// and fails fast on a blocked read (the per-method ceiling below is tighter).
-@Timeout(
-    value = 180,
-    unit = TimeUnit.SECONDS,
-    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
-)
+// Class ceiling stays in the default SAME_THREAD mode (a class-level
+// SEPARATE_THREAD timeout makes background-coroutine logging race Gradle's
+// per-test output store and corrupt it). The single test method below carries
+// its own method-level SEPARATE_THREAD ceiling (#504); generous socket read
+// timeouts (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`) bound every read.
+@Timeout(value = 180, unit = TimeUnit.SECONDS)
 class MultiClientConcurrencyTest {
 
     companion object {

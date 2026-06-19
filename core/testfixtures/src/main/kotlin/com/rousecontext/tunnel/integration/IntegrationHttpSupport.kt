@@ -20,29 +20,35 @@ import java.net.Socket
  * "Integration tests (relay)" job on unrelated changes (#498, #499, #501,
  * #504).
  *
- * The de-flake has two halves, applied consistently across the suite:
+ * The de-flake centres on a single GENEROUS socket read timeout
+ * ([SOCKET_READ_TIMEOUT_MS]) shared by every test:
  *
- *  1. A GENEROUS socket read timeout ([SOCKET_READ_TIMEOUT_MS]) so a
- *     slow-but-progressing CI run never trips the per-read timer mid-exchange.
- *  2. A class-level `@Timeout(..., threadMode = SEPARATE_THREAD)` on each
- *     integration test as the real hard ceiling: a genuinely stuck read is
- *     abandoned and the test FAILS FAST instead of hanging the job for the
- *     full (default `SAME_THREAD`) class timeout, which can never interrupt a
- *     thread blocked in `Socket.read()` (the #499 ~35-minute hang).
+ *  - A slow-but-progressing CI run never trips the per-read timer mid-exchange
+ *    (the 5-30s timeouts it replaces were the source of the flake).
+ *  - A genuinely stuck round trip still FAILS FAST: every blocking read is
+ *    bounded, so a silent socket raises `SocketTimeoutException` in ~60s rather
+ *    than wedging the job for the full class timeout (cf. the #499 ~35-minute
+ *    hang, which a default `SAME_THREAD` class `@Timeout` could not interrupt).
  *
- * The read timeout is intentionally NOT the failure mechanism for hangs -- it
- * only guards against a permanently silent socket. The separate-thread test
- * timeout is what bounds wall-clock time, so a slow-but-progressing run
- * completes while a truly stuck one fails fast.
+ * Note we deliberately do NOT lean on a class-level
+ * `@Timeout(threadMode = SEPARATE_THREAD)` as the hard ceiling here: these
+ * tests run long-lived background coroutines (device-session collectors) whose
+ * logging spans the whole class, and a per-method separate-thread timeout makes
+ * that background output race Gradle's per-test output store and corrupt it
+ * ("Could not write XML test results ... EOFException / Kryo buffer underflow").
+ * The bounded read timeout gives the same fail-fast guarantee without that
+ * Gradle interaction. (`MultiClientConcurrencyTest` keeps a method-level
+ * separate-thread ceiling on its single test, where the interaction does not
+ * arise -- see #504.)
  */
 object IntegrationHttpSupport {
 
     /**
      * Generous per-socket read timeout (ms). Large enough that normal CI
      * slowness in the relay/device round trip never trips it mid-exchange,
-     * while still preventing a permanently dead socket from blocking forever.
-     * The class-level `SEPARATE_THREAD` test timeout is the real fail-fast
-     * ceiling.
+     * while still bounding a permanently dead socket: a stuck read raises
+     * `SocketTimeoutException` within this window, so the test fails fast
+     * instead of hanging the CI job.
      */
     const val SOCKET_READ_TIMEOUT_MS = 60_000
 
