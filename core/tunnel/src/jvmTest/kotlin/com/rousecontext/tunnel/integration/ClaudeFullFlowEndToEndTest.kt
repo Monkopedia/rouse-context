@@ -19,9 +19,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -80,6 +78,17 @@ import org.junit.jupiter.api.Timeout
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
+// Fail-fast is provided by the GENEROUS socket read timeout
+// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`): every blocking read is
+// bounded, so a stuck relay round trip raises `SocketTimeoutException` in ~60s
+// rather than hanging the CI job, while a slow-but-progressing CI run never
+// trips it. This class deliberately keeps the default SAME_THREAD timeout mode:
+// its `@BeforeAll` launches a long-lived background coroutine (the device-
+// session collector) whose logging spans all eight ordered tests, and a
+// SEPARATE_THREAD per-method timeout makes that background output race Gradle's
+// per-test output store, corrupting it intermittently ("Could not write XML
+// test results ... EOFException / Kryo buffer underflow"). See
+// `IntegrationHttpSupport` (#501, #504).
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class ClaudeFullFlowEndToEndTest {
 
@@ -696,7 +705,7 @@ class ClaudeFullFlowEndToEndTest {
             "127.0.0.1",
             relayPort
         ) as SSLSocket
-        socket.soTimeout = 30_000
+        IntegrationHttpSupport.applyReadTimeout(socket)
         val params = socket.sslParameters
         params.serverNames = listOf(javax.net.ssl.SNIHostName(INTEGRATION_HOST))
         socket.sslParameters = params
@@ -708,12 +717,6 @@ class ClaudeFullFlowEndToEndTest {
     // HTTP helpers
     // =====================================================================
 
-    private data class HttpResponse(
-        val statusCode: Int,
-        val headers: Map<String, String>,
-        val body: String
-    )
-
     @Suppress("LongParameterList")
     private fun httpRequest(
         input: java.io.InputStream,
@@ -723,13 +726,13 @@ class ClaudeFullFlowEndToEndTest {
         body: String? = null,
         bearerToken: String? = null,
         contentType: String = "application/json"
-    ): HttpResponse {
+    ): IntegrationHttpSupport.HttpResponse {
         val sb = StringBuilder()
         sb.append("$method $path HTTP/1.1\r\n")
         sb.append("Host: $INTEGRATION_HOST\r\n")
 
-        if (body != null) {
-            val bodyBytes = body.toByteArray(Charsets.UTF_8)
+        val bodyBytes = body?.toByteArray(Charsets.UTF_8)
+        if (bodyBytes != null) {
             sb.append("Content-Type: $contentType\r\n")
             sb.append("Content-Length: ${bodyBytes.size}\r\n")
         }
@@ -742,79 +745,7 @@ class ClaudeFullFlowEndToEndTest {
         }
         sb.append("\r\n")
 
-        output.write(sb.toString().toByteArray(Charsets.UTF_8))
-        if (body != null) {
-            output.write(body.toByteArray(Charsets.UTF_8))
-        }
-        output.flush()
-
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
-        val statusLine = reader.readLine() ?: error("No status line received")
-        assertTrue(
-            statusLine.startsWith("HTTP/1.1"),
-            "Expected HTTP response, got: $statusLine"
-        )
-        val statusCode = statusLine.split(" ")[1].toInt()
-
-        val headers = mutableMapOf<String, String>()
-        var contentLength = -1
-        var chunked = false
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (line.isEmpty()) break
-            val lower = line.lowercase()
-            val colonIdx = line.indexOf(':')
-            if (colonIdx > 0) {
-                headers[line.substring(0, colonIdx).lowercase()] =
-                    line.substring(colonIdx + 1).trim()
-            }
-            if (lower.startsWith("content-length:")) {
-                contentLength = lower.substringAfter(":").trim().toInt()
-            }
-            if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
-                chunked = true
-            }
-        }
-
-        val responseBody = when {
-            contentLength > 0 -> {
-                val buf = CharArray(contentLength)
-                var read = 0
-                while (read < contentLength) {
-                    val n = reader.read(buf, read, contentLength - read)
-                    if (n == -1) break
-                    read += n
-                }
-                String(buf, 0, read)
-            }
-            chunked -> readChunkedBody(reader)
-            contentLength == 0 -> ""
-            else -> ""
-        }
-
-        return HttpResponse(statusCode, headers, responseBody)
-    }
-
-    private fun readChunkedBody(reader: BufferedReader): String {
-        val sb = StringBuilder()
-        while (true) {
-            val sizeLine = reader.readLine() ?: break
-            val chunkSize = sizeLine.trim().toInt(16)
-            if (chunkSize == 0) {
-                reader.readLine() // trailing CRLF
-                break
-            }
-            val buf = CharArray(chunkSize)
-            var read = 0
-            while (read < chunkSize) {
-                val n = reader.read(buf, read, chunkSize - read)
-                if (n == -1) break
-                read += n
-            }
-            sb.append(buf, 0, read)
-            reader.readLine() // chunk trailing CRLF
-        }
-        return sb.toString()
+        return IntegrationHttpSupport.exchange(input, output, sb.toString(), bodyBytes)
     }
 
     // =====================================================================

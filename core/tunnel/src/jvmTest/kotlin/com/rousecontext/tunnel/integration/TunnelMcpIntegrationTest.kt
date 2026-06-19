@@ -20,9 +20,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import java.io.BufferedReader
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
@@ -54,6 +52,14 @@ import org.junit.jupiter.api.Timeout
  * Tests IDs 97-99 from overall.md.
  */
 @Tag("integration")
+// Fail-fast is provided by the GENEROUS socket read timeout
+// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`): every blocking read is
+// bounded, so a stuck round trip surfaces in ~60s instead of hanging the CI job,
+// while a slow-but-progressing run never trips it. The default SAME_THREAD
+// timeout mode is kept deliberately -- a SEPARATE_THREAD per-method timeout
+// makes the test's background-coroutine logging race Gradle's per-test output
+// store and corrupt it ("Could not write XML test results ... EOFException").
+// See `IntegrationHttpSupport` (#501, #504).
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class TunnelMcpIntegrationTest {
 
@@ -263,69 +269,8 @@ class TunnelMcpIntegrationTest {
         }
         sb.append("\r\n")
 
-        output.write(sb.toString().toByteArray(Charsets.UTF_8))
-        output.write(bodyBytes)
-        output.flush()
-
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
-        val statusLine = reader.readLine() ?: error("No status line received")
-        assertTrue(statusLine.startsWith("HTTP/1.1"), "Expected HTTP response, got: $statusLine")
-
-        var contentLength = -1
-        var chunked = false
-        var mcpSessionId: String? = null
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (line.isEmpty()) break
-            val lower = line.lowercase()
-            if (lower.startsWith("content-length:")) {
-                contentLength = lower.substringAfter(":").trim().toInt()
-            }
-            if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
-                chunked = true
-            }
-            if (lower.startsWith("mcp-session-id:")) {
-                mcpSessionId = line.substringAfter(":").trim()
-            }
-        }
-
-        val responseBody = if (contentLength > 0) {
-            val buf = CharArray(contentLength)
-            var read = 0
-            while (read < contentLength) {
-                val n = reader.read(buf, read, contentLength - read)
-                if (n == -1) break
-                read += n
-            }
-            String(buf, 0, read)
-        } else if (chunked) {
-            readChunkedBody(reader)
-        } else {
-            ""
-        }
-        return HttpResult(responseBody, mcpSessionId)
-    }
-
-    private fun readChunkedBody(reader: BufferedReader): String {
-        val sb = StringBuilder()
-        while (true) {
-            val sizeLine = reader.readLine() ?: break
-            val chunkSize = sizeLine.trim().toInt(16)
-            if (chunkSize == 0) {
-                reader.readLine()
-                break
-            }
-            val buf = CharArray(chunkSize)
-            var read = 0
-            while (read < chunkSize) {
-                val n = reader.read(buf, read, chunkSize - read)
-                if (n == -1) break
-                read += n
-            }
-            sb.append(buf, 0, read)
-            reader.readLine()
-        }
-        return sb.toString()
+        val response = IntegrationHttpSupport.exchange(input, output, sb.toString(), bodyBytes)
+        return HttpResult(response.body, response.headers["mcp-session-id"])
     }
 
     private fun mcpJsonRpc(method: String, params: String? = null, id: Int = 1): String {

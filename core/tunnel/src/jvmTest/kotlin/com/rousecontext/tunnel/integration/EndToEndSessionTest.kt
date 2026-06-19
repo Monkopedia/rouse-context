@@ -59,6 +59,14 @@ import org.junit.jupiter.api.Timeout
  */
 @Suppress("LargeClass")
 @Tag("integration")
+// Fail-fast is provided by the GENEROUS socket read timeout
+// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`) on the relay-routed handshake
+// helpers, plus the per-scenario connection-drop probes which keep their own
+// short, deliberately tight soTimeouts (paired with an outer `withTimeout`). The
+// default SAME_THREAD timeout mode is kept deliberately -- a SEPARATE_THREAD
+// per-method timeout makes background-coroutine logging race Gradle's per-test
+// output store and corrupt it ("Could not write XML test results ...
+// EOFException"). See `IntegrationHttpSupport` (#501, #504).
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class EndToEndSessionTest {
 
@@ -1097,7 +1105,7 @@ class EndToEndSessionTest {
             relayPort
         ) as SSLSocket
 
-        socket.soTimeout = 10_000
+        IntegrationHttpSupport.applyReadTimeout(socket)
         val params = socket.sslParameters
         params.serverNames = listOf(javax.net.ssl.SNIHostName(CLIENT_SNI))
         socket.sslParameters = params
@@ -1111,7 +1119,7 @@ class EndToEndSessionTest {
      */
     private fun connectRawAiClient(subdomain: String = DEVICE_SUBDOMAIN): java.net.Socket {
         val socket = java.net.Socket("127.0.0.1", relayPort)
-        socket.soTimeout = 10_000
+        IntegrationHttpSupport.applyReadTimeout(socket)
 
         val sniHost = "$INTEGRATION_SECRET.$subdomain.$RELAY_HOSTNAME"
         val clientHello = buildSyntheticClientHello(sniHost)

@@ -20,9 +20,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -39,6 +37,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -71,6 +70,11 @@ import org.junit.jupiter.api.Timeout
 @Suppress("LargeClass")
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+// Class ceiling stays in the default SAME_THREAD mode (a class-level
+// SEPARATE_THREAD timeout makes background-coroutine logging race Gradle's
+// per-test output store and corrupt it). The single test method below carries
+// its own method-level SEPARATE_THREAD ceiling (#504); generous socket read
+// timeouts (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`) bound every read.
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class MultiClientConcurrencyTest {
 
@@ -106,6 +110,24 @@ class MultiClientConcurrencyTest {
     private lateinit var tunnelClient: TunnelClientImpl
 
     private val backgroundScope = CoroutineScope(Dispatchers.IO)
+
+    /**
+     * Deterministic readiness signals between the device-side session collector
+     * (running on [backgroundScope]) and the test coroutine. Each AI-client TLS
+     * connection maps 1:1 to a device mux stream: the collector emits on
+     * [deviceSessionOpened] the instant the relay surfaces the stream on
+     * [TunnelClientImpl.incomingSessions], and on [deviceSessionClosed] when
+     * that stream's handler returns (the AI client closed and the relay
+     * propagated the CLOSE).
+     *
+     * The test awaits these *actual* lifecycle events instead of racing fixed
+     * `delay(...)`s, so it can neither flake-timeout (each wait tracks a real
+     * event, not a wall clock) nor wedge (each await is bounded). See #501.
+     * Unlimited capacity so the collector never blocks on a send the test
+     * hasn't reached yet.
+     */
+    private val deviceSessionOpened = Channel<Unit>(Channel.UNLIMITED)
+    private val deviceSessionClosed = Channel<Unit>(Channel.UNLIMITED)
 
     @BeforeAll
     fun setUp() = runBlocking {
@@ -147,8 +169,19 @@ class MultiClientConcurrencyTest {
         tunnelClient = createTunnelClient()
         backgroundScope.launch {
             tunnelClient.incomingSessions.collect { stream ->
+                // Signal BEFORE launching the handler: the AI-client TLS
+                // handshake only completes once `handleDeviceSession` reaches
+                // its TLS accept, so emitting here lets the test confirm the
+                // stream surfaced without racing handler startup (#501).
+                deviceSessionOpened.trySend(Unit)
                 launch(Dispatchers.IO) {
-                    handleDeviceSession(stream, registry, tokenStore)
+                    try {
+                        handleDeviceSession(stream, registry, tokenStore)
+                    } finally {
+                        // Handler returned => the AI client closed and the
+                        // relay propagated the CLOSE for this stream.
+                        deviceSessionClosed.trySend(Unit)
+                    }
                 }
             }
         }
@@ -176,14 +209,23 @@ class MultiClientConcurrencyTest {
 
     @Test
     @Suppress("LongMethod")
+    // Preemptive hard ceiling: a method-level `SEPARATE_THREAD` timeout
+    // *interrupts and abandons* a wedged run, unlike the class-level default
+    // (`SAME_THREAD`), which only checks elapsed time AFTER the test returns
+    // and so never unsticks a thread blocked in a socket `read()`. This is the
+    // fail-fast guard that turns the #501 35-minute CI hang into a ~2-minute
+    // failure. With the deterministic waits below the test runs in well under
+    // a minute; this ceiling only fires if something genuinely wedges.
+    @Timeout(value = 120, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     fun `two concurrent clients with independent disconnect and third client`() = runBlocking {
         // --- Phase 1: open two concurrent AI clients ---
         val client1 = withTimeout(15_000) { openAiClient() }
-        // Small delay so the relay/mux fully registers the first stream
-        delay(500)
+        // Deterministic: wait until the device side has surfaced client 1's
+        // stream before opening client 2, instead of a fixed delay (#501).
+        withTimeout(15_000) { deviceSessionOpened.receive() }
         val client2 = withTimeout(15_000) { openAiClient() }
-        // Allow device-side session handlers to spin up
-        delay(500)
+        // Deterministic: wait until client 2's stream surfaced on the device.
+        withTimeout(15_000) { deviceSessionOpened.receive() }
 
         // Full OAuth + MCP initialize on both, sequentially to avoid
         // BufferedReader interleaving issues (each client has its own
@@ -216,8 +258,11 @@ class MultiClientConcurrencyTest {
         // --- Phase 3: close client 1, verify client 2 still works ---
         client1.socket.close()
 
-        // Give the relay/mux layer time to propagate the CLOSE frame
-        delay(1_000)
+        // Deterministic: wait until the device-side handler for client 1's
+        // stream actually returns (the relay propagated the CLOSE), instead of
+        // guessing a propagation delay (#501). Only client 1 closed, so exactly
+        // one close signal is in flight here.
+        withTimeout(15_000) { deviceSessionClosed.receive() }
 
         // Client 2 should still be usable
         val echo2After = callEcho(client2, session2, "still-alive")
@@ -232,6 +277,8 @@ class MultiClientConcurrencyTest {
 
         // --- Phase 4: open a third client on the same tunnel ---
         val client3 = withTimeout(15_000) { openAiClient() }
+        // Deterministic: confirm client 3's stream surfaced on the device.
+        withTimeout(15_000) { deviceSessionOpened.receive() }
         val session3 = withTimeout(30_000) { performOAuthAndInitialize(client3, "client-3") }
 
         assertNotNull(session3.mcpSessionId, "Client 3 should have an Mcp-Session-Id")
@@ -265,7 +312,18 @@ class MultiClientConcurrencyTest {
         client2.socket.close()
         client3.socket.close()
 
-        // Wait for CLOSE propagation
+        // Deterministic: wait for both device-side handlers to return before
+        // asserting the tunnel state, instead of a fixed propagation delay
+        // (#501). Two streams remained open (clients 2 and 3), so two close
+        // signals are expected.
+        withTimeout(15_000) {
+            deviceSessionClosed.receive()
+            deviceSessionClosed.receive()
+        }
+
+        // The TunnelState transition lags the handler return by the time it
+        // takes the mux layer to drop the last stream; poll the real state
+        // with a bounded ceiling rather than asserting immediately.
         withTimeout(5_000) {
             while (tunnelClient.state.value == TunnelState.ACTIVE) {
                 delay(100)
@@ -588,7 +646,7 @@ class MultiClientConcurrencyTest {
             "127.0.0.1",
             relayPort
         ) as SSLSocket
-        socket.soTimeout = 30_000
+        IntegrationHttpSupport.applyReadTimeout(socket)
         val params = socket.sslParameters
         params.serverNames = listOf(javax.net.ssl.SNIHostName(INTEGRATION_HOST))
         socket.sslParameters = params
@@ -600,22 +658,11 @@ class MultiClientConcurrencyTest {
     // HTTP helpers
     // =====================================================================
 
-    private data class HttpResponse(
-        val statusCode: Int,
-        val headers: Map<String, String>,
-        val body: String
-    )
-
     private var requestIdCounter = 100
 
     private fun nextId(): Int = ++requestIdCounter
 
-    @Suppress(
-        "LongParameterList",
-        "LongMethod",
-        "CyclomaticComplexMethod",
-        "LoopWithTooManyJumpStatements"
-    )
+    @Suppress("LongParameterList")
     private fun httpRequest(
         input: java.io.InputStream,
         output: java.io.OutputStream,
@@ -625,13 +672,13 @@ class MultiClientConcurrencyTest {
         bearerToken: String? = null,
         contentType: String = "application/json",
         mcpSessionId: String? = null
-    ): HttpResponse {
+    ): IntegrationHttpSupport.HttpResponse {
         val sb = StringBuilder()
         sb.append("$method $path HTTP/1.1\r\n")
         sb.append("Host: $INTEGRATION_HOST\r\n")
 
-        if (body != null) {
-            val bodyBytes = body.toByteArray(Charsets.UTF_8)
+        val bodyBytes = body?.toByteArray(Charsets.UTF_8)
+        if (bodyBytes != null) {
             sb.append("Content-Type: $contentType\r\n")
             sb.append("Content-Length: ${bodyBytes.size}\r\n")
         }
@@ -644,80 +691,7 @@ class MultiClientConcurrencyTest {
         }
         sb.append("\r\n")
 
-        output.write(sb.toString().toByteArray(Charsets.UTF_8))
-        if (body != null) {
-            output.write(body.toByteArray(Charsets.UTF_8))
-        }
-        output.flush()
-
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
-        val statusLine = reader.readLine() ?: error("No status line received")
-        assertTrue(
-            statusLine.startsWith("HTTP/1.1"),
-            "Expected HTTP response, got: $statusLine"
-        )
-        val statusCode = statusLine.split(" ")[1].toInt()
-
-        val headers = mutableMapOf<String, String>()
-        var contentLength = -1
-        var chunked = false
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (line.isEmpty()) break
-            val lower = line.lowercase()
-            val colonIdx = line.indexOf(':')
-            if (colonIdx > 0) {
-                headers[line.substring(0, colonIdx).lowercase()] =
-                    line.substring(colonIdx + 1).trim()
-            }
-            if (lower.startsWith("content-length:")) {
-                contentLength = lower.substringAfter(":").trim().toInt()
-            }
-            if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
-                chunked = true
-            }
-        }
-
-        val responseBody = when {
-            contentLength > 0 -> {
-                val buf = CharArray(contentLength)
-                var read = 0
-                while (read < contentLength) {
-                    val n = reader.read(buf, read, contentLength - read)
-                    if (n == -1) break
-                    read += n
-                }
-                String(buf, 0, read)
-            }
-            chunked -> readChunkedBody(reader)
-            contentLength == 0 -> ""
-            else -> ""
-        }
-
-        return HttpResponse(statusCode, headers, responseBody)
-    }
-
-    @Suppress("LoopWithTooManyJumpStatements")
-    private fun readChunkedBody(reader: BufferedReader): String {
-        val sb = StringBuilder()
-        while (true) {
-            val sizeLine = reader.readLine() ?: break
-            val chunkSize = sizeLine.trim().toInt(16)
-            if (chunkSize == 0) {
-                reader.readLine()
-                break
-            }
-            val buf = CharArray(chunkSize)
-            var read = 0
-            while (read < chunkSize) {
-                val n = reader.read(buf, read, chunkSize - read)
-                if (n == -1) break
-                read += n
-            }
-            sb.append(buf, 0, read)
-            reader.readLine()
-        }
-        return sb.toString()
+        return IntegrationHttpSupport.exchange(input, output, sb.toString(), bodyBytes)
     }
 
     // =====================================================================
