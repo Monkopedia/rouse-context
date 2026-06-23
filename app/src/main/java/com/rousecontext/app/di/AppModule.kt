@@ -109,6 +109,8 @@ import com.rousecontext.work.IntegrationSecretsSynchronizer
 import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.SecurityCheckPreferences
 import com.rousecontext.work.SecurityCheckSource
+import com.rousecontext.work.SessionActivityAuditListener
+import com.rousecontext.work.SessionActivityTracker
 import com.rousecontext.work.SpuriousWakePreferences
 import com.rousecontext.work.SpuriousWakeRecorder
 import com.rousecontext.work.StoredCertVerifierSource
@@ -386,13 +388,24 @@ val appModule = module {
         )
     } bind PerCallObserver::class
 
+    // Per-cycle substantiveness signal shared between the session layer (which
+    // flags it on each tools/call) and the IdleTimeoutManager (which reads it to
+    // pick the long idle vs short quick-disconnect timeout). See issue: adaptive
+    // idle timeout for the Android 15 dataSync budget.
+    single { SessionActivityTracker() }
+
     // --- Audit listener ---
+    // Wrap the Room-backed listener so each tools/call also promotes the current
+    // wake cycle to "substantive" for the adaptive idle timeout.
     single<AuditListener> {
-        RoomAuditListener(
-            dao = get(),
-            fieldEncryptor = get(),
-            perCallObserver = get(),
-            mcpRequestDao = get()
+        SessionActivityAuditListener(
+            delegate = RoomAuditListener(
+                dao = get(),
+                fieldEncryptor = get(),
+                perCallObserver = get(),
+                mcpRequestDao = get()
+            ),
+            tracker = get()
         )
     }
 
@@ -600,17 +613,22 @@ val appModule = module {
             // Read the user's idle-timeout setting fresh each wake cycle.
             // Disabled => null => the timer never arms (the service then runs
             // until the FGS dataSync budget or an FCM idle-stop intervenes).
-            timeoutProvider = {
-                if (appStatePreferences.idleTimeoutDisabled()) {
-                    null
-                } else {
-                    appStatePreferences.idleTimeoutMinutes() * 60_000L
+            // A substantive cycle (issued a tools/call) earns the long "Idle
+            // timeout"; a discovery-only or spurious wake gets the short "Quick
+            // disconnect" timeout so it does not hold the foreground service up
+            // and burn the Android 15 dataSync budget (6h/24h).
+            timeoutProvider = { substantive ->
+                when {
+                    appStatePreferences.idleTimeoutDisabled() -> null
+                    substantive -> appStatePreferences.idleTimeoutMinutes() * 60_000L
+                    else -> appStatePreferences.quickDisconnectSeconds() * 1_000L
                 }
             },
             onTimeout = {
                 gracefulTunnelShutdown(mcpSession, tunnelClient)
             },
-            recorder = recorder
+            recorder = recorder,
+            activityTracker = get()
         )
     }
 

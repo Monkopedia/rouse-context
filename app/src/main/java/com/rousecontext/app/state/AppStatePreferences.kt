@@ -50,6 +50,19 @@ class AppStatePreferences(private val context: Context) {
         }
     }
 
+    suspend fun quickDisconnectSeconds(): Int =
+        dataStore.data.first()[KEY_QUICK_DISCONNECT_SECONDS] ?: DEFAULT_QUICK_DISCONNECT_SECONDS
+
+    fun observeQuickDisconnectSeconds(): Flow<Int> = dataStore.data.map {
+        it[KEY_QUICK_DISCONNECT_SECONDS] ?: DEFAULT_QUICK_DISCONNECT_SECONDS
+    }
+
+    suspend fun setQuickDisconnectSeconds(value: Int) {
+        dataStore.edit { prefs ->
+            prefs[KEY_QUICK_DISCONNECT_SECONDS] = value
+        }
+    }
+
     suspend fun idleTimeoutDisabled(): Boolean =
         dataStore.data.first()[KEY_IDLE_TIMEOUT_DISABLED] ?: false
 
@@ -81,6 +94,7 @@ class AppStatePreferences(private val context: Context) {
             prefs.remove(KEY_HAS_LAUNCHED_BEFORE)
             prefs.remove(KEY_IDLE_TIMEOUT_MINUTES)
             prefs.remove(KEY_IDLE_TIMEOUT_DISABLED)
+            prefs.remove(KEY_QUICK_DISCONNECT_SECONDS)
         }
     }
 
@@ -90,10 +104,18 @@ class AppStatePreferences(private val context: Context) {
         /** Default idle timeout in minutes. Mirrors the historical `IDLE_TIMEOUT_MS` (5 min). */
         const val DEFAULT_IDLE_TIMEOUT_MINUTES = 5
 
+        /**
+         * Default quick-disconnect timeout in seconds, applied after a wake with
+         * no active session (discovery-only or spurious). Short so a lightweight
+         * wake does not burn the Android 15 dataSync budget (6h/24h).
+         */
+        const val DEFAULT_QUICK_DISCONNECT_SECONDS = 30
+
         private val KEY_SECURITY_CHECK_INTERVAL_HOURS =
             intPreferencesKey("security_check_interval_hours")
         private val KEY_HAS_LAUNCHED_BEFORE = booleanPreferencesKey("has_launched_before")
         private val KEY_IDLE_TIMEOUT_MINUTES = intPreferencesKey("idle_timeout_minutes")
         private val KEY_IDLE_TIMEOUT_DISABLED = booleanPreferencesKey("idle_timeout_disabled")
+        private val KEY_QUICK_DISCONNECT_SECONDS = intPreferencesKey("quick_disconnect_seconds")
     }
 }

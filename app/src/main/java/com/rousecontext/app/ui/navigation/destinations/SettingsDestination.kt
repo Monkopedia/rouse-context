@@ -97,6 +97,7 @@ private fun SettingsDestinationContent(onOpenBackgroundDelivery: () -> Unit) {
     SettingsContent(
         state = state.copy(showAllMcpMessages = showAll),
         onIdleTimeoutChanged = viewModel::setIdleTimeout,
+        onQuickDisconnectChanged = viewModel::setQuickDisconnect,
         onDisableTimeoutToggled = viewModel::setDisableTimeout,
         onFixBatteryOptimization = {
             startActivitySafely(

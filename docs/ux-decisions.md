@@ -14,6 +14,52 @@ Newest entries on top.
 
 ---
 
+## 2026-06-23 — Adaptive post-session teardown + new "Quick disconnect" setting (both flavors)
+
+**Decision:** The post-session idle timeout is now **adaptive**. A wake cycle is
+"substantive" if its MCP stream issued at least one `tools/call`; otherwise it is
+discovery-only (`initialize` / `ping` / `tools/list` / `resources/read` /
+`prompts/get`) or spurious (no stream ever opened). When the idle timer arms on
+return to CONNECTED:
+- substantive last cycle → the existing **"Idle timeout"** (minutes; unchanged).
+- discovery-only or spurious wake → the new, shorter **"Quick disconnect"**
+  timeout (seconds).
+
+A new **"Quick disconnect"** `SettingsDropdown` sits directly below "Idle
+timeout" in the Connection settings cluster. Options **"15s" / "30s" / "1 min"**,
+default **30s**, with the caption **"After a wake with no active session"**. The
+existing "Disable timeout" switch is unchanged: when timeout is disabled, neither
+timer arms (substantiveness is irrelevant).
+
+**Approved by:** Jason, in-session (copy + behavior signed off).
+
+**Context:** Android 15 caps `dataSync` foreground services at 6h cumulative per
+24h. A lightweight wake — e.g. an MCP client that only does `resources/list` /
+`tools/list` and then idles — previously held the tunnel CONNECTED for the full
+idle timeout (up to ~10 min) for ~1s of real work, burning the 6h budget. The
+fix shortens only the *post-discovery* timeout so spurious/discovery-only wakes
+release the foreground service quickly while genuine tool-using sessions keep the
+familiar idle grace period.
+
+**Alternatives considered:**
+- **Globally shorten the idle timeout** — would also cut short real tool-using
+  sessions where the user expects a grace window. Rejected.
+- **Make it foss-only / tie it to the `specialUse` toggle** — orthogonal; the
+  budget pressure applies to both flavors, so this ships for both. The
+  foss-only "Ignore daily time limit" toggle is a separate change.
+
+**Trade-off accepted:** A second timeout knob in Settings (more surface), and a
+discovery-only client that idles will now be disconnected in seconds rather than
+minutes — if it comes back it triggers a fresh wake. Idle timeouts are unchanged
+in spirit; only the no-active-session timeout is shortened.
+
+**Relevant:**
+- Substantiveness signal rides the existing `AuditListener.onToolCall`
+  (`SessionActivityAuditListener` → `SessionActivityTracker`), read by
+  `IdleTimeoutManager` when arming.
+
+---
+
 ## 2026-06-16 — FOSS delivery picker nudges the user to open a freshly-installed distributor (#480)
 
 **Decision:** Option (a) detect-and-nudge. After the user picks a UnifiedPush

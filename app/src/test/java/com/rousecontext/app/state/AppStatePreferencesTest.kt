@@ -94,4 +94,28 @@ class AppStatePreferencesTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun `quick disconnect seconds defaults to constant`() = runTest {
+        assertEquals(
+            AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS,
+            prefs.quickDisconnectSeconds()
+        )
+    }
+
+    @Test
+    fun `setQuickDisconnectSeconds persists value`() = runTest {
+        prefs.setQuickDisconnectSeconds(15)
+        assertEquals(15, prefs.quickDisconnectSeconds())
+    }
+
+    @Test
+    fun `observeQuickDisconnectSeconds emits updates`() = runTest {
+        prefs.observeQuickDisconnectSeconds().test {
+            assertEquals(AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS, awaitItem())
+            prefs.setQuickDisconnectSeconds(60)
+            assertEquals(60, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }

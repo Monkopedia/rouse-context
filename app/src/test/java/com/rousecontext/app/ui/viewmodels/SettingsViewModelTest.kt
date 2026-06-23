@@ -306,6 +306,41 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `setQuickDisconnect persists the selected seconds`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs()
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.setQuickDisconnect(15)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { prefs.setQuickDisconnectSeconds(15) }
+    }
+
+    @Test
+    fun `state reflects the stored quick disconnect seconds`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs(quickSeconds = 60)
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertEquals(60, state.quickDisconnectSeconds)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `quick disconnect defaults to 30 seconds when unset`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs()
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertEquals(
+                AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS,
+                state.quickDisconnectSeconds
+            )
+            assertEquals(30, state.quickDisconnectSeconds)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `setDisableTimeout persists the flag`() = runTest(testDispatcher) {
         val prefs = mockAppStatePrefs()
         val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
@@ -410,10 +445,12 @@ class SettingsViewModelTest {
      */
     private fun mockAppStatePrefs(
         idleMinutes: Int = AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES,
-        idleDisabled: Boolean = false
+        idleDisabled: Boolean = false,
+        quickSeconds: Int = AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS
     ): AppStatePreferences = mockk(relaxed = true) {
         every { observeIdleTimeoutMinutes() } returns flowOf(idleMinutes)
         every { observeIdleTimeoutDisabled() } returns flowOf(idleDisabled)
+        every { observeQuickDisconnectSeconds() } returns flowOf(quickSeconds)
         every { observeSecurityCheckIntervalHours() } returns
             flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
     }

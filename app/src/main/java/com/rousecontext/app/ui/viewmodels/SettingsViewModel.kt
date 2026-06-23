@@ -111,13 +111,24 @@ class SettingsViewModel(
         ?.observeSecurityCheckIntervalHours()
         ?: flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
 
-    /** (idle-timeout minutes, idle-timeout disabled) from DataStore, with defaults. */
-    private val idleTimeoutFlow: Flow<Pair<Int, Boolean>> = appStatePreferences?.let { prefs ->
-        combine(
-            prefs.observeIdleTimeoutMinutes(),
-            prefs.observeIdleTimeoutDisabled()
-        ) { minutes, disabled -> minutes to disabled }
-    } ?: flowOf(AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES to false)
+    /**
+     * (idle-timeout minutes, idle-timeout disabled, quick-disconnect seconds)
+     * from DataStore, with defaults.
+     */
+    private val idleTimeoutFlow: Flow<Triple<Int, Boolean, Int>> =
+        appStatePreferences?.let { prefs ->
+            combine(
+                prefs.observeIdleTimeoutMinutes(),
+                prefs.observeIdleTimeoutDisabled(),
+                prefs.observeQuickDisconnectSeconds()
+            ) { minutes, disabled, quickSeconds -> Triple(minutes, disabled, quickSeconds) }
+        } ?: flowOf(
+            Triple(
+                AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES,
+                false,
+                AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS
+            )
+        )
 
     val state: StateFlow<SettingsState> = combine(
         combine(
@@ -142,10 +153,11 @@ class SettingsViewModel(
         val rotateErr = tuple.c
         val spurious = tuple.d
         val batteryExempt = tuple.e
-        val (idleMinutes, idleDisabled) = idle
+        val (idleMinutes, idleDisabled, quickSeconds) = idle
         SettingsState(
             idleTimeoutMinutes = idleMinutes,
             idleTimeoutDisabled = idleDisabled,
+            quickDisconnectSeconds = quickSeconds,
             batteryOptimizationExempt = batteryExempt,
             showBatteryWarning = !batteryExempt,
             postSessionMode = settings.postSessionMode.toOption(),
@@ -206,6 +218,13 @@ class SettingsViewModel(
     fun setIdleTimeout(minutes: Int) {
         viewModelScope.launch {
             appStatePreferences?.setIdleTimeoutMinutes(minutes)
+            refresh()
+        }
+    }
+
+    fun setQuickDisconnect(seconds: Int) {
+        viewModelScope.launch {
+            appStatePreferences?.setQuickDisconnectSeconds(seconds)
             refresh()
         }
     }
