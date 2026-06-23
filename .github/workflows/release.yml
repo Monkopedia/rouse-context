@@ -40,36 +40,68 @@ jobs:
           mkdir -p .signing
           echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 -d > .signing/release.keystore
 
-      - name: Build release APK + AAB (Google distribution)
+      # Distribution is a build flag, not a product flavor (#467): the bare
+      # build is FOSS (UnifiedPush, no Firebase), `-Pgoogle` swaps in the
+      # Firebase-backed sources. Both variants write to the SAME unprefixed
+      # `release/` output paths, so we build FOSS first, copy its signed APK
+      # out to `dist/`, then `clean` and build Google — the clean guarantees
+      # the source-set selection for the second variant starts from scratch
+      # rather than reusing the first variant's merged manifest/resources.
+
+      - name: Build FOSS release APK (default, no flag)
         env:
           ROUSE_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           ROUSE_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-        # Distribution is a build flag (#467). The release pipeline ships the
-        # Google distribution (Firebase included) via `-Pgoogle`. A FOSS release
-        # (bare build) is a later ticket (#465). Without a flavor, the outputs
-        # land under the un-prefixed `release/` paths.
         run: |
-          ./gradlew :app:assembleRelease :app:bundleRelease -Pgoogle
+          ./gradlew :app:assembleRelease
 
       - name: Extract version from APK
         id: version
         run: |
-          # Pull versionName from the build output metadata
+          # Pull versionName from the build output metadata (same for both variants).
           VERSION=$(grep -oP '"versionName"\s*:\s*"\K[^"]+' app/build/outputs/apk/release/output-metadata.json || echo "unknown")
           echo "name=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=${GITHUB_REF_NAME:-${{ github.event.inputs.version || format('v{0}', env.VERSION) }}}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-apk
-          path: app/build/outputs/apk/release/app-release.apk
+      - name: Stage FOSS APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+            "dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk"
 
-      - name: Upload AAB artifact (for Play Console)
+      - name: Build Google release APK + AAB (-Pgoogle)
+        env:
+          ROUSE_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          ROUSE_RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        # `clean` first so the Google source set isn't contaminated by the FOSS
+        # build's merged outputs (both share the unprefixed `release/` paths).
+        run: |
+          ./gradlew clean :app:assembleRelease :app:bundleRelease -Pgoogle
+
+      - name: Stage Google APK + AAB
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk \
+            "dist/rouse-context-${{ steps.version.outputs.name }}-google.apk"
+          cp app/build/outputs/bundle/release/app-release.aab \
+            "dist/rouse-context-${{ steps.version.outputs.name }}-google.aab"
+
+      - name: Upload FOSS APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-aab
-          path: app/build/outputs/bundle/release/app-release.aab
+          name: release-apk-foss
+          path: dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk
+
+      - name: Upload Google APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-google
+          path: dist/rouse-context-${{ steps.version.outputs.name }}-google.apk
+
+      - name: Upload Google AAB artifact (for Play Console)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aab-google
+          path: dist/rouse-context-${{ steps.version.outputs.name }}-google.aab
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -77,6 +109,19 @@ jobs:
         with:
           name: Rouse Context ${{ steps.version.outputs.name }}
           generate_release_notes: true
+          body: |
+            ## Downloads
+
+            Two builds ship with each release — both signed with the same release key:
+
+            | Asset | Distribution | Use when |
+            | --- | --- | --- |
+            | `rouse-context-${{ steps.version.outputs.name }}-foss.apk` | **FOSS** (UnifiedPush, no Firebase/Google Play services) | Sideloading on de-Googled devices / F-Droid-style installs. |
+            | `rouse-context-${{ steps.version.outputs.name }}-google.apk` | **Google** (Firebase Cloud Messaging) | Sideloading on devices with Google Play services. |
+            | `rouse-context-${{ steps.version.outputs.name }}-google.aab` | **Google** App Bundle | Play Console upload only — not directly installable. |
+
+            ---
           files: |
-            app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/bundle/release/app-release.aab
+            dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk
+            dist/rouse-context-${{ steps.version.outputs.name }}-google.apk
+            dist/rouse-context-${{ steps.version.outputs.name }}-google.aab
