@@ -2,7 +2,6 @@ package com.rousecontext.work
 
 import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -55,6 +54,7 @@ class TunnelForegroundService : LifecycleService() {
     private val relayUrl: String by inject(named("relayUrl"))
     private val crashReporter: CrashReporter by inject()
     private val connectPushReporter: ConnectPushReporter by inject()
+    private val fgsTypeSelector: FgsTypeSelector by inject()
 
     /** Set true when idle timeout fires or user explicitly stops - suppresses reconnect. */
     @Volatile
@@ -112,7 +112,7 @@ class TunnelForegroundService : LifecycleService() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                fgsTypeSelector.foregroundServiceType()
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
@@ -125,7 +125,7 @@ class TunnelForegroundService : LifecycleService() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                fgsTypeSelector.foregroundServiceType()
             )
             true
         } catch (e: ForegroundServiceStartNotAllowedException) {

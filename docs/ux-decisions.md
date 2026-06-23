@@ -14,6 +14,67 @@ Newest entries on top.
 
 ---
 
+## 2026-06-23 — FOSS-only "Ignore daily time limit" toggle (specialUse FGS)
+
+**Decision:** A new **"Ignore daily time limit"** `SwitchRow` is added to the
+Connection settings cluster, **foss flavor only**. Title **"Ignore daily time
+limit"**, subtitle **"Avoids Android's 6-hour daily limit on background
+connections. Idle timeouts still apply."**, default **OFF**. When ON, the tunnel
+foreground service enters the foreground as `specialUse` instead of `dataSync`,
+which has no Android 15 6h/24h cumulative cap.
+
+Critical behavior: this toggle **only changes the foreground-service type**. It
+does **not** disable or alter idle timeouts — the adaptive Idle-timeout /
+Quick-disconnect teardown (2026-06-23 entry below) still governs when the tunnel
+drops. The `specialUse` type merely removes the 6h ceiling so a legitimately
+long, active day is not guillotined mid-session.
+
+The row is gated on an **injected capability flag** (`canIgnoreDailyLimit`, bound
+`true` in the foss `DistributionModule`, `false` on google) — not a
+`BuildConfig.FLAVOR` string check. The google build never declares the
+`specialUse` type or the `FOREGROUND_SERVICE_SPECIAL_USE` permission, and never
+renders the row.
+
+**Approved by:** Jason, in-session (copy + foss-only scope + the corrected
+behavior that it ONLY changes the FGS type, not timeouts).
+
+**Context:** Android 15 caps `dataSync` foreground services at 6h cumulative per
+24h. For a foss user who keeps the tunnel connected for long interactive MCP
+sessions, a genuinely active day can hit that ceiling and get the service killed
+mid-use. `specialUse` removes the cap. This is foss-only because declaring
+`specialUse` triggers Google Play review, and Play steers persistent-connection
+use cases to FCM (which the google build already uses for wakeups) — so the Play
+build must stay `dataSync`-only and never declare `specialUse`.
+
+**Alternatives considered:**
+- **Ship for both flavors** — rejected: declaring `specialUse` on the Play build
+  invites Play-review friction with no upside, since google already wakes via
+  FCM.
+- **Make the toggle also relax idle timeouts** — rejected as a footgun: the only
+  thing the user needs to escape is the 6h *ceiling*; idle teardown still
+  protects the budget and the battery. Owner explicitly corrected an earlier
+  framing here.
+- **`BuildConfig.FLAVOR` checks in the UI** — rejected; the codebase already
+  gates flavor-specific UI on injected capabilities (e.g. `BackgroundDelivery.
+  isSupported`), so this follows that pattern.
+
+**Trade-off accepted:** One more switch in the foss Connection cluster, and a
+foss user who turns it on relies on the idle timeouts (not a hard ceiling) to
+bound foreground time — acceptable since those timeouts still fire.
+
+**Relevant:**
+- `FgsTypeSelector` seam in `:work`, bound per-distribution
+  (`FossFgsTypeSelector` / `GoogleFgsTypeSelector`). foss reads a synchronously-
+  cached `IgnoreDailyTimeLimitState` mirror of `AppStatePreferences.
+  ignoreDailyTimeLimit`.
+- foss manifest overlay sets `foregroundServiceType="dataSync|specialUse"` +
+  `PROPERTY_SPECIAL_USE_FGS_SUBTYPE`; google merged manifest stays `dataSync`.
+- The existing `onTimeout` / `ForegroundServiceStartNotAllowedException`
+  dataSync-budget handling is unchanged; it simply does not fire while running
+  as `specialUse`.
+
+---
+
 ## 2026-06-23 — Adaptive post-session teardown + new "Quick disconnect" setting (both flavors)
 
 **Decision:** The post-session idle timeout is now **adaptive**. A wake cycle is

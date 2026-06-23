@@ -102,6 +102,14 @@ class TunnelForegroundServiceLifecycleTest {
                     // flavor impl (FCM token push / UnifiedPush no-op); the
                     // lifecycle tests only need it to resolve.
                     single<ConnectPushReporter> { ConnectPushReporter { } }
+                    // FGS type seam: production binds a flavor impl (google
+                    // dataSync constant / foss specialUse-when-opted-in). Tests
+                    // only need it to resolve; dataSync is the lifecycle default.
+                    single<FgsTypeSelector> {
+                        FgsTypeSelector {
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                        }
+                    }
                 }
             )
         }

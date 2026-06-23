@@ -14,8 +14,11 @@ import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.delivery.NoOpBackgroundDelivery
 import com.rousecontext.app.push.FcmConnectPushReporter
 import com.rousecontext.app.support.FirebaseCrashReporter
+import com.rousecontext.app.work.GoogleFgsTypeSelector
 import com.rousecontext.work.ConnectPushReporter
+import com.rousecontext.work.FgsTypeSelector
 import com.rousecontext.work.RenewalAuthProvider
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 /**
@@ -54,4 +57,13 @@ val distributionModule = module {
     // Cert-renewal auth provider (Firebase ID token + Keystore signature).
     // Lives in the `google` source set (issue #476) so :work links no firebase-auth.
     single<RenewalAuthProvider> { FirebaseRenewalAuthProvider(signer = get()) }
+
+    // FGS type: google always runs the tunnel service as `dataSync`. The Play
+    // build never declares `specialUse` (declaring it triggers Play review, and
+    // Play steers persistent connections to FCM, which this build uses).
+    single<FgsTypeSelector> { GoogleFgsTypeSelector() }
+
+    // Capability flag: the "Ignore daily time limit" Settings row is foss-only,
+    // so it is unavailable here. The foss DistributionModule binds true.
+    single<Boolean>(named("canIgnoreDailyLimit")) { false }
 }

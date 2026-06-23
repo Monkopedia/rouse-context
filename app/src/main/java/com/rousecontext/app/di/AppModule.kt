@@ -671,7 +671,8 @@ val appModule = module {
             appStatePreferences = get(),
             batteryExemptProvider = { BatteryOptimization.isExempt(androidContext()) },
             spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get()),
-            backgroundDelivery = get()
+            backgroundDelivery = get(),
+            canIgnoreDailyLimit = get(named("canIgnoreDailyLimit"))
         )
     }
     viewModel {

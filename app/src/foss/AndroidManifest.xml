@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        FOSS-only: allow the tunnel foreground service to run as `specialUse`
+        when the user opts into "Ignore daily time limit". specialUse has no
+        Android 15 6h/24h cap (unlike dataSync). This permission and the
+        specialUse type are NEVER declared in the google build: declaring
+        specialUse triggers Google Play review, and Play steers persistent
+        connections to FCM (which the google build already uses). Idle timeouts
+        still govern teardown in both builds.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application>
         <!--
@@ -19,5 +31,21 @@
                 <action android:name="org.unifiedpush.android.connector.REGISTRATION_FAILED" />
             </intent-filter>
         </receiver>
+
+        <!--
+            Augment the :work-declared TunnelForegroundService so the foss build
+            may enter the foreground as `specialUse` in addition to `dataSync`.
+            The actual type used at runtime is chosen by FgsTypeSelector based on
+            the "Ignore daily time limit" setting; dataSync stays the default.
+            tools:replace overrides the :work manifest's dataSync-only value.
+        -->
+        <service
+            android:name="com.rousecontext.work.TunnelForegroundService"
+            android:foregroundServiceType="dataSync|specialUse"
+            tools:replace="android:foregroundServiceType">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="On-demand MCP tunnel kept connected for the user's interactive AI sessions" />
+        </service>
     </application>
 </manifest>

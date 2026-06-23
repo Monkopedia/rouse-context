@@ -76,6 +76,25 @@ class AppStatePreferences(private val context: Context) {
         }
     }
 
+    /**
+     * Whether the user has opted into "Ignore daily time limit" (foss only).
+     * When ON, the tunnel foreground service runs as `specialUse` instead of
+     * `dataSync`, removing Android 15's 6h/24h cap. Idle timeouts still apply.
+     * Default OFF. See [com.rousecontext.work.FgsTypeSelector].
+     */
+    suspend fun ignoreDailyTimeLimit(): Boolean =
+        dataStore.data.first()[KEY_IGNORE_DAILY_TIME_LIMIT] ?: false
+
+    fun observeIgnoreDailyTimeLimit(): Flow<Boolean> = dataStore.data.map {
+        it[KEY_IGNORE_DAILY_TIME_LIMIT] ?: false
+    }
+
+    suspend fun setIgnoreDailyTimeLimit(value: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_IGNORE_DAILY_TIME_LIMIT] = value
+        }
+    }
+
     suspend fun hasLaunchedBefore(): Boolean =
         dataStore.data.first()[KEY_HAS_LAUNCHED_BEFORE] ?: false
 
@@ -95,6 +114,7 @@ class AppStatePreferences(private val context: Context) {
             prefs.remove(KEY_IDLE_TIMEOUT_MINUTES)
             prefs.remove(KEY_IDLE_TIMEOUT_DISABLED)
             prefs.remove(KEY_QUICK_DISCONNECT_SECONDS)
+            prefs.remove(KEY_IGNORE_DAILY_TIME_LIMIT)
         }
     }
 
@@ -117,5 +137,7 @@ class AppStatePreferences(private val context: Context) {
         private val KEY_IDLE_TIMEOUT_MINUTES = intPreferencesKey("idle_timeout_minutes")
         private val KEY_IDLE_TIMEOUT_DISABLED = booleanPreferencesKey("idle_timeout_disabled")
         private val KEY_QUICK_DISCONNECT_SECONDS = intPreferencesKey("quick_disconnect_seconds")
+        private val KEY_IGNORE_DAILY_TIME_LIMIT =
+            booleanPreferencesKey("ignore_daily_time_limit")
     }
 }
