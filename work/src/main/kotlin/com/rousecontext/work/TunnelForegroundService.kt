@@ -153,6 +153,17 @@ class TunnelForegroundService : LifecycleService() {
         // Keep onStartCommand non-blocking by deferring the check to a coroutine.
         lifecycleScope.launch {
             providerRegistry.awaitReady()
+            // Defensive reconcile (#510): now that the registry is ready, force
+            // the foreground notification to match the tunnel's *current* state
+            // before doing anything else. observeStateChanges() normally drives
+            // this on every transition, and StateFlow replays its latest value
+            // to new collectors — so a transition is not normally dropped. This
+            // belt-and-suspenders pass guarantees that even if that Main-
+            // dispatcher collector was momentarily starved (the #506 ANR repro),
+            // a tunnel whose socket is already established can never be left
+            // showing a stale "Connecting…". Reuses updateNotification() so the
+            // copy stays identical.
+            reconcileNotification()
             if (providerRegistry.enabledPaths().isEmpty()) {
                 Log.i(TAG, "No integrations enabled, stopping service")
                 stopSelf()
@@ -202,6 +213,11 @@ class TunnelForegroundService : LifecycleService() {
         intentionalDisconnect = false
         try {
             tunnelClient.connect(relayUrl)
+            // Defensive reconcile (#510): connect() has returned, so the socket
+            // is established and tunnelClient.state is CONNECTED. Reconcile the
+            // notification directly rather than relying solely on the
+            // observeStateChanges collector to observe that transition.
+            reconcileNotification()
             connectPushReporter.reportOnConnect()
             triggerOpportunisticSecurityCheck()
         } catch (e: Exception) {
@@ -305,6 +321,19 @@ class TunnelForegroundService : LifecycleService() {
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
         return null
+    }
+
+    /**
+     * Defensive reconcile of the foreground notification against the tunnel's
+     * current ground-truth state (#510). Reads [TunnelClient.state]'s latest
+     * value and re-renders the notification via [updateNotification] so the
+     * copy is identical to the collector-driven path. Called from hooks that
+     * can't be missed (post-`awaitReady` on every wake, and immediately after a
+     * successful `connect()`), so a starved/non-replayed [observeStateChanges]
+     * emission can never leave a live tunnel stuck on "Connecting…".
+     */
+    private fun reconcileNotification() {
+        updateNotification(tunnelClient.state.value)
     }
 
     private fun updateNotification(state: TunnelState) {

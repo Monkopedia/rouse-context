@@ -22,7 +22,10 @@ import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import io.mockk.verify
 import kotlin.time.Duration
+import kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -86,10 +89,19 @@ class TunnelForegroundServiceLifecycleTest {
         every { NotificationChannels.createAll(any()) } returns Unit
 
         runCatching { stopKoin() }
+        startKoinWith(fakeTunnelClient)
+    }
+
+    /**
+     * Start Koin with the lifecycle-test module, binding [client] as the
+     * [TunnelClient]. Most tests use the shared [fakeTunnelClient]; the
+     * reconcile test (#510) swaps in a [StuckCollectorTunnelClient].
+     */
+    private fun startKoinWith(client: TunnelClient) {
         startKoin {
             modules(
                 module {
-                    single<TunnelClient> { fakeTunnelClient }
+                    single<TunnelClient> { client }
                     single { mockk<SessionHandler>(relaxed = true) }
                     single { WakelockManager(FakeWakeLockHandle()) }
                     single { idleTimeoutManager }
@@ -340,6 +352,47 @@ class TunnelForegroundServiceLifecycleTest {
         }
     }
 
+    // -- Test 8: defensive reconcile fixes a stuck "Connecting…" (#510) --
+
+    @Test
+    fun `reconcile renders Connected when collector missed the CONNECTED transition`() {
+        // #506/#510 repro: the socket is genuinely ESTABLISHED
+        // (state.value == CONNECTED) but the Main-dispatcher observeStateChanges
+        // collector was starved and only ever observed CONNECTING, so the
+        // foreground notification is stuck on "Connecting…". The defensive
+        // reconcile (#510) must read ground-truth state.value and render
+        // "Connected", independent of that collector.
+        val messages = mutableListOf<String>()
+        every { ForegroundNotifier.build(any(), any()) } answers {
+            messages.add(secondArg())
+            stubNotification()
+        }
+
+        // No integrations enabled: onStartCommand reconciles immediately after
+        // awaitReady(), then stops — so connectToRelay() never runs and the
+        // reconcile hook is exercised in isolation from the connect machinery.
+        every { providerRegistry.enabledPaths() } returns emptySet()
+
+        val stuckClient = StuckCollectorTunnelClient(
+            reportedValue = TunnelState.CONNECTED,
+            emittedToCollectors = TunnelState.CONNECTING
+        )
+        stopKoin()
+        startKoinWith(stuckClient)
+
+        val controller = Robolectric.buildService(TunnelForegroundService::class.java)
+        controller.create()
+        drainMain()
+        controller.startCommand(0, 1)
+        drainMain()
+
+        assertTrue(
+            "Reconcile must render \"Connected\" once the socket is established, " +
+                "even though the state collector only ever saw CONNECTING. Saw: $messages",
+            messages.contains("Connected")
+        )
+    }
+
     // -- Helpers --
 
     /** Process all pending tasks on the main looper so lifecycleScope coroutines run. */
@@ -406,6 +459,45 @@ class TunnelForegroundServiceLifecycleTest {
         override suspend fun healthCheck(timeout: Duration): Boolean {
             healthCheckCalled = true
             return healthCheckResult
+        }
+    }
+
+    /**
+     * A [TunnelClient] whose [state] reports one value via [StateFlow.value] but
+     * only ever *emits* an older value to collectors — simulating a starved
+     * observeStateChanges collector that never processed the CONNECTED
+     * transition while the socket is genuinely established. See #506/#510.
+     */
+    private class StuckCollectorTunnelClient(
+        reportedValue: TunnelState,
+        emittedToCollectors: TunnelState
+    ) : TunnelClient {
+        override val state: StateFlow<TunnelState> =
+            StuckStateFlow(reportedValue, emittedToCollectors)
+        override val errors: SharedFlow<TunnelError> = MutableSharedFlow()
+        override val incomingSessions: Flow<MuxStream> = MutableSharedFlow()
+        override suspend fun connect(url: String) = Unit
+        override suspend fun disconnect() = Unit
+        override suspend fun sendFcmToken(token: String) = Unit
+        override suspend fun sendPushEndpoint(kind: String, value: String) = Unit
+        override suspend fun healthCheck(timeout: Duration): Boolean = true
+    }
+
+    /**
+     * A [StateFlow] whose [value] (ground truth) diverges from what [collect]
+     * replays to collectors. Collectors see only [emitted] and then suspend
+     * forever, modelling a transition the main collector never processed.
+     */
+    @OptIn(ExperimentalForInheritanceCoroutinesApi::class)
+    private class StuckStateFlow(
+        private val reported: TunnelState,
+        private val emitted: TunnelState
+    ) : StateFlow<TunnelState> {
+        override val value: TunnelState = reported
+        override val replayCache: List<TunnelState> = listOf(emitted)
+        override suspend fun collect(collector: FlowCollector<TunnelState>): Nothing {
+            collector.emit(emitted)
+            awaitCancellation()
         }
     }
 
