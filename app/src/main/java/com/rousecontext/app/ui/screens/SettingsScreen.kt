@@ -154,6 +154,18 @@ data class SettingsState(
      * burn the Android 15 dataSync foreground-service budget (6h/24h).
      */
     val quickDisconnectSeconds: Int = 30,
+    /**
+     * Whether the foss-only "Ignore daily time limit" toggle is available on
+     * this build. False on google (the row is then absent). Backed by an
+     * injected capability flag, not a BuildConfig.FLAVOR check.
+     */
+    val canIgnoreDailyLimit: Boolean = false,
+    /**
+     * Current value of the "Ignore daily time limit" toggle (foss only). When
+     * ON the tunnel FGS runs as `specialUse`, escaping Android 15's 6h/24h
+     * `dataSync` cap. Idle timeouts still apply. Default OFF.
+     */
+    val ignoreDailyTimeLimit: Boolean = false,
     val batteryOptimizationExempt: Boolean = false,
     val postSessionMode: PostSessionModeOption = PostSessionModeOption.SUMMARY,
     val themeMode: ThemeModeOption = ThemeModeOption.AUTO,
@@ -196,6 +208,7 @@ fun SettingsContent(
     onIdleTimeoutChanged: (Int) -> Unit = {},
     onQuickDisconnectChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
+    onIgnoreDailyTimeLimitToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (PostSessionModeOption) -> Unit = {},
     onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
     onThemeModeChanged: (ThemeModeOption) -> Unit = {},
@@ -293,6 +306,22 @@ fun SettingsContent(
                 onCheckedChange = onDisableTimeoutToggled,
                 enabled = state.batteryOptimizationExempt
             )
+            // "Ignore daily time limit" — foss flavor only. Gated on an injected
+            // capability flag (false on google), not a BuildConfig.FLAVOR check.
+            // Runs the tunnel FGS as specialUse (no Android 15 6h cap); idle
+            // timeouts still apply.
+            if (state.canIgnoreDailyLimit) {
+                SwitchRow(
+                    title = stringResource(
+                        R.string.screen_settings_ignore_daily_limit_title
+                    ),
+                    subtitle = stringResource(
+                        R.string.screen_settings_ignore_daily_limit_subtitle
+                    ),
+                    checked = state.ignoreDailyTimeLimit,
+                    onCheckedChange = onIgnoreDailyTimeLimitToggled
+                )
+            }
             // Background-delivery (UnifiedPush) row, foss flavor only (#463).
             // Reopens the "Background delivery" picker so the choice is
             // changeable later. Absent when state.backgroundDelivery is null.

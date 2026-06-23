@@ -181,6 +181,8 @@
     <string name="screen_settings_quick_disconnect_caption">After a wake with no active session</string>
     <string name="screen_settings_disable_timeout_title">Disable timeout</string>
     <string name="screen_settings_disable_timeout_requires_battery">(requires battery exemption)</string>
+    <string name="screen_settings_ignore_daily_limit_title">Ignore daily time limit</string>
+    <string name="screen_settings_ignore_daily_limit_subtitle">Avoids Android\'s 6-hour daily limit on background connections. Idle timeouts still apply.</string>
     <string name="screen_settings_section_audit_notifications">Audit Notifications</string>
     <string name="screen_settings_audit_tool_note">Show a notification when AI clients use your tools</string>
     <string name="screen_settings_label_after_session">After session</string>

@@ -11,10 +11,13 @@ import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
 import com.rousecontext.app.push.UnifiedPushConnectPushReporter
 import com.rousecontext.app.state.DeviceRegistrationStatus
 import com.rousecontext.app.support.AcraCrashReporter
+import com.rousecontext.app.work.FossFgsTypeSelector
+import com.rousecontext.app.work.IgnoreDailyTimeLimitState
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.work.ConnectPushReporter
+import com.rousecontext.work.FgsTypeSelector
 import com.rousecontext.work.RenewalAuthProvider
 import kotlinx.coroutines.CoroutineScope
 import org.koin.android.ext.koin.androidContext
@@ -78,4 +81,22 @@ val distributionModule = module {
 
     // Cert-renewal auth — keypair proof + Keystore CSR signature. Issue #462.
     single<RenewalAuthProvider> { KeypairRenewalAuthProvider(signer = get()) }
+
+    // "Ignore daily time limit" (foss only): run the tunnel FGS as `specialUse`
+    // (no Android 15 6h/24h cap) when the user has opted in. Idle timeouts still
+    // apply. A synchronously-readable mirror of the persisted flag backs the
+    // selector, since startForeground() can't suspend on a DataStore read.
+    single {
+        IgnoreDailyTimeLimitState(
+            appStatePreferences = get(),
+            appScope = get<CoroutineScope>(named("appScope"))
+        )
+    }
+    single<FgsTypeSelector> {
+        FossFgsTypeSelector(ignoreDailyTimeLimit = get<IgnoreDailyTimeLimitState>()::isEnabled)
+    }
+
+    // Capability flag gating the foss-only "Ignore daily time limit" Settings
+    // row. True here; the google DistributionModule binds false.
+    single<Boolean>(named("canIgnoreDailyLimit")) { true }
 }

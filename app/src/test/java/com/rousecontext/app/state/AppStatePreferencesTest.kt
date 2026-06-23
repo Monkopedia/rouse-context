@@ -96,6 +96,27 @@ class AppStatePreferencesTest {
     }
 
     @Test
+    fun `ignore daily time limit defaults to false`() = runTest {
+        assertFalse(prefs.ignoreDailyTimeLimit())
+    }
+
+    @Test
+    fun `setIgnoreDailyTimeLimit persists value`() = runTest {
+        prefs.setIgnoreDailyTimeLimit(true)
+        assertTrue(prefs.ignoreDailyTimeLimit())
+    }
+
+    @Test
+    fun `observeIgnoreDailyTimeLimit emits updates`() = runTest {
+        prefs.observeIgnoreDailyTimeLimit().test {
+            assertFalse(awaitItem())
+            prefs.setIgnoreDailyTimeLimit(true)
+            assertTrue(awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `quick disconnect seconds defaults to constant`() = runTest {
         assertEquals(
             AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS,

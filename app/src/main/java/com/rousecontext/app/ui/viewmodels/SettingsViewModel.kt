@@ -41,6 +41,14 @@ import kotlinx.coroutines.launch
  */
 private data class Quint<A, B, C, D, E>(val a: A, val b: B, val c: C, val d: D, val e: E)
 
+/** Connection-section settings read together from DataStore. */
+private data class IdleSettings(
+    val minutes: Int,
+    val disabled: Boolean,
+    val quickSeconds: Int,
+    val ignoreDailyTimeLimit: Boolean
+)
+
 data class SpuriousWakeStats(val rolling24h: Int, val total: Long) {
     companion object {
         val EMPTY = SpuriousWakeStats(rolling24h = 0, total = 0L)
@@ -73,7 +81,13 @@ class SettingsViewModel(
      * "Background delivery" Settings row; on google it is [NoOpBackgroundDelivery]
      * ([BackgroundDelivery.isSupported] == false) so the row is absent.
      */
-    private val backgroundDelivery: BackgroundDelivery = NoOpBackgroundDelivery
+    private val backgroundDelivery: BackgroundDelivery = NoOpBackgroundDelivery,
+    /**
+     * Capability flag for the foss-only "Ignore daily time limit" toggle. Bound
+     * true in the foss DistributionModule, false on google. Gates whether the
+     * Settings row is rendered at all — google never sees it.
+     */
+    private val canIgnoreDailyLimit: Boolean = false
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -112,21 +126,25 @@ class SettingsViewModel(
         ?: flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
 
     /**
-     * (idle-timeout minutes, idle-timeout disabled, quick-disconnect seconds)
-     * from DataStore, with defaults.
+     * (idle-timeout minutes, idle-timeout disabled, quick-disconnect seconds,
+     * ignore-daily-time-limit) from DataStore, with defaults.
      */
-    private val idleTimeoutFlow: Flow<Triple<Int, Boolean, Int>> =
+    private val idleTimeoutFlow: Flow<IdleSettings> =
         appStatePreferences?.let { prefs ->
             combine(
                 prefs.observeIdleTimeoutMinutes(),
                 prefs.observeIdleTimeoutDisabled(),
-                prefs.observeQuickDisconnectSeconds()
-            ) { minutes, disabled, quickSeconds -> Triple(minutes, disabled, quickSeconds) }
+                prefs.observeQuickDisconnectSeconds(),
+                prefs.observeIgnoreDailyTimeLimit()
+            ) { minutes, disabled, quickSeconds, ignoreDailyLimit ->
+                IdleSettings(minutes, disabled, quickSeconds, ignoreDailyLimit)
+            }
         } ?: flowOf(
-            Triple(
-                AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES,
-                false,
-                AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS
+            IdleSettings(
+                minutes = AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES,
+                disabled = false,
+                quickSeconds = AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS,
+                ignoreDailyTimeLimit = false
             )
         )
 
@@ -153,11 +171,12 @@ class SettingsViewModel(
         val rotateErr = tuple.c
         val spurious = tuple.d
         val batteryExempt = tuple.e
-        val (idleMinutes, idleDisabled, quickSeconds) = idle
         SettingsState(
-            idleTimeoutMinutes = idleMinutes,
-            idleTimeoutDisabled = idleDisabled,
-            quickDisconnectSeconds = quickSeconds,
+            idleTimeoutMinutes = idle.minutes,
+            idleTimeoutDisabled = idle.disabled,
+            quickDisconnectSeconds = idle.quickSeconds,
+            canIgnoreDailyLimit = canIgnoreDailyLimit,
+            ignoreDailyTimeLimit = idle.ignoreDailyTimeLimit,
             batteryOptimizationExempt = batteryExempt,
             showBatteryWarning = !batteryExempt,
             postSessionMode = settings.postSessionMode.toOption(),
@@ -232,6 +251,18 @@ class SettingsViewModel(
     fun setDisableTimeout(disabled: Boolean) {
         viewModelScope.launch {
             appStatePreferences?.setIdleTimeoutDisabled(disabled)
+            refresh()
+        }
+    }
+
+    /**
+     * Persist the foss-only "Ignore daily time limit" toggle. Changes the
+     * tunnel FGS type to `specialUse` (no Android 15 6h cap) on the next service
+     * start. Does NOT alter idle timeouts.
+     */
+    fun setIgnoreDailyTimeLimit(enabled: Boolean) {
+        viewModelScope.launch {
+            appStatePreferences?.setIgnoreDailyTimeLimit(enabled)
             refresh()
         }
     }

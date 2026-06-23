@@ -361,6 +361,61 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `canIgnoreDailyLimit surfaces the capability flag in state`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY, canIgnoreDailyLimit = true)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertTrue(state.canIgnoreDailyLimit)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `canIgnoreDailyLimit defaults to false (google build)`() = runTest(testDispatcher) {
+        val vm = createViewModel(PostSessionMode.SUMMARY)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertFalse(state.canIgnoreDailyLimit)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `state reflects the stored ignore-daily-time-limit flag`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs(ignoreDailyTimeLimit = true)
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            appStatePrefs = prefs,
+            canIgnoreDailyLimit = true
+        )
+        vm.state.test {
+            val state = awaitLoaded()
+            assertTrue(state.ignoreDailyTimeLimit)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `ignore-daily-time-limit defaults to false`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs()
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.state.test {
+            val state = awaitLoaded()
+            assertFalse(state.ignoreDailyTimeLimit)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `setIgnoreDailyTimeLimit persists the flag`() = runTest(testDispatcher) {
+        val prefs = mockAppStatePrefs()
+        val vm = createViewModel(PostSessionMode.SUMMARY, appStatePrefs = prefs)
+        vm.setIgnoreDailyTimeLimit(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { prefs.setIgnoreDailyTimeLimit(true) }
+    }
+
+    @Test
     fun `battery exempt hides the warning`() = runTest(testDispatcher) {
         val vm = createViewModel(PostSessionMode.SUMMARY, batteryExempt = true)
         vm.state.test {
@@ -446,11 +501,13 @@ class SettingsViewModelTest {
     private fun mockAppStatePrefs(
         idleMinutes: Int = AppStatePreferences.DEFAULT_IDLE_TIMEOUT_MINUTES,
         idleDisabled: Boolean = false,
-        quickSeconds: Int = AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS
+        quickSeconds: Int = AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS,
+        ignoreDailyTimeLimit: Boolean = false
     ): AppStatePreferences = mockk(relaxed = true) {
         every { observeIdleTimeoutMinutes() } returns flowOf(idleMinutes)
         every { observeIdleTimeoutDisabled() } returns flowOf(idleDisabled)
         every { observeQuickDisconnectSeconds() } returns flowOf(quickSeconds)
+        every { observeIgnoreDailyTimeLimit() } returns flowOf(ignoreDailyTimeLimit)
         every { observeSecurityCheckIntervalHours() } returns
             flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
     }
@@ -459,13 +516,15 @@ class SettingsViewModelTest {
         mode: PostSessionMode,
         securityPrefs: SecurityCheckPreferences? = null,
         appStatePrefs: AppStatePreferences? = null,
-        batteryExempt: Boolean = false
+        batteryExempt: Boolean = false,
+        canIgnoreDailyLimit: Boolean = false
     ): SettingsViewModel = createViewModel(
         mode,
         securityPrefs,
         provider = null,
         appStatePrefs = appStatePrefs,
-        batteryExempt = batteryExempt
+        batteryExempt = batteryExempt,
+        canIgnoreDailyLimit = canIgnoreDailyLimit
     )
 
     private fun createViewModel(
@@ -474,7 +533,8 @@ class SettingsViewModelTest {
         provider: NotificationSettingsProvider?,
         spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY),
         appStatePrefs: AppStatePreferences? = null,
-        batteryExempt: Boolean = false
+        batteryExempt: Boolean = false,
+        canIgnoreDailyLimit: Boolean = false
     ): SettingsViewModel {
         val resolvedProvider = provider ?: mockk {
             val s = NotificationSettings(
@@ -498,7 +558,8 @@ class SettingsViewModelTest {
             securityPrefs,
             appStatePrefs,
             batteryExemptProvider = { batteryExempt },
-            spuriousWakesFlow = spuriousWakesFlow
+            spuriousWakesFlow = spuriousWakesFlow,
+            canIgnoreDailyLimit = canIgnoreDailyLimit
         )
     }
 }

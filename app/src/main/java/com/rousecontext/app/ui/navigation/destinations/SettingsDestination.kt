@@ -99,6 +99,7 @@ private fun SettingsDestinationContent(onOpenBackgroundDelivery: () -> Unit) {
         onIdleTimeoutChanged = viewModel::setIdleTimeout,
         onQuickDisconnectChanged = viewModel::setQuickDisconnect,
         onDisableTimeoutToggled = viewModel::setDisableTimeout,
+        onIgnoreDailyTimeLimitToggled = viewModel::setIgnoreDailyTimeLimit,
         onFixBatteryOptimization = {
             startActivitySafely(
                 settingsContext,
