@@ -18,7 +18,7 @@ It's an Android app that turns your phone into an [MCP](https://modelcontextprot
 
 ## Getting Started
 
-1. **Install** — download the APK from [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases/latest) and sideload it (you may need to enable "Install from unknown sources" in your Android settings). Or email `beta@rousecontext.com` for Google Play beta access.
+1. **Install** — download the APK from [GitHub Releases](https://github.com/Monkopedia/rouse-context/releases/latest) and sideload it (you may need to enable "Install from unknown sources" in your Android settings). Or email `beta@rousecontext.com` for Google Play beta access. Two builds ship per release — a Firebase-free **FOSS** APK (`-foss.apk`) and a **Google** APK (`-google.apk`); see [`docs/distribution.md`](docs/distribution.md) for which to pick and the F-Droid story.
 2. **Onboard** — open the app, tap Get Started, grant notification permissions. The app registers with the relay and provisions your device's TLS certificates (~10 seconds).
 3. **Enable an integration** — tap Add Integration on the home screen. Pick one (e.g. Health Connect), grant the requested permissions, and you'll get a URL like `https://brave-health.abc123.rousecontext.com/mcp`.
 4. **Connect your AI client** — paste that URL into Claude (Settings → Connectors → Add custom connector) or any MCP client. The first connection triggers an OAuth approval on your phone — tap Approve.

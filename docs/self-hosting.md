@@ -113,7 +113,9 @@ All hostnames derive from a single Gradle property, `-Pdomain`:
 
 (A bare build is the Firebase-free FOSS distribution; add `-Pgoogle` for the
 Firebase build, which needs `app/google-services.json`. Distribution is a build
-flag, not a product flavor — see #467.)
+flag, not a product flavor — see #467. For how the two distributions ship
+(F-Droid, GitHub Releases, Play) and the signing/identity rules between them,
+see [`distribution.md`](distribution.md).)
 
 The app's `BuildConfig` will have:
 

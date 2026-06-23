@@ -1,0 +1,135 @@
+# =============================================================================
+# DRAFT — F-Droid (fdroiddata) metadata recipe for Rouse Context
+# =============================================================================
+#
+# STATUS: STAGED GROUNDWORK, NOT SUBMITTED. This file lives in the Rouse Context
+# repo only. It is NOT a copy that has been pushed to the upstream `fdroiddata`
+# repository. The actual fdroiddata merge request is the owner's deliberate,
+# manual step, gated on on-device testing of the FOSS build. Nothing here is
+# auto-submitted.
+#
+# When the owner is ready to submit:
+#   1. Cut and push the `v<version>` tag so the Release CI publishes the signed
+#      FOSS APK asset `rouse-context-<version>-foss.apk` (see .github/workflows/
+#      release.yml). The `Binaries:` URL below resolves to that asset.
+#   2. Copy this file to `metadata/com.rousecontext.yml` in a checkout of
+#      https://gitlab.com/fdroid/fdroiddata, dropping these header comments and
+#      re-checking it against the then-current fdroiddata metadata conventions
+#      (https://f-droid.org/docs/Build_Metadata_Reference/).
+#   3. Run `fdroid lint com.rousecontext` and `fdroid build -v com.rousecontext`
+#      (or `fdroid build --reproducible`) locally before opening the MR.
+#
+# Source of truth for the version fields is app/build.gradle.kts
+# (defaultConfig: versionName / versionCode). Keep this file in sync with it.
+#
+# WHY THE REPRODUCIBLE-BUILDS PATH (Binaries + AllowedAPKSigningKeys):
+# The FOSS release build is effectively reproducible — a clean source build
+# matches the published GitHub Release APK byte-for-byte except for the v2/v3
+# APK Signing Block (PSS salt differs per signing run), which apksigcopier
+# normalizes away. So F-Droid can build from source, confirm reproducibility
+# against the published asset, and ship OUR signed APK rather than re-signing
+# with the F-Droid key. Result: a user can move between the GitHub FOSS APK and
+# the F-Droid build with NO uninstall (same signing identity).
+#
+# DISTRIBUTION NOTE:
+# The bare build IS the FOSS distribution (UnifiedPush wake + ACRA crash
+# reporting, zero Firebase / Google Play Services). `-Pgoogle` opts into the
+# credentialed Firebase build and is NEVER used here. See app/build.gradle.kts
+# (`val googleBuild = project.hasProperty("google")`) and docs/distribution.md.
+# =============================================================================
+
+Categories:
+  - Internet
+  - System
+License: Apache-2.0
+AuthorName: Jason Monk
+SourceCode: https://github.com/Monkopedia/rouse-context
+IssueTracker: https://github.com/Monkopedia/rouse-context/issues
+Changelog: https://github.com/Monkopedia/rouse-context/releases
+
+AutoName: Rouse Context
+
+Description: |-
+    Rouse Context turns your Android phone into an on-demand
+    [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server.
+    AI clients connect to a URL, your phone wakes up, and a direct encrypted
+    session is established. The AI asks for what it needs — health data,
+    notifications, app usage — your phone responds, then it goes back to sleep.
+    Your data never leaves the device except through that live, user-approved
+    session.
+
+    This is the FOSS distribution: it uses [UnifiedPush](https://unifiedpush.org/)
+    for background wake-ups instead of Firebase Cloud Messaging, and contains no
+    Google Play Services or Firebase code. A UnifiedPush distributor (for
+    example ntfy) must be installed for the phone to be woken while the app is
+    backgrounded.
+
+RepoType: git
+Repo: https://github.com/Monkopedia/rouse-context.git
+
+# Ship the upstream-signed FOSS APK via the reproducible-builds path.
+# %v expands to versionName; the release tag is `v<versionName>` and the asset
+# name is `rouse-context-<versionName>-foss.apk` (see release.yml). The tag /
+# asset do not exist until the owner cuts the release — this is a template.
+Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rouse-context-%v-foss.apk
+AllowedAPKSigningKeys: 5394b7c725925737dae18a320609efb0f69f8d028b0a1204157e1962dfe51dca
+
+Builds:
+  - versionName: 1.0.3
+    versionCode: 4
+    # Build from the signed release tag. `v1.0.3` does not exist yet; it is
+    # created when the owner cuts the release. Until then this is a template.
+    commit: v1.0.3
+    subdir: app
+    # No flavor: the bare build is FOSS. The FOSS/Google split is a `-Pgoogle`
+    # project property, not a product flavor, so the default `assembleRelease`
+    # (which `gradle: [yes]` invokes) is exactly the FOSS variant.
+    gradle:
+      - yes
+    # The release buildType signs with .signing/release.keystore and HARD-FAILS
+    # if the store/key passwords are absent (the gradle.taskGraph.whenReady
+    # guard in app/build.gradle.kts). A clean F-Droid checkout has neither the
+    # (gitignored) keystore nor the passwords, so `assembleRelease` would abort
+    # before producing an APK. Supply throwaway signing credentials so the build
+    # completes — the signature F-Droid produces here is irrelevant, because the
+    # reproducibility check strips the APK Signing Block and the published
+    # upstream-signed asset (see Binaries:) is what ships.
+    prebuild:
+      - mkdir -p ../.signing
+      - keytool -genkeypair -dname "CN=fdroid-reproducible-build" -alias release
+        -keyalg RSA -keysize 2048 -validity 10000
+        -keystore ../.signing/release.keystore
+        -storepass fdroidbuild -keypass fdroidbuild
+      - printf 'storePassword=fdroidbuild\nkeyPassword=fdroidbuild\n' > ../.signing/release.properties
+    # Reproducibility recon (issue #465) found nothing the scanner flags beyond
+    # the standard gradle/wrapper/gradle-wrapper.jar, which F-Droid allow-lists.
+    # No `scandelete` / `rm` is required. If a future fdroidserver scanner run
+    # disagrees, prefer `scandelete` over disabling the scan.
+
+MaintainerNotes: |-
+    DRAFT recipe staged inside the upstream repo (fdroid/com.rousecontext.yml).
+    Owner-gated: not yet submitted to fdroiddata.
+
+    Reproducible-builds path:
+      * The FOSS release build matches the published GitHub Release APK
+        byte-for-byte apart from the v2/v3 APK Signing Block PSS salt, which
+        apksigcopier normalizes. F-Droid ships the upstream signature.
+      * AllowedAPKSigningKeys is the release signing cert SHA-256.
+      * The source build needs throwaway signing credentials (see the build's
+        `prebuild:`) only so AGP's release packaging task does not abort on the
+        missing-credentials guard; that signature is discarded.
+
+    Variant facts (do not regress):
+      * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
+        the Firebase build and must NOT be used for F-Droid.
+      * Toolchain at v1.0.3: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
+        minSdk 24, targetSdk 35.
+      * FOSS-only runtime deps: UnifiedPush connector 2.5.0, ACRA 5.13.1.
+
+    On bump: update versionName/versionCode here and in CurrentVersion(Code)
+    from app/build.gradle.kts, and add a new Builds entry pinned to the new tag.
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[0-9.]+$
+CurrentVersion: 1.0.3
+CurrentVersionCode: 4
