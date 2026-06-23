@@ -21,7 +21,7 @@ class IdleTimeoutTest {
     fun `CONNECTED without prior ACTIVE fires timeout`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -42,7 +42,7 @@ class IdleTimeoutTest {
     fun `timer starts on ACTIVE to CONNECTED transition`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -63,7 +63,7 @@ class IdleTimeoutTest {
     fun `stream arrival cancels timer`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -87,7 +87,7 @@ class IdleTimeoutTest {
     fun `timer restarts when returning to CONNECTED from ACTIVE`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -111,7 +111,7 @@ class IdleTimeoutTest {
     fun `DISCONNECTED cancels timer and resets hasBeenActive`() = runTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -139,7 +139,7 @@ class IdleTimeoutTest {
     fun `spurious wake recorded when timeout fires without ACTIVE`() = runTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { },
             recorder = recorder
         )
@@ -162,7 +162,7 @@ class IdleTimeoutTest {
     fun `non-spurious wake only increments total`() = runTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { },
             recorder = recorder
         )
@@ -185,7 +185,7 @@ class IdleTimeoutTest {
     fun `multiple wake cycles accumulate correctly`() = runTest {
         val recorder = FakeSpuriousWakeRecorder()
         val manager = IdleTimeoutManager(
-            timeoutProvider = { 30_000L },
+            timeoutProvider = { _ -> 30_000L },
             onTimeout = { },
             recorder = recorder
         )
@@ -224,7 +224,7 @@ class IdleTimeoutTest {
         val disconnected = CompletableDeferred<Unit>()
         val manager = IdleTimeoutManager(
             // null = idle timeout disabled by the user
-            timeoutProvider = { null },
+            timeoutProvider = { _ -> null },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -246,7 +246,7 @@ class IdleTimeoutTest {
         val disconnected = CompletableDeferred<Unit>()
         var current = 30_000L
         val manager = IdleTimeoutManager(
-            timeoutProvider = { current },
+            timeoutProvider = { _ -> current },
             onTimeout = { disconnected.complete(Unit) }
         )
 
@@ -268,6 +268,128 @@ class IdleTimeoutTest {
             disconnected.isCompleted
         )
         job.cancel()
+    }
+
+    @Test
+    fun `discovery-only cycle arms the quick timeout`() = runTest {
+        val tracker = SessionActivityTracker()
+        val armedSubstantive = mutableListOf<Boolean>()
+        val manager = IdleTimeoutManager(
+            timeoutProvider = { substantive ->
+                armedSubstantive += substantive
+                if (substantive) LONG else QUICK
+            },
+            onTimeout = { },
+            activityTracker = tracker
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        // Wake -> stream opens -> only discovery (no tools/call) -> stream closes.
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(QUICK + 1)
+
+        // The re-arm on the second CONNECTED must have read substantive == false.
+        assertFalse("discovery-only re-arm must be non-substantive", armedSubstantive.last())
+        job.cancel()
+    }
+
+    @Test
+    fun `substantive cycle arms the long timeout and does not fire early`() = runTest {
+        val tracker = SessionActivityTracker()
+        val disconnected = CompletableDeferred<Unit>()
+        val manager = IdleTimeoutManager(
+            timeoutProvider = { substantive -> if (substantive) LONG else QUICK },
+            onTimeout = { disconnected.complete(Unit) },
+            activityTracker = tracker
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        // Let observe() start (and do its initial reset) before promoting, so the
+        // tools/call below models a real mid-cycle call rather than a pre-start one.
+        advanceTimeBy(5_000L)
+        // A tools/call mid-cycle promotes the cycle to substantive.
+        tracker.recordToolCall()
+        stateFlow.value = TunnelState.CONNECTED
+
+        // Past the quick timeout but before the long one: must NOT fire.
+        advanceTimeBy(QUICK + 1)
+        assertFalse("substantive cycle must use the long timeout", disconnected.isCompleted)
+
+        // Past the long timeout: now it fires.
+        advanceTimeBy(LONG)
+        assertTrue("long timeout should eventually fire", disconnected.isCompleted)
+        job.cancel()
+    }
+
+    @Test
+    fun `spurious wake with no stream uses the quick timeout`() = runTest {
+        val tracker = SessionActivityTracker()
+        var armed: Boolean? = null
+        val manager = IdleTimeoutManager(
+            timeoutProvider = { substantive ->
+                armed = substantive
+                if (substantive) LONG else QUICK
+            },
+            onTimeout = { },
+            activityTracker = tracker
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        // Wake with no stream ever opening.
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(QUICK + 1)
+
+        assertFalse("spurious wake must be non-substantive", armed!!)
+        job.cancel()
+    }
+
+    @Test
+    fun `substantiveness resets after DISCONNECTED so next wake uses quick`() = runTest {
+        val tracker = SessionActivityTracker()
+        val armedSubstantive = mutableListOf<Boolean>()
+        val manager = IdleTimeoutManager(
+            timeoutProvider = { substantive ->
+                armedSubstantive += substantive
+                if (substantive) LONG else QUICK
+            },
+            onTimeout = { },
+            activityTracker = tracker
+        )
+
+        val job = launch { manager.observe(stateFlow) }
+
+        // First cycle: substantive (tools/call), then disconnect.
+        stateFlow.value = TunnelState.CONNECTED
+        stateFlow.value = TunnelState.ACTIVE
+        // Let observe() start before the tools/call so it is a true mid-cycle call.
+        advanceTimeBy(10L)
+        tracker.recordToolCall()
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(10L)
+        stateFlow.value = TunnelState.DISCONNECTED
+        advanceTimeBy(10L)
+
+        // Second cycle: spurious wake must NOT inherit substantiveness.
+        stateFlow.value = TunnelState.CONNECTED
+        advanceTimeBy(10L)
+
+        // The first cycle's re-arm was substantive; the post-DISCONNECTED reset
+        // means the second wake re-arms non-substantive.
+        assertTrue("first cycle should have armed substantive", armedSubstantive.contains(true))
+        assertFalse("second wake must re-arm non-substantive after reset", armedSubstantive.last())
+        job.cancel()
+    }
+
+    private companion object {
+        const val QUICK = 30_000L
+        const val LONG = 300_000L
     }
 
     private class FakeSpuriousWakeRecorder : SpuriousWakeRecorder {

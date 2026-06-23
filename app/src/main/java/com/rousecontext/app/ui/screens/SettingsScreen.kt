@@ -61,6 +61,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.R
+import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
@@ -147,6 +148,12 @@ data class BackgroundDeliveryRowState(val distributorName: String?)
 data class SettingsState(
     val idleTimeoutMinutes: Int = 5,
     val idleTimeoutDisabled: Boolean = false,
+    /**
+     * Quick-disconnect timeout (seconds) applied after a wake with no active
+     * session — discovery-only or spurious. Short so a lightweight wake does not
+     * burn the Android 15 dataSync foreground-service budget (6h/24h).
+     */
+    val quickDisconnectSeconds: Int = 30,
     val batteryOptimizationExempt: Boolean = false,
     val postSessionMode: PostSessionModeOption = PostSessionModeOption.SUMMARY,
     val themeMode: ThemeModeOption = ThemeModeOption.AUTO,
@@ -187,6 +194,7 @@ data class SettingsState(
 fun SettingsContent(
     state: SettingsState = SettingsState(),
     onIdleTimeoutChanged: (Int) -> Unit = {},
+    onQuickDisconnectChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (PostSessionModeOption) -> Unit = {},
     onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
@@ -259,6 +267,16 @@ fun SettingsContent(
                     onSelected = { value ->
                         val minutes = value.replace(" min", "").toIntOrNull() ?: 5
                         onIdleTimeoutChanged(minutes)
+                    }
+                )
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
+                SettingsDropdown(
+                    label = stringResource(R.string.screen_settings_label_quick_disconnect),
+                    caption = stringResource(R.string.screen_settings_quick_disconnect_caption),
+                    selected = quickDisconnectLabel(state.quickDisconnectSeconds),
+                    options = listOf("15s", "30s", "1 min"),
+                    onSelected = { value ->
+                        onQuickDisconnectChanged(parseQuickDisconnectSeconds(value))
                     }
                 )
             }
@@ -598,6 +616,7 @@ private fun DeveloperSection(onRenewCertNow: () -> Unit) {
 fun SettingsScreen(
     state: SettingsState = SettingsState(),
     onIdleTimeoutChanged: (Int) -> Unit = {},
+    onQuickDisconnectChanged: (Int) -> Unit = {},
     onDisableTimeoutToggled: (Boolean) -> Unit = {},
     onPostSessionModeChanged: (PostSessionModeOption) -> Unit = {},
     onShowAllMcpMessagesChanged: (Boolean) -> Unit = {},
@@ -672,6 +691,7 @@ fun SettingsScreen(
         SettingsContent(
             state = state,
             onIdleTimeoutChanged = onIdleTimeoutChanged,
+            onQuickDisconnectChanged = onQuickDisconnectChanged,
             onDisableTimeoutToggled = onDisableTimeoutToggled,
             onPostSessionModeChanged = onPostSessionModeChanged,
             onShowAllMcpMessagesChanged = onShowAllMcpMessagesChanged,
@@ -1061,13 +1081,32 @@ private fun <T> EnumSettingsDropdown(
     }
 }
 
+/**
+ * Formats a quick-disconnect timeout for display: seconds under a minute show as
+ * `Ns` (e.g. "15s"), whole minutes show as `N min` (e.g. "1 min").
+ */
+@Composable
+private fun quickDisconnectLabel(seconds: Int): String = if (seconds % 60 == 0) {
+    stringResource(R.string.screen_settings_quick_disconnect_value_minutes, seconds / 60)
+} else {
+    stringResource(R.string.screen_settings_quick_disconnect_value_seconds, seconds)
+}
+
+/** Inverse of [quickDisconnectLabel]: parses a picker label back to seconds. */
+private fun parseQuickDisconnectSeconds(label: String): Int {
+    val digits = label.filter { it.isDigit() }.toIntOrNull()
+        ?: AppStatePreferences.DEFAULT_QUICK_DISCONNECT_SECONDS
+    return if (label.contains("min")) digits * 60 else digits
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsDropdown(
     label: String,
     selected: String,
     options: List<String>,
-    onSelected: (String) -> Unit
+    onSelected: (String) -> Unit,
+    caption: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -1075,11 +1114,19 @@ private fun SettingsDropdown(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            if (caption != null) {
+                Text(
+                    text = caption,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         ExposedDropdownMenuBox(
             expanded = expanded,
             onExpandedChange = { expanded = it }

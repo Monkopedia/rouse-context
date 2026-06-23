@@ -177,6 +177,8 @@
     <string name="screen_settings_label_theme">Theme</string>
     <string name="screen_settings_section_connection">Connection</string>
     <string name="screen_settings_label_idle_timeout">Idle timeout</string>
+    <string name="screen_settings_label_quick_disconnect">Quick disconnect</string>
+    <string name="screen_settings_quick_disconnect_caption">After a wake with no active session</string>
     <string name="screen_settings_disable_timeout_title">Disable timeout</string>
     <string name="screen_settings_disable_timeout_requires_battery">(requires battery exemption)</string>
     <string name="screen_settings_section_audit_notifications">Audit Notifications</string>
@@ -229,6 +231,8 @@
     <string name="screen_settings_time_hours_ago">%1$d hours ago</string>
     <string name="screen_settings_time_days_ago">%1$d days ago</string>
     <string name="screen_settings_idle_timeout_value">%1$d min</string>
+    <string name="screen_settings_quick_disconnect_value_seconds">%1$ds</string>
+    <string name="screen_settings_quick_disconnect_value_minutes">%1$d min</string>
     <string name="screen_settings_theme_light">Light</string>
     <string name="screen_settings_theme_dark">Dark</string>
     <string name="screen_settings_theme_auto">Auto</string>
