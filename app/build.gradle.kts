@@ -48,6 +48,14 @@ android {
     namespace = "com.rousecontext.app"
     compileSdk = 36
 
+    // AGP 8.1+ embeds a "Dependency metadata" block in the APK signing scheme by
+    // default. F-Droid's scanner rejects APKs containing it, so drop it from both
+    // APK and AAB outputs.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     // Release passwords are resolved lazily so non-release tasks (lint, tests,
     // debug builds) don't require the env vars or .properties file.
     val releaseStorePassword = System.getenv("ROUSE_RELEASE_STORE_PASSWORD")
@@ -55,9 +63,26 @@ android {
     val releaseKeyPassword = System.getenv("ROUSE_RELEASE_KEY_PASSWORD")
         ?: loadFromSigningProperties("keyPassword")
 
+    // Resolves to null when the (gitignored) keystore is absent, e.g. a clean
+    // F-Droid checkout.
+    val releaseKeystore = file("${rootProject.projectDir}/.signing/release.keystore")
+        .takeIf { it.exists() }
+
+    // Release signing only happens when the keystore AND both passwords are
+    // present (CI, env or .signing/release.properties). When any are missing —
+    // a clean F-Droid checkout — the release signingConfig is left off the
+    // buildType (below) and AGP builds the release UNSIGNED rather than
+    // aborting. F-Droid then verifies the unsigned APK reproduces our published
+    // signed asset and ships our signature via the reproducible-builds path
+    // (see fdroid/com.rousecontext.yml). Mirrors health-disconnect's proven
+    // F-Droid setup; see issue #465.
+    val canSignRelease = releaseKeystore != null &&
+        releaseStorePassword != null &&
+        releaseKeyPassword != null
+
     signingConfigs {
         create("release") {
-            storeFile = file("${rootProject.projectDir}/.signing/release.keystore")
+            storeFile = releaseKeystore
             storePassword = releaseStorePassword
             keyAlias = "release"
             keyPassword = releaseKeyPassword
@@ -70,32 +95,15 @@ android {
         }
     }
 
-    // Fail fast on release builds if passwords are missing, with a clear message.
-    // Restricted to the exact signing-triggering tasks so unrelated Gradle targets
-    // (e.g. `koverHtmlReport`, which transitively schedules `packageReleaseResources`
-    // and `packageReleaseUnitTestForUnitTest`) don't spuriously require the keys.
-    gradle.taskGraph.whenReady {
-        val releaseSigningTasks = setOf(
-            "assembleRelease",
-            "packageRelease",
-            "bundleRelease"
-        )
-        val needsReleaseSigning = allTasks.any { task ->
-            task.project == project && task.name in releaseSigningTasks
-        }
-        if (needsReleaseSigning) {
-            check(releaseStorePassword != null) {
-                "Release signing requires ROUSE_RELEASE_STORE_PASSWORD env var " +
-                    "or storePassword in .signing/release.properties " +
-                    "(see .signing/release.properties.example)."
-            }
-            check(releaseKeyPassword != null) {
-                "Release signing requires ROUSE_RELEASE_KEY_PASSWORD env var " +
-                    "or keyPassword in .signing/release.properties " +
-                    "(see .signing/release.properties.example)."
-            }
-        }
-    }
+    // When release signing credentials are absent (env vars and
+    // .signing/release.properties both missing), storePassword/keyPassword
+    // resolve to null above and AGP builds the release UNSIGNED rather than
+    // hard-failing. This mirrors health-disconnect's proven F-Droid setup: a
+    // clean F-Droid checkout has neither the (gitignored) keystore nor the
+    // passwords, so it builds the unsigned APK, verifies it reproduces our
+    // published signed asset, and ships our signature via the reproducible-builds
+    // path. A build WITH credentials (CI, env or .signing/release.properties)
+    // still produces a SIGNED APK. See issue #465.
 
     defaultConfig {
         applicationId = "com.rousecontext"
@@ -154,12 +162,19 @@ android {
             }
         }
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // Only sign when credentials are present; otherwise build unsigned
+            // (the F-Droid reproducible-builds path). See canSignRelease above.
+            if (canSignRelease) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // AGP embeds VCS/commit info in the release APK by default, which is
+            // non-reproducible. Drop it so F-Droid reproducible builds succeed.
+            vcsInfo.include = false
             // Release builds ship R8-obfuscated code; upload the mapping so
             // Crashlytics deobfuscates stacks. We have no NDK code, so native
             // symbol upload stays off. Guarded as above for FOSS builds.
@@ -396,4 +411,11 @@ tasks.register<Test>("integrationTest") {
     // Integration tests are I/O-heavy (relay subprocess + real TLS + cert
     // generation) so fail if something hangs instead of wedging CI.
     timeout.set(Duration.ofMinutes(10L))
+}
+
+// Disable baseline profile ArtProfile tasks. Compose pulls in profileinstaller
+// transitively, which adds non-deterministic baseline.prof generation that
+// breaks F-Droid reproducible builds.
+tasks.matching { it.name.contains("ArtProfile") }.configureEach {
+    enabled = false
 }
