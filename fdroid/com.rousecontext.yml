@@ -86,21 +86,13 @@ Builds:
     # (which `gradle: [yes]` invokes) is exactly the FOSS variant.
     gradle:
       - yes
-    # The release buildType signs with .signing/release.keystore and HARD-FAILS
-    # if the store/key passwords are absent (the gradle.taskGraph.whenReady
-    # guard in app/build.gradle.kts). A clean F-Droid checkout has neither the
-    # (gitignored) keystore nor the passwords, so `assembleRelease` would abort
-    # before producing an APK. Supply throwaway signing credentials so the build
-    # completes — the signature F-Droid produces here is irrelevant, because the
-    # reproducibility check strips the APK Signing Block and the published
-    # upstream-signed asset (see Binaries:) is what ships.
-    prebuild:
-      - mkdir -p ../.signing
-      - keytool -genkeypair -dname "CN=fdroid-reproducible-build" -alias release
-        -keyalg RSA -keysize 2048 -validity 10000
-        -keystore ../.signing/release.keystore
-        -storepass fdroidbuild -keypass fdroidbuild
-      - printf 'storePassword=fdroidbuild\nkeyPassword=fdroidbuild\n' > ../.signing/release.properties
+    # No signing setup needed. With no keystore/passwords present (a clean
+    # F-Droid checkout has neither — both are gitignored), the release
+    # signingConfig is left off the buildType and AGP builds the release
+    # UNSIGNED. F-Droid verifies that unsigned APK reproduces the published
+    # upstream-signed asset (see Binaries:) and ships our signature. No throwaway
+    # keystore, no prebuild — mirrors com.monkopedia.healthdisconnect's proven
+    # F-Droid recipe.
     # Reproducibility recon (issue #465) found nothing the scanner flags beyond
     # the standard gradle/wrapper/gradle-wrapper.jar, which F-Droid allow-lists.
     # No `scandelete` / `rm` is required. If a future fdroidserver scanner run
@@ -115,9 +107,10 @@ MaintainerNotes: |-
         byte-for-byte apart from the v2/v3 APK Signing Block PSS salt, which
         apksigcopier normalizes. F-Droid ships the upstream signature.
       * AllowedAPKSigningKeys is the release signing cert SHA-256.
-      * The source build needs throwaway signing credentials (see the build's
-        `prebuild:`) only so AGP's release packaging task does not abort on the
-        missing-credentials guard; that signature is discarded.
+      * With no signing credentials present, AGP builds the release UNSIGNED
+        (the release signingConfig is left off the buildType); F-Droid verifies
+        reproducibility against the published signed asset and ships our
+        signature. No throwaway keystore is needed.
 
     Variant facts (do not regress):
       * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
