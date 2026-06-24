@@ -47,6 +47,13 @@ jobs:
           RELAY_GTS_EAB_HMAC: ${{ secrets.RELAY_GTS_EAB_HMAC }}
           RELAY_RUST_LOG: ${{ secrets.RELAY_RUST_LOG }}
           RELAY_FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.RELAY_FIREBASE_SERVICE_ACCOUNT_JSON }}
+          # GitHub token for the foss /crash -> GitHub-issue filer (#464). The
+          # GITHUB_ env prefix is reserved by Actions, so the SECRET is named
+          # RELAY_GITHUB_CRASH_TOKEN and rendered to the GITHUB_CRASH_TOKEN env
+          # var the relay reads. Unset secret => empty value => relay no-ops the
+          # filing gracefully (sanitize+log only), so this is safe before the
+          # secret exists.
+          RELAY_GITHUB_CRASH_TOKEN: ${{ secrets.RELAY_GITHUB_CRASH_TOKEN }}
         run: |
           set -u -o pipefail
           RENDER_DIR=$(mktemp -d)
@@ -61,6 +68,7 @@ jobs:
             printf 'RUST_LOG=%s\n'             "$RELAY_RUST_LOG"
             printf 'GTS_EAB_KID=%s\n'          "$RELAY_GTS_EAB_KID"
             printf 'GTS_EAB_HMAC=%s\n'         "$RELAY_GTS_EAB_HMAC"
+            printf 'GITHUB_CRASH_TOKEN=%s\n'   "$RELAY_GITHUB_CRASH_TOKEN"
           } > "$RENDER_DIR/env"
           chmod 600 "$RENDER_DIR/env"
 
