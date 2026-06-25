@@ -228,7 +228,7 @@ class MultiClientConcurrencyTest {
         withTimeout(15_000) { deviceSessionOpened.receive() }
 
         // Full OAuth + MCP initialize on both, sequentially to avoid
-        // BufferedReader interleaving issues (each client has its own
+        // response interleaving issues (each client has its own
         // socket, but the device session handlers need time to start).
         val session1 = withTimeout(30_000) { performOAuthAndInitialize(client1, "client-1") }
         val session2 = withTimeout(30_000) { performOAuthAndInitialize(client2, "client-2") }

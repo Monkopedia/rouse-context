@@ -7,9 +7,8 @@ import com.rousecontext.app.token.TokenDatabase
 import com.rousecontext.mcp.core.INTERNAL_TOKEN_HEADER
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.mcp.core.TokenStore
-import java.io.BufferedReader
+import com.rousecontext.tunnel.integration.IntegrationHttpSupport
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.Socket
 import java.net.URLEncoder
@@ -645,7 +644,7 @@ class OAuthDeviceFlowIntegrationTest {
         private val session: McpSession
     ) : AutoCloseable {
         private val socket = Socket("127.0.0.1", session.port).also {
-            it.soTimeout = SOCKET_TIMEOUT_MS
+            IntegrationHttpSupport.applyReadTimeout(it)
         }
         private val input: InputStream = socket.inputStream
         private val output: OutputStream = socket.outputStream
@@ -656,7 +655,7 @@ class OAuthDeviceFlowIntegrationTest {
             body: String? = null,
             bearer: String? = null,
             sessionId: String? = null
-        ): HttpResponse = doRequest(
+        ): IntegrationHttpSupport.HttpResponse = doRequest(
             method = method,
             path = path,
             body = body,
@@ -665,7 +664,11 @@ class OAuthDeviceFlowIntegrationTest {
             sessionId = sessionId
         )
 
-        fun doForm(method: String, path: String, params: Map<String, String>): HttpResponse {
+        fun doForm(
+            method: String,
+            path: String,
+            params: Map<String, String>
+        ): IntegrationHttpSupport.HttpResponse {
             val encoded = params.entries.joinToString("&") { (k, v) ->
                 "${URLEncoder.encode(k, "UTF-8")}=${URLEncoder.encode(v, "UTF-8")}"
             }
@@ -687,7 +690,7 @@ class OAuthDeviceFlowIntegrationTest {
             contentType: String,
             bearer: String?,
             sessionId: String?
-        ): HttpResponse {
+        ): IntegrationHttpSupport.HttpResponse {
             val sb = StringBuilder()
             sb.append("$method $path HTTP/1.1\r\n")
             sb.append("Host: $hostHeader\r\n")
@@ -705,87 +708,15 @@ class OAuthDeviceFlowIntegrationTest {
                 sb.append("Content-Length: ${bodyBytes.size}\r\n")
             }
             sb.append("\r\n")
-            output.write(sb.toString().toByteArray(Charsets.UTF_8))
-            if (bodyBytes != null) output.write(bodyBytes)
-            output.flush()
-
-            return readResponse(input)
+            // Byte-exact HTTP framing on a per-socket reused buffered stream
+            // (#523) so sequential requests on this keep-alive socket cannot
+            // char/byte-desync.
+            return IntegrationHttpSupport.exchange(input, output, sb.toString(), bodyBytes)
         }
 
         override fun close() {
+            IntegrationHttpSupport.release(input)
             runCatching { socket.close() }
         }
-    }
-
-    private data class HttpResponse(
-        val statusCode: Int,
-        val headers: Map<String, String>,
-        val body: String
-    )
-
-    @Suppress("CyclomaticComplexMethod", "LoopWithTooManyJumpStatements", "NestedBlockDepth")
-    private fun readResponse(input: InputStream): HttpResponse {
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
-        val statusLine = reader.readLine() ?: error("no status line from server")
-        require(statusLine.startsWith("HTTP/1.1")) { "bad status line: $statusLine" }
-        val statusCode = statusLine.split(" ")[1].toInt()
-
-        val headers = mutableMapOf<String, String>()
-        var contentLength = -1
-        var chunked = false
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (line.isEmpty()) break
-            val colonIdx = line.indexOf(':')
-            if (colonIdx > 0) {
-                headers[line.substring(0, colonIdx).lowercase()] =
-                    line.substring(colonIdx + 1).trim()
-            }
-            val lc = line.lowercase()
-            if (lc.startsWith("content-length:")) {
-                contentLength = lc.substringAfter(":").trim().toInt()
-            }
-            if (lc.startsWith("transfer-encoding:") && lc.contains("chunked")) {
-                chunked = true
-            }
-        }
-
-        val body = when {
-            contentLength > 0 -> readFixedLength(reader, contentLength)
-            chunked -> readChunked(reader)
-            else -> ""
-        }
-        return HttpResponse(statusCode, headers, body)
-    }
-
-    private fun readFixedLength(reader: BufferedReader, length: Int): String {
-        val buf = CharArray(length)
-        var read = 0
-        while (read < length) {
-            val n = reader.read(buf, read, length - read)
-            if (n == -1) break
-            read += n
-        }
-        return String(buf, 0, read)
-    }
-
-    @Suppress("LoopWithTooManyJumpStatements")
-    private fun readChunked(reader: BufferedReader): String {
-        val sb = StringBuilder()
-        while (true) {
-            val sizeLine = reader.readLine() ?: break
-            val size = sizeLine.trim().toInt(16)
-            if (size == 0) {
-                reader.readLine()
-                break
-            }
-            sb.append(readFixedLength(reader, size))
-            reader.readLine()
-        }
-        return sb.toString()
-    }
-
-    private companion object {
-        private const val SOCKET_TIMEOUT_MS = 20_000
     }
 }

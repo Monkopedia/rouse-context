@@ -5,8 +5,7 @@ import com.rousecontext.app.integration.harness.AppIntegrationTestHarness
 import com.rousecontext.mcp.core.INTERNAL_TOKEN_HEADER
 import com.rousecontext.mcp.core.McpSession
 import com.rousecontext.tunnel.TunnelState
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import com.rousecontext.tunnel.integration.IntegrationHttpSupport
 import java.net.Socket
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -58,7 +57,7 @@ class McpTestDriver(
     private var mcpSessionId: String? = null
 
     init {
-        socket.soTimeout = DEFAULT_SO_TIMEOUT_MS
+        IntegrationHttpSupport.applyReadTimeout(socket)
     }
 
     /** Initialize the MCP session and capture `mcp-session-id`. */
@@ -93,17 +92,17 @@ class McpTestDriver(
     }
 
     override fun close() {
+        IntegrationHttpSupport.release(input)
         runCatching { socket.close() }
     }
 
-    private data class McpHttpResponse(
-        val statusCode: Int,
-        val headers: Map<String, String>,
-        val body: String
-    )
-
-    @Suppress("LongMethod", "CyclomaticComplexMethod", "LoopWithTooManyJumpStatements")
-    private fun doMcpCall(path: String, body: String): McpHttpResponse {
+    /**
+     * Speak one raw HTTP/1.1 round trip over the keep-alive socket via the
+     * shared, byte-exact [IntegrationHttpSupport] framing (#523). The helper
+     * reuses one buffered byte stream per socket, so sequential calls here stay
+     * aligned even when responses are coalesced into one TCP segment.
+     */
+    private fun doMcpCall(path: String, body: String): IntegrationHttpSupport.HttpResponse {
         val bodyBytes = body.toByteArray(Charsets.UTF_8)
         val sb = StringBuilder()
         sb.append("POST $path HTTP/1.1\r\n")
@@ -115,77 +114,7 @@ class McpTestDriver(
         sb.append("Authorization: Bearer $bearerToken\r\n")
         mcpSessionId?.let { sb.append("Mcp-Session-Id: $it\r\n") }
         sb.append("\r\n")
-        output.write(sb.toString().toByteArray(Charsets.UTF_8))
-        output.write(bodyBytes)
-        output.flush()
-
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
-        val statusLine = reader.readLine() ?: error("no status line for $path")
-        require(statusLine.startsWith("HTTP/1.1")) { "bad status line: $statusLine" }
-        val statusCode = statusLine.split(" ")[1].toInt()
-
-        val headers = mutableMapOf<String, String>()
-        var contentLength = -1
-        var chunked = false
-        while (true) {
-            val line = reader.readLine() ?: break
-            if (line.isEmpty()) break
-            val colonIdx = line.indexOf(':')
-            if (colonIdx > 0) {
-                headers[line.substring(0, colonIdx).lowercase()] =
-                    line.substring(colonIdx + 1).trim()
-            }
-            val lc = line.lowercase()
-            if (lc.startsWith("content-length:")) {
-                contentLength = lc.substringAfter(":").trim().toInt()
-            }
-            if (lc.startsWith("transfer-encoding:") && lc.contains("chunked")) {
-                chunked = true
-            }
-        }
-
-        val body = when {
-            contentLength > 0 -> {
-                val buf = CharArray(contentLength)
-                var read = 0
-                while (read < contentLength) {
-                    val n = reader.read(buf, read, contentLength - read)
-                    if (n == -1) break
-                    read += n
-                }
-                String(buf, 0, read)
-            }
-            chunked -> readChunkedBody(reader)
-            else -> ""
-        }
-        return McpHttpResponse(statusCode, headers, body)
-    }
-
-    @Suppress("LoopWithTooManyJumpStatements")
-    private fun readChunkedBody(reader: BufferedReader): String {
-        val sb = StringBuilder()
-        while (true) {
-            val sizeLine = reader.readLine() ?: break
-            val chunkSize = sizeLine.trim().toInt(16)
-            if (chunkSize == 0) {
-                reader.readLine()
-                break
-            }
-            val buf = CharArray(chunkSize)
-            var read = 0
-            while (read < chunkSize) {
-                val n = reader.read(buf, read, chunkSize - read)
-                if (n == -1) break
-                read += n
-            }
-            sb.append(buf, 0, read)
-            reader.readLine()
-        }
-        return sb.toString()
-    }
-
-    companion object {
-        private const val DEFAULT_SO_TIMEOUT_MS = 15_000
+        return IntegrationHttpSupport.exchange(input, output, sb.toString(), bodyBytes)
     }
 }
 

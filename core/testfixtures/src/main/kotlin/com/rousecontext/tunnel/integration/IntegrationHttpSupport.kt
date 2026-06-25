@@ -1,8 +1,8 @@
 package com.rousecontext.tunnel.integration
 
-import java.io.BufferedReader
+import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.Socket
 import java.util.Collections
@@ -15,12 +15,11 @@ import java.util.IdentityHashMap
  * `OAuthEndToEndTest`, `TunnelMcpIntegrationTest`,
  * `MultiClientConcurrencyTest`, ...) carried its own copy of this
  * request-write / response-read logic, each pairing a blocking
- * [BufferedReader.readLine] against a tight per-socket
- * [Socket.setSoTimeout] (5s / 10s / 15s / 30s). Under CI load the
- * relay <-> device round trip routinely exceeded those read timeouts and
- * surfaced as a `java.net.SocketTimeoutException`, red-ing the
- * "Integration tests (relay)" job on unrelated changes (#498, #499, #501,
- * #504).
+ * `readLine` against a tight per-socket [Socket.setSoTimeout]
+ * (5s / 10s / 15s / 30s). Under CI load the relay <-> device round trip
+ * routinely exceeded those read timeouts and surfaced as a
+ * `java.net.SocketTimeoutException`, red-ing the "Integration tests (relay)"
+ * job on unrelated changes (#498, #499, #501, #504).
  *
  * The de-flake centres on a single GENEROUS socket read timeout
  * ([SOCKET_READ_TIMEOUT_MS]) shared by every test:
@@ -43,50 +42,59 @@ import java.util.IdentityHashMap
  * separate-thread ceiling on its single test, where the interaction does not
  * arise -- see #504.)
  *
- * ## Persistent per-connection reader (#518)
+ * ## Byte-exact HTTP framing (#523)
  *
  * The tests issue many sequential requests over a single keep-alive socket.
- * A `BufferedReader`/`InputStreamReader` reads from the underlying socket in
- * 8 KiB blocks, so when the relay coalesces two responses into one TCP segment
- * (or simply when the next response arrives before we finish parsing the
- * current one) the reader buffers bytes belonging to the *next* response.
- * Constructing a fresh `BufferedReader` per [readResponse] call therefore
- * silently discarded those buffered-ahead bytes: the next call built a new
- * reader whose underlying stream had nothing left to deliver, so its
- * [BufferedReader.readLine] blocked until [SOCKET_READ_TIMEOUT_MS] elapsed and
- * surfaced as the `OAuthEndToEndTest` `SocketTimeoutException` (#518). The
- * `OAuthEndToEndTest` flow is the most exposed because it makes a dozen
- * sequential requests on one socket.
+ * #518 reused one `BufferedReader` per stream so bytes buffered ahead from a
+ * coalesced TCP segment carried over to the next [readResponse] instead of
+ * being dropped. That narrowed the flake but did not close it, because a
+ * char-oriented `BufferedReader` is the wrong tool for HTTP framing:
+ * **`Content-Length` counts BYTES while a `BufferedReader` counts CHARS**.
+ * Reading `contentLength` *chars* off a UTF-8 decoder consumes a different
+ * number of *bytes* whenever the body is non-ASCII, and the decoder also pulls
+ * whole 8 KiB byte blocks off the socket — so the reader's internal char buffer
+ * and the true byte stream drift apart. Once they diverge the next
+ * [readResponse] desyncs and every subsequent read on that keep-alive socket
+ * blocks until [SOCKET_READ_TIMEOUT_MS] elapses (the cascade seen in #523).
  *
- * The fix is to keep exactly one `BufferedReader` per underlying
- * [InputStream] for the life of that stream, so buffered-ahead bytes carry
- * over to the next [readResponse] instead of being dropped. Tests are
- * single-threaded per socket; the cache is synchronized only so distinct
- * connections in concurrent tests stay isolated.
+ * The fix is byte-exact framing on ONE reused [BufferedInputStream] per
+ * underlying [InputStream] (identity-keyed, mirroring #518 but bytes not chars):
+ *
+ *  - Status line and header lines are read as BYTES up to each CRLF and decoded
+ *    as ISO-8859-1, which is byte-exact (1 byte <-> 1 char) for HTTP framing.
+ *  - The body is read as EXACTLY `Content-Length` BYTES (loop until N bytes), or
+ *    chunked is decoded by exact byte reads of each hex-sized chunk. Only after
+ *    the exact bytes are in hand is the body decoded to a String as UTF-8.
+ *  - The buffered byte stream is reused per connection, so bytes buffered ahead
+ *    from a coalesced TCP segment carry to the next call (preserving #518's
+ *    win).
+ *
+ * Tests are single-threaded per socket; the cache is synchronized only so
+ * distinct connections in concurrent tests stay isolated.
  */
 object IntegrationHttpSupport {
 
     /**
-     * One reader per underlying [InputStream], keyed by identity. Reusing the
-     * reader preserves any bytes it buffered ahead from a previous response
-     * (see the class kdoc, #518). Entries are never evicted: a test's sockets
-     * are short-lived and the suite creates a bounded number of them.
+     * One buffered byte stream per underlying [InputStream], keyed by identity.
+     * Reusing it preserves any bytes it buffered ahead from a previous response
+     * (see the class kdoc, #523/#518). Entries are never evicted: a test's
+     * sockets are short-lived and the suite creates a bounded number of them.
      */
-    private val readers: MutableMap<InputStream, BufferedReader> =
+    private val streams: MutableMap<InputStream, BufferedInputStream> =
         Collections.synchronizedMap(IdentityHashMap())
 
-    private fun readerFor(input: InputStream): BufferedReader = synchronized(readers) {
-        readers.getOrPut(input) { BufferedReader(InputStreamReader(input, Charsets.UTF_8)) }
+    private fun streamFor(input: InputStream): BufferedInputStream = synchronized(streams) {
+        streams.getOrPut(input) { BufferedInputStream(input) }
     }
 
     /**
-     * Drop the cached reader for [input], if any. Optional: tests may call this
-     * when they are finished with a socket so the identity cache does not
-     * retain a reference for the rest of the suite. Not calling it is safe --
-     * the suite creates a bounded number of short-lived sockets.
+     * Drop the cached buffered stream for [input], if any. Optional: tests may
+     * call this when they are finished with a socket so the identity cache does
+     * not retain a reference for the rest of the suite. Not calling it is safe
+     * -- the suite creates a bounded number of short-lived sockets.
      */
     fun release(input: InputStream) {
-        synchronized(readers) { readers.remove(input) }
+        synchronized(streams) { streams.remove(input) }
     }
 
     /**
@@ -128,24 +136,25 @@ object IntegrationHttpSupport {
     /**
      * Read and parse an HTTP/1.1 response (status line, headers, and either a
      * `Content-Length`-delimited or `Transfer-Encoding: chunked` body) from
-     * [input].
+     * [input], framing it BYTE-exactly (see class kdoc, #523).
      */
-    @Suppress("CyclomaticComplexMethod", "LoopWithTooManyJumpStatements")
+    @Suppress("LoopWithTooManyJumpStatements")
     fun readResponse(input: InputStream): HttpResponse {
-        // Reuse one reader per stream so bytes buffered ahead from a prior
-        // response are not dropped (see class kdoc, #518).
-        val reader = readerFor(input)
-        val statusLine = reader.readLine() ?: error("No status line received")
+        // Reuse one buffered byte stream per socket so bytes buffered ahead from
+        // a prior (coalesced) response are not dropped (see class kdoc).
+        val stream = streamFor(input)
+
+        val statusLine = readLine(stream) ?: error("No status line received")
         require(statusLine.startsWith("HTTP/1.1")) {
             "Expected HTTP response, got: $statusLine"
         }
         val statusCode = statusLine.split(" ")[1].toInt()
 
         val headers = mutableMapOf<String, String>()
-        var contentLength = -1
+        var contentLength = -1L
         var chunked = false
         while (true) {
-            val line = reader.readLine() ?: break
+            val line = readLine(stream) ?: break
             if (line.isEmpty()) break
             val colonIdx = line.indexOf(':')
             if (colonIdx > 0) {
@@ -154,52 +163,80 @@ object IntegrationHttpSupport {
             }
             val lower = line.lowercase()
             if (lower.startsWith("content-length:")) {
-                contentLength = lower.substringAfter(":").trim().toInt()
+                contentLength = lower.substringAfter(":").trim().toLong()
             }
             if (lower.startsWith("transfer-encoding:") && lower.contains("chunked")) {
                 chunked = true
             }
         }
 
-        val body = when {
-            contentLength > 0 -> readFixedBody(reader, contentLength)
-            chunked -> readChunkedBody(reader)
-            else -> ""
+        val bodyBytes = when {
+            contentLength > 0 -> readFixedBody(stream, contentLength)
+            chunked -> readChunkedBody(stream)
+            else -> ByteArray(0)
         }
-        return HttpResponse(statusCode, headers, body)
+        return HttpResponse(statusCode, headers, String(bodyBytes, Charsets.UTF_8))
     }
 
-    private fun readFixedBody(reader: BufferedReader, length: Int): String {
-        val buf = CharArray(length)
+    /**
+     * Read one CRLF-terminated line as BYTES and decode it as ISO-8859-1 (a
+     * byte-exact 1:1 mapping, correct for HTTP framing). Returns `null` at EOF
+     * before any byte. A bare LF is tolerated; a trailing CR is stripped.
+     */
+    private fun readLine(stream: BufferedInputStream): String? {
+        val out = ByteArrayOutputStream()
+        var sawAny = false
+        while (true) {
+            val b = stream.read()
+            if (b == -1) {
+                return if (sawAny) decodeLine(out) else null
+            }
+            sawAny = true
+            if (b == '\n'.code) {
+                return decodeLine(out)
+            }
+            out.write(b)
+        }
+    }
+
+    private fun decodeLine(out: ByteArrayOutputStream): String {
+        val bytes = out.toByteArray()
+        // Strip a single trailing CR (CRLF line ending).
+        val len = if (bytes.isNotEmpty() && bytes[bytes.size - 1] == '\r'.code.toByte()) {
+            bytes.size - 1
+        } else {
+            bytes.size
+        }
+        return String(bytes, 0, len, Charsets.ISO_8859_1)
+    }
+
+    /** Read exactly [length] bytes (blocking until they arrive or EOF). */
+    private fun readFixedBody(stream: BufferedInputStream, length: Long): ByteArray {
+        val buf = ByteArray(length.toInt())
         var read = 0
-        while (read < length) {
-            val n = reader.read(buf, read, length - read)
+        while (read < buf.size) {
+            val n = stream.read(buf, read, buf.size - read)
             if (n == -1) break
             read += n
         }
-        return String(buf, 0, read)
+        return if (read == buf.size) buf else buf.copyOf(read)
     }
 
     @Suppress("LoopWithTooManyJumpStatements")
-    private fun readChunkedBody(reader: BufferedReader): String {
-        val sb = StringBuilder()
+    private fun readChunkedBody(stream: BufferedInputStream): ByteArray {
+        val out = ByteArrayOutputStream()
         while (true) {
-            val sizeLine = reader.readLine() ?: break
-            val chunkSize = sizeLine.trim().toInt(16)
+            val sizeLine = readLine(stream) ?: break
+            // A chunk-size line may carry chunk extensions (";ext=..."); the
+            // size is the leading hex token.
+            val chunkSize = sizeLine.substringBefore(';').trim().toInt(16)
             if (chunkSize == 0) {
-                reader.readLine() // trailing CRLF
+                readLine(stream) // trailing CRLF after the final chunk
                 break
             }
-            val buf = CharArray(chunkSize)
-            var read = 0
-            while (read < chunkSize) {
-                val n = reader.read(buf, read, chunkSize - read)
-                if (n == -1) break
-                read += n
-            }
-            sb.append(buf, 0, read)
-            reader.readLine() // chunk trailing CRLF
+            out.write(readFixedBody(stream, chunkSize.toLong()))
+            readLine(stream) // CRLF terminating this chunk's data
         }
-        return sb.toString()
+        return out.toByteArray()
     }
 }
