@@ -26,4 +26,15 @@ dependencies {
     // failures. Exposed as `api` because downstream assertions often reuse
     // the same `fail(...)` helper.
     api(kotlin("test"))
+
+    // Self-tests for the byte-exact HTTP framing in `IntegrationHttpSupport`
+    // (#523). These run on the JVM with no relay/device involved -- a fake
+    // socket feeds canned response bytes -- so they execute in the normal
+    // `test` task, unlike the relay-binary-gated integration suites downstream.
+    testImplementation(libs.junit.jupiter.api)
+    testRuntimeOnly(libs.junit.jupiter.engine)
+}
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
