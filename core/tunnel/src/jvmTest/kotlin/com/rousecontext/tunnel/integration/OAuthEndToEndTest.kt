@@ -424,6 +424,7 @@ class OAuthEndToEndTest {
                 content!![0].jsonObject["text"]?.jsonPrimitive?.content
             )
 
+            IntegrationHttpSupport.release(input)
             aiSocket.close()
             collectJob.cancel()
         } finally {
