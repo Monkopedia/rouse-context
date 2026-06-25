@@ -368,6 +368,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
         "integration_secrets".to_string(),
         string_map_val(&record.integration_secrets),
     );
+    fields.insert(
+        "retired_secrets".to_string(),
+        string_map_val(&record.retired_secrets),
+    );
     fields
 }
 
@@ -392,6 +396,8 @@ fn device_record_from_fields(
         push_endpoint: read_opt_string(fields, "push_endpoint").unwrap_or_default(),
         valid_secrets: read_string_array(fields, "valid_secrets"),
         integration_secrets: read_string_map(fields, "integration_secrets"),
+        // Legacy documents predate retired_secrets: a missing map reads empty.
+        retired_secrets: read_string_map(fields, "retired_secrets"),
     })
 }
 
@@ -924,6 +930,10 @@ mod tests {
                 ("health".to_string(), "brave-health".to_string()),
                 ("outreach".to_string(), "swift-outreach".to_string()),
             ]),
+            retired_secrets: std::collections::HashMap::from([(
+                "calendar".to_string(),
+                "stale-calendar".to_string(),
+            )]),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -959,6 +969,11 @@ mod tests {
         assert_eq!(back.valid_secrets.len(), 2);
         assert!(back.valid_secrets.contains(&"brave-health".to_string()));
         assert!(back.valid_secrets.contains(&"swift-outreach".to_string()));
+        // retired_secrets must survive the Firestore wire roundtrip (#519).
+        assert_eq!(
+            back.retired_secrets.get("calendar").map(String::as_str),
+            Some("stale-calendar")
+        );
     }
 
     #[test]
@@ -1040,6 +1055,7 @@ mod tests {
             push_endpoint: String::new(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
+            retired_secrets: std::collections::HashMap::new(),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -1069,6 +1085,7 @@ mod tests {
                 ("health".to_string(), "brave-health".to_string()),
                 ("outreach".to_string(), "swift-outreach".to_string()),
             ]),
+            retired_secrets: std::collections::HashMap::new(),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -1123,6 +1140,7 @@ mod tests {
             push_endpoint: String::new(),
             valid_secrets: vec!["brave-health".to_string()],
             integration_secrets: std::collections::HashMap::new(),
+            retired_secrets: std::collections::HashMap::new(),
         });
         // Simulate the legacy shape by removing the field entirely.
         fields.remove("integration_secrets");
@@ -1150,6 +1168,7 @@ mod tests {
             push_endpoint: "https://ntfy.sh/up_abc123".to_string(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
+            retired_secrets: std::collections::HashMap::new(),
         };
         let fields = device_record_to_fields(&record);
         let back = device_record_from_fields(&fields).unwrap();
@@ -1177,6 +1196,7 @@ mod tests {
             push_endpoint: String::new(),
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
+            retired_secrets: std::collections::HashMap::new(),
         });
         fields.remove("push_kind");
         fields.remove("push_endpoint");

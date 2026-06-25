@@ -88,14 +88,40 @@ pub(crate) fn generate_integration_secrets(integrations: &[String]) -> HashMap<S
     let mut rng = rand::thread_rng();
     integrations
         .iter()
-        .map(|id| (id.clone(), generate_one_secret(id, &mut rng)))
+        .map(|id| (id.clone(), generate_one_secret(id, &mut rng, None)))
         .collect()
 }
 
+/// Upper bound on adjective redraws when honoring `exclude` in
+/// [`generate_one_secret`]. With ~200 adjectives excluding a single value the
+/// loop almost always terminates on the first or second draw; this cap is a
+/// safety valve so a degenerate RNG can never spin forever. Past the cap we
+/// accept whatever was last drawn (worst case: it equals `exclude`, i.e. the
+/// pre-fix behavior — a ~1/N collision, no worse than before).
+const MAX_SECRET_REDRAWS: usize = 64;
+
 /// Generate a single `{adjective}-{integrationId}` secret.
-pub(crate) fn generate_one_secret(integration_id: &str, rng: &mut impl rand::Rng) -> String {
-    let adjective = adjectives::pick_random(rng);
-    format!("{adjective}-{integration_id}")
+///
+/// When `exclude` is `Some(prior)`, the result is guaranteed not to equal
+/// `prior` (best-effort, bounded by [`MAX_SECRET_REDRAWS`]). This is how the
+/// re-enable path (#519) ensures a re-minted secret never collides with the
+/// value the integration had before it was disabled — a leaked-then-disabled
+/// URL must stay dead. `None` preserves the original draw-once behavior used by
+/// initial `/register`.
+pub(crate) fn generate_one_secret(
+    integration_id: &str,
+    rng: &mut impl rand::Rng,
+    exclude: Option<&str>,
+) -> String {
+    let mut secret = format!("{}-{integration_id}", adjectives::pick_random(rng));
+    if let Some(prior) = exclude {
+        let mut attempts = 0;
+        while secret == prior && attempts < MAX_SECRET_REDRAWS {
+            secret = format!("{}-{integration_id}", adjectives::pick_random(rng));
+            attempts += 1;
+        }
+    }
+    secret
 }
 
 /// Round 2: Submit CSR to receive certificates.
@@ -425,6 +451,7 @@ pub async fn handle_register(
         push_endpoint,
         valid_secrets: valid_secrets.clone(),
         integration_secrets: secrets_map.clone(),
+        retired_secrets: HashMap::new(),
     };
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
@@ -652,6 +679,49 @@ fn verify_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generate_one_secret_has_expected_shape_without_exclusion() {
+        let mut rng = rand::thread_rng();
+        for _ in 0..100 {
+            let secret = generate_one_secret("outreach", &mut rng, None);
+            assert!(
+                secret.ends_with("-outreach"),
+                "secret {secret:?} should end with -outreach"
+            );
+            let adjective = secret.strip_suffix("-outreach").unwrap();
+            assert!(
+                adjectives::ADJECTIVES.contains(&adjective),
+                "adjective {adjective:?} not in list"
+            );
+        }
+    }
+
+    #[test]
+    fn generate_one_secret_never_returns_excluded_value() {
+        // #519: re-minting an integration's secret must never collide with the
+        // prior value. Draw many times against a real adjective so the ~1/N
+        // collision would surface without the exclusion loop.
+        let mut rng = rand::thread_rng();
+        let prior = "brave-outreach";
+        for _ in 0..10_000 {
+            let secret = generate_one_secret("outreach", &mut rng, Some(prior));
+            assert_ne!(
+                secret, prior,
+                "re-minted secret must differ from the excluded prior value"
+            );
+            assert!(secret.ends_with("-outreach"));
+        }
+    }
+
+    #[test]
+    fn generate_one_secret_exclude_unrelated_value_is_noop() {
+        // Excluding a value that this integration could never produce (wrong
+        // suffix) leaves the normal draw untouched.
+        let mut rng = rand::thread_rng();
+        let secret = generate_one_secret("outreach", &mut rng, Some("brave-health"));
+        assert!(secret.ends_with("-outreach"));
+    }
 
     #[test]
     fn push_target_prefers_fcm_token() {
