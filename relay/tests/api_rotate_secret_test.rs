@@ -70,6 +70,7 @@ fn make_device(secret: &str) -> DeviceRecord {
         push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
+        retired_secrets: std::collections::HashMap::new(),
     }
 }
 
@@ -612,6 +613,91 @@ async fn rotate_secret_empty_list_clears_all_secrets() {
         state.relay_state.get_valid_secrets_cache("cool-penguin"),
         None,
         "cache must be evicted when valid_secrets becomes empty"
+    );
+}
+
+/// #519: disabling an integration must park its last secret in
+/// `retired_secrets` so a future re-enable can exclude it.
+#[tokio::test]
+async fn rotate_secret_parks_dropped_secret_in_retired() {
+    let mut device = make_device("unused");
+    device.integration_secrets = HashMap::from([
+        ("a".to_string(), "brave-a".to_string()),
+        ("b".to_string(), "clever-b".to_string()),
+    ]);
+    device.valid_secrets = device.integration_secrets.values().cloned().collect();
+    let firestore = MockFirestore::new().with_device("cool-penguin", device);
+    let (app, fs, _state) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "cool-penguin");
+
+    // Disable b: push [a] only.
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/rotate-secret")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "integrations": ["a"] }).to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let devices = fs.devices.lock().unwrap();
+    let stored = devices.get("cool-penguin").unwrap();
+    assert!(!stored.integration_secrets.contains_key("b"));
+    assert_eq!(
+        stored.retired_secrets.get("b").map(String::as_str),
+        Some("clever-b"),
+        "dropped integration's last secret must be retained for exclusion"
+    );
+    // a is live, so it must not appear in retired.
+    assert!(!stored.retired_secrets.contains_key("a"));
+}
+
+/// #519: re-enabling a previously disabled integration must mint a secret
+/// that differs from the value it had before disable. The retired-secret
+/// exclusion makes this deterministic — it can never collide.
+#[tokio::test]
+async fn rotate_secret_reenable_excludes_prior_secret() {
+    // Device state right after disable: b is dropped from the active map but
+    // its prior secret is parked in retired_secrets.
+    let mut device = make_device("unused");
+    device.integration_secrets = HashMap::from([("a".to_string(), "brave-a".to_string())]);
+    device.retired_secrets = HashMap::from([("b".to_string(), "clever-b".to_string())]);
+    device.valid_secrets = device.integration_secrets.values().cloned().collect();
+    let firestore = MockFirestore::new().with_device("cool-penguin", device);
+    let (app, fs, _state) = make_app_with_ca_as(firestore, MockFirebaseAuth::new(), "cool-penguin");
+
+    // Re-enable b: push [a, b].
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/rotate-secret")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "integrations": ["a", "b"] }).to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let secrets = json["secrets"].as_object().expect("secrets map missing");
+    let b_secret = secrets["b"].as_str().unwrap();
+    assert!(b_secret.ends_with("-b"));
+    assert_ne!(
+        b_secret, "clever-b",
+        "re-enabled secret must differ from the pre-disable value (#519)"
+    );
+
+    let devices = fs.devices.lock().unwrap();
+    let stored = devices.get("cool-penguin").unwrap();
+    assert_eq!(stored.integration_secrets.get("b").unwrap(), b_secret);
+    // b is live again, so its retired memory is cleared.
+    assert!(
+        !stored.retired_secrets.contains_key("b"),
+        "retired memory must be cleared once the integration is re-minted"
     );
 }
 

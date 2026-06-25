@@ -33,6 +33,7 @@ fn make_device(cert_expires: SystemTime) -> DeviceRecord {
         push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
+        retired_secrets: std::collections::HashMap::new(),
     }
 }
 

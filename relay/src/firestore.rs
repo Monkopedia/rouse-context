@@ -102,6 +102,20 @@ pub struct DeviceRecord {
     /// this field existed.
     #[serde(default)]
     pub integration_secrets: HashMap<String, String>,
+    /// Last-known secret for each integration that has been DROPPED from
+    /// [`Self::integration_secrets`] (e.g. disabled on-device). Replace-
+    /// wholesale rotation removes the live secret, but the value is retained
+    /// here so that when the integration is RE-ENABLED the relay can mint a
+    /// fresh secret guaranteed not to collide with the one it had before. This
+    /// closes #519: a leaked-then-disabled per-integration URL must stay dead,
+    /// and ~1/N re-enables would otherwise redraw the identical secret.
+    ///
+    /// Keyed by integration id; only holds entries that are currently dropped.
+    /// An entry is cleared once that integration is re-minted. Defaults to an
+    /// empty map for legacy Firestore documents written before this field
+    /// existed.
+    #[serde(default)]
+    pub retired_secrets: HashMap<String, String>,
 }
 
 /// A pending certificate record stored in `pending_certs/{subdomain}`.

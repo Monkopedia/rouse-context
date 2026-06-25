@@ -38,6 +38,7 @@ fn make_device() -> DeviceRecord {
         push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
+        retired_secrets: std::collections::HashMap::new(),
     }
 }
 

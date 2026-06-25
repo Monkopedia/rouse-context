@@ -109,6 +109,10 @@ pub async fn handle_rotate_secret(
     // `.await`; ThreadRng is `!Send`, so the future would otherwise not be
     // `Send` and couldn't be used with axum's Handler trait.
     let previous = record.integration_secrets.clone();
+    // Last-known secret per dropped integration. On re-enable (#519) the newly
+    // minted secret must differ from this value so a leaked-then-disabled URL
+    // stays dead — without it, ~1/N re-enables redraw the identical secret.
+    let mut retired = record.retired_secrets.clone();
     let mut replaced: HashMap<String, String> = HashMap::with_capacity(req.integrations.len());
     let mut newly_generated: Vec<String> = Vec::new();
     {
@@ -117,10 +121,17 @@ pub async fn handle_rotate_secret(
             if let Some(existing) = previous.get(integration_id) {
                 replaced.insert(integration_id.clone(), existing.clone());
             } else {
-                let secret = generate_one_secret(integration_id, &mut rng);
+                // Fresh mint. If this integration was previously disabled, its
+                // last secret is parked in `retired`; exclude it so the re-mint
+                // can never resurrect the old (possibly leaked) URL (#519).
+                let exclude = retired.get(integration_id).map(String::as_str);
+                let secret = generate_one_secret(integration_id, &mut rng, exclude);
                 replaced.insert(integration_id.clone(), secret);
                 newly_generated.push(integration_id.clone());
             }
+            // Re-minting or preserving an integration means it is live again;
+            // it no longer needs a retired-value memory.
+            retired.remove(integration_id);
         }
     }
     let removed: Vec<String> = previous
@@ -129,11 +140,21 @@ pub async fn handle_rotate_secret(
         .cloned()
         .collect();
 
-    // Persist both shapes: the mapping is authoritative; valid_secrets is
-    // derived so the SNI fast path keeps a flat membership list.
+    // Park the just-dropped integrations' secrets so a future re-enable can
+    // exclude them (#519). Overwrites any stale prior value for the same id.
+    for id in &removed {
+        if let Some(secret) = previous.get(id) {
+            retired.insert(id.clone(), secret.clone());
+        }
+    }
+
+    // Persist all shapes: the mapping is authoritative; valid_secrets is
+    // derived so the SNI fast path keeps a flat membership list; retired_secrets
+    // carries the dropped-secret memory across the disable→re-enable round trip.
     let valid_secrets: Vec<String> = replaced.values().cloned().collect();
     record.integration_secrets = replaced.clone();
     record.valid_secrets = valid_secrets.clone();
+    record.retired_secrets = retired;
 
     // Update Firestore
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {

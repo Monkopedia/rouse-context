@@ -61,6 +61,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
         push_endpoint: String::new(),
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
+        retired_secrets: std::collections::HashMap::new(),
     };
     (signing_key, record)
 }
