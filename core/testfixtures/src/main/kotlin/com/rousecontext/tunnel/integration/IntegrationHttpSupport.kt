@@ -5,6 +5,8 @@ import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.Socket
+import java.util.Collections
+import java.util.IdentityHashMap
 
 /**
  * Shared, robust HTTP-over-socket helper for the relay integration suite.
@@ -40,8 +42,52 @@ import java.net.Socket
  * Gradle interaction. (`MultiClientConcurrencyTest` keeps a method-level
  * separate-thread ceiling on its single test, where the interaction does not
  * arise -- see #504.)
+ *
+ * ## Persistent per-connection reader (#518)
+ *
+ * The tests issue many sequential requests over a single keep-alive socket.
+ * A `BufferedReader`/`InputStreamReader` reads from the underlying socket in
+ * 8 KiB blocks, so when the relay coalesces two responses into one TCP segment
+ * (or simply when the next response arrives before we finish parsing the
+ * current one) the reader buffers bytes belonging to the *next* response.
+ * Constructing a fresh `BufferedReader` per [readResponse] call therefore
+ * silently discarded those buffered-ahead bytes: the next call built a new
+ * reader whose underlying stream had nothing left to deliver, so its
+ * [BufferedReader.readLine] blocked until [SOCKET_READ_TIMEOUT_MS] elapsed and
+ * surfaced as the `OAuthEndToEndTest` `SocketTimeoutException` (#518). The
+ * `OAuthEndToEndTest` flow is the most exposed because it makes a dozen
+ * sequential requests on one socket.
+ *
+ * The fix is to keep exactly one `BufferedReader` per underlying
+ * [InputStream] for the life of that stream, so buffered-ahead bytes carry
+ * over to the next [readResponse] instead of being dropped. Tests are
+ * single-threaded per socket; the cache is synchronized only so distinct
+ * connections in concurrent tests stay isolated.
  */
 object IntegrationHttpSupport {
+
+    /**
+     * One reader per underlying [InputStream], keyed by identity. Reusing the
+     * reader preserves any bytes it buffered ahead from a previous response
+     * (see the class kdoc, #518). Entries are never evicted: a test's sockets
+     * are short-lived and the suite creates a bounded number of them.
+     */
+    private val readers: MutableMap<InputStream, BufferedReader> =
+        Collections.synchronizedMap(IdentityHashMap())
+
+    private fun readerFor(input: InputStream): BufferedReader = synchronized(readers) {
+        readers.getOrPut(input) { BufferedReader(InputStreamReader(input, Charsets.UTF_8)) }
+    }
+
+    /**
+     * Drop the cached reader for [input], if any. Optional: tests may call this
+     * when they are finished with a socket so the identity cache does not
+     * retain a reference for the rest of the suite. Not calling it is safe --
+     * the suite creates a bounded number of short-lived sockets.
+     */
+    fun release(input: InputStream) {
+        synchronized(readers) { readers.remove(input) }
+    }
 
     /**
      * Generous per-socket read timeout (ms). Large enough that normal CI
@@ -86,7 +132,9 @@ object IntegrationHttpSupport {
      */
     @Suppress("CyclomaticComplexMethod", "LoopWithTooManyJumpStatements")
     fun readResponse(input: InputStream): HttpResponse {
-        val reader = BufferedReader(InputStreamReader(input, Charsets.UTF_8))
+        // Reuse one reader per stream so bytes buffered ahead from a prior
+        // response are not dropped (see class kdoc, #518).
+        val reader = readerFor(input)
         val statusLine = reader.readLine() ?: error("No status line received")
         require(statusLine.startsWith("HTTP/1.1")) {
             "Expected HTTP response, got: $statusLine"
