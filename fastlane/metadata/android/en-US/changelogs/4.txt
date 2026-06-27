@@ -1,4 +1,4 @@
-First F-Droid release of the FOSS build.
+The FOSS build of Rouse Context.
 
 Wakes via UnifiedPush (no Firebase or Play Services), uses a hardware-backed
 device keypair for identity, and reports crashes via ACRA. On-demand MCP server
