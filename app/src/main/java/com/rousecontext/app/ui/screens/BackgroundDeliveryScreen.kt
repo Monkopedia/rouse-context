@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -69,10 +70,18 @@ fun BackgroundDeliveryScreen(
     onDismissNudge: () -> Unit = {}
 ) {
     Scaffold(
+        // This screen is an ONBOARDING_ROUTES destination, so the persistent
+        // root AppTopBar is suppressed and we draw our own bar. The root
+        // Scaffold already consumes the system-bar insets (contentWindowInsets =
+        // safeDrawing), so this nested Scaffold/TopAppBar must NOT re-apply them
+        // or the status-bar inset is counted twice — an empty band above the
+        // title and extra bottom padding. See #526.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text("Background delivery") },
                 colors = appBarColors(),
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 navigationIcon = {
                     if (settingsMode) {
                         IconButton(onClick = onBack) {
