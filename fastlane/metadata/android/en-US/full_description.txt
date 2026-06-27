@@ -1,0 +1,12 @@
+Rouse Context turns your Android phone into an on-demand [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server. An AI client connects to a URL, your phone wakes up, and a direct encrypted session is established. The client asks for what it needs — health data, notifications, app usage — your phone answers, then goes back to sleep.
+
+Your data stays on the device. The session runs end-to-end encrypted between the AI client and your phone; the relay that connects them only forwards that encrypted traffic and can't read it.
+
+Wake-ups use [UnifiedPush](https://unifiedpush.org/), so install a UnifiedPush distributor (for example ntfy) to be reached while the app is in the background.
+
+Features:
+
+* On-demand — your phone is only reachable while a client is connected, then sleeps again. No always-on background service draining the battery.
+* You stay in control — you enable each integration explicitly, and every tool call an AI client makes is recorded in an on-device audit history you can review.
+* Private by design — data never leaves the device except through a live, user-approved session.
+* Free and open source, with no analytics or tracking in the app.

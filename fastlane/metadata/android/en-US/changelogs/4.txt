@@ -1,0 +1,5 @@
+First F-Droid release of the FOSS build.
+
+Wakes via UnifiedPush (no Firebase or Play Services), uses a hardware-backed
+device keypair for identity, and reports crashes via ACRA. On-demand MCP server
+with per-integration opt-in and an on-device audit log.
