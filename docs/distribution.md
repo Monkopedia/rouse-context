@@ -73,10 +73,13 @@ Consequences for users:
   (which loses app data). Pick one distribution per device and stay on it.
 
 The release signing certificate SHA-256 (public, used as
-`AllowedAPKSigningKeys`) is:
+`AllowedAPKSigningKeys`) is the certificate that CI signs published releases
+with (GitHub Actions `secrets.RELEASE_KEYSTORE`, not the local
+`.signing/release.keystore`). Confirmed against the published v1.0.4 FOSS APK
+via `apksigner verify --print-certs`:
 
 ```
-5394b7c725925737dae18a320609efb0f69f8d028b0a1204157e1962dfe51dca
+7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 ```
 
 ## F-Droid submission status
