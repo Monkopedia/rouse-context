@@ -72,7 +72,7 @@ Repo: https://github.com/Monkopedia/rouse-context.git
 # name is `rouse-context-<versionName>-foss.apk` (see release.yml). The tag /
 # asset do not exist until the owner cuts the release — this is a template.
 Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rouse-context-%v-foss.apk
-AllowedAPKSigningKeys: 5394b7c725925737dae18a320609efb0f69f8d028b0a1204157e1962dfe51dca
+AllowedAPKSigningKeys: 7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 
 Builds:
   - versionName: 1.0.4
@@ -141,7 +141,11 @@ MaintainerNotes: |-
       * The FOSS release build matches the published GitHub Release APK
         byte-for-byte apart from the v2/v3 APK Signing Block PSS salt, which
         apksigcopier normalizes. F-Droid ships the upstream signature.
-      * AllowedAPKSigningKeys is the release signing cert SHA-256.
+      * AllowedAPKSigningKeys is the SHA-256 of the certificate that CI signs
+        published releases with (GitHub Actions `secrets.RELEASE_KEYSTORE`, NOT
+        the local `.signing/release.keystore`). Confirmed against the published
+        v1.0.4 FOSS APK (`rouse-context-1.0.4-foss.apk`) via
+        `apksigner verify --print-certs`.
       * With no signing credentials present, AGP builds the release UNSIGNED
         (the release signingConfig is left off the buildType); F-Droid verifies
         reproducibility against the published signed asset and ships our
