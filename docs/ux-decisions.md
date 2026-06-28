@@ -14,6 +14,66 @@ Newest entries on top.
 
 ---
 
+## 2026-06-28 — FOSS Home wake banner distinguishes "finishing setup" from "needs setup" (#530)
+
+**Decision:** The foss Home on-demand-wake banner now has **two** distinct
+states keyed off a new `DeliveryActivation.PendingSetup` value, instead of one
+catch-all degraded banner:
+
+- **PendingSetup** (a distributor IS saved, but its endpoint hasn't arrived yet —
+  the legitimate deferred-activation window between landing on Home and the
+  distributor delivering `NEW_ENDPOINT`): a **quiet, neutral** "finishing setup"
+  indicator. Title **"Finishing delivery setup…"**, subtitle **"Connecting to
+  your delivery app. On-demand wake will turn on once it's ready."** Neutral
+  `secondaryContainer` surface + `Sync` icon (mirroring the cert "Renewing"
+  in-progress banner), **no CTA**. Reads as in-progress, not failed.
+- **NeedsSetup** (no distributor saved at all, or a genuine post-attempt
+  registration failure): the existing **degraded** "On-demand wake is off / Set
+  up a delivery app" banner (warning styling + "Set up" CTA) — unchanged copy.
+
+Additionally, Home's `ON_RESUME` now calls `BackgroundDelivery.reRegisterIfPending()`:
+when activation is `PendingSetup` and a distributor is saved, it re-requests the
+endpoint (`UnifiedPush.registerApp`, idempotent). This self-heals the genuinely
+stuck case (a stopped-state distributor that silently dropped our original
+register) without the user having to redo delivery setup.
+
+The google flavor reports `NotApplicable` and shows **neither** banner — verified
+in `MainDashboardViewModelTest`.
+
+**Approved by:** Jason, in-session (refined fix direction in #530's comment:
+suppress the alarming banner during the pending window, show a neutral
+"Finishing delivery setup…" instead, and keep the real degraded banner only when
+nothing is configured / a real failure occurred).
+
+**Context:** On a fresh FOSS onboard, after picking a UnifiedPush distributor,
+Home flashed the alarming "On-demand wake is off / Set up a delivery app"
+degraded banner during the deferred-activation window — falsely implying setup
+failed when registration was simply pending. It usually self-cleared when the
+endpoint landed, but could stay stuck if the endpoint never arrived. The fix
+handles both: the neutral indicator removes the false alarm, and the
+Home-resume re-register self-heals the stuck case.
+
+**Alternatives considered:**
+- *Show nothing at all during PendingSetup.* Rejected: a brief unexplained gap
+  before wake activates is more confusing than a quiet "finishing…" cue, and
+  hides the genuinely-stuck case entirely.
+- *Keep the single degraded banner but add a timeout before showing it.*
+  Rejected: a timer racing the async endpoint is fragile and still mislabels the
+  pending window as a failure.
+- *Surface the #480 "open your delivery app" nudge on Home too.* Deferred: the
+  silent `registerApp` re-drive is less intrusive; the explicit nudge stays on
+  the picker where the user is already acting.
+
+**Trade-off accepted:** A third Home banner state to maintain, and a new
+`DeliveryActivation` value threaded through the seam, the VM mapping, and every
+`BackgroundDelivery` implementer. Worth it to stop the false-alarm and to
+self-heal the stuck endpoint without a manual redo.
+
+**Relevant:** #530 (this fix), #486 + #489 (prior partial fix — re-keyed
+activation off the persisted subdomain), #480 (distributor stopped-state nudge).
+
+---
+
 ## 2026-06-23 — FOSS-only "Ignore daily time limit" toggle (specialUse FGS)
 
 **Decision:** A new **"Ignore daily time limit"** `SwitchRow` is added to the

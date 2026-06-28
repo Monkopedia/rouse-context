@@ -4,6 +4,7 @@ import app.cash.turbine.test
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.delivery.DeliveryActivation
 import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
@@ -493,6 +494,89 @@ class MainDashboardViewModelTest {
     }
 
     @Test
+    fun `pending setup shows neutral pending indicator not degraded banner`() =
+        runTest(testDispatcher) {
+            val vm = createViewModel(
+                deliveryActivationFlow = flowOf(DeliveryActivation.PendingSetup)
+            )
+            vm.state.test {
+                var state = awaitItem()
+                while (state.isLoading || state.deliveryPendingBanner == null) {
+                    state = awaitItem()
+                }
+                // Neutral "finishing setup" indicator, NOT the degraded banner.
+                assertNotNull(state.deliveryPendingBanner)
+                assertNull(state.deliveryBanner)
+            }
+        }
+
+    @Test
+    fun `needs setup shows degraded delivery banner not pending indicator`() =
+        runTest(testDispatcher) {
+            val vm = createViewModel(
+                deliveryActivationFlow = flowOf(DeliveryActivation.NeedsSetup)
+            )
+            vm.state.test {
+                var state = awaitItem()
+                while (state.isLoading || state.deliveryBanner == null) {
+                    state = awaitItem()
+                }
+                assertNotNull(state.deliveryBanner)
+                assertNull(state.deliveryPendingBanner)
+            }
+        }
+
+    @Test
+    fun `active delivery shows neither delivery banner`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            deliveryActivationFlow = flowOf(DeliveryActivation.Active)
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.deliveryBanner)
+            assertNull(state.deliveryPendingBanner)
+        }
+    }
+
+    @Test
+    fun `not applicable delivery shows neither delivery banner`() = runTest(testDispatcher) {
+        // google flavor: NotApplicable must never surface pending or degraded.
+        val vm = createViewModel(
+            deliveryActivationFlow = flowOf(DeliveryActivation.NotApplicable)
+        )
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertNull(state.deliveryBanner)
+            assertNull(state.deliveryPendingBanner)
+        }
+    }
+
+    @Test
+    fun `pending indicator clears reactively when endpoint lands`() = runTest(testDispatcher) {
+        val activation = MutableStateFlow(DeliveryActivation.PendingSetup)
+        val vm = createViewModel(deliveryActivationFlow = activation)
+        vm.state.test {
+            var state = awaitItem()
+            while (state.isLoading || state.deliveryPendingBanner == null) {
+                state = awaitItem()
+            }
+            assertNotNull(state.deliveryPendingBanner)
+
+            // Endpoint arrives -> registration completes -> Active.
+            activation.value = DeliveryActivation.Active
+            state = awaitItem()
+            assertNull(state.deliveryPendingBanner)
+            assertNull(state.deliveryBanner)
+        }
+    }
+
+    @Test
     fun `connection status reflects tunnel state`() = runTest(testDispatcher) {
         val vm = createViewModel()
         vm.state.test {
@@ -583,7 +667,9 @@ class MainDashboardViewModelTest {
         spuriousWakesFlow: kotlinx.coroutines.flow.Flow<SpuriousWakeStats> =
             flowOf(SpuriousWakeStats.EMPTY),
         batteryExemptFlow: kotlinx.coroutines.flow.Flow<Boolean> = flowOf(true),
-        deliveryWakeSupported: Boolean = false
+        deliveryWakeSupported: Boolean = false,
+        deliveryActivationFlow: kotlinx.coroutines.flow.Flow<DeliveryActivation> =
+            flowOf(DeliveryActivation.NotApplicable)
     ): MainDashboardViewModel {
         val auditDao = mockk<AuditDao> {
             coEvery { queryByDateRange(any(), any(), any()) } returns emptyList()
@@ -608,6 +694,7 @@ class MainDashboardViewModelTest {
             notificationsEnabled = notificationsEnabledFlow,
             spuriousWakesFlow = spuriousWakesFlow,
             batteryOptimizationExempt = batteryExemptFlow,
+            deliveryActivation = deliveryActivationFlow,
             deliveryWakeSupported = deliveryWakeSupported
         )
     }

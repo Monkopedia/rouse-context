@@ -71,16 +71,20 @@ class UnifiedPushBackgroundDeliveryTest {
         }
     }
 
-    private fun delivery(onboardingFlow: OnboardingFlow, scope: kotlinx.coroutines.CoroutineScope) =
-        UnifiedPushBackgroundDelivery(
-            appContext = ApplicationProvider.getApplicationContext(),
-            onboardingFlow = onboardingFlow,
-            credentialProvider = credentialProvider,
-            certificateStore = certificateStore,
-            registrationStatus = registrationStatus,
-            tunnelClient = tunnelClient,
-            appScope = scope
-        )
+    private fun delivery(
+        onboardingFlow: OnboardingFlow,
+        scope: kotlinx.coroutines.CoroutineScope,
+        hasSavedDistributor: Boolean = false
+    ) = UnifiedPushBackgroundDelivery(
+        appContext = ApplicationProvider.getApplicationContext(),
+        onboardingFlow = onboardingFlow,
+        credentialProvider = credentialProvider,
+        certificateStore = certificateStore,
+        registrationStatus = registrationStatus,
+        tunnelClient = tunnelClient,
+        appScope = scope,
+        hasSavedDistributor = { hasSavedDistributor }
+    )
 
     @Test
     fun `cert failure with persisted subdomain activates wake`() = runTest {
@@ -147,5 +151,46 @@ class UnifiedPushBackgroundDeliveryTest {
 
         assertEquals(DeliveryActivation.Active, delivery.activation.value)
         assertTrue(registrationStatus.complete.value)
+    }
+
+    @Test
+    fun `init seed with saved distributor and no subdomain is pending setup`() = runTest {
+        // The deferred-activation window (#530): the user picked a distributor
+        // but its endpoint hasn't landed yet, so no subdomain is persisted.
+        persistedSubdomain = null
+        val flow = onboardingFlowReturning(
+            result = OnboardingResult.Success(subdomain = "unused"),
+            subdomainOnRegister = null
+        )
+        val delivery = delivery(flow, this, hasSavedDistributor = true)
+        advanceUntilIdle()
+
+        assertEquals(DeliveryActivation.PendingSetup, delivery.activation.value)
+    }
+
+    @Test
+    fun `init seed with no distributor and no subdomain needs setup`() = runTest {
+        persistedSubdomain = null
+        val flow = onboardingFlowReturning(
+            result = OnboardingResult.Success(subdomain = "unused"),
+            subdomainOnRegister = null
+        )
+        val delivery = delivery(flow, this, hasSavedDistributor = false)
+        advanceUntilIdle()
+
+        assertEquals(DeliveryActivation.NeedsSetup, delivery.activation.value)
+    }
+
+    @Test
+    fun `init seed with persisted subdomain is active regardless of distributor`() = runTest {
+        persistedSubdomain = "abc.example"
+        val flow = onboardingFlowReturning(
+            result = OnboardingResult.Success(subdomain = "abc.example"),
+            subdomainOnRegister = "abc.example"
+        )
+        val delivery = delivery(flow, this, hasSavedDistributor = false)
+        advanceUntilIdle()
+
+        assertEquals(DeliveryActivation.Active, delivery.activation.value)
     }
 }

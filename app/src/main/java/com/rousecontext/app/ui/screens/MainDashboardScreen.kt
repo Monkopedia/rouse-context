@@ -123,6 +123,19 @@ data class SpuriousWakeBanner(val rolling24hCount: Int)
 data object DeliveryBanner
 
 /**
+ * Shown on the foss flavor during the legitimate deferred-activation window
+ * (issue #530): the user HAS picked a UnifiedPush distributor, but its endpoint
+ * hasn't arrived yet so registration is still finishing
+ * ([com.rousecontext.app.delivery.DeliveryActivation.PendingSetup]). This is a
+ * quiet, neutral "finishing setup" indicator — NOT the alarming [DeliveryBanner]
+ * "set up a delivery app" degraded banner, which only shows when NO distributor
+ * is saved. It self-clears to no banner once the endpoint lands (activation →
+ * Active); a Home-resume re-register nudges a stopped-state distributor. Never
+ * shown on the google flavor (NotApplicable).
+ */
+data object DeliveryPendingBanner
+
+/**
  * Shown on the foss flavor when the app is NOT exempt from Doze battery
  * optimization (issue #483). On foss that exemption is required for background
  * wake to fire at all: a UnifiedPush distributor can't grant our app the
@@ -144,6 +157,7 @@ data class DashboardState(
     val recentActivity: List<AuditHistoryEntry> = emptyList(),
     val certBanner: CertBanner? = null,
     val deliveryBanner: DeliveryBanner? = null,
+    val deliveryPendingBanner: DeliveryPendingBanner? = null,
     val batteryOptimizationBanner: BatteryOptimizationBanner? = null,
     val notificationBanner: NotificationBanner? = null,
     val spuriousWakeBanner: SpuriousWakeBanner? = null,
@@ -461,6 +475,49 @@ private fun DeliveryBannerCard(onSetUp: () -> Unit) {
     }
 }
 
+/**
+ * Quiet, neutral "finishing delivery setup" indicator for the deferred-activation
+ * window (issue #530). Deliberately NOT the warning/degraded styling of
+ * [DeliveryBannerCard]: it uses the neutral `secondaryContainer` surface and a
+ * `Sync` icon (mirroring the cert "Renewing" in-progress banner), with no CTA —
+ * it reads as "in progress," not "failed."
+ */
+@Composable
+private fun DeliveryPendingBannerCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(dimensionResource(R.dimen.spacing_lg)),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = Icons.Default.Sync,
+                contentDescription = null,
+                modifier = Modifier.size(dimensionResource(R.dimen.icon_size_sm)),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.screen_dashboard_delivery_pending_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = stringResource(R.string.screen_dashboard_delivery_pending_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun BatteryOptimizationBannerCard(onFix: () -> Unit) {
     val ext = com.rousecontext.app.ui.theme.LocalExtendedColors.current
@@ -500,6 +557,36 @@ private fun BatteryOptimizationBannerCard(onFix: () -> Unit) {
     }
 }
 
+/**
+ * The two foss background-delivery banners (issue #530). At most one shows:
+ * [DeliveryBanner] (NeedsSetup — degraded "set up a delivery app", warning
+ * styling + CTA) when no distributor is saved, or [DeliveryPendingBanner]
+ * (PendingSetup — neutral "finishing setup", no CTA) during the deferred
+ * activation window. Neither shows once activation is Active/NotApplicable.
+ */
+private fun LazyListScope.deliveryBannerItems(state: DashboardState, onSetUpDelivery: () -> Unit) {
+    // High priority — without a distributor the device can't be woken at all.
+    if (state.deliveryBanner != null) {
+        item {
+            if (state.certBanner == null) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+            }
+            DeliveryBannerCard(onSetUp = onSetUpDelivery)
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+        }
+    }
+
+    if (state.deliveryPendingBanner != null) {
+        item {
+            if (state.certBanner == null && state.deliveryBanner == null) {
+                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+            }
+            DeliveryPendingBannerCard()
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+        }
+    }
+}
+
 private fun LazyListScope.dashboardBannerItems(
     state: DashboardState,
     onRetryRenewal: () -> Unit,
@@ -517,17 +604,10 @@ private fun LazyListScope.dashboardBannerItems(
         }
     }
 
-    // Background-delivery banner (foss: on-demand wake off until a distributor
-    // is chosen). High priority — without it the device can't be woken at all.
-    if (state.deliveryBanner != null) {
-        item {
-            if (state.certBanner == null) {
-                Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
-            }
-            DeliveryBannerCard(onSetUp = onSetUpDelivery)
-            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
-        }
-    }
+    // Background-delivery banners (foss): the degraded "set up a delivery app"
+    // banner (NeedsSetup) and the neutral "finishing setup" indicator
+    // (PendingSetup, #530) — mutually exclusive, mapped from the activation state.
+    deliveryBannerItems(state, onSetUpDelivery)
 
     // Battery-optimization banner (foss: background wake can't fire while the
     // app is still battery-optimized). Distinct from the delivery banner; both

@@ -265,5 +265,6 @@ class BackgroundDeliveryViewModelTest {
         override fun installIntent(option: DistributorOption): Intent? = null
         override fun activeDistributorName(): String? = null
         override fun launchIntent(id: String): Intent? = null
+        override fun reRegisterIfPending() = Unit
     }
 }
