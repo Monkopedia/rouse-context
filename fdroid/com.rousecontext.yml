@@ -75,15 +75,29 @@ Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rous
 AllowedAPKSigningKeys: 5394b7c725925737dae18a320609efb0f69f8d028b0a1204157e1962dfe51dca
 
 Builds:
-  - versionName: 1.0.3
-    versionCode: 4
-    # Build from the signed release tag. `v1.0.3` does not exist yet; it is
+  - versionName: 1.0.4
+    versionCode: 5
+    # Build from the signed release tag. `v1.0.4` does not exist yet; it is
     # created when the owner cuts the release. Until then this is a template.
-    commit: v1.0.3
+    #
+    # IMPORTANT — when copying this to fdroiddata, pin `commit:` to the IMMUTABLE
+    # release SHA, NOT the tag:
+    #     git rev-parse v1.0.4^{commit}
+    # and put that full 40-char SHA here. This matches the proven
+    # com.monkopedia.healthdisconnect recipe, whose published Builds entry pins a
+    # full commit SHA rather than a movable tag ref. A SHA can't be retargeted
+    # after submission, so the from-source build is locked to exactly the bytes
+    # F-Droid reviewed.
+    commit: v1.0.4
     subdir: app
     # No flavor: the bare build is FOSS. The FOSS/Google split is a `-Pgoogle`
     # project property, not a product flavor, so the default `assembleRelease`
-    # (which `gradle: [yes]` invokes) is exactly the FOSS variant.
+    # (which `gradle: [yes]` invokes) is exactly the FOSS variant. The no-flavor
+    # `gradle: [yes]` (plain assembleRelease) verifies identically to a named
+    # flavor: F-Droid's reproducibility check strips the signatures from BOTH the
+    # from-source build and the Binaries APK and byte-diffs the results — it is
+    # task-agnostic, so a bare assembleRelease and a flavored assembleFooRelease
+    # are checked the same way.
     gradle:
       - yes
     # No signing setup needed. With no keystore/passwords present (a clean
@@ -91,8 +105,26 @@ Builds:
     # signingConfig is left off the buildType and AGP builds the release
     # UNSIGNED. F-Droid verifies that unsigned APK reproduces the published
     # upstream-signed asset (see Binaries:) and ships our signature. No throwaway
-    # keystore, no prebuild — mirrors com.monkopedia.healthdisconnect's proven
-    # F-Droid recipe.
+    # keystore, no prebuild — mirrors com.monkopedia.healthdisconnect's
+    # F-Droid recipe, which is LIVE on F-Droid (v1.1.1) via this exact
+    # reproducible-Binaries + AllowedAPKSigningKeys path. The approach is
+    # therefore proven in production, not speculative.
+    #
+    # The load-bearing reproducibility pins (do NOT remove) live in
+    # app/build.gradle.kts:
+    #     dependenciesInfo { includeInApk = false; includeInBundle = false }
+    #     release { vcsInfo.include = false }
+    # Without these the APK embeds the AGP dependency-metadata block and a VCS
+    # commit stamp, both non-reproducible, and the byte-diff fails.
+    #
+    # ONE RISK TO CALL OUT: the FOSS asset published to the GitHub Release MUST be
+    # built with plain `assembleRelease` and NO stray `-P` flag. fdroidserver
+    # runs a bare `assembleRelease`; any extra `-P...` on the upstream side
+    # (e.g. `-Pdomain=...`) would change buildConfig bytes and diverge from the
+    # F-Droid from-source build. release.yml already builds the FOSS asset bare
+    # (no `-Pgoogle`, no `-Pdomain`), so this is satisfied today — just don't
+    # regress it.
+    #
     # Reproducibility recon (issue #465) found nothing the scanner flags beyond
     # the standard gradle/wrapper/gradle-wrapper.jar, which F-Droid allow-lists.
     # No `scandelete` / `rm` is required. If a future fdroidserver scanner run
@@ -102,7 +134,10 @@ MaintainerNotes: |-
     DRAFT recipe staged inside the upstream repo (fdroid/com.rousecontext.yml).
     Owner-gated: not yet submitted to fdroiddata.
 
-    Reproducible-builds path:
+    Reproducible-builds path (PROVEN IN PRODUCTION):
+      * This is the same path com.monkopedia.healthdisconnect ships on today —
+        it is LIVE on F-Droid (v1.1.1) via the exact reproducible-Binaries +
+        AllowedAPKSigningKeys setup. Not speculative.
       * The FOSS release build matches the published GitHub Release APK
         byte-for-byte apart from the v2/v3 APK Signing Block PSS salt, which
         apksigcopier normalizes. F-Droid ships the upstream signature.
@@ -111,11 +146,16 @@ MaintainerNotes: |-
         (the release signingConfig is left off the buildType); F-Droid verifies
         reproducibility against the published signed asset and ships our
         signature. No throwaway keystore is needed.
+      * Load-bearing reproducibility pins in app/build.gradle.kts (do NOT
+        regress): dependenciesInfo{includeInApk=false; includeInBundle=false}
+        and release{vcsInfo.include=false}. The published FOSS asset must also
+        be built with a bare assembleRelease (no stray -P flags) so it matches
+        fdroidserver's bare build; release.yml already does this.
 
     Variant facts (do not regress):
       * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
         the Firebase build and must NOT be used for F-Droid.
-      * Toolchain at v1.0.3: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
+      * Toolchain at v1.0.4: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
         minSdk 24, targetSdk 35.
       * FOSS-only runtime deps: UnifiedPush connector 2.5.0, ACRA 5.13.1.
 
@@ -124,5 +164,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.0.3
-CurrentVersionCode: 4
+CurrentVersion: 1.0.4
+CurrentVersionCode: 5
