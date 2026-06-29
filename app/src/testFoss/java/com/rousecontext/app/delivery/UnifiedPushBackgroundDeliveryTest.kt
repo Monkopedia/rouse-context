@@ -182,6 +182,38 @@ class UnifiedPushBackgroundDeliveryTest {
     }
 
     @Test
+    fun `selectDistributor flips activation to pending setup`() = runTest {
+        // Fresh onboard: nothing saved yet, so the init seed latches NeedsSetup.
+        // The hasSavedDistributor seam returns true only after the user picks
+        // (modelling saveDistributor persisting synchronously). Picking must flip
+        // Home off the alarming NeedsSetup banner immediately (#530), not wait the
+        // ~14s for the endpoint to land.
+        persistedSubdomain = null
+        var saved = false
+        val flow = onboardingFlowReturning(
+            result = OnboardingResult.Success(subdomain = "unused"),
+            subdomainOnRegister = null
+        )
+        val delivery = UnifiedPushBackgroundDelivery(
+            appContext = ApplicationProvider.getApplicationContext(),
+            onboardingFlow = flow,
+            credentialProvider = credentialProvider,
+            certificateStore = certificateStore,
+            registrationStatus = registrationStatus,
+            tunnelClient = tunnelClient,
+            appScope = this,
+            hasSavedDistributor = { saved }
+        )
+        advanceUntilIdle()
+        assertEquals(DeliveryActivation.NeedsSetup, delivery.activation.value)
+
+        saved = true
+        delivery.selectDistributor("ntfy")
+
+        assertEquals(DeliveryActivation.PendingSetup, delivery.activation.value)
+    }
+
+    @Test
     fun `init seed with persisted subdomain is active regardless of distributor`() = runTest {
         persistedSubdomain = "abc.example"
         val flow = onboardingFlowReturning(

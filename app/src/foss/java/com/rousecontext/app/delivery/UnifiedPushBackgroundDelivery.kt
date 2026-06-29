@@ -129,6 +129,13 @@ class UnifiedPushBackgroundDelivery(
         // Triggers the distributor to mint an endpoint, delivered async to
         // UnifiedPushReceiver.onNewEndpoint -> onEndpoint().
         UnifiedPush.registerApp(appContext)
+        // A distributor is now saved but its endpoint hasn't arrived yet: flip
+        // Home off the alarming NeedsSetup banner to the neutral PendingSetup
+        // indicator the instant the user picks, rather than leaving the stale
+        // degraded banner up for the whole ~14s deferred-activation window until
+        // onEndpoint -> register -> Active (#530). saveDistributor persists
+        // synchronously, so hasSavedDistributor() now reads true -> PendingSetup.
+        _activation.value = pendingOrNeedsSetup()
     }
 
     override fun installIntent(option: DistributorOption): Intent? {
