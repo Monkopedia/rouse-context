@@ -451,6 +451,7 @@ class OnboardingViewModelTest {
         override fun installIntent(option: com.rousecontext.app.delivery.DistributorOption) = null
         override fun activeDistributorName(): String? = null
         override fun launchIntent(id: String): android.content.Intent? = null
+        override fun reRegisterIfPending() = Unit
     }
 
     /**

@@ -13,6 +13,7 @@ import com.rousecontext.app.ui.screens.CertBanner
 import com.rousecontext.app.ui.screens.ConnectionStatus
 import com.rousecontext.app.ui.screens.DashboardState
 import com.rousecontext.app.ui.screens.DeliveryBanner
+import com.rousecontext.app.ui.screens.DeliveryPendingBanner
 import com.rousecontext.app.ui.screens.IntegrationItem
 import com.rousecontext.app.ui.screens.IntegrationStatus
 import com.rousecontext.app.ui.screens.NotificationBanner
@@ -64,7 +65,9 @@ class MainDashboardViewModel(
      * On-demand wake activation (issue #463). For the foss flavor this is
      * [com.rousecontext.app.delivery.BackgroundDelivery.activation]; a
      * [DeliveryActivation.NeedsSetup] emission drives the degraded-Home
-     * "set up a delivery app" banner. The google flavor always emits
+     * "set up a delivery app" banner, while [DeliveryActivation.PendingSetup]
+     * (distributor saved, endpoint pending — #530) drives the quiet, neutral
+     * "finishing setup" indicator instead. The google flavor always emits
      * [DeliveryActivation.NotApplicable] (no banner).
      */
     deliveryActivation: Flow<DeliveryActivation> = flowOf(DeliveryActivation.NotApplicable),
@@ -189,6 +192,11 @@ class MainDashboardViewModel(
             certBanner = certBanner,
             deliveryBanner = if (deliveryState == DeliveryActivation.NeedsSetup) {
                 DeliveryBanner
+            } else {
+                null
+            },
+            deliveryPendingBanner = if (deliveryState == DeliveryActivation.PendingSetup) {
+                DeliveryPendingBanner
             } else {
                 null
             },

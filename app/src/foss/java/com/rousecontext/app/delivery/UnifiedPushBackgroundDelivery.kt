@@ -45,7 +45,18 @@ class UnifiedPushBackgroundDelivery(
     private val certificateStore: CertificateStore,
     private val registrationStatus: DeviceRegistrationStatus,
     private val tunnelClient: TunnelClient,
-    private val appScope: CoroutineScope
+    private val appScope: CoroutineScope,
+    /**
+     * Seam over `UnifiedPush.getSavedDistributor`/`getAckDistributor`: reports
+     * whether the user has a distributor saved (picked a delivery app). Lets the
+     * unit test distinguish the "saved, endpoint pending" ([PendingSetup]) case
+     * from "nothing picked" ([NeedsSetup]) without mocking the library statics.
+     * Defaults to the real UnifiedPush lookup in production (#530).
+     */
+    private val hasSavedDistributor: () -> Boolean = {
+        UnifiedPush.getSavedDistributor(appContext) != null ||
+            UnifiedPush.getAckDistributor(appContext) != null
+    }
 ) : BackgroundDelivery {
 
     override val isSupported: Boolean = true
@@ -65,13 +76,41 @@ class UnifiedPushBackgroundDelivery(
 
     init {
         // Seed activation from persisted state: a device with a subdomain is
-        // already registered and active; otherwise it needs a delivery app.
+        // already registered and active; otherwise it either has a distributor
+        // saved with its endpoint still pending (PendingSetup — the legitimate
+        // deferred-activation window, #530) or nothing picked yet (NeedsSetup).
         appScope.launch {
             _activation.value = if (certificateStore.getSubdomain() != null) {
                 DeliveryActivation.Active
             } else {
-                DeliveryActivation.NeedsSetup
+                pendingOrNeedsSetup()
             }
+        }
+    }
+
+    /**
+     * The pre-subdomain activation state, distinguishing "a distributor IS saved
+     * but the endpoint hasn't arrived/been attempted yet" ([PendingSetup], quiet
+     * neutral indicator) from "nothing picked" ([NeedsSetup], degraded banner).
+     * Used only on the no-subdomain init seed and on [onUnregistered]; genuine
+     * post-attempt failures (see [registerWithEndpoint], [onRegistrationFailed])
+     * stay [NeedsSetup] so the real banner surfaces. Issue #530.
+     */
+    private fun pendingOrNeedsSetup(): DeliveryActivation = if (hasSavedDistributor()) {
+        DeliveryActivation.PendingSetup
+    } else {
+        DeliveryActivation.NeedsSetup
+    }
+
+    /**
+     * Self-heal for a stuck [DeliveryActivation.PendingSetup] (issue #530). Wired
+     * to Home's `ON_RESUME`: if a distributor is saved but its endpoint never
+     * arrived, re-request it. `registerApp` is idempotent and nudges a
+     * stopped-state distributor that silently dropped our original register.
+     */
+    override fun reRegisterIfPending() {
+        if (_activation.value == DeliveryActivation.PendingSetup && hasSavedDistributor()) {
+            UnifiedPush.registerApp(appContext)
         }
     }
 
@@ -90,6 +129,13 @@ class UnifiedPushBackgroundDelivery(
         // Triggers the distributor to mint an endpoint, delivered async to
         // UnifiedPushReceiver.onNewEndpoint -> onEndpoint().
         UnifiedPush.registerApp(appContext)
+        // A distributor is now saved but its endpoint hasn't arrived yet: flip
+        // Home off the alarming NeedsSetup banner to the neutral PendingSetup
+        // indicator the instant the user picks, rather than leaving the stale
+        // degraded banner up for the whole ~14s deferred-activation window until
+        // onEndpoint -> register -> Active (#530). saveDistributor persists
+        // synchronously, so hasSavedDistributor() now reads true -> PendingSetup.
+        _activation.value = pendingOrNeedsSetup()
     }
 
     override fun installIntent(option: DistributorOption): Intent? {
@@ -154,7 +200,7 @@ class UnifiedPushBackgroundDelivery(
         _endpointArrived.value = false
         appScope.launch {
             if (certificateStore.getSubdomain() == null) {
-                _activation.value = DeliveryActivation.NeedsSetup
+                _activation.value = pendingOrNeedsSetup()
             }
         }
     }

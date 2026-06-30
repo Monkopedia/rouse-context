@@ -86,6 +86,17 @@ interface BackgroundDelivery {
      * endpoint. No-op (null) for the `google` flavor.
      */
     fun launchIntent(id: String): Intent?
+
+    /**
+     * Self-heal hook for the deferred-activation window (issue #530). When
+     * activation is [DeliveryActivation.PendingSetup] — a distributor is saved
+     * but its endpoint never arrived — re-request the endpoint from the saved
+     * distributor. Idempotent: a no-op when nothing is pending or no distributor
+     * is saved. Wired to Home's `ON_RESUME` so a stopped-state distributor that
+     * silently dropped our original register gets nudged without a manual redo.
+     * No-op for the `google` flavor.
+     */
+    fun reRegisterIfPending()
 }
 
 /**
@@ -104,6 +115,7 @@ object NoOpBackgroundDelivery : BackgroundDelivery {
     override fun installIntent(option: DistributorOption): Intent? = null
     override fun activeDistributorName(): String? = null
     override fun launchIntent(id: String): Intent? = null
+    override fun reRegisterIfPending() = Unit
 }
 
 /** On-demand wake activation state, surfaced to the shared Home/Settings UI. */
@@ -113,6 +125,19 @@ enum class DeliveryActivation {
 
     /** Registered with a reporting push endpoint — on-demand wake works. */
     Active,
+
+    /**
+     * A distributor IS saved (the user picked a delivery app), but registration
+     * hasn't completed yet — the distributor hasn't delivered its `NEW_ENDPOINT`
+     * so no subdomain is persisted. This is the legitimate deferred-activation
+     * window between landing on Home and the endpoint arriving (issue #530). It
+     * is NOT a failure: it self-clears to [Active] when the endpoint lands, and a
+     * Home-resume re-register ([BackgroundDelivery.reRegisterIfPending]) nudges a
+     * stopped-state distributor that silently dropped our register. The Home UI
+     * shows a quiet, neutral "finishing setup" indicator for this — NOT the
+     * alarming [NeedsSetup] "set up a delivery app" degraded banner.
+     */
+    PendingSetup,
 
     /** Onboarding finished but no distributor/endpoint yet — degraded; show banner. */
     NeedsSetup

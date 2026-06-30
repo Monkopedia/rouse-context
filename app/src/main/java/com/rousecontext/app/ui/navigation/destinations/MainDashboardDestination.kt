@@ -19,6 +19,7 @@ import androidx.navigation.NavController
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import com.rousecontext.app.R
+import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
@@ -70,6 +71,7 @@ fun NavGraphBuilder.mainDashboardDestination(navController: NavController) {
         val context = LocalContext.current
         val refresher: NotificationPermissionRefresher =
             koinInject()
+        val backgroundDelivery: BackgroundDelivery = koinInject()
         val lifecycleOwner = LocalLifecycleOwner.current
         DisposableEffect(lifecycleOwner) {
             val observer = LifecycleEventObserver { _, event ->
@@ -78,6 +80,11 @@ fun NavGraphBuilder.mainDashboardDestination(navController: NavController) {
                     // from system settings updates the dashboard
                     // banner immediately when the user comes back.
                     refresher.refresh()
+                    // Self-heal a stuck deferred-activation window (#530):
+                    // if a distributor is saved but its endpoint never
+                    // arrived, re-request it. No-op unless activation is
+                    // PendingSetup; no-op on the google flavor.
+                    backgroundDelivery.reRegisterIfPending()
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
