@@ -75,20 +75,20 @@ Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rous
 AllowedAPKSigningKeys: 7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 
 Builds:
-  - versionName: 1.0.4
-    versionCode: 5
-    # Build from the signed release tag. `v1.0.4` does not exist yet; it is
+  - versionName: 1.0.5
+    versionCode: 6
+    # Build from the signed release tag. `v1.0.5` does not exist yet; it is
     # created when the owner cuts the release. Until then this is a template.
     #
     # IMPORTANT — when copying this to fdroiddata, pin `commit:` to the IMMUTABLE
     # release SHA, NOT the tag:
-    #     git rev-parse v1.0.4^{commit}
+    #     git rev-parse v1.0.5^{commit}
     # and put that full 40-char SHA here. This matches the proven
     # com.monkopedia.healthdisconnect recipe, whose published Builds entry pins a
     # full commit SHA rather than a movable tag ref. A SHA can't be retargeted
     # after submission, so the from-source build is locked to exactly the bytes
     # F-Droid reviewed.
-    commit: v1.0.4
+    commit: v1.0.5
     subdir: app
     # No flavor: the bare build is FOSS. The FOSS/Google split is a `-Pgoogle`
     # project property, not a product flavor, so the default `assembleRelease`
@@ -159,7 +159,7 @@ MaintainerNotes: |-
     Variant facts (do not regress):
       * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
         the Firebase build and must NOT be used for F-Droid.
-      * Toolchain at v1.0.4: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
+      * Toolchain at v1.0.5: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
         minSdk 24, targetSdk 35.
       * FOSS-only runtime deps: UnifiedPush connector 2.5.0, ACRA 5.13.1.
 
@@ -168,5 +168,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.0.4
-CurrentVersionCode: 5
+CurrentVersion: 1.0.5
+CurrentVersionCode: 6

@@ -94,5 +94,5 @@ The reproducible-`Binaries:` + `AllowedAPKSigningKeys:` path the recipe uses is
 **proven in production**: the same maintainer's `com.monkopedia.healthdisconnect`
 is already live on F-Droid (v1.1.1) shipping its upstream signature via exactly
 this path. So the approach below is established, not speculative — what remains
-is cutting the `v1.0.4` release (versionCode 5), which is the first version
+is cutting the `v1.0.5` release (versionCode 6), which is the first version
 submitted to F-Droid, and opening the fdroiddata merge request.
