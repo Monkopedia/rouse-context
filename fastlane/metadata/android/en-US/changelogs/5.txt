@@ -1,4 +1,4 @@
-First F-Droid release of the FOSS build.
+Prepping the FOSS build for F-Droid.
 
 Wakes via UnifiedPush (no Firebase or Play Services), reports crashes via ACRA,
 and keeps an on-device audit log of every tool call. On-demand MCP server with
