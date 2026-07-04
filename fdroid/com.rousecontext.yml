@@ -99,7 +99,16 @@ Builds:
     # source scanner to see — no `scanignore` needed (the F-Droid maintainer
     # asked us to remove the non-FOSS deps in prebuild rather than allow-list
     # them). See app/build.gradle.kts (`if (googleBuild) { apply(from = ...) }`).
-    prebuild: rm -f gradle/google-services.gradle.kts
+    #
+    # prebuild runs in the `subdir` (app/), so paths are relative to it: `../`
+    # reaches the repo root. The root build.gradle.kts still declares the two
+    # Google/Firebase plugins `apply false` (so the extracted script can apply
+    # them under -Pgoogle); the sed strips those declarations too, since the FOSS
+    # build never applies them. Verified: `fdroid build` scanner-clean + the
+    # from-source build reproduces the published FOSS asset byte-for-byte.
+    prebuild:
+      - rm -f ../gradle/google-services.gradle.kts
+      - sed -i -e '/libs.plugins.google.services/d' -e '/libs.plugins.firebase.crashlytics/d' ../build.gradle.kts
     # No flavor: the bare build is FOSS. The FOSS/Google split is a `-Pgoogle`
     # project property, not a product flavor, so the default `assembleRelease`
     # (which `gradle: [yes]` invokes) is exactly the FOSS variant. The no-flavor
@@ -177,10 +186,13 @@ MaintainerNotes: |-
         bare FOSS build never applies it, so it compiles ZERO Firebase: no
         plugins on the classpath, no firebase-* deps, no Crashlytics config, and
         google-services.json is not required to assemble it.
-      * Because every non-FOSS coordinate lives in that one extracted file, the
-        recipe's `prebuild: rm -f gradle/google-services.gradle.kts` deletes it
-        before F-Droid's source scanner runs, leaving nothing for the scanner to
-        flag. This replaces the earlier scanignore-free-but-inline approach: the
+      * Because almost every non-FOSS coordinate lives in that one extracted
+        file, the recipe's `prebuild` deletes it (`rm -f
+        ../gradle/google-services.gradle.kts`, relative to the app subdir) and
+        also seds the two `apply false` Google/Firebase plugin declarations out
+        of the root build.gradle.kts, before F-Droid's source scanner runs,
+        leaving nothing for the scanner to flag. This replaces the earlier
+        scanignore-free-but-inline approach: the
         maintainer asked us to remove the non-FOSS deps in prebuild rather than
         allow-list them, and this does exactly that with no `scanignore` /
         `scandelete`.
