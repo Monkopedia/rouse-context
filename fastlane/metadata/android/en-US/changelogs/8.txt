@@ -1,0 +1,8 @@
+First F-Droid release of the FOSS build.
+
+Wakes via UnifiedPush (no Firebase or Play Services), keeps an on-device audit
+log of every tool call, and secures each session with a hardware-backed keypair.
+On-demand MCP server with per-integration opt-in.
+
+No user-facing changes since 1.0.6 — this release is a build-internal change
+that makes the FOSS build compile with zero Firebase/Google-services code.
