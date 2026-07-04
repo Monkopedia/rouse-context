@@ -19,16 +19,32 @@ plugins {
 // non-default and forced task-name sniffing to re-derive "is this credentialed?".
 val googleBuild = project.hasProperty("google")
 
-// The Firebase Gradle plugins (`google-services`, `firebase-crashlytics`) are
-// applied only for the Google build. The FOSS build skips them entirely so that:
-//   * `google-services.json` is NOT required to assemble it, and
-//   * no Play-Services / Firebase Gradle processing runs.
-// Keeping the plugins behind the flag preserves the google-services plugin's
-// hard-fail-on-missing-credentials — a `-Pgoogle` build with no
+// ALL Firebase / Google-services build config — the two Gradle plugins, the
+// Crashlytics per-build-type setup, and the Firebase runtime dependencies —
+// lives in gradle/google-services.gradle.kts and is applied ONLY for the
+// `-Pgoogle` build. The bare FOSS build never applies it, so the FOSS build
+// compiles ZERO Firebase/Google-services: no plugins on the classpath, no
+// Firebase deps, no Crashlytics config, and `google-services.json` is NOT
+// required to assemble it.
+//
+// The config is extracted into a separate file (rather than guarded inline) so
+// that NO Firebase dependency/plugin coordinate appears in any build file that
+// survives into the FOSS build. F-Droid's static source scanner therefore sees
+// no non-FOSS coordinates; the fdroiddata recipe removes the file in `prebuild:`
+// before scanning (safe — the FOSS build never applies it).
+//
+// The script lives OUTSIDE app/ (in the repo-root gradle/ dir) because Android
+// Lint's build-script visitor (lintVitalRelease) crashes when it tries to build
+// a FIR light-class for a standalone `apply(from=...)` script inside a module
+// that has the Android plugin. Keeping it out of app/'s lint scan tree — the
+// root project has no Android lint task — sidesteps that upstream crash while
+// still letting the `-Pgoogle` app build apply it.
+//
+// Applying the plugins only under `-Pgoogle` also preserves the google-services
+// plugin's hard-fail-on-missing-credentials: a `-Pgoogle` build with no
 // `google-services.json` fails loudly rather than producing a broken APK.
 if (googleBuild) {
-    apply(plugin = "com.google.gms.google-services")
-    apply(plugin = "com.google.firebase.crashlytics")
+    apply(from = "$rootDir/gradle/google-services.gradle.kts")
 }
 
 // Loads a value from `.signing/release.properties` if that file exists.
@@ -109,8 +125,8 @@ android {
         applicationId = "com.rousecontext"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.0.6"
+        versionCode = 8
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -149,17 +165,9 @@ android {
         debug {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
-            // No mapping upload in debug — the Crashlytics plugin runs even here
-            // (under `-Pgoogle`) because the library is linked in that build. We
-            // still skip the slow symbol upload work to keep debug assembly fast
-            // for iteration. Guarded so FOSS builds, which never apply the
-            // Crashlytics plugin, don't reference a missing extension.
-            if (googleBuild) {
-                configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
-                    mappingFileUploadEnabled = false
-                    nativeSymbolUploadEnabled = false
-                }
-            }
+            // Crashlytics per-build-type config (mapping/symbol upload toggles)
+            // lives in app/google-services.gradle.kts, applied only under
+            // `-Pgoogle`. The FOSS build has no Crashlytics extension to configure.
         }
         release {
             // Only sign when credentials are present; otherwise build unsigned
@@ -175,15 +183,8 @@ android {
             // AGP embeds VCS/commit info in the release APK by default, which is
             // non-reproducible. Drop it so F-Droid reproducible builds succeed.
             vcsInfo.include = false
-            // Release builds ship R8-obfuscated code; upload the mapping so
-            // Crashlytics deobfuscates stacks. We have no NDK code, so native
-            // symbol upload stays off. Guarded as above for FOSS builds.
-            if (googleBuild) {
-                configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
-                    mappingFileUploadEnabled = true
-                    nativeSymbolUploadEnabled = false
-                }
-            }
+            // Crashlytics mapping upload is configured in
+            // app/google-services.gradle.kts, applied only under `-Pgoogle`.
         }
     }
 
@@ -268,18 +269,15 @@ dependencies {
     ksp(libs.room.compiler)
 
     // Distribution-specific dependencies, selected by the `-Pgoogle` flag
-    // (issue #467). The Google build links Firebase (FCM wake + Crashlytics);
-    // the FOSS build links UnifiedPush (distributor-based wake) + ACRA (crash
-    // reporting via the relay's `POST /crash`) and zero firebase-* artifacts.
-    // Both distributions sit behind the same distribution-agnostic Koin seams
-    // (BackgroundDelivery, CrashReporter, device-identity providers — see
-    // app/src/{google,foss}).
-    if (googleBuild) {
-        implementation(platform(libs.firebase.bom))
-        implementation(libs.firebase.auth)
-        implementation(libs.firebase.messaging)
-        implementation(libs.firebase.crashlytics)
-    } else {
+    // (issue #467). The Google build links Firebase (FCM wake + Crashlytics) via
+    // app/google-services.gradle.kts (applied only under `-Pgoogle`, so no
+    // Firebase coordinate appears in any build file that survives into the FOSS
+    // build); the FOSS build links UnifiedPush (distributor-based wake) + ACRA
+    // (crash reporting via the relay's `POST /crash`) and zero firebase-*
+    // artifacts. Both distributions sit behind the same distribution-agnostic
+    // Koin seams (BackgroundDelivery, CrashReporter, device-identity providers —
+    // see app/src/{google,foss}).
+    if (!googleBuild) {
         implementation(libs.unifiedpush.connector)
         implementation(libs.acra.core)
         implementation(libs.acra.http)

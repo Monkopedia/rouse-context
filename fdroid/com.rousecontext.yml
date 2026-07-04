@@ -75,21 +75,31 @@ Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rous
 AllowedAPKSigningKeys: 7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 
 Builds:
-  - versionName: 1.0.6
-    versionCode: 7
-    # Build from the signed release tag. `v1.0.6` does not exist yet; it is
+  - versionName: 1.0.7
+    versionCode: 8
+    # Build from the signed release tag. `v1.0.7` does not exist yet; it is
     # created when the owner cuts the release. Until then this is a template.
     #
     # IMPORTANT — when copying this to fdroiddata, pin `commit:` to the IMMUTABLE
     # release SHA, NOT the tag:
-    #     git rev-parse v1.0.6^{commit}
+    #     git rev-parse v1.0.7^{commit}
     # and put that full 40-char SHA here. This matches the proven
     # com.monkopedia.healthdisconnect recipe, whose published Builds entry pins a
     # full commit SHA rather than a movable tag ref. A SHA can't be retargeted
     # after submission, so the from-source build is locked to exactly the bytes
     # F-Droid reviewed.
-    commit: v1.0.6
+    commit: v1.0.7
     subdir: app
+    # Remove the Google-only Gradle config BEFORE F-Droid scans/builds. All
+    # Firebase / Google-services build coordinates (the two Gradle plugins, the
+    # Crashlytics config, and the firebase-* dependencies) live exclusively in
+    # gradle/google-services.gradle.kts, which the app build applies ONLY under
+    # `-Pgoogle`. The bare FOSS build (what F-Droid runs) never applies it, so
+    # deleting it here is safe and leaves ZERO Firebase coordinates for the
+    # source scanner to see — no `scanignore` needed (the F-Droid maintainer
+    # asked us to remove the non-FOSS deps in prebuild rather than allow-list
+    # them). See app/build.gradle.kts (`if (googleBuild) { apply(from = ...) }`).
+    prebuild: rm -f gradle/google-services.gradle.kts
     # No flavor: the bare build is FOSS. The FOSS/Google split is a `-Pgoogle`
     # project property, not a product flavor, so the default `assembleRelease`
     # (which `gradle: [yes]` invokes) is exactly the FOSS variant. The no-flavor
@@ -125,10 +135,12 @@ Builds:
     # (no `-Pgoogle`, no `-Pdomain`), so this is satisfied today — just don't
     # regress it.
     #
-    # Reproducibility recon (issue #465) found nothing the scanner flags beyond
-    # the standard gradle/wrapper/gradle-wrapper.jar, which F-Droid allow-lists.
-    # No `scandelete` / `rm` is required. If a future fdroidserver scanner run
-    # disagrees, prefer `scandelete` over disabling the scan.
+    # The only non-FOSS coordinates in the tree are the Firebase plugins/deps in
+    # gradle/google-services.gradle.kts, which `prebuild:` deletes above before
+    # the scanner runs. Everything else the scanner might flag is the standard
+    # gradle/wrapper/gradle-wrapper.jar, which F-Droid allow-lists. No
+    # `scanignore` / `scandelete` is used — the maintainer asked us to remove the
+    # non-FOSS deps in prebuild instead of allow-listing them.
 
 MaintainerNotes: |-
     DRAFT recipe staged inside the upstream repo (fdroid/com.rousecontext.yml).
@@ -156,10 +168,37 @@ MaintainerNotes: |-
         be built with a bare assembleRelease (no stray -P flags) so it matches
         fdroidserver's bare build; release.yml already does this.
 
+    Firebase-free FOSS build (extract + prebuild-remove, NOT scanignore):
+      * ALL Firebase / Google-services build config — the google-services and
+        firebase-crashlytics Gradle plugins, the Crashlytics per-build-type
+        setup, and the firebase-* runtime dependencies — is extracted into
+        gradle/google-services.gradle.kts. app/build.gradle.kts applies that file
+        ONLY under `-Pgoogle` (`if (googleBuild) { apply(from = ...) }`). The
+        bare FOSS build never applies it, so it compiles ZERO Firebase: no
+        plugins on the classpath, no firebase-* deps, no Crashlytics config, and
+        google-services.json is not required to assemble it.
+      * Because every non-FOSS coordinate lives in that one extracted file, the
+        recipe's `prebuild: rm -f gradle/google-services.gradle.kts` deletes it
+        before F-Droid's source scanner runs, leaving nothing for the scanner to
+        flag. This replaces the earlier scanignore-free-but-inline approach: the
+        maintainer asked us to remove the non-FOSS deps in prebuild rather than
+        allow-list them, and this does exactly that with no `scanignore` /
+        `scandelete`.
+      * Verified: `aapt2 dump strings` on the FOSS app-release APK shows no
+        firebase/gms strings, and the DEX contains no com.google.firebase /
+        com.google.android.gms classes. (The wire field name `firebaseToken` and
+        UnifiedPush's own org.unifiedpush...FirebaseReceiver are distribution-
+        agnostic / FOSS and unrelated to Google Firebase.)
+      * The extracted file lives in the repo-root gradle/ dir (not app/) so that
+        Android Lint's build-script visitor (lintVitalRelease, which the FOSS
+        release build runs) does not try to FIR-resolve a standalone
+        apply(from=...) script inside an Android module and crash. The root
+        project has no Android lint task.
+
     Variant facts (do not regress):
       * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
         the Firebase build and must NOT be used for F-Droid.
-      * Toolchain at v1.0.6: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
+      * Toolchain at v1.0.7: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
         minSdk 24, targetSdk 35, Gradle 8.14.3.
       * FOSS-only runtime deps: UnifiedPush connector 2.5.0, ACRA 5.13.1.
 
@@ -168,5 +207,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.0.6
-CurrentVersionCode: 7
+CurrentVersion: 1.0.7
+CurrentVersionCode: 8
