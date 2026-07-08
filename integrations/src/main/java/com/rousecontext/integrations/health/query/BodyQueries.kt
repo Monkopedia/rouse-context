@@ -120,6 +120,26 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
+    override suspend fun bucketValues(
+        recordType: String,
+        from: Instant,
+        to: Instant
+    ): List<TimedValue>? = when (recordType) {
+        "Weight" -> reader.read(WeightRecord::class, from, to)
+            .map { TimedValue(it.time, it.weight.inKilograms) }
+        "Height" -> reader.read(HeightRecord::class, from, to)
+            .map { TimedValue(it.time, it.height.inMeters) }
+        "BodyFat" -> reader.read(BodyFatRecord::class, from, to)
+            .map { TimedValue(it.time, it.percentage.value) }
+        "BoneMass" -> reader.read(BoneMassRecord::class, from, to)
+            .map { TimedValue(it.time, it.mass.inKilograms) }
+        "LeanBodyMass" -> reader.read(LeanBodyMassRecord::class, from, to)
+            .map { TimedValue(it.time, it.mass.inKilograms) }
+        "Vo2Max" -> reader.read(Vo2MaxRecord::class, from, to)
+            .map { TimedValue(it.time, it.vo2MillilitersPerMinuteKilogram) }
+        else -> null
+    }
+
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("Weight" in granted) {

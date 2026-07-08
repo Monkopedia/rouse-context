@@ -1,5 +1,7 @@
 package com.rousecontext.integrations.health
 
+import com.rousecontext.integrations.health.query.Bucket
+import java.time.Duration
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
 
@@ -30,15 +32,44 @@ class FakeHealthConnectRepository : HealthConnectRepository {
     /** When non-null, all methods throw this exception. */
     var shouldThrow: Exception? = null
 
+    /** Canned bucket results by record type. */
+    var buckets: MutableMap<String, BucketResult> = mutableMapOf()
+
+    /** Captures the last [bucketRecords] call for assertions. */
+    var lastBucketCall: BucketCall? = null
+
+    data class BucketCall(
+        val recordType: String,
+        val from: Instant,
+        val to: Instant,
+        val bucket: Duration
+    )
+
     override suspend fun queryRecords(
         recordType: String,
         from: Instant,
         to: Instant,
         limit: Int?
-    ): List<JsonObject> {
+    ): QueryResult {
         shouldThrow?.let { throw it }
         val all = records[recordType] ?: emptyList()
-        return if (limit != null) all.take(limit) else all
+        val cap = limit ?: DEFAULT_MAX_RECORDS
+        return if (all.size > cap) {
+            QueryResult(records = all.take(cap), totalCount = all.size, downsampled = true)
+        } else {
+            QueryResult(records = all, totalCount = all.size, downsampled = false)
+        }
+    }
+
+    override suspend fun bucketRecords(
+        recordType: String,
+        from: Instant,
+        to: Instant,
+        bucket: Duration
+    ): BucketResult {
+        shouldThrow?.let { throw it }
+        lastBucketCall = BucketCall(recordType, from, to, bucket)
+        return buckets[recordType] ?: BucketResult.Success(emptyList<Bucket>())
     }
 
     override suspend fun getGrantedPermissions(): Set<String> {

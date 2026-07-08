@@ -153,6 +153,124 @@ class HealthConnectMcpServerTest {
     }
 
     @Test
+    fun `query_health_data reports total_count and downsampled false when small`() = runBlocking {
+        repo.records["HeartRate"] = (1..3).map {
+            buildJsonObject {
+                put("time", "2026-04-0${it}T00:00:00Z")
+                put("bpm", 60 + it)
+            }
+        }
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "HeartRate")
+                put("since", "2026-04-01")
+            }
+        )
+        val json = Json.parseToJsonElement(
+            (result.content.first() as TextContent).text!!
+        ).jsonObject
+        assertEquals(3, json["count"]!!.jsonPrimitive.int)
+        assertEquals(3, json["total_count"]!!.jsonPrimitive.int)
+        assertEquals("false", json["downsampled"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `query_health_data downsamples to cap and flags downsampled`() = runBlocking {
+        repo.records["BloodGlucose"] = (0 until 100).map {
+            buildJsonObject {
+                put("time", "2026-04-01T00:00:0${it % 10}Z")
+                put("mmol_per_l", it)
+            }
+        }
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "BloodGlucose")
+                put("since", "2026-04-01")
+                put("limit", 10)
+            }
+        )
+        val json = Json.parseToJsonElement(
+            (result.content.first() as TextContent).text!!
+        ).jsonObject
+        assertEquals(10, json["count"]!!.jsonPrimitive.int)
+        assertEquals(100, json["total_count"]!!.jsonPrimitive.int)
+        assertEquals("true", json["downsampled"]!!.jsonPrimitive.content)
+    }
+
+    // --- query_health_data bucketed ---
+
+    @Test
+    fun `query_health_data bucket returns per-bucket stats`() = runBlocking {
+        val from = java.time.Instant.parse("2026-04-01T00:00:00Z")
+        repo.buckets["BloodGlucose"] = BucketResult.Success(
+            listOf(
+                com.rousecontext.integrations.health.query.Bucket(
+                    start = from,
+                    count = 2,
+                    min = 5.0,
+                    max = 7.0,
+                    avg = 6.0
+                )
+            )
+        )
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "BloodGlucose")
+                put("since", "2026-04-01")
+                put("bucket", "1h")
+            }
+        )
+        assertTrue(result.isError != true)
+        val json = Json.parseToJsonElement(
+            (result.content.first() as TextContent).text!!
+        ).jsonObject
+        assertEquals("BloodGlucose", json["record_type"]!!.jsonPrimitive.content)
+        assertEquals("1h", json["bucket"]!!.jsonPrimitive.content)
+        val buckets = json["buckets"]!!.jsonArray
+        assertEquals(1, buckets.size)
+        assertEquals(2, buckets[0].jsonObject["count"]!!.jsonPrimitive.int)
+        assertEquals(6.0, buckets[0].jsonObject["avg"]!!.jsonPrimitive.content.toDouble(), 0.0001)
+        // duration threaded through to the repo
+        assertEquals(java.time.Duration.ofHours(1), repo.lastBucketCall!!.bucket)
+    }
+
+    @Test
+    fun `query_health_data bucket surfaces repository error`() = runBlocking {
+        repo.buckets["SleepSession"] =
+            BucketResult.Error("bucketing not supported for SleepSession")
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "SleepSession")
+                put("since", "2026-04-01")
+                put("bucket", "1h")
+            }
+        )
+        assertTrue("should be error", result.isError == true)
+        assertTrue(
+            (result.content.first() as TextContent).text!!.contains("not supported")
+        )
+    }
+
+    @Test
+    fun `query_health_data bucket rejects bad format without reading`() = runBlocking {
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "BloodGlucose")
+                put("since", "2026-04-01")
+                put("bucket", "1week")
+            }
+        )
+        assertTrue("should be error", result.isError == true)
+        assertTrue((result.content.first() as TextContent).text!!.contains("Invalid 'bucket'"))
+        assertEquals(null, repo.lastBucketCall)
+    }
+
+    @Test
     fun `query_health_data returns error for unknown type`() = runBlocking {
         val result = callTool(
             "query_health_data",

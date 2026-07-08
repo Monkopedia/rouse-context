@@ -30,4 +30,15 @@ interface CategoryQueries {
      * when the category contributes nothing for the given inputs.
      */
     suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject
+
+    /**
+     * Extract the per-record scalar values for [recordType] over the time range,
+     * for bucketed aggregation. Returns `null` when [recordType] is not a
+     * bucketable (instantaneous single-scalar) type — e.g. sessions, multi-value,
+     * or cumulative types — in which case the caller reports a clear error.
+     *
+     * The default returns `null`; categories that own scalar types override this.
+     */
+    suspend fun bucketValues(recordType: String, from: Instant, to: Instant): List<TimedValue>? =
+        null
 }

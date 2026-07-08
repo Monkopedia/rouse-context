@@ -93,12 +93,23 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
     override val name = "query_health_data"
     override val description =
         "Query Health Connect records by type and time range; " +
-            "see list_record_types for types."
+            "see list_record_types for types. " +
+            "Default returns raw records; when the range holds more than the cap " +
+            "(limit, else 500) the records are evenly downsampled across the range " +
+            "and the response carries total_count and downsampled=true. " +
+            "Pass 'bucket' (e.g. 1m, 5m, 1h, 1d) to instead get per-period stats " +
+            "{start,count,min,max,avg}; bucketing works only for scalar types " +
+            "(BloodGlucose, HeartRate, temperatures, weight, etc.) and rejects a " +
+            "too-fine bucket over a large range."
 
     val recordType by stringParam("record_type", "e.g. Steps, HeartRate, SleepSession")
     val since by stringParam("since", "ISO 8601 date or datetime")
     val until by stringParam("until", "ISO 8601, defaults to now").optional()
-    val limit by intParam("limit", "").optional()
+    val limit by intParam("limit", "cap on raw records (also the downsample cap)").optional()
+    val bucket by stringParam(
+        "bucket",
+        "optional aggregation window like 1m, 5m, 1h, 1d (scalar types only)"
+    ).optional()
 
     override suspend fun execute(): ToolResult {
         val type = recordType!!
@@ -118,13 +129,64 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
                 "Invalid 'until' format. Use ISO 8601 datetime or date."
             )
 
-        val records = repository.queryRecords(type, fromInstant, toInstant, limit)
+        return if (bucket != null) {
+            executeBucketed(type, fromInstant, toInstant, bucket!!)
+        } else {
+            executeRaw(type, fromInstant, toInstant)
+        }
+    }
+
+    private suspend fun executeRaw(type: String, from: Instant, to: Instant): ToolResult {
+        val query = repository.queryRecords(type, from, to, limit)
         val result = buildJsonObject {
             put("record_type", type)
-            put("count", JsonPrimitive(records.size))
-            put("records", buildJsonArray { records.forEach { add(it) } })
+            put("count", JsonPrimitive(query.records.size))
+            put("total_count", JsonPrimitive(query.totalCount))
+            put("downsampled", query.downsampled)
+            put("records", buildJsonArray { query.records.forEach { add(it) } })
         }
         return ToolResult.Success(Json.encodeToString(result))
+    }
+
+    private suspend fun executeBucketed(
+        type: String,
+        from: Instant,
+        to: Instant,
+        bucketSpec: String
+    ): ToolResult {
+        val duration = parseBucket(bucketSpec)
+            ?: return ToolResult.Error(
+                "Invalid 'bucket' format: '$bucketSpec'. " +
+                    "Use <int><unit> where unit is s, m, h, or d (e.g. 5m, 1h)."
+            )
+        return when (val outcome = repository.bucketRecords(type, from, to, duration)) {
+            is BucketResult.Error -> ToolResult.Error(outcome.message)
+            is BucketResult.Success -> {
+                val result = buildJsonObject {
+                    put("record_type", type)
+                    put("bucket", bucketSpec)
+                    put("buckets", buildJsonArray { outcome.buckets.forEach { add(it.toJson()) } })
+                }
+                ToolResult.Success(Json.encodeToString(result))
+            }
+        }
+    }
+
+    private companion object {
+        private val BUCKET_PATTERN = Regex("^(\\d+)([smhd])$")
+
+        /** Parse a `<int><unit>` bucket spec (unit s/m/h/d) to a positive [Duration]. */
+        fun parseBucket(spec: String): java.time.Duration? {
+            val match = BUCKET_PATTERN.matchEntire(spec.trim()) ?: return null
+            val amount = match.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return null
+            return when (match.groupValues[2]) {
+                "s" -> java.time.Duration.ofSeconds(amount)
+                "m" -> java.time.Duration.ofMinutes(amount)
+                "h" -> java.time.Duration.ofHours(amount)
+                "d" -> java.time.Duration.ofDays(amount)
+                else -> null
+            }
+        }
     }
 }
 

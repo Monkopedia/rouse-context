@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.request.ReadRecordsRequest
+import androidx.health.connect.client.response.ReadRecordsResponse
 import androidx.health.connect.client.time.TimeRangeFilter
 import com.rousecontext.integrations.health.query.ActivityQueries
 import com.rousecontext.integrations.health.query.BodyQueries
@@ -14,6 +15,9 @@ import com.rousecontext.integrations.health.query.RecordReader
 import com.rousecontext.integrations.health.query.ReproductiveQueries
 import com.rousecontext.integrations.health.query.SleepQueries
 import com.rousecontext.integrations.health.query.VitalsQueries
+import com.rousecontext.integrations.health.query.bucketize
+import com.rousecontext.integrations.health.query.downsampleEvenly
+import java.time.Duration
 import java.time.Instant
 import kotlin.reflect.KClass
 import kotlinx.serialization.json.JsonObject
@@ -81,12 +85,57 @@ class RealHealthConnectRepository internal constructor(
         from: Instant,
         to: Instant,
         limit: Int?
-    ): List<JsonObject> {
+    ): QueryResult {
+        val category = categoryFor(recordType)
+        // Read raw (paginated inside the reader); apply the cap as an even
+        // downsample so coverage spans the whole range rather than trimming one end.
+        val mapped = category.query(recordType, from, to, limit = null)
+        val cap = limit ?: DEFAULT_MAX_RECORDS
+        return if (mapped.size > cap) {
+            QueryResult(
+                records = downsampleEvenly(mapped, cap),
+                totalCount = mapped.size,
+                downsampled = true
+            )
+        } else {
+            QueryResult(records = mapped, totalCount = mapped.size, downsampled = false)
+        }
+    }
+
+    override suspend fun bucketRecords(
+        recordType: String,
+        from: Instant,
+        to: Instant,
+        bucket: Duration
+    ): BucketResult {
+        val category = categoryFor(recordType)
+        // Guard BEFORE reading: reject a too-fine bucket over a wide range.
+        val spanMillis = (to.toEpochMilli() - from.toEpochMilli()).coerceAtLeast(0)
+        val widthMillis = bucket.toMillis()
+        val expected = if (widthMillis <= 0) {
+            Long.MAX_VALUE
+        } else {
+            (spanMillis + widthMillis - 1) / widthMillis
+        }
+        if (expected > MAX_BUCKETS) {
+            return BucketResult.Error(
+                "Bucket too fine: $expected buckets exceeds the max of $MAX_BUCKETS. " +
+                    "Use a coarser bucket or a narrower time range."
+            )
+        }
+        val values = category.bucketValues(recordType, from, to)
+            ?: return BucketResult.Error(
+                "Bucketing not supported for $recordType " +
+                    "(session/multi-value/cumulative)."
+            )
+        return BucketResult.Success(bucketize(values, from, bucket))
+    }
+
+    private fun categoryFor(recordType: String): CategoryQueries {
         RecordTypeRegistry[recordType]
             ?: throw IllegalArgumentException("Unknown record type: $recordType")
-        val category = categoryByRecordType[recordType]
+        return categoryByRecordType[recordType]
             ?: throw IllegalArgumentException("No query handler for: $recordType")
-        return category.query(recordType, from, to, limit)
     }
 
     override suspend fun getGrantedPermissions(): Set<String> = grantedPermissionsProvider()
@@ -116,18 +165,43 @@ class RealHealthConnectRepository internal constructor(
     }
 }
 
+/** Fetches a single page of records; seam for testing the pagination loop. */
+internal typealias PageFetcher =
+    suspend (request: ReadRecordsRequest<out Record>) -> ReadRecordsResponse<out Record>
+
 /**
  * [RecordReader] implementation backed by a [HealthConnectClient].
+ *
+ * Reads are paginated with a bounded [READ_PAGE_SIZE] and looped over the
+ * response `pageToken` until exhausted, so a single Binder transaction never
+ * carries a full unbounded page — the crash for high-volume types (e.g.
+ * BloodGlucose from a CGM). Accumulation stops at [MAX_RECORDS] to bound memory.
+ *
+ * [fetchPage] is a seam so pagination can be unit-tested without a real client.
  */
-private class HealthConnectClientRecordReader(private val client: HealthConnectClient) :
-    RecordReader {
+internal class HealthConnectClientRecordReader(private val fetchPage: PageFetcher) : RecordReader {
+
+    constructor(client: HealthConnectClient) : this(
+        fetchPage = { request -> client.readRecords(request) }
+    )
+
+    @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Record> read(type: KClass<T>, from: Instant, to: Instant): List<T> {
-        val response = client.readRecords(
-            ReadRecordsRequest(
-                recordType = type,
-                timeRangeFilter = TimeRangeFilter.between(from, to)
-            )
-        )
-        return response.records
+        val filter = TimeRangeFilter.between(from, to)
+        val accumulated = mutableListOf<T>()
+        var pageToken: String? = null
+        do {
+            val response = fetchPage(
+                ReadRecordsRequest(
+                    recordType = type,
+                    timeRangeFilter = filter,
+                    pageSize = READ_PAGE_SIZE,
+                    pageToken = pageToken
+                )
+            ) as ReadRecordsResponse<T>
+            accumulated += response.records
+            pageToken = response.pageToken
+        } while (pageToken != null && accumulated.size < MAX_RECORDS)
+        return accumulated
     }
 }

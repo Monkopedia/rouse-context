@@ -323,4 +323,57 @@ class VitalsQueriesTest {
         val (queries, _) = make()
         assertEquals(10, queries.recordTypes.size)
     }
+
+    @Test
+    fun `bucketValues extracts blood glucose scalar values`() = runBlocking {
+        val (queries, reader) = make()
+        reader.put(
+            BloodGlucoseRecord::class,
+            listOf(
+                BloodGlucoseRecord(
+                    time = Instant.parse("2026-04-10T08:00:00Z"),
+                    zoneOffset = ZoneOffset.UTC,
+                    level = BloodGlucose.millimolesPerLiter(5.4),
+                    specimenSource = BloodGlucoseRecord.SPECIMEN_SOURCE_UNKNOWN,
+                    mealType = BloodGlucoseRecord.RELATION_TO_MEAL_UNKNOWN,
+                    relationToMeal = BloodGlucoseRecord.RELATION_TO_MEAL_UNKNOWN,
+                    metadata = testMetadata
+                )
+            )
+        )
+        val values = queries.bucketValues("BloodGlucose", from, to)!!
+        assertEquals(1, values.size)
+        assertEquals(5.4, values[0].value, 0.0001)
+        assertEquals(Instant.parse("2026-04-10T08:00:00Z"), values[0].time)
+    }
+
+    @Test
+    fun `bucketValues flattens heart rate samples`() = runBlocking {
+        val (queries, reader) = make()
+        reader.put(
+            HeartRateRecord::class,
+            listOf(
+                HeartRateRecord(
+                    startTime = Instant.parse("2026-04-10T08:00:00Z"),
+                    startZoneOffset = ZoneOffset.UTC,
+                    endTime = Instant.parse("2026-04-10T09:00:00Z"),
+                    endZoneOffset = ZoneOffset.UTC,
+                    samples = listOf(
+                        HeartRateRecord.Sample(Instant.parse("2026-04-10T08:10:00Z"), 70L),
+                        HeartRateRecord.Sample(Instant.parse("2026-04-10T08:20:00Z"), 80L)
+                    ),
+                    metadata = testMetadata
+                )
+            )
+        )
+        val values = queries.bucketValues("HeartRate", from, to)!!
+        assertEquals(listOf(70.0, 80.0), values.map { it.value })
+    }
+
+    @Test
+    fun `bucketValues returns null for non-bucketable vital`() = runBlocking {
+        val (queries, _) = make()
+        assertEquals(null, queries.bucketValues("BloodPressure", from, to))
+        assertEquals(null, queries.bucketValues("SkinTemperature", from, to))
+    }
 }
