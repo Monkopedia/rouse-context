@@ -246,7 +246,15 @@ class HealthConnectSetupViewModelTest {
             from: Instant,
             to: Instant,
             limit: Int?
-        ): List<JsonObject> = emptyList()
+        ): com.rousecontext.integrations.health.QueryResult =
+            com.rousecontext.integrations.health.QueryResult(emptyList(), 0, false)
+        override suspend fun bucketRecords(
+            recordType: String,
+            from: Instant,
+            to: Instant,
+            bucket: java.time.Duration
+        ): com.rousecontext.integrations.health.BucketResult =
+            com.rousecontext.integrations.health.BucketResult.Success(emptyList())
         override suspend fun getGrantedPermissions(): Set<String> {
             if (throwOnGranted) error("boom")
             return grantedRecordTypes

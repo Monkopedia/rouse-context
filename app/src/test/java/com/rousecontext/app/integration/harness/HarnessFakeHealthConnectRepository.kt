@@ -1,6 +1,11 @@
 package com.rousecontext.app.integration.harness
 
+import com.rousecontext.integrations.health.BucketResult
+import com.rousecontext.integrations.health.DEFAULT_MAX_RECORDS
 import com.rousecontext.integrations.health.HealthConnectRepository
+import com.rousecontext.integrations.health.QueryResult
+import com.rousecontext.integrations.health.query.Bucket
+import java.time.Duration
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
 
@@ -35,15 +40,33 @@ class HarnessFakeHealthConnectRepository : HealthConnectRepository {
     /** When non-null, all methods throw this exception. */
     var shouldThrow: Exception? = null
 
+    /** Canned bucket results by record type. */
+    var buckets: MutableMap<String, BucketResult> = mutableMapOf()
+
     override suspend fun queryRecords(
         recordType: String,
         from: Instant,
         to: Instant,
         limit: Int?
-    ): List<JsonObject> {
+    ): QueryResult {
         shouldThrow?.let { throw it }
         val all = records[recordType] ?: emptyList()
-        return if (limit != null) all.take(limit) else all
+        val cap = limit ?: DEFAULT_MAX_RECORDS
+        return if (all.size > cap) {
+            QueryResult(records = all.take(cap), totalCount = all.size, downsampled = true)
+        } else {
+            QueryResult(records = all, totalCount = all.size, downsampled = false)
+        }
+    }
+
+    override suspend fun bucketRecords(
+        recordType: String,
+        from: Instant,
+        to: Instant,
+        bucket: Duration
+    ): BucketResult {
+        shouldThrow?.let { throw it }
+        return buckets[recordType] ?: BucketResult.Success(emptyList<Bucket>())
     }
 
     override suspend fun getGrantedPermissions(): Set<String> {

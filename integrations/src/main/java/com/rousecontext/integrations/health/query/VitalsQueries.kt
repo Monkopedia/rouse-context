@@ -199,6 +199,33 @@ class VitalsQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
+    override suspend fun bucketValues(
+        recordType: String,
+        from: Instant,
+        to: Instant
+    ): List<TimedValue>? = when (recordType) {
+        "HeartRate" -> reader.read(HeartRateRecord::class, from, to).flatMap { record ->
+            record.samples.map { TimedValue(it.time, it.beatsPerMinute.toDouble()) }
+        }
+        "RestingHeartRate" -> reader.read(RestingHeartRateRecord::class, from, to)
+            .map { TimedValue(it.time, it.beatsPerMinute.toDouble()) }
+        "HeartRateVariabilityRmssd" -> reader.read(HeartRateVariabilityRmssdRecord::class, from, to)
+            .map { TimedValue(it.time, it.heartRateVariabilityMillis) }
+        "BloodGlucose" -> reader.read(BloodGlucoseRecord::class, from, to)
+            .map { TimedValue(it.time, it.level.inMillimolesPerLiter) }
+        "OxygenSaturation" -> reader.read(OxygenSaturationRecord::class, from, to)
+            .map { TimedValue(it.time, it.percentage.value) }
+        "RespiratoryRate" -> reader.read(RespiratoryRateRecord::class, from, to)
+            .map { TimedValue(it.time, it.rate) }
+        "BodyTemperature" -> reader.read(BodyTemperatureRecord::class, from, to)
+            .map { TimedValue(it.time, it.temperature.inCelsius) }
+        "BasalBodyTemperature" -> reader.read(BasalBodyTemperatureRecord::class, from, to)
+            .map { TimedValue(it.time, it.temperature.inCelsius) }
+        // BloodPressure (two-valued) and SkinTemperature (session/multi-delta) are
+        // intentionally not bucketable.
+        else -> null
+    }
+
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("HeartRate" in granted) {

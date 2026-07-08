@@ -1,6 +1,8 @@
 package com.rousecontext.integrations.health
 
 import com.rousecontext.integrations.health.query.CategoryQueries
+import com.rousecontext.integrations.health.query.TimedValue
+import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -10,6 +12,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -28,9 +31,11 @@ class RealHealthConnectRepositoryTest {
         override val recordTypes: Set<String>,
         private val queryResponse: List<JsonObject> = emptyList(),
         private val summaryKey: String? = null,
-        private val summaryValue: Long = 0L
+        private val summaryValue: Long = 0L,
+        private val bucketable: Map<String, List<TimedValue>> = emptyMap()
     ) : CategoryQueries {
         val queryCalls: MutableList<Triple<String, Instant, Instant>> = mutableListOf()
+        var bucketValuesCalled = false
 
         override suspend fun query(
             recordType: String,
@@ -48,6 +53,15 @@ class RealHealthConnectRepositoryTest {
                     put(summaryKey, summaryValue)
                 }
             }
+
+        override suspend fun bucketValues(
+            recordType: String,
+            from: Instant,
+            to: Instant
+        ): List<TimedValue>? {
+            bucketValuesCalled = true
+            return bucketable[recordType]
+        }
     }
 
     private fun make(
@@ -149,6 +163,98 @@ class RealHealthConnectRepositoryTest {
             granted = setOf("Steps", "HeartRate")
         )
         assertEquals(setOf("Steps", "HeartRate"), repo.getGrantedPermissions())
+    }
+
+    private fun jsonRecords(n: Int): List<JsonObject> = (0 until n).map { i ->
+        buildJsonObject { put("i", i) }
+    }
+
+    @Test
+    fun `queryRecords under cap returns all with downsampled false`() = runBlocking {
+        val cat = RecordingCategory(setOf("BloodGlucose"), queryResponse = jsonRecords(10))
+        val repo = make(listOf(cat))
+
+        val result = repo.queryRecords("BloodGlucose", from, to, limit = 100)
+        assertEquals(10, result.records.size)
+        assertEquals(10, result.totalCount)
+        assertTrue(!result.downsampled)
+    }
+
+    @Test
+    fun `queryRecords over cap downsamples to cap keeping first and last`() = runBlocking {
+        val cat = RecordingCategory(setOf("BloodGlucose"), queryResponse = jsonRecords(100))
+        val repo = make(listOf(cat))
+
+        val result = repo.queryRecords("BloodGlucose", from, to, limit = 10)
+        assertEquals(10, result.records.size)
+        assertEquals(100, result.totalCount)
+        assertTrue(result.downsampled)
+        assertEquals(0, result.records.first()["i"]!!.jsonPrimitive.content.toInt())
+        assertEquals(99, result.records.last()["i"]!!.jsonPrimitive.content.toInt())
+    }
+
+    @Test
+    fun `queryRecords uses default cap when limit null`() = runBlocking {
+        val cat = RecordingCategory(
+            setOf("BloodGlucose"),
+            queryResponse = jsonRecords(DEFAULT_MAX_RECORDS + 50)
+        )
+        val repo = make(listOf(cat))
+
+        val result = repo.queryRecords("BloodGlucose", from, to, limit = null)
+        assertEquals(DEFAULT_MAX_RECORDS, result.records.size)
+        assertTrue(result.downsampled)
+    }
+
+    @Test
+    fun `bucketRecords aggregates scalar values per window`() = runBlocking {
+        val values = listOf(
+            TimedValue(from.plusSeconds(60), 5.0),
+            TimedValue(from.plusSeconds(120), 7.0),
+            TimedValue(from.plusSeconds(3660), 10.0)
+        )
+        val cat = RecordingCategory(
+            setOf("BloodGlucose"),
+            bucketable = mapOf("BloodGlucose" to values)
+        )
+        val repo = make(listOf(cat))
+
+        val result = repo.bucketRecords(
+            "BloodGlucose",
+            from,
+            from.plusSeconds(7200),
+            Duration.ofHours(1)
+        )
+        result as BucketResult.Success
+        assertEquals(2, result.buckets.size)
+        assertEquals(6.0, result.buckets[0].avg, 0.0001)
+        assertEquals(10.0, result.buckets[1].avg, 0.0001)
+    }
+
+    @Test
+    fun `bucketRecords rejects too-fine bucket before reading`() = runBlocking {
+        val cat = RecordingCategory(
+            setOf("BloodGlucose"),
+            bucketable = mapOf("BloodGlucose" to emptyList())
+        )
+        val repo = make(listOf(cat))
+
+        // 1 minute buckets over 100 days => way over MAX_BUCKETS.
+        val wideTo = from.plus(Duration.ofDays(100))
+        val result = repo.bucketRecords("BloodGlucose", from, wideTo, Duration.ofMinutes(1))
+        result as BucketResult.Error
+        assertTrue(result.message.contains("$MAX_BUCKETS"))
+        assertTrue("must not read", !cat.bucketValuesCalled)
+    }
+
+    @Test
+    fun `bucketRecords rejects non-bucketable type`() = runBlocking {
+        val cat = RecordingCategory(setOf("SleepSession")) // no bucketable map => null
+        val repo = make(listOf(cat))
+
+        val result = repo.bucketRecords("SleepSession", from, to, Duration.ofDays(1))
+        result as BucketResult.Error
+        assertTrue(result.message.contains("not supported"))
     }
 
     @Test
