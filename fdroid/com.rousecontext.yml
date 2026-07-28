@@ -75,20 +75,20 @@ Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rous
 AllowedAPKSigningKeys: 7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 
 Builds:
-  - versionName: 1.0.7
-    versionCode: 8
-    # Build from the signed release tag. `v1.0.7` does not exist yet; it is
+  - versionName: 1.0.8
+    versionCode: 9
+    # Build from the signed release tag. `v1.0.8` does not exist yet; it is
     # created when the owner cuts the release. Until then this is a template.
     #
     # IMPORTANT — when copying this to fdroiddata, pin `commit:` to the IMMUTABLE
     # release SHA, NOT the tag:
-    #     git rev-parse v1.0.7^{commit}
+    #     git rev-parse v1.0.8^{commit}
     # and put that full 40-char SHA here. This matches the proven
     # com.monkopedia.healthdisconnect recipe, whose published Builds entry pins a
     # full commit SHA rather than a movable tag ref. A SHA can't be retargeted
     # after submission, so the from-source build is locked to exactly the bytes
     # F-Droid reviewed.
-    commit: v1.0.7
+    commit: v1.0.8
     subdir: app
     # Remove the Google-only Gradle config BEFORE F-Droid scans/builds. All
     # Firebase / Google-services build coordinates (the two Gradle plugins, the
@@ -152,8 +152,14 @@ Builds:
     # non-FOSS deps in prebuild instead of allow-listing them.
 
 MaintainerNotes: |-
-    DRAFT recipe staged inside the upstream repo (fdroid/com.rousecontext.yml).
-    Owner-gated: not yet submitted to fdroiddata.
+    Recipe staged inside the upstream repo (fdroid/com.rousecontext.yml); the
+    submitted copy lives in fdroiddata!42096.
+
+    This MaintainerNotes block is LOCAL DOCUMENTATION ONLY — strip it when
+    syncing to fdroiddata. The maintainer (linsui) asked for the submitted
+    recipe's MaintainerNotes to be removed once the prebuild change made the
+    scanignore justification moot, so the fdroiddata copy carries no such
+    field. Keep the reasoning here so it isn't lost.
 
     Reproducible-builds path (PROVEN IN PRODUCTION):
       * This is the same path com.monkopedia.healthdisconnect ships on today —
@@ -210,7 +216,7 @@ MaintainerNotes: |-
     Variant facts (do not regress):
       * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
         the Firebase build and must NOT be used for F-Droid.
-      * Toolchain at v1.0.7: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
+      * Toolchain at v1.0.8: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
         minSdk 24, targetSdk 35, Gradle 8.14.3.
       * FOSS-only runtime deps: UnifiedPush connector 2.5.0, ACRA 5.13.1.
 
@@ -219,5 +225,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.0.7
-CurrentVersionCode: 8
+CurrentVersion: 1.0.8
+CurrentVersionCode: 9

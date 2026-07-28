@@ -1,0 +1,7 @@
+Fixes health queries on high-volume record types.
+
+Asking for a record type that logs continuously (blood glucose from a CGM, for
+example) used to fail outright. Those reads are now paginated, and large result
+sets can be bucketed and summarised instead of returned one record at a time.
+
+Also cleans up the F-Droid listing description markup.
