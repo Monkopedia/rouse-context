@@ -231,11 +231,15 @@ class SettingsViewModelTest {
         vm.showAllMcpMessages.test {
             // Drop initial default false
             val first = awaitItem()
-            if (!first) {
-                assertTrue(awaitItem())
-            } else {
-                assertTrue(first)
-            }
+            // Asserted unconditionally rather than branched on. The previous
+            // form was `if (!first) assertTrue(awaitItem()) else assertTrue(first)`
+            // — the else branch asserts a value it has just branched on being
+            // true, so if the flow ever emitted true first the test passed
+            // having verified nothing. Verified by removing the conditional and
+            // re-running: green, so the branch was dead rather than hiding a
+            // defect, and this form pins the documented emission order.
+            assertFalse(first)
+            assertTrue(awaitItem())
         }
     }
 
