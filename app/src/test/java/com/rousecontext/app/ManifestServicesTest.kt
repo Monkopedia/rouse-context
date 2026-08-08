@@ -29,7 +29,15 @@ class ManifestServicesTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val pm = context.packageManager
         val info = pm.getPackageInfo(context.packageName, PackageManager.GET_SERVICES)
-        val services = info.services ?: return
+        // Not `?: return` — a null here means the merged manifest was not
+        // visible, and returning would report PASS having asserted nothing.
+        // The failure this test guards is itself silent (Android lists
+        // unresolvable services and fails to bind them, producing empty
+        // notification history), so a vacuous pass removes the only signal.
+        val services = requireNotNull(info.services) {
+            "no <service> entries visible — merged manifest missing or " +
+                "GET_SERVICES returned nothing; this test cannot verify anything"
+        }
 
         val unresolved = services.mapNotNull { svc ->
             val className = svc.name
