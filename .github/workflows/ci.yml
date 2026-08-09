@@ -154,6 +154,18 @@ jobs:
         run: |
           ./gradlew testDebugUnitTest :core:tunnel:jvmTest :core:mcp:jvmTest :core:bridge:jvmTest
           ./gradlew :app:testDebugUnitTest -Pgoogle
+      - name: Compile device/e2e test sources (issue #549)
+        # `:device-tests` and `:e2e` are in settings.gradle.kts but no workflow
+        # referenced them, and nothing else compiled them: every other Gradle
+        # invocation here is scoped to `:app` or `:core:*`, ktlint parses
+        # without typechecking, and detekt runs without a classpath (no type
+        # resolution). So a compile error in either module left CI fully green.
+        #
+        # They are NOT run: both require a physically attached Android device
+        # (adb + a device serial), which no hosted runner has. Compiling them
+        # is what converts "never looked at" into "known to build" — the gap
+        # #549 describes — and it costs seconds.
+        run: ./gradlew :device-tests:compileTestKotlin :e2e:compileTestKotlin
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
