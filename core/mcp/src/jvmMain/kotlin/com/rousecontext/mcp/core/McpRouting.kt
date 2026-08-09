@@ -63,6 +63,9 @@ private data class SessionEntry(
     @Volatile var lastAccessedAt: Long
 )
 
+/** A `/mcp` request routed to its session by [McpRoutes.resolveOrCreateSession]. */
+private data class ResolvedSession(val sessionId: String, val entry: SessionEntry)
+
 /** Result of [McpRoutes.authenticateAndLookupSession]. */
 private data class SessionLookup(
     val integration: String,
@@ -644,57 +647,195 @@ class McpRoutes(
     }
 
     // MCP Streamable HTTP -- Bearer auth required, session-routed via Mcp-Session-Id.
-    @Suppress("LongMethod", "ReturnCount", "CyclomaticComplexMethod")
-    suspend fun RoutingCall.handleMcp() {
-        if (rejectIfSecurityAlert()) return
-        val ri = resolveIntegration()
-        val provider = registry.providerForPath(ri)
-            ?: run {
-                respond(HttpStatusCode.NotFound)
-                return
-            }
-        if (mcpRateLimiter != null &&
-            !mcpRateLimiter.tryAcquire("$ri/mcp")
-        ) {
-            respond(HttpStatusCode.TooManyRequests)
-            return
-        }
+    /**
+     * Sends the `401` + `WWW-Authenticate` challenge that every `/mcp` auth
+     * failure returns. Extracted because four call sites across POST, GET and
+     * DELETE built this identical response inline; a challenge that drifts
+     * between verbs is a spec-compliance bug waiting to happen.
+     */
+    private suspend fun RoutingCall.respondUnauthorized() {
+        response.headers.append(
+            "WWW-Authenticate",
+            "Bearer resource_metadata=\"https://${resolveHostname()}" +
+                "/.well-known/oauth-protected-resource\""
+        )
+        respond(HttpStatusCode.Unauthorized)
+    }
 
-        // Auth check
+    /**
+     * Extracts and validates the bearer token for [ri].
+     *
+     * Returns the token, or null after responding `401` when the header is
+     * missing, malformed, or the token does not validate. Callers must return
+     * immediately on null — the response has already been sent.
+     */
+    private suspend fun RoutingCall.authenticateBearer(ri: String): String? {
         val authHeader = request.headers["Authorization"]
         val token = authHeader?.removePrefix("Bearer ")?.takeIf {
             authHeader.startsWith("Bearer ")
         }
-
         if (token == null || !tokenStore.validateToken(ri, token)) {
-            response.headers.append(
-                "WWW-Authenticate",
-                "Bearer resource_metadata=\"https://${resolveHostname()}" +
-                    "/.well-known/oauth-protected-resource\""
-            )
-            respond(HttpStatusCode.Unauthorized)
-            return
+            respondUnauthorized()
+            return null
         }
+        return token
+    }
 
-        // Client name (from DCR) for user-facing labels in tools that prompt
-        // the user -- e.g. outreach's "X wants to open Y" notification.
-        val clientName = tokenStore.resolveClientName(ri, token)
-
-        // Client id (from DCR) for session-ownership enforcement (issue #206).
-        // Must be non-null here -- the token just passed validateToken above,
-        // so a lookup failure indicates a store inconsistency; treat as 401.
+    /**
+     * Resolves the DCR client id used for session-ownership enforcement
+     * (issue #206).
+     *
+     * Must be non-null for a token that just passed [authenticateBearer], so a
+     * lookup failure indicates a store inconsistency and is treated as `401`.
+     * Returns null after responding.
+     */
+    private suspend fun RoutingCall.resolveCallerClientId(ri: String, token: String): String? {
         val callerClientId = tokenStore.resolveClientId(ri, token)
         if (callerClientId == null) {
-            response.headers.append(
-                "WWW-Authenticate",
-                "Bearer resource_metadata=\"https://${resolveHostname()}" +
-                    "/.well-known/oauth-protected-resource\""
+            respondUnauthorized()
+            return null
+        }
+        return callerClientId
+    }
+
+    /**
+     * Resolves the stable, human-readable client label captured once at session
+     * creation so every audit event in the session carries the same identifier
+     * (issue #344).
+     *
+     * Falls back to the literal [UNKNOWN_CLIENT_LABEL] only when the bearer is
+     * anonymous or unresolvable — authenticated clients always get a concrete
+     * label, either the DCR `client_name` or an `Unknown (#N)` labeler
+     * assignment (issue #345).
+     *
+     * Applies the #345 lazy migration in place: pre-#345 DCR rows persisted the
+     * literal `"unknown"`, which is upgraded on first resolve so both this
+     * session's audit rows and the authorized-clients list see the new label.
+     */
+    private suspend fun resolveClientLabel(
+        ri: String,
+        token: String,
+        callerClientId: String
+    ): String {
+        val storedLabel = tokenStore.resolveClientLabel(ri, token)
+        return when {
+            storedLabel == null -> UNKNOWN_CLIENT_LABEL
+            storedLabel == LEGACY_UNKNOWN_LABEL && unknownClientLabeler != null -> {
+                val upgraded = unknownClientLabeler.labelFor(callerClientId)
+                tokenStore.upgradeClientLabel(ri, callerClientId, upgraded)
+                upgraded
+            }
+            else -> storedLabel
+        }
+    }
+
+    /**
+     * Creates a fresh session entry bound to [callerClientId], installing it at
+     * [key] and closing whatever the size cap evicted.
+     */
+    private suspend fun newSessionEntry(
+        ri: String,
+        key: String,
+        provider: McpServerProvider,
+        callerClientId: String,
+        clientLabel: String
+    ): SessionEntry {
+        val (newServer, newTransport) =
+            createIntegrationServer(provider, serverName, serverVersion)
+        val entry = SessionEntry(
+            server = newServer,
+            transport = newTransport,
+            integration = ri,
+            clientId = callerClientId,
+            clientLabel = clientLabel,
+            lastAccessedAt = clock.currentTimeMillis()
+        )
+        val evicted = sessionsMutex.withLock {
+            val removed = evictOldestIfNeeded(ri)
+            sessions[key] = entry
+            removed
+        }
+        try {
+            evicted?.transport?.close()
+        } catch (_: Exception) {
+            // best-effort cleanup
+        }
+        return entry
+    }
+
+    /**
+     * Routes a `/mcp` request to its session, by `Mcp-Session-Id`:
+     * - `initialize` without a session id creates a new session;
+     * - any request carrying a session id looks up the existing session,
+     *   recreating it under that id if the process lost it (device restart,
+     *   app reinstall) — bound to the current caller;
+     * - anything else without a session id is a `400`.
+     *
+     * Returns null after responding when the request cannot be routed, which
+     * covers both the `400` above and the ownership rejection below.
+     *
+     * **Session-to-client binding (issue #206):** a session is owned by the
+     * client id that created it. A different client — even one holding a valid
+     * token for the same integration — must not reuse the session id. The
+     * rejection is a `404`, matching unknown-session-id behaviour so session
+     * existence is not leaked.
+     */
+    @Suppress("ReturnCount")
+    private suspend fun RoutingCall.resolveOrCreateSession(
+        ri: String,
+        provider: McpServerProvider,
+        method: String?,
+        incomingSessionId: String?,
+        callerClientId: String,
+        clientLabel: String
+    ): ResolvedSession? {
+        if (method == "initialize" && incomingSessionId == null) {
+            val newSessionId = UUID.randomUUID().toString()
+            val entry = newSessionEntry(
+                ri = ri,
+                key = "$ri:$newSessionId",
+                provider = provider,
+                callerClientId = callerClientId,
+                clientLabel = clientLabel
             )
-            respond(HttpStatusCode.Unauthorized)
-            return
+            return ResolvedSession(newSessionId, entry)
         }
 
-        // Parse the request body to determine method and whether it's a notification.
+        if (incomingSessionId == null) {
+            // Non-initialize without Mcp-Session-Id
+            respond(HttpStatusCode.BadRequest)
+            return null
+        }
+
+        val key = "$ri:$incomingSessionId"
+        val existing = sessionsMutex.withLock { sessions[key] }
+        if (existing != null) {
+            if (existing.clientId != callerClientId) {
+                respond(HttpStatusCode.NotFound)
+                return null
+            }
+            existing.lastAccessedAt = clock.currentTimeMillis()
+            return ResolvedSession(incomingSessionId, existing)
+        }
+
+        val recreated = newSessionEntry(
+            ri = ri,
+            key = key,
+            provider = provider,
+            callerClientId = callerClientId,
+            clientLabel = clientLabel
+        )
+        return ResolvedSession(incomingSessionId, recreated)
+    }
+
+    /**
+     * Reads and parses the JSON-RPC request body.
+     *
+     * Returns null after responding on a read timeout (`-32700`, `400`) or on
+     * a body that is not valid JSON (`-32700`), so malformed requests get a
+     * proper JSON-RPC error before any session routing happens.
+     */
+    private suspend fun RoutingCall.readJsonRpcBody(): Pair<String, JsonObject>? {
         val requestBody = try {
             withTimeout(MCP_REQUEST_TIMEOUT_MS) {
                 receiveText()
@@ -713,7 +854,7 @@ class McpRoutes(
                 ContentType.Application.Json,
                 HttpStatusCode.BadRequest
             )
-            return
+            return null
         }
 
         val parsed = try {
@@ -722,8 +863,6 @@ class McpRoutes(
             null
         }
 
-        // If the body is not valid JSON, return a parse error before session
-        // routing so that malformed requests get a proper JSON-RPC error.
         if (parsed == null) {
             respondText(
                 mcpJson.encodeToString(
@@ -732,8 +871,51 @@ class McpRoutes(
                 ),
                 ContentType.Application.Json
             )
+            return null
+        }
+
+        return requestBody to parsed
+    }
+
+    /**
+     * POST /mcp — the Streamable HTTP request path.
+     *
+     * The prologue (auth, client identity, body parse, session routing) is
+     * factored into the helpers above so this reads as orchestration and each
+     * step is independently testable. The auth and session-ownership rules in
+     * particular are security-critical and were previously reachable only
+     * through a full request.
+     *
+     * `ReturnCount` stays suppressed: the prologue is a chain of guard clauses
+     * that each respond and return, and the only way to satisfy the limit is to
+     * nest them, which trades a flat readable sequence for a pyramid. The
+     * `LongMethod` and `CyclomaticComplexMethod` suppressions this function
+     * used to carry are gone.
+     */
+    @Suppress("ReturnCount")
+    suspend fun RoutingCall.handleMcp() {
+        if (rejectIfSecurityAlert()) return
+        val ri = resolveIntegration()
+        val provider = registry.providerForPath(ri)
+            ?: run {
+                respond(HttpStatusCode.NotFound)
+                return
+            }
+        if (mcpRateLimiter != null &&
+            !mcpRateLimiter.tryAcquire("$ri/mcp")
+        ) {
+            respond(HttpStatusCode.TooManyRequests)
             return
         }
+
+        val token = authenticateBearer(ri) ?: return
+        val callerClientId = resolveCallerClientId(ri, token) ?: return
+
+        // Client name (from DCR) for user-facing labels in tools that prompt
+        // the user -- e.g. outreach's "X wants to open Y" notification.
+        val clientName = tokenStore.resolveClientName(ri, token)
+
+        val (requestBody, parsed) = readJsonRpcBody() ?: return
 
         val isNotification = !parsed.containsKey("id")
         val method = parsed["method"]?.jsonPrimitive?.contentOrNull
@@ -743,111 +925,20 @@ class McpRoutes(
         // ensures tests with FakeClock see evictions without a background job).
         sweepExpiredSessions()
 
-        // Route by Mcp-Session-Id:
-        // - initialize without session id -> create new session
-        // - any request with session id -> look up existing session
-        // - non-initialize without session id -> error
-        val sessionId: String
-        val session: SessionEntry
+        val clientLabel = resolveClientLabel(ri, token, callerClientId)
 
-        // Capture the client label once at session creation so every
-        // subsequent tool-call audit event in this session carries the same
-        // stable, human-readable identifier (issue #344). Falls back to the
-        // literal "Unknown" only when the bearer is anonymous / unresolvable —
-        // authenticated clients always get a concrete label, either the DCR
-        // `client_name` or an `Unknown (#N)` labeler assignment (issue #345).
-        val storedLabel = tokenStore.resolveClientLabel(ri, token)
-        val resolvedClientLabel = when {
-            storedLabel == null -> UNKNOWN_CLIENT_LABEL
-            // Lazy migration (#345): pre-#345 DCR rows persisted the literal
-            // "unknown" when `client_name` was missing. Upgrade in place on
-            // first resolve so both this session's audit rows and the
-            // authorized-clients list see the new `Unknown (#N)` label.
-            storedLabel == LEGACY_UNKNOWN_LABEL && unknownClientLabeler != null -> {
-                val upgraded = unknownClientLabeler.labelFor(callerClientId)
-                tokenStore.upgradeClientLabel(ri, callerClientId, upgraded)
-                upgraded
-            }
-            else -> storedLabel
-        }
-
-        if (method == "initialize" && incomingSessionId == null) {
-            // Create a new session
-            val newSessionId = UUID.randomUUID().toString()
-            val (newServer, newTransport) =
-                createIntegrationServer(provider, serverName, serverVersion)
-            val entry = SessionEntry(
-                server = newServer,
-                transport = newTransport,
-                integration = ri,
-                clientId = callerClientId,
-                clientLabel = resolvedClientLabel,
-                lastAccessedAt = clock.currentTimeMillis()
-            )
-            val evicted = sessionsMutex.withLock {
-                val removed = evictOldestIfNeeded(ri)
-                sessions["$ri:$newSessionId"] = entry
-                removed
-            }
-            try {
-                evicted?.transport?.close()
-            } catch (_: Exception) {
-                // best-effort cleanup
-            }
-            sessionId = newSessionId
-            session = entry
-        } else if (incomingSessionId != null) {
-            val key = "$ri:$incomingSessionId"
-            val existing = sessionsMutex.withLock { sessions[key] }
-            if (existing != null) {
-                // Session-to-client binding check (issue #206): a session is
-                // owned by the client id that created it. A different client
-                // (even one with a valid token for the same integration) must
-                // not be able to reuse the session id. We return 404, matching
-                // the unknown-session-id behaviour, so existence isn't leaked.
-                if (existing.clientId != callerClientId) {
-                    respond(HttpStatusCode.NotFound)
-                    return
-                }
-                existing.lastAccessedAt = clock.currentTimeMillis()
-                sessionId = incomingSessionId
-                session = existing
-            } else {
-                // Unknown session ID — recreate the session under that ID.
-                // This handles the case where the device restarted (process
-                // killed, app reinstall, etc.) but the client still holds the
-                // old session ID. Bind the new session to the current caller.
-                val (newServer, newTransport) =
-                    createIntegrationServer(provider, serverName, serverVersion)
-                val newEntry = SessionEntry(
-                    server = newServer,
-                    transport = newTransport,
-                    integration = ri,
-                    clientId = callerClientId,
-                    clientLabel = resolvedClientLabel,
-                    lastAccessedAt = clock.currentTimeMillis()
-                )
-                val evicted = sessionsMutex.withLock {
-                    val removed = evictOldestIfNeeded(ri)
-                    sessions[key] = newEntry
-                    removed
-                }
-                try {
-                    evicted?.transport?.close()
-                } catch (_: Exception) {
-                    // best-effort cleanup
-                }
-                sessionId = incomingSessionId
-                session = newEntry
-            }
-        } else {
-            // Non-initialize without Mcp-Session-Id
-            respond(HttpStatusCode.BadRequest)
-            return
-        }
+        val resolved = resolveOrCreateSession(
+            ri = ri,
+            provider = provider,
+            method = method,
+            incomingSessionId = incomingSessionId,
+            callerClientId = callerClientId,
+            clientLabel = clientLabel
+        ) ?: return
+        val session = resolved.entry
 
         // Set the Mcp-Session-Id response header
-        response.headers.append("Mcp-Session-Id", sessionId)
+        response.headers.append("Mcp-Session-Id", resolved.sessionId)
 
         if (isNotification) {
             withContext(McpClientContext(clientName)) {
@@ -909,36 +1000,18 @@ class McpRoutes(
             return null
         }
 
-        val authHeader = request.headers["Authorization"]
-        val token = authHeader?.removePrefix("Bearer ")?.takeIf {
-            authHeader.startsWith("Bearer ")
-        }
-        if (token == null || !tokenStore.validateToken(ri, token)) {
-            response.headers.append(
-                "WWW-Authenticate",
-                "Bearer resource_metadata=\"https://${resolveHostname()}" +
-                    "/.well-known/oauth-protected-resource\""
-            )
-            respond(HttpStatusCode.Unauthorized)
-            return null
-        }
+        val token = authenticateBearer(ri) ?: return null
 
+        // Ordering matters and is preserved from before the extraction: the
+        // missing-session-id 400 is reported before the client-id 401, so a
+        // GET/DELETE without the header keeps returning 400 rather than 401.
         val incomingSessionId = request.headers["Mcp-Session-Id"]
         if (incomingSessionId == null) {
             respond(HttpStatusCode.BadRequest)
             return null
         }
 
-        val callerClientId = tokenStore.resolveClientId(ri, token)
-        if (callerClientId == null) {
-            response.headers.append(
-                "WWW-Authenticate",
-                "Bearer resource_metadata=\"https://${resolveHostname()}" +
-                    "/.well-known/oauth-protected-resource\""
-            )
-            respond(HttpStatusCode.Unauthorized)
-            return null
-        }
+        val callerClientId = resolveCallerClientId(ri, token) ?: return null
 
         return SessionLookup(ri, incomingSessionId, callerClientId)
     }
