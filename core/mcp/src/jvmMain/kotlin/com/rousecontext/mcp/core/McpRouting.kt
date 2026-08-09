@@ -649,9 +649,10 @@ class McpRoutes(
     // MCP Streamable HTTP -- Bearer auth required, session-routed via Mcp-Session-Id.
     /**
      * Sends the `401` + `WWW-Authenticate` challenge that every `/mcp` auth
-     * failure returns. Extracted because four call sites across POST, GET and
-     * DELETE built this identical response inline; a challenge that drifts
-     * between verbs is a spec-compliance bug waiting to happen.
+     * failure returns. Extracted because four call sites built this identical
+     * response inline — two in [handleMcp] and two in
+     * [authenticateAndLookupSession] — and a challenge that drifts between
+     * them is a spec-compliance bug waiting to happen.
      */
     private suspend fun RoutingCall.respondUnauthorized() {
         response.headers.append(
@@ -882,9 +883,12 @@ class McpRoutes(
      *
      * The prologue (auth, client identity, body parse, session routing) is
      * factored into the helpers above so this reads as orchestration and each
-     * step is independently testable. The auth and session-ownership rules in
-     * particular are security-critical and were previously reachable only
-     * through a full request.
+     * step is separable. The helpers are private, so they are still reached
+     * only through a full request from `jvmTest` — the extraction bought
+     * reviewability, not direct unit-testability. Making the auth and
+     * session-ownership rules callable in isolation would need them to be
+     * `internal`, which is a deliberate follow-up rather than something this
+     * refactor delivered.
      *
      * `ReturnCount` stays suppressed: the prologue is a chain of guard clauses
      * that each respond and return, and the only way to satisfy the limit is to
@@ -987,7 +991,7 @@ class McpRoutes(
     }
 
     /**
-     * Common auth + session lookup for GET and DELETE /mcp. Returns the
+     * Common auth + session lookup for DELETE /mcp. Returns the
      * resolved [SessionLookup] on success, or null if an error response
      * has already been sent.
      */
