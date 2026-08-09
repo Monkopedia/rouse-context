@@ -160,8 +160,12 @@ class McpSession(
     }
 
     /**
-     * Gracefully shuts down all active MCP sessions (closing their transports
-     * so SSE streams end cleanly) then stops the HTTP server.
+     * Gracefully shuts down all active MCP sessions by closing their transports
+     * and clearing the session map.
+     *
+     * Does NOT stop the HTTP server — see the body. The Ktor engine stays alive
+     * so subsequent FCM wakes can bridge new connections to it; only [stop]
+     * tears it down, on the onDestroy path.
      *
      * Callers should wrap this in `withTimeoutOrNull` so a wedged transport
      * cannot block tunnel teardown indefinitely. See issue #446.

@@ -252,12 +252,15 @@ class McpRoutes(
     }
 
     /**
-     * Gracefully shuts down all active MCP sessions by closing their transports
-     * and clearing the session map. There is no GET /mcp route — SSE is a
-     * response *form* of POST /mcp, chosen in [respondMcpResponse] when the
-     * client sends `Accept: text/event-stream`. Those responses exit their
-     * keepalive loop cleanly when the transport closes, so the client sees a
-     * normal server-initiated close instead of a connection reset.
+     * Gracefully shuts down all active MCP sessions: takes the session map
+     * under its mutex, clears it, and closes each session's [HttpTransport].
+     *
+     * There is no stream to end here. `/mcp` is POST and DELETE only, and an
+     * SSE response is a response *form* of POST — [respondMcpResponse] writes
+     * a single frame with `respondText` when the client sends
+     * `Accept: text/event-stream`, so the HTTP response has already completed
+     * before this runs. [HttpTransport.close] invokes the transport's close
+     * handler and holds no socket of its own.
      *
      * Safe to call when no sessions exist and safe to call multiple times.
      * See issue #446.
