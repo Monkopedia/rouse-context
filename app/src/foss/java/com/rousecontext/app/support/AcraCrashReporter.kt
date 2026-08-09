@@ -56,7 +56,15 @@ class AcraCrashReporter(
         // Crashlytics.recordException. Dispatched off the caller's thread
         // because ACRA's collection blocks — see the class kdoc (#542).
         scope.launch(ioDispatcher) {
-            reportSilently(throwable)
+            // Swallow failures from the reporter itself. Before #542 a throw
+            // here surfaced synchronously at the call site, and the call sites
+            // are catch blocks (TunnelForegroundService.collectIncomingSessions
+            // is `catch (e) { crashReporter.logCaughtException(e) }`). Dispatched
+            // into `scope` — a SupervisorJob — an uncaught throw is NOT
+            // propagated to a parent; it reaches the thread's default uncaught
+            // handler and kills the process. That would make the crash reporter
+            // the thing that turns a handled error into a fatal one.
+            runCatching { reportSilently(throwable) }
         }
     }
 
