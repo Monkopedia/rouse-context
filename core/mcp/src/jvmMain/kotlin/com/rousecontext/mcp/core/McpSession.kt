@@ -163,9 +163,13 @@ class McpSession(
      * Gracefully shuts down all active MCP sessions by closing their transports
      * and clearing the session map.
      *
-     * Does NOT stop the HTTP server — see the body. The Ktor engine stays alive
-     * so subsequent FCM wakes can bridge new connections to it; only [stop]
-     * tears it down, on the onDestroy path.
+     * Does NOT stop the HTTP server. The Ktor engine stays alive so subsequent
+     * FCM wakes can bridge new connections to it; [stop] is what tears it down.
+     *
+     * Note that [stop] has no production caller today — `onDestroy` reaches
+     * this function, not that one, via `gracefulTunnelShutdown`, and the
+     * bridge's `McpSessionHandle.stop` is a deliberate no-op in production
+     * because the Ktor server is a singleton shared across streams.
      *
      * Callers should wrap this in `withTimeoutOrNull` so a wedged transport
      * cannot block tunnel teardown indefinitely. See issue #446.

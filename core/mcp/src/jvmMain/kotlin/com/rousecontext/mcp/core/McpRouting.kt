@@ -252,8 +252,9 @@ class McpRoutes(
     }
 
     /**
-     * Gracefully shuts down all active MCP sessions: takes the session map
-     * under its mutex, clears it, and closes each session's [HttpTransport].
+     * Gracefully shuts down all active MCP sessions: takes and clears the
+     * session map under its mutex, then closes each session's [HttpTransport]
+     * outside the lock, so a slow close cannot block other session traffic.
      *
      * There is no stream to end here. `/mcp` is POST and DELETE only, and an
      * SSE response is a response *form* of POST — [respondMcpResponse] writes
