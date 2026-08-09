@@ -253,9 +253,11 @@ class McpRoutes(
 
     /**
      * Gracefully shuts down all active MCP sessions by closing their transports
-     * and clearing the session map. SSE streams (GET /mcp) exit their keepalive
-     * loop cleanly when the transport closes, so the client sees a normal
-     * server-initiated close instead of a connection reset.
+     * and clearing the session map. There is no GET /mcp route — SSE is a
+     * response *form* of POST /mcp, chosen in [respondMcpResponse] when the
+     * client sends `Accept: text/event-stream`. Those responses exit their
+     * keepalive loop cleanly when the transport closes, so the client sees a
+     * normal server-initiated close instead of a connection reset.
      *
      * Safe to call when no sessions exist and safe to call multiple times.
      * See issue #446.
@@ -1008,7 +1010,7 @@ class McpRoutes(
 
         // Ordering matters and is preserved from before the extraction: the
         // missing-session-id 400 is reported before the client-id 401, so a
-        // GET/DELETE without the header keeps returning 400 rather than 401.
+        // DELETE without the header keeps returning 400 rather than 401.
         val incomingSessionId = request.headers["Mcp-Session-Id"]
         if (incomingSessionId == null) {
             respond(HttpStatusCode.BadRequest)
