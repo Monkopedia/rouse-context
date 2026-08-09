@@ -39,7 +39,7 @@ val distributionModule = module {
     // Crash reporting — ACRA, the FOSS Crashlytics replacement (#464). ACRA is
     // initialized in CrashReporterInitializer (attachBaseContext); this binding
     // forwards caught-exception logging / collection toggling to it.
-    single<CrashReporter> { AcraCrashReporter() }
+    single<CrashReporter> { AcraCrashReporter(scope = get(named("appScope"))) }
 
     // Push-token retrieval — foss has no FCM token; its push target is the
     // UnifiedPush endpoint (reported via BackgroundDelivery), so the FCM-token
