@@ -64,3 +64,6 @@ object PeriodParser {
         return PeriodRange(start, now)
     }
 }
+
+// TEMPORARY: #547 gate demonstration. Reverted in the next commit.
+internal fun gateProbe(): Int = kotlinx.coroutines.runBlocking { 547 }
