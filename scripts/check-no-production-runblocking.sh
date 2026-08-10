@@ -19,7 +19,13 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-mapfile -t DIRS < <(bash scripts/production-source-dirs.sh)
+# Via a variable, not `mapfile < <(...)`: process substitution does not
+# propagate its exit status, so a failing preflight would leave DIRS empty and
+# this script would exit 0 having scanned nothing -- the exact silent-pass shape
+# #547 is about. Command substitution under `set -e` aborts here instead.
+dirs=$(bash scripts/production-source-dirs.sh)
+mapfile -t DIRS <<<"$dirs"
+[ "${#DIRS[@]}" -gt 0 ] || { echo "ERROR: no production source dirs to scan" >&2; exit 1; }
 
 # No `2>/dev/null` and no blanket `|| true`: a grep that cannot read a tree must
 # be a red build, not a silent pass. grep exits 1 for "no matches" (the good

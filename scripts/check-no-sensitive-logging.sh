@@ -28,7 +28,12 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-mapfile -t DIRS < <(bash scripts/production-source-dirs.sh)
+# Via a variable, not `mapfile < <(...)`: see the note in
+# check-no-production-runblocking.sh -- process substitution swallows a failing
+# preflight and would leave this script scanning nothing and exiting 0.
+dirs=$(bash scripts/production-source-dirs.sh)
+mapfile -t DIRS <<<"$dirs"
+[ "${#DIRS[@]}" -gt 0 ] || { echo "ERROR: no production source dirs to scan" >&2; exit 1; }
 
 # shellcheck disable=SC2016  # literal regex; `$` must not expand
 PATTERN='Log\.[dievw].*\$(token|bearer|fcmToken|firebaseToken|verifier|accessToken|refreshToken|clientSecret|privateKey|pkceVerifier)\b|Log\.[dievw].*args:[[:space:]]*\$'
