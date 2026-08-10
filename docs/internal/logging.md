@@ -97,11 +97,21 @@ Before committing a new `Log.*`, `tracing::*!`, `println!`, or similar:
 
 ## Regression protection
 
-`.github/workflows/ci.yml` greps production Kotlin sources for known-bad
-patterns on every PR:
+`scripts/check-no-sensitive-logging.sh`, run by `.github/workflows/ci.yml` on
+every PR, greps production Kotlin sources for known-bad patterns:
 
 - `Log.*(\$token|\$bearer|\$fcmToken|\$firebaseToken|\$verifier|\$accessToken|\$refreshToken)`
 - `Log.*(args: \$|secret[^s]|private[_ ]?key)`
+
+Run it locally the same way CI does: `bash scripts/check-no-sensitive-logging.sh`.
+
+Which trees count as "production" is derived by
+`scripts/production-source-dirs.sh` rather than hand-listed, and shared with the
+`runBlocking` gate. Before #547 each gate carried its own hand-maintained list;
+they drifted, and the `runBlocking` one spent that time reporting clean for a
+tree it never read. If you add a module, nothing needs updating; if you rename
+one, the derivation's preflight fails loudly instead of quietly narrowing the
+scan.
 
 This is a cheap first line of defence; code review is what we rely on for
 anything the grep misses (multi-line logs, fields-by-format, etc.). If a
