@@ -59,65 +59,78 @@ class TlsAcceptor(private val sslContext: SSLContext) {
     suspend fun accept(stream: MuxStream): TlsSession = withContext(Dispatchers.IO) {
         try {
             val engine = createServerEngine()
-            val session = engine.session
-            val appBufferSize = session.applicationBufferSize
-            val netBufferSize = session.packetBufferSize
-
-            val appIn = java.nio.ByteBuffer.allocate(appBufferSize)
-            val appOut = java.nio.ByteBuffer.allocate(0) // empty: no app data during handshake
-            var netIn = java.nio.ByteBuffer.allocate(netBufferSize)
-            var netOut = java.nio.ByteBuffer.allocate(netBufferSize)
-
-            engine.beginHandshake()
-
-            // Pump handshake to completion
-            var hsStatus = engine.handshakeStatus
-            while (hsStatus != SSLEngineResult.HandshakeStatus.FINISHED &&
-                hsStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
-            ) {
-                when (hsStatus) {
-                    SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
-                        netOut.clear()
-                        val result = engine.wrap(appOut, netOut)
-                        hsStatus = result.handshakeStatus
-                        netOut.flip()
-                        if (netOut.hasRemaining()) {
-                            val data = ByteArray(netOut.remaining())
-                            netOut.get(data)
-                            stream.write(data)
-                        }
-                    }
-                    SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
-                        // Only read from the stream if netIn is empty.
-                        // Multiple TLS records may arrive in a single mux DATA frame,
-                        // so netIn may still have data from a previous read.
-                        if (netIn.position() == 0) {
-                            val tlsData = stream.read()
-                            netIn = ensureCapacity(netIn, tlsData.size)
-                            netIn.put(tlsData)
-                        }
-                        netIn.flip()
-                        val result = engine.unwrap(netIn, appIn)
-                        hsStatus = result.handshakeStatus
-                        netIn.compact()
-                    }
-                    SSLEngineResult.HandshakeStatus.NEED_TASK -> {
-                        var task = engine.delegatedTask
-                        while (task != null) {
-                            task.run()
-                            task = engine.delegatedTask
-                        }
-                        hsStatus = engine.handshakeStatus
-                    }
-                    else -> break
-                }
-            }
-
-            SuspendTlsSession(engine, stream, netIn)
+            SuspendTlsSession(engine, stream, pumpHandshake(engine, stream))
         } catch (e: TunnelError) {
             throw e
         } catch (e: Exception) {
             throw TunnelError.TlsHandshakeFailed("TLS handshake failed", e)
+        }
+    }
+
+    /**
+     * Drive the server-side handshake to completion, returning the leftover
+     * encrypted bytes (in "compact" mode) for the resulting session to consume.
+     */
+    private suspend fun pumpHandshake(engine: SSLEngine, stream: MuxStream): java.nio.ByteBuffer {
+        val session = engine.session
+        val appIn = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
+        val appOut = java.nio.ByteBuffer.allocate(0) // empty: no app data during handshake
+        var netIn = java.nio.ByteBuffer.allocate(session.packetBufferSize)
+        val netOut = java.nio.ByteBuffer.allocate(session.packetBufferSize)
+
+        // Set when the previous unwrap reported BUFFER_UNDERFLOW: netIn holds a
+        // PARTIAL TLS record, so the next iteration must pull another mux DATA
+        // frame even though netIn is non-empty. See the NEED_UNWRAP note.
+        var needMoreNetData = false
+
+        engine.beginHandshake()
+        var hsStatus = engine.handshakeStatus
+        while (hsStatus != SSLEngineResult.HandshakeStatus.FINISHED &&
+            hsStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
+        ) {
+            when (hsStatus) {
+                SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
+                    netOut.clear()
+                    val result = engine.wrap(appOut, netOut)
+                    hsStatus = result.handshakeStatus
+                    netOut.flip()
+                    if (netOut.hasRemaining()) {
+                        stream.write(drain(netOut))
+                    }
+                }
+                SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+                    // Read from the stream when netIn has nothing left to unwrap,
+                    // OR when the last unwrap underflowed. Multiple TLS records
+                    // may arrive in ONE mux DATA frame (so we must not read while
+                    // netIn still holds whole records), and ONE TLS record may be
+                    // SPLIT across two frames (so we must read when netIn holds
+                    // only a partial record -- otherwise unwrap underflows forever
+                    // on the same bytes, spinning at 100% CPU). See #558.
+                    if (netIn.position() == 0 || needMoreNetData) {
+                        netIn = appendTo(netIn, stream.read())
+                    }
+                    netIn.flip()
+                    val result = engine.unwrap(netIn, appIn)
+                    netIn.compact()
+                    hsStatus = result.handshakeStatus
+                    needMoreNetData =
+                        result.status == SSLEngineResult.Status.BUFFER_UNDERFLOW
+                }
+                SSLEngineResult.HandshakeStatus.NEED_TASK -> {
+                    runDelegatedTasks(engine)
+                    hsStatus = engine.handshakeStatus
+                }
+                else -> break
+            }
+        }
+        return netIn
+    }
+
+    private fun runDelegatedTasks(engine: SSLEngine) {
+        var task = engine.delegatedTask
+        while (task != null) {
+            task.run()
+            task = engine.delegatedTask
         }
     }
 
@@ -246,6 +259,14 @@ private fun ensureCapacity(buffer: java.nio.ByteBuffer, additionalBytes: Int): j
     return newBuffer
 }
 
+/** Append [data] to a "compact"-mode buffer, growing it if necessary. */
+private fun appendTo(buffer: java.nio.ByteBuffer, data: ByteArray): java.nio.ByteBuffer =
+    ensureCapacity(buffer, data.size).also { it.put(data) }
+
+/** Copy out a flipped buffer's readable region. */
+private fun drain(buffer: java.nio.ByteBuffer): ByteArray =
+    ByteArray(buffer.remaining()).also { buffer.get(it) }
+
 /**
  * A suspend-native [TlsAcceptor.TlsSession] that encrypts/decrypts plaintext against
  * an underlying [MuxStream]. Reads and writes are serialized with separate mutexes
@@ -280,27 +301,25 @@ private class SuspendTlsSession(
     override suspend fun read(buf: ByteArray, off: Int, len: Int): Int = readMutex.withLock {
         if (eof) return@withLock -1
         if (appIn.hasRemaining()) {
-            val toRead = minOf(len, appIn.remaining())
-            appIn.get(buf, off, toRead)
-            return@withLock toRead
+            return@withLock takeFromAppIn(buf, off, len)
         }
 
         appIn.clear()
+        // Set when the previous unwrap reported BUFFER_UNDERFLOW: netIn holds a
+        // PARTIAL TLS record and the next iteration MUST pull another mux DATA
+        // frame even though netIn is non-empty. Without this the loop unwraps the
+        // same partial record forever at 100% CPU and the peer blocks until its
+        // socket read timeout fires. See #558.
+        var needMoreNetData = false
         while (true) {
-            // Only read from the stream if netIn has no leftover data.
-            // Multiple TLS records may arrive in a single mux DATA frame.
-            if (netIn.position() == 0) {
-                val tlsData = try {
-                    stream.read()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    eof = true
-                    return@withLock -1
-                }
-                netIn = ensureCapacity(netIn, tlsData.size)
-                netIn.put(tlsData)
+            // Read from the stream when netIn has nothing left to unwrap, OR when
+            // the last unwrap underflowed. Multiple TLS records may arrive in ONE
+            // mux DATA frame, and ONE TLS record may be SPLIT across two frames.
+            if ((netIn.position() == 0 || needMoreNetData) && !pullNetData()) {
+                eof = true
+                return@withLock -1
             }
+            needMoreNetData = false
             netIn.flip()
 
             val result = engine.unwrap(netIn, appIn)
@@ -310,9 +329,7 @@ private class SuspendTlsSession(
                 SSLEngineResult.Status.OK -> {
                     appIn.flip()
                     if (appIn.hasRemaining()) {
-                        val toRead = minOf(len, appIn.remaining())
-                        appIn.get(buf, off, toRead)
-                        return@withLock toRead
+                        return@withLock takeFromAppIn(buf, off, len)
                     }
                     appIn.clear()
                     // May need more data, loop
@@ -322,7 +339,9 @@ private class SuspendTlsSession(
                     return@withLock -1
                 }
                 SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
-                    // Need more network data, loop
+                    // netIn holds only a partial record: force a stream read on
+                    // the next iteration instead of re-unwrapping the same bytes.
+                    needMoreNetData = true
                     appIn.clear()
                 }
                 SSLEngineResult.Status.BUFFER_OVERFLOW -> {
@@ -342,6 +361,26 @@ private class SuspendTlsSession(
         }
         @Suppress("UNREACHABLE_CODE")
         -1
+    }
+
+    /** Hand back up to [len] plaintext bytes already decoded into [appIn]. */
+    private fun takeFromAppIn(buf: ByteArray, off: Int, len: Int): Int {
+        val toRead = minOf(len, appIn.remaining())
+        appIn.get(buf, off, toRead)
+        return toRead
+    }
+
+    /** Pull one more mux DATA frame into [netIn]. Returns false on EOF/error. */
+    private suspend fun pullNetData(): Boolean {
+        val tlsData = try {
+            stream.read()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return false
+        }
+        netIn = appendTo(netIn, tlsData)
+        return true
     }
 
     override suspend fun write(buf: ByteArray, off: Int, len: Int) = writeMutex.withLock {
