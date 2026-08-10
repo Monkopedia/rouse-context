@@ -70,6 +70,13 @@ class MuxDemux(private val log: (LogLevel, String) -> Unit = { _, _ -> }) {
      *
      * Unknown stream IDs for DATA/CLOSE/ERROR are silently ignored.
      * OPEN frames are rejected with an ERROR frame if the stream limit is exceeded.
+     *
+     * **Callers MUST invoke this from a single coroutine, in wire order.** The
+     * mutex above makes the stream map safe against concurrent access, but it
+     * does not make delivery ordered: concurrent callers race to reach it and
+     * to reach [MuxStreamImpl.receiveData] afterwards, which reorders DATA on
+     * the stream. [MuxStream] promises wire order; see issue #562 and
+     * `TunnelClientImpl`'s single-consumer inbound queue.
      */
     suspend fun handleFrame(frame: MuxFrame) {
         when (frame) {

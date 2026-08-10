@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -31,6 +32,37 @@ import kotlinx.coroutines.launch
  * connected. After [KEEPALIVE_MAX_MISSES] consecutive Pings time out, the
  * tunnel is treated as dead and transitions to DISCONNECTED so the service
  * layer can reconnect.
+ *
+ * ## Inbound frame ordering (issue #562)
+ *
+ * Inbound frames are decoded on the WebSocket callback and pushed onto a single
+ * bounded queue drained by exactly one consumer coroutine. Ordering is
+ * therefore a property of *this class*, not of whichever dispatcher backs
+ * [scope].
+ *
+ * This used to be `scope.launch { demux.handleFrame(frame) }` per message, with
+ * nothing serialising the launches. That was correct only by accident: the app
+ * injects a `Dispatchers.Main` scope, whose single event-loop thread happened to
+ * run the launches FIFO. Under any multi-threaded scope the coroutines raced to
+ * `MuxStreamImpl.receiveData`, and DATA frames reached the stream out of wire
+ * order. The mux protocol carries no sequence numbers, so nothing downstream can
+ * repair that: a swapped pair of TLS records fails `SSLEngine.unwrap` and the
+ * bridge treats the failure as EOF, leaving a silently dead tunnel.
+ *
+ * Ordering is global rather than per-stream. The protocol only requires
+ * per-stream ordering, but every mux stream rides one WebSocket over one TCP
+ * connection, so a stalled stream already stalls its peers at the socket layer
+ * once the receive window closes. Per-stream queues would buy decoupling the
+ * transport does not actually provide, at the cost of a queue and a coroutine
+ * per stream; a single consumer makes the pre-existing head-of-line coupling
+ * explicit and bounded.
+ *
+ * Neither a `Mutex` around `handleFrame` nor a `limitedParallelism(1)`
+ * dispatcher would fix this. A mutex serialises *execution*, not *arrival*: the
+ * per-frame coroutines still race to reach the lock, and whichever the scheduler
+ * runs first wins. `limitedParallelism(1)` caps parallelism, not concurrency —
+ * the moment `handleFrame` suspends (e.g. on a full stream buffer) the next
+ * frame starts and the two interleave.
  */
 class TunnelClientImpl(
     private val scope: CoroutineScope,
@@ -49,6 +81,12 @@ class TunnelClientImpl(
     private var streamCountJob: Job? = null
     private var keepaliveJob: Job? = null
 
+    /** Ordered inbound frame queue for the current connection. See class kdoc. */
+    private var inboundFrames: Channel<MuxFrame>? = null
+
+    /** The single coroutine draining [inboundFrames]. */
+    private var inboundJob: Job? = null
+
     private val _incomingSessions = Channel<MuxStream>(Channel.BUFFERED)
     private val _errors = MutableSharedFlow<TunnelError>(extraBufferCapacity = 16)
 
@@ -64,62 +102,14 @@ class TunnelClientImpl(
             )
             return
         }
+        // Declared outside the try so the failure paths below can close it.
+        val inbound = Channel<MuxFrame>(INBOUND_FRAME_QUEUE_CAPACITY)
+        inboundFrames = inbound
         try {
             val demux = MuxDemux(log = muxDemuxLog)
             val opened = CompletableDeferred<Unit>()
 
-            val handle = webSocketFactory.connect(
-                url,
-                object : WebSocketListener {
-                    override fun onOpen() {
-                        opened.complete(Unit)
-                    }
-
-                    override fun onBinaryMessage(data: ByteArray) {
-                        val muxFrame = MuxCodec.decode(data)
-                        scope.launch {
-                            try {
-                                demux.handleFrame(muxFrame)
-                            } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
-                                log(
-                                    LogLevel.DEBUG,
-                                    "TunnelClient: frame arrived after disconnect, ignoring"
-                                )
-                            }
-                        }
-                    }
-
-                    override fun onClosing(code: Int, reason: String) {
-                        // If the server closes before onOpen ever fires, the
-                        // pre-CONNECTED awaiter on `opened.await()` would hang
-                        // until the surrounding scope is cancelled. Surface the
-                        // close as a connect failure on that path. See #420.
-                        if (!opened.isCompleted) {
-                            opened.completeExceptionally(
-                                TunnelError.WebSocketClosed(
-                                    "WebSocket closed during handshake: $code $reason"
-                                )
-                            )
-                        }
-                        scope.launch {
-                            handleDisconnect(
-                                TunnelError.WebSocketClosed(
-                                    "WebSocket closed by remote: $code $reason"
-                                )
-                            )
-                        }
-                    }
-
-                    override fun onFailure(error: Throwable) {
-                        opened.completeExceptionally(error)
-                        scope.launch {
-                            handleDisconnect(
-                                TunnelError.ConnectionFailed("WebSocket error", error)
-                            )
-                        }
-                    }
-                }
-            )
+            val handle = webSocketFactory.connect(url, transportListener(inbound, opened))
 
             // Wait for the WebSocket handshake to complete
             opened.await()
@@ -164,21 +154,144 @@ class TunnelClientImpl(
 
             stateMachine.transition(TunnelState.CONNECTED)
 
+            // THE serialisation point: exactly one coroutine ever calls
+            // demux.handleFrame, so frames are handled in the order the
+            // WebSocket reader delivered them. Started last on purpose --
+            // frames that arrive earlier simply wait in `inbound`, which means
+            // onOutgoingFrame is wired (a handshake-time PING is echoed), the
+            // stream forwarder and the ACTIVE-count collector are already
+            // subscribed, and no OPEN can be handled before the tunnel has
+            // reached CONNECTED.
+            inboundJob = scope.launch { consumeInboundFrames(inbound, demux) }
+
             // Start periodic keepalive so a silent half-open socket is detected
             // even when no FCM wake is pending. See issue #179.
             keepaliveJob = scope.launch {
                 runKeepaliveLoop(demux)
             }
         } catch (e: TunnelError) {
+            closeInboundQueue(inbound)
             stateMachine.transition(TunnelState.DISCONNECTED)
             _errors.emit(e)
             throw e
         } catch (e: Exception) {
+            closeInboundQueue(inbound)
             stateMachine.transition(TunnelState.DISCONNECTED)
             val error = TunnelError.ConnectionFailed("Failed to connect: ${e.message}", e)
             _errors.emit(error)
             throw error
         }
+    }
+
+    /**
+     * Build the transport callback for one connection attempt.
+     *
+     * [inbound] is the connection's ordered frame queue and [opened] is
+     * completed by the handshake so `connect` can wait on it.
+     */
+    private fun transportListener(
+        inbound: Channel<MuxFrame>,
+        opened: CompletableDeferred<Unit>
+    ): WebSocketListener = object : WebSocketListener {
+        override fun onOpen() {
+            opened.complete(Unit)
+        }
+
+        override fun onBinaryMessage(data: ByteArray) {
+            // Decode here (cheap, and keeps malformed frames on the reader's
+            // error path), then hand off to the single consumer coroutine.
+            // Do NOT launch a coroutine per frame -- see the class kdoc.
+            enqueueInbound(inbound, MuxCodec.decode(data))
+        }
+
+        override fun onClosing(code: Int, reason: String) {
+            // If the server closes before onOpen ever fires, the pre-CONNECTED
+            // awaiter on `opened.await()` would hang until the surrounding
+            // scope is cancelled. Surface the close as a connect failure on
+            // that path. See #420.
+            if (!opened.isCompleted) {
+                opened.completeExceptionally(
+                    TunnelError.WebSocketClosed(
+                        "WebSocket closed during handshake: $code $reason"
+                    )
+                )
+            }
+            scope.launch {
+                handleDisconnect(
+                    TunnelError.WebSocketClosed("WebSocket closed by remote: $code $reason")
+                )
+            }
+        }
+
+        override fun onFailure(error: Throwable) {
+            opened.completeExceptionally(error)
+            scope.launch {
+                handleDisconnect(TunnelError.ConnectionFailed("WebSocket error", error))
+            }
+        }
+    }
+
+    /**
+     * Push a decoded frame onto the ordered inbound queue.
+     *
+     * Called from the WebSocket reader, which is not a coroutine on every
+     * transport (OkHttp delivers on its own reader thread), so this cannot
+     * suspend to apply backpressure. The queue is bounded anyway: buying
+     * ordering with an unbounded buffer would just trade a reordering bug for
+     * an OOM. A full queue means the consumer is wedged behind a stream whose
+     * reader has stalled; since the mux protocol has no sequence numbers,
+     * dropping the frame would silently corrupt that stream, so the tunnel is
+     * torn down with a named error instead and the service layer reconnects.
+     */
+    private fun enqueueInbound(queue: Channel<MuxFrame>, frame: MuxFrame) {
+        val result = queue.trySend(frame)
+        if (result.isSuccess) return
+        if (result.isClosed) {
+            log(LogLevel.DEBUG, "TunnelClient: frame arrived after disconnect, ignoring")
+            return
+        }
+        log(
+            LogLevel.ERROR,
+            "TunnelClient: inbound frame queue full ($INBOUND_FRAME_QUEUE_CAPACITY), " +
+                "a stream reader has stalled; tearing down the tunnel"
+        )
+        queue.close()
+        scope.launch {
+            handleDisconnect(
+                TunnelError.ConnectionFailed(
+                    "Inbound mux frame queue overflowed at " +
+                        "$INBOUND_FRAME_QUEUE_CAPACITY frames; a stream reader stalled"
+                )
+            )
+        }
+    }
+
+    /**
+     * The single consumer of [queue]. Being the *only* caller of
+     * [MuxDemux.handleFrame] is what preserves wire order.
+     */
+    private suspend fun consumeInboundFrames(queue: Channel<MuxFrame>, demux: MuxDemux) {
+        try {
+            for (frame in queue) {
+                try {
+                    demux.handleFrame(frame)
+                } catch (_: ClosedSendChannelException) {
+                    // Stream (or the demux) was torn down while this frame was
+                    // in flight. Same tolerance the per-frame launches had.
+                    log(LogLevel.DEBUG, "TunnelClient: frame arrived after disconnect, ignoring")
+                }
+            }
+        } finally {
+            // On cancellation or normal completion nothing will drain this queue
+            // again, so close it: producers then take the isClosed branch above
+            // instead of filling a queue nobody reads.
+            queue.close()
+        }
+    }
+
+    private fun closeInboundQueue(queue: Channel<MuxFrame>) {
+        queue.close()
+        if (inboundFrames === queue) inboundFrames = null
     }
 
     private suspend fun runKeepaliveLoop(demux: MuxDemux) {
@@ -260,6 +373,13 @@ class TunnelClientImpl(
     }
 
     private fun cleanupRefs() {
+        // Close the queue before cancelling its consumer so any frame the
+        // reader pushes in the interim takes the "after disconnect" branch
+        // rather than accumulating in a queue nobody drains.
+        inboundFrames?.close()
+        inboundFrames = null
+        inboundJob?.cancel()
+        inboundJob = null
         keepaliveJob?.cancel()
         keepaliveJob = null
         streamCountJob?.cancel()
@@ -274,6 +394,17 @@ class TunnelClientImpl(
     }
 
     companion object {
+        /**
+         * Depth of the ordered inbound frame queue.
+         *
+         * Only fills when the consumer is blocked handing DATA to a stream
+         * whose reader has stalled, so it is sized well above a single
+         * stream's own buffer (`Channel.BUFFERED`, 64) while keeping the worst
+         * case bounded. Overflow tears the tunnel down rather than dropping a
+         * frame -- see [enqueueInbound].
+         */
+        const val INBOUND_FRAME_QUEUE_CAPACITY = 512
+
         /** How often to send a Ping when connected. */
         const val KEEPALIVE_INTERVAL_MS = 30_000L
 
