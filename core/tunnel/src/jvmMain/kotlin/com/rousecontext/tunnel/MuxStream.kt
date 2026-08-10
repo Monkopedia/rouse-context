@@ -7,12 +7,22 @@ import kotlinx.coroutines.flow.Flow
  *
  * Each stream carries bidirectional byte data for a single MCP session.
  * Streams are identified by a unique [id] within the connection.
+ *
+ * ## Ordering contract
+ *
+ * DATA is delivered in wire order: chunks appear on [incoming] / [read] in the
+ * exact order the peer's DATA frames arrived on the transport. Callers depend
+ * on this — the payload is typically a TLS record stream, and the mux protocol
+ * carries no sequence numbers, so a reordering is unrecoverable and surfaces
+ * only as an `SSLEngine.unwrap` failure far from its cause (issue #562).
+ * Implementations MUST NOT hand frames to a stream from more than one
+ * coroutine.
  */
 interface MuxStream {
     /** Unique stream identifier within the mux connection. */
     val id: UInt
 
-    /** Incoming data chunks from the remote peer. */
+    /** Incoming data chunks from the remote peer, in wire order. */
     val incoming: Flow<ByteArray>
 
     /** Send data to the remote peer. Produces a DATA frame on the wire. */
@@ -28,7 +38,7 @@ interface MuxStream {
     val streamId: Int get() = id.toInt()
 
     /**
-     * Read the next data chunk from the remote peer.
+     * Read the next data chunk from the remote peer, in wire order.
      * Alias for collecting a single item from [incoming].
      */
     suspend fun read(): ByteArray
