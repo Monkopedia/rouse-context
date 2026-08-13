@@ -233,20 +233,29 @@ class McpRoutes(
      * Sweeps sessions that have been idle longer than [SESSION_IDLE_TIMEOUT_MS].
      * Called inline before session lookup so tests with a [FakeClock] can observe
      * eviction without a background coroutine.
+     *
+     * Removes the expired entries from the map under [sessionsMutex], then closes
+     * their transports after releasing it — the same shape as [shutdown] and the
+     * cap eviction in [evictOldestIfNeeded]. This runs on every `/mcp` request
+     * and [sessionsMutex] guards every other session lookup, so a close that ever
+     * blocks, suspends, or takes a lock of its own must not do so while holding it.
+     * Eviction stays atomic with respect to the map; only the close moves out.
+     * See issue #560.
      */
     internal suspend fun sweepExpiredSessions() {
         val now = clock.currentTimeMillis()
+        val expired: List<SessionEntry>
         sessionsMutex.withLock {
-            val expired = sessions.entries
+            val expiredKeys = sessions.entries
                 .filter { now - it.value.lastAccessedAt > SESSION_IDLE_TIMEOUT_MS }
                 .map { it.key }
-            for (key in expired) {
-                val entry = sessions.remove(key)
-                try {
-                    entry?.transport?.close()
-                } catch (_: Exception) {
-                    // best-effort cleanup
-                }
+            expired = expiredKeys.mapNotNull { sessions.remove(it) }
+        }
+        for (entry in expired) {
+            try {
+                entry.transport.close()
+            } catch (_: Exception) {
+                // best-effort cleanup
             }
         }
     }
@@ -931,8 +940,9 @@ class McpRoutes(
         val method = parsed["method"]?.jsonPrimitive?.contentOrNull
         val incomingSessionId = request.headers["Mcp-Session-Id"]
 
-        // Sweep expired sessions on every request (cheap under mutex, and
-        // ensures tests with FakeClock see evictions without a background job).
+        // Sweep expired sessions on every request (only the scan and removal are
+        // under the mutex, which is cheap; transports close after it is released).
+        // Also ensures tests with FakeClock see evictions without a background job.
         sweepExpiredSessions()
 
         val clientLabel = resolveClientLabel(ri, token, callerClientId)
