@@ -1,6 +1,7 @@
 package com.rousecontext.tunnel
 
 import kotlin.time.Duration
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -63,6 +64,13 @@ import kotlinx.coroutines.launch
  * runs first wins. `limitedParallelism(1)` caps parallelism, not concurrency —
  * the moment `handleFrame` suspends (e.g. on a full stream buffer) the next
  * frame starts and the two interleave.
+ *
+ * The cost of one consumer is that it is a single point of failure (issue
+ * #568): with a coroutine per frame a throw cost one frame, but the lone
+ * consumer dying costs every frame that follows it. So both ways the consumer
+ * can stop — a full queue and an unexpected throw out of `handleFrame` — are
+ * treated as tunnel-level failures that transition to DISCONNECTED and emit a
+ * named [TunnelError]. Neither may end in a quiet CONNECTED-but-deaf tunnel.
  */
 class TunnelClientImpl(
     private val scope: CoroutineScope,
@@ -279,6 +287,15 @@ class TunnelClientImpl(
                     // Stream (or the demux) was torn down while this frame was
                     // in flight. Same tolerance the per-frame launches had.
                     log(LogLevel.DEBUG, "TunnelClient: frame arrived after disconnect, ignoring")
+                } catch (e: CancellationException) {
+                    // Cooperative cancellation, never a failure. MUST stay above
+                    // the broad catch below: CancellationException is an
+                    // Exception, so catching Exception without this clause would
+                    // swallow every teardown and report it as a tunnel error.
+                    throw e
+                } catch (e: Exception) {
+                    failInboundConsumer(queue, frame, e)
+                    return
                 }
             }
         } finally {
@@ -286,6 +303,40 @@ class TunnelClientImpl(
             // again, so close it: producers then take the isClosed branch above
             // instead of filling a queue nobody reads.
             queue.close()
+        }
+    }
+
+    /**
+     * Tear the tunnel down after [MuxDemux.handleFrame] threw something
+     * unexpected. See issue #568.
+     *
+     * Because [consumeInboundFrames] is the only coroutine that will ever call
+     * `handleFrame`, an escaping throw is a *tunnel-level* failure, not a
+     * per-frame one: letting it kill the consumer leaves the socket up and the
+     * state machine on CONNECTED while every later frame goes nowhere — no
+     * transition, no error, nothing to trigger a reconnect. That is
+     * indistinguishable from the #558 symptom.
+     *
+     * Deliberately the same shape as the overflow path in [enqueueInbound]:
+     * close the queue so the reader stops filling it, then hand the teardown to
+     * a sibling coroutine. The teardown must not run inline — [handleDisconnect]
+     * cancels this very job via `cleanupRefs`.
+     */
+    private fun failInboundConsumer(queue: Channel<MuxFrame>, frame: MuxFrame, cause: Exception) {
+        val frameName = frame::class.simpleName
+        log(
+            LogLevel.ERROR,
+            "TunnelClient: inbound frame handler threw on $frameName " +
+                "(${cause::class.simpleName}: ${cause.message}); tearing down the tunnel"
+        )
+        queue.close()
+        scope.launch {
+            handleDisconnect(
+                TunnelError.ConnectionFailed(
+                    "Inbound mux frame handler threw on $frameName",
+                    cause
+                )
+            )
         }
     }
 
