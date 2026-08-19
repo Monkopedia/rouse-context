@@ -90,13 +90,20 @@ logger.lifecycle(
 // still letting the `-Pgoogle` app build apply it.
 //
 // This comment used to claim that applying the plugins only under `-Pgoogle`
-// preserves the google-services plugin's hard-fail-on-missing-credentials —
-// "a `-Pgoogle` build with no google-services.json fails loudly". That was
-// FALSE and is worth stating plainly, because it was cited as a safety property
-// (#548): `app/google-services.json` is committed, so a `-Pgoogle` build always
-// finds credentials and there is nothing for the plugin to fail on. It is
-// exactly why the issue's reproduction — flipping the gate via an environment
-// variable — produced a working Firebase APK instead of erroring out.
+// "preserves the google-services plugin's hard-fail-on-missing-credentials: a
+// `-Pgoogle` build with no google-services.json fails loudly rather than
+// producing a broken APK", and it was cited as a safety property of the
+// FOSS/Google split (#548). Being precise about what is and isn't true here:
+//
+// The plugin's hard-fail is REAL. Measured: move `app/google-services.json`
+// aside and `./gradlew :app:assembleDebug -Pgoogle` fails at
+// `:app:processDebugGoogleServices` with "File google-services.json is missing".
+//
+// It protects NOTHING here, because that file is committed. The credentials are
+// always present, so the hard-fail never fires, and the property the comment
+// asserted does not exist in this repo. That is exactly why the issue's
+// reproduction — flipping the gate from an environment variable — produced a
+// working 6.9 MB Firebase APK instead of an error.
 //
 // What actually guards the FOSS build is `scripts/check-apk-distribution.sh`,
 // which greps the built APK and fails if any Google/Firebase marker is present.

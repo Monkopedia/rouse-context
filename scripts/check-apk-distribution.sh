@@ -21,13 +21,13 @@
 #   scripts/check-apk-distribution.sh --apk <path> --expect google
 #
 # `--expect foss`   fails if ANY Google/Firebase marker is present.
-# `--expect google` fails if NO Google/Firebase marker is present. That direction
-#                   is not decoration: it is what catches the FOSS APK being
-#                   staged twice under two names, which is the exact failure the
-#                   shared output path makes possible. It is also a live positive
-#                   control — the same patterns, run by the same code, must find
-#                   Firebase in the Google build on every CI run, so this gate
-#                   cannot quietly rot into one that matches nothing.
+# `--expect google` fails if NO Google/Firebase class references are present.
+#                   That direction is not decoration: it is what catches the FOSS
+#                   APK being staged twice under two names, which is the exact
+#                   failure the shared output path makes possible. It is also a
+#                   live positive control — the same patterns, run by the same
+#                   code, must find Firebase in the Google build on every CI run,
+#                   so this gate cannot quietly rot into one that matches nothing.
 #
 # HOW IT FAILS
 # ------------
@@ -76,33 +76,54 @@ fail() {
   exit 1
 }
 
-# Google/Firebase markers, each paired with a sample string that MUST match it.
-# The sample is not documentation: it is fed to the matcher as a synthetic
+# The APK is scanned in TWO SCOPES, because the right pattern differs between
+# them. Each pattern is paired with a sample string that MUST match it; the
+# samples are not documentation, they are fed to the matcher as a synthetic
 # fixture before the real scan, so a pattern that has stopped matching anything
 # fails the run instead of silently passing every APK (#579's failure mode).
 #
-# Patterns are anchored on `com.google.` / `com/google/` on purpose. The FOSS
-# build legitimately contains the substring "firebase" in two unrelated places —
-# our own `firebaseToken` wire field name, and UnifiedPush's own
-# `...FirebaseReceiver` — so a bare `firebase` pattern would be a permanent false
-# positive. `com.google.android.material` is likewise legitimate and is why the
-# Play Services pattern spells out `.../gms`.
+# DEX scope — `classes*.dex`. A class reference in DEX is a type descriptor and
+# uses SLASHES: `Lcom/google/firebase/messaging/FirebaseMessaging;`. Dot-form
+# strings inside DEX are something else entirely, and the FOSS build
+# legitimately contains four of them (measured on the debug APK):
 #
-# The `google_app_id` / `gcm_defaultSenderId` / `firebase_database_url` entries
-# catch the other half of a leak: those string resources are generated from
-# `google-services.json` by the google-services plugin and land in
-# `resources.arsc`, not in the DEX. An APK could in principle carry the
-# credentials without the classes; this notices.
-PATTERNS=(
+#     com.google.android.gms                              } security-provider
+#     com.google.android.gms.org.conscrypt                 } name strings
+#     com.google.android.gms.provider.action.PICK_IMAGES   } androidx.activity
+#     com.google.android.gms.provider.extra.PICK_IMAGES_MAX} photo-picker Intent
+#
+# Those are Intent actions and provider names that AndroidX carries whether or
+# not Play Services is installed; no GMS code is linked. Matching them would
+# make this gate permanently red on a genuinely clean build. Requiring the slash
+# form separates them cleanly: FOSS debug scores 0/0 where the Google build
+# scores 2869/6571.
+DEX_PATTERNS=(
+  'com/google/firebase'
+  'com/google/android/gms'
+)
+DEX_SAMPLES=(
+  'Lcom/google/firebase/messaging/FirebaseMessaging;'
+  'Lcom/google/android/gms/common/api/GoogleApiClient;'
+)
+
+# Everything-else scope — manifest, `resources.arsc`, `res/`, assets, META-INF.
+# Here EITHER separator counts, because component class names are written in dot
+# form and the FOSS build has genuinely zero of them. This is the half a
+# DEX-only check would miss: the google-services plugin also generates
+# `google_app_id` / `gcm_defaultSenderId` / `firebase_database_url` string
+# resources from `google-services.json`, and Firebase ships `res/raw/
+# firebase_*_keep.xml`. An APK could in principle carry the credentials without
+# the classes; this notices.
+META_PATTERNS=(
   'com[./]google[./]firebase'
   'com[./]google[./]android[./]gms'
   'google_app_id'
   'gcm_defaultSenderId'
   'firebase_database_url'
 )
-SAMPLES=(
-  'Lcom/google/firebase/messaging/FirebaseMessaging;'
-  'com.google.android.gms.common.api.GoogleApiClient'
+META_SAMPLES=(
+  'com.google.firebase.provider.FirebaseInitProvider'
+  'com.google.android.gms.measurement.AppMeasurementReceiver'
   'google_app_id'
   'gcm_defaultSenderId'
   'firebase_database_url'
@@ -111,22 +132,34 @@ SAMPLES=(
 # Counts OCCURRENCES, not matching lines. DEX is binary: `grep -c` collapses
 # thousands of references into a handful of "lines" and understates by ~1000x
 # (measured on this very issue -- 3 "lines" was really 2067 references).
+#
+# `scope` is `dex` (classes*.dex only), `meta` (everything else), or `all`.
+grep_scoped() {
+  local mode="$1" scope="$2" pattern="$3" root="$4"
+  case "$scope" in
+    dex)  LC_ALL=C grep "$mode" -aE -e "$pattern" "$root"/classes*.dex ;;
+    meta) LC_ALL=C grep "$mode" -raE -e "$pattern" "$root" --exclude='classes*.dex' ;;
+    all)  LC_ALL=C grep "$mode" -raE -e "$pattern" "$root" ;;
+    *)    fail "internal: unknown scope '$scope'" ;;
+  esac
+}
+
 count_occurrences() {
-  local pattern="$1" root="$2" out status
+  local scope="$1" pattern="$2" root="$3" out status
   set +e
-  out=$(LC_ALL=C grep -roaE -e "$pattern" "$root" | wc -l)
+  out=$(grep_scoped -o "$scope" "$pattern" "$root" | wc -l)
   status="${PIPESTATUS[0]}"
   set -e
   if [ "$status" -gt 1 ]; then
-    fail "grep exited $status scanning '$root' for '$pattern'. The scan did not complete; this is a failure, not a pass."
+    fail "grep exited $status scanning the $scope scope of '$root' for '$pattern'. The scan did not complete; this is a failure, not a pass."
   fi
   printf '%s' "$out"
 }
 
 files_matching() {
-  local pattern="$1" root="$2" status
+  local scope="$1" pattern="$2" root="$3" status
   set +e
-  LC_ALL=C grep -rlaE -e "$pattern" "$root"
+  grep_scoped -l "$scope" "$pattern" "$root"
   status=$?
   set -e
   [ "$status" -le 1 ] || fail "grep exited $status listing files for '$pattern'."
@@ -168,64 +201,82 @@ echo
 # ---------------------------------------------------------------------------
 FIXTURE="$WORK/fixture"
 mkdir -p "$FIXTURE"
-printf '%s\n' "${SAMPLES[@]}" > "$FIXTURE/synthetic-google-markers.txt"
+printf '%s\n' "${DEX_SAMPLES[@]}" > "$FIXTURE/classes.dex"
+printf '%s\n' "${META_SAMPLES[@]}" > "$FIXTURE/AndroidManifest.xml"
 
-[ "${#PATTERNS[@]}" -eq "${#SAMPLES[@]}" ] ||
-  fail "PATTERNS (${#PATTERNS[@]}) and SAMPLES (${#SAMPLES[@]}) are different lengths -- every pattern needs a sample that exercises it."
+[ "${#DEX_PATTERNS[@]}" -eq "${#DEX_SAMPLES[@]}" ] ||
+  fail "DEX_PATTERNS (${#DEX_PATTERNS[@]}) and DEX_SAMPLES (${#DEX_SAMPLES[@]}) are different lengths -- every pattern needs a sample that exercises it."
+[ "${#META_PATTERNS[@]}" -eq "${#META_SAMPLES[@]}" ] ||
+  fail "META_PATTERNS (${#META_PATTERNS[@]}) and META_SAMPLES (${#META_SAMPLES[@]}) are different lengths -- every pattern needs a sample that exercises it."
 
-for i in "${!PATTERNS[@]}"; do
-  n=$(count_occurrences "${PATTERNS[$i]}" "$FIXTURE")
+for pattern in "${DEX_PATTERNS[@]}"; do
+  n=$(count_occurrences dex "$pattern" "$FIXTURE")
   [ "$n" -gt 0 ] ||
-    fail "self-test: pattern '${PATTERNS[$i]}' matched nothing in the synthetic fixture. The matcher is broken -- a zero from it means nothing."
+    fail "self-test: dex pattern '$pattern' matched nothing in the synthetic fixture. The matcher is broken -- a zero from it means nothing."
 done
-echo "  self-test   : all ${#PATTERNS[@]} patterns match the synthetic fixture"
+for pattern in "${META_PATTERNS[@]}"; do
+  n=$(count_occurrences meta "$pattern" "$FIXTURE")
+  [ "$n" -gt 0 ] ||
+    fail "self-test: non-dex pattern '$pattern' matched nothing in the synthetic fixture. The matcher is broken -- a zero from it means nothing."
+done
+echo "  self-test   : all ${#DEX_PATTERNS[@]} dex + ${#META_PATTERNS[@]} non-dex patterns match the synthetic fixture"
 
 # ---------------------------------------------------------------------------
 # Control: prove we are scanning the app's real code, not an empty tree.
 # ---------------------------------------------------------------------------
-app_refs=$(count_occurrences 'com[./]rousecontext' "$EXTRACT")
+app_refs=$(count_occurrences dex 'com/rousecontext' "$EXTRACT")
 [ "$app_refs" -gt 0 ] ||
-  fail "control: found 0 references to com/rousecontext in $APK. This is not (or no longer) the Rouse Context app, so nothing here can be trusted."
-echo "  control     : ${app_refs} com/rousecontext references present"
+  fail "control: found 0 references to com/rousecontext in the DEX of $APK. This is not (or no longer) the Rouse Context app, so nothing here can be trusted."
+echo "  control     : ${app_refs} com/rousecontext references in the DEX"
 echo
 
 # ---------------------------------------------------------------------------
 # The actual measurement.
 # ---------------------------------------------------------------------------
 total=0
-declare -a hits=()
-for i in "${!PATTERNS[@]}"; do
-  pattern="${PATTERNS[$i]}"
-  n=$(count_occurrences "$pattern" "$EXTRACT")
-  printf '  %-34s %s occurrence(s)\n' "$pattern" "$n"
-  total=$((total + n))
-  if [ "$n" -gt 0 ]; then hits+=("$pattern"); fi
-done
+hit_scopes=()
+hit_patterns=()
+scan() {
+  local scope="$1"; shift
+  local pattern n
+  for pattern in "$@"; do
+    n=$(count_occurrences "$scope" "$pattern" "$EXTRACT")
+    printf '  %-5s %-34s %s occurrence(s)\n' "$scope" "$pattern" "$n"
+    total=$((total + n))
+    if [ "$n" -gt 0 ]; then
+      hit_scopes+=("$scope")
+      hit_patterns+=("$pattern")
+    fi
+  done
+}
+scan dex "${DEX_PATTERNS[@]}"
+scan meta "${META_PATTERNS[@]}"
 echo
 
 if [ "$EXPECT" = "foss" ]; then
   if [ "$total" -gt 0 ]; then
     echo "Google/Firebase code found in a build published as FOSS." >&2
     echo >&2
-    for pattern in "${hits[@]}"; do
-      echo "  pattern: $pattern" >&2
-      files_matching "$pattern" "$EXTRACT" | sed "s|^$EXTRACT/|    in: |" >&2
+    for i in "${!hit_patterns[@]}"; do
+      echo "  ${hit_scopes[$i]} pattern: ${hit_patterns[$i]}" >&2
+      files_matching "${hit_scopes[$i]}" "${hit_patterns[$i]}" "$EXTRACT" |
+        sed "s|^$EXTRACT/|    in: |" >&2
     done
     echo >&2
-    echo "  Firebase packages linked in:" >&2
-    LC_ALL=C grep -roaE -e 'com[./]google[./]firebase[./][a-z]+' "$EXTRACT" |
+    echo "  Google/Firebase packages linked in:" >&2
+    grep_scoped -o all 'com[./]google[./](firebase|android[./]gms)[./][a-zA-Z]+' "$EXTRACT" |
       sed 's/^.*://' | sort -u | sed 's/^/    /' >&2 || true
-    fail "$total Google/Firebase marker occurrence(s) in $APK. A bare \`assembleRelease\` must produce ZERO. Something set the \`google\` property (a -P flag, a gradle.properties line, or an ORG_GRADLE_PROJECT_google env var), or the wrong artifact was staged."
+    fail "$total Google/Firebase marker occurrence(s) in $APK. A bare build must produce ZERO. Something set the \`google\` property (a -P flag, a gradle.properties line, or an ORG_GRADLE_PROJECT_google env var), or the wrong artifact was staged."
   fi
   echo "OK: no Google/Firebase markers in $(basename "$APK") -- FOSS distribution confirmed."
 else
-  # `google_app_id` alone would pass a resources-only leak off as a real Google
-  # build, so require the two class-package markers specifically.
-  fb=$(count_occurrences 'com[./]google[./]firebase' "$EXTRACT")
-  gms=$(count_occurrences 'com[./]google[./]android[./]gms' "$EXTRACT")
+  # A resources-only match would pass a stray `google_app_id` off as a real
+  # Google build, so require the two DEX class-reference markers specifically.
+  fb=$(count_occurrences dex 'com/google/firebase' "$EXTRACT")
+  gms=$(count_occurrences dex 'com/google/android/gms' "$EXTRACT")
   if [ "$fb" -eq 0 ] || [ "$gms" -eq 0 ]; then
-    fail "$APK was expected to be the GOOGLE build but contains firebase=$fb gms=$gms references. Either the -Pgoogle build did not take effect, or the FOSS APK was staged under the Google name (both variants write the same output path -- see release.yml)."
+    fail "$APK was expected to be the GOOGLE build but its DEX contains firebase=$fb gms=$gms class references. Either the -Pgoogle build did not take effect, or the FOSS APK was staged under the Google name (both variants write the same output path -- see release.yml)."
   fi
-  echo "OK: Google/Firebase present in $(basename "$APK") (firebase=$fb, gms=$gms) -- Google distribution confirmed."
+  echo "OK: Google/Firebase present in $(basename "$APK") (firebase=$fb, gms=$gms DEX refs) -- Google distribution confirmed."
   echo "    (this run also re-proves the FOSS gate's patterns still match real Firebase code)"
 fi
