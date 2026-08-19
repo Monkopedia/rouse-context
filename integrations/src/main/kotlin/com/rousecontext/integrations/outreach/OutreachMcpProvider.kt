@@ -284,11 +284,7 @@ internal class CreateNotificationChannelTool(private val context: Context) : Mcp
                     "Notifications will still work with default settings."
             )
         }
-        val channelId = if (id.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX)) {
-            id
-        } else {
-            "${OutreachMcpProvider.AI_CHANNEL_PREFIX}$id"
-        }
+        val channelId = resolveChannelId(id)
         val level = parseImportance(importance)
         val wantsSound = soundEnabled
         val wantsVibrate = vibrate
@@ -341,11 +337,7 @@ internal class DeleteNotificationChannelTool(private val context: Context) : Mcp
                 "Channel deletion not supported on this Android version (API < 26)"
             )
         }
-        val channelId = if (id.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX)) {
-            id
-        } else {
-            "${OutreachMcpProvider.AI_CHANNEL_PREFIX}$id"
-        }
+        val channelId = resolveChannelId(id)
         val nm = context.getSystemService(NotificationManager::class.java)
         val existing = nm.getNotificationChannel(channelId)
             ?: return outreachError("Channel not found: $channelId")
