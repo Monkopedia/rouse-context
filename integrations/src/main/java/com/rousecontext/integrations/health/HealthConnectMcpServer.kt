@@ -102,8 +102,8 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
             "(BloodGlucose, HeartRate, temperatures, weight, etc.) and rejects a " +
             "too-fine bucket over a large range."
 
-    val recordType by stringParam("record_type", "e.g. Steps, HeartRate, SleepSession")
-    val since by stringParam("since", "ISO 8601 date or datetime")
+    val recordType by stringParam("record_type", "e.g. Steps, HeartRate, SleepSession").required()
+    val since by stringParam("since", "ISO 8601 date or datetime").required()
     val until by stringParam("until", "ISO 8601, defaults to now").optional()
     val limit by intParam("limit", "cap on raw records (also the downsample cap)").optional()
     val bucket by stringParam(
@@ -112,10 +112,9 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
     ).optional()
 
     override suspend fun execute(): ToolResult {
-        val type = recordType!!
-        if (RecordTypeRegistry[type] == null) {
+        if (RecordTypeRegistry[recordType] == null) {
             return ToolResult.Error(
-                "Unknown record type: $type. " +
+                "Unknown record type: $recordType. " +
                     "Use list_record_types to see available types."
             )
         }
@@ -129,10 +128,11 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
                 "Invalid 'until' format. Use ISO 8601 datetime or date."
             )
 
-        return if (bucket != null) {
-            executeBucketed(type, fromInstant, toInstant, bucket!!)
+        val bucketSpec = bucket
+        return if (bucketSpec != null) {
+            executeBucketed(recordType, fromInstant, toInstant, bucketSpec)
         } else {
-            executeRaw(type, fromInstant, toInstant)
+            executeRaw(recordType, fromInstant, toInstant)
         }
     }
 
@@ -194,12 +194,12 @@ internal class GetHealthSummaryTool(private val repository: HealthConnectReposit
     override val name = "get_health_summary"
     override val description = "Health summary across permitted types for a period."
 
-    val period by stringParam("period", PeriodParser.PERIOD_DESCRIPTION)
+    val period by stringParam("period", PeriodParser.PERIOD_DESCRIPTION).required()
 
     override suspend fun execute(): ToolResult {
         // Delegate to the shared parser so all MCP providers agree on zone
         // (local) and anchoring (sliding window from the start of today).
-        val range = PeriodParser.parse(period!!)
+        val range = PeriodParser.parse(period)
             ?: return ToolResult.Error(
                 "Invalid period: $period. Must be today, week, or month."
             )

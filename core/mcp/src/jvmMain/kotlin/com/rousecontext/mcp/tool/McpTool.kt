@@ -8,6 +8,7 @@ import com.rousecontext.mcp.tool.params.ListParam
 import com.rousecontext.mcp.tool.params.MapParam
 import com.rousecontext.mcp.tool.params.ParamDef
 import com.rousecontext.mcp.tool.params.ParamExtract
+import com.rousecontext.mcp.tool.params.RequiredParam
 import com.rousecontext.mcp.tool.params.StringParam
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlin.properties.ReadOnlyProperty
@@ -81,6 +82,20 @@ abstract class McpTool {
     }
 
     /**
+     * Non-null view over a required binding. [invoke] answers with an error
+     * before [execute] runs when a required param is missing, so by the time a
+     * tool body reads the property the value is guaranteed present — this is
+     * the one place that guarantee is asserted.
+     */
+    private class RequiredBinding<T>(private val binding: ParamBinding<T>) :
+        ReadOnlyProperty<McpTool, T> {
+        override fun getValue(thisRef: McpTool, property: KProperty<*>): T =
+            checkNotNull(binding.cached) {
+                "Required parameter '${binding.param.name}' read outside invoke()"
+            }
+    }
+
+    /**
      * `val packageName by stringParam(...)` — captured here. We register the
      * binding, then hand back a [ReadOnlyProperty] that reads the cached value.
      */
@@ -93,6 +108,28 @@ abstract class McpTool {
         return binding
     }
 
+    /**
+     * `val packageName by stringParam(...).required()` — reads back as a plain
+     * [T] instead of `T?`. Required is already the schema default; this only
+     * changes the Kotlin type of the property so tool bodies do not have to
+     * `!!` a value the framework already guarantees.
+     */
+    protected fun <T> ParamDef<T>.required(): RequiredParam<T> {
+        require(isRequired) {
+            "Parameter '$name' is optional; required() cannot promise a non-null value for it"
+        }
+        return RequiredParam(this)
+    }
+
+    protected operator fun <T> RequiredParam<T>.provideDelegate(
+        thisRef: McpTool,
+        property: KProperty<*>
+    ): ReadOnlyProperty<McpTool, T> {
+        val binding = ParamBinding(property.name, param)
+        thisRef.params.add(binding)
+        return RequiredBinding(binding)
+    }
+
     // ---------- framework-internal ----------
 
     fun buildSchema(): ToolSchema {
@@ -102,7 +139,7 @@ abstract class McpTool {
             }
         }
         val required = params
-            .filter { it.param.required }
+            .filter { it.param.isRequired }
             .map { it.param.name }
         return ToolSchema(properties = properties, required = required)
     }

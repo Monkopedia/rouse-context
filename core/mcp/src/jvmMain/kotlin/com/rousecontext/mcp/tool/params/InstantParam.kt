@@ -11,10 +11,10 @@ import kotlinx.serialization.json.buildJsonObject
  */
 class InstantParam(name: String, description: String) : ParamDef<Instant>(name, description) {
 
-    fun optional(): InstantParam = apply { required = false }
+    fun optional(): InstantParam = apply { isRequired = false }
 
     fun default(value: Instant): InstantParam = apply {
-        required = false
+        isRequired = false
         defaultValue = value
     }
 
@@ -27,7 +27,7 @@ class InstantParam(name: String, description: String) : ParamDef<Instant>(name, 
 
     override fun extract(args: JsonObject?): ParamExtract<Instant> {
         val raw = rawValue(args, name) ?: run {
-            if (required) return ParamExtract.Error("Missing required parameter '$name'")
+            if (isRequired) return ParamExtract.Error("Missing required parameter '$name'")
             return ParamExtract.Value(defaultValue)
         }
         if (raw !is JsonPrimitive || !raw.isString) {

@@ -12,10 +12,10 @@ import kotlinx.serialization.json.buildJsonObject
  */
 class ListParam(name: String, description: String) : ParamDef<List<String>>(name, description) {
 
-    fun optional(): ListParam = apply { required = false }
+    fun optional(): ListParam = apply { isRequired = false }
 
     fun default(value: List<String>): ListParam = apply {
-        required = false
+        isRequired = false
         defaultValue = value
     }
 
@@ -31,7 +31,7 @@ class ListParam(name: String, description: String) : ParamDef<List<String>>(name
     @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<List<String>> {
         val raw = rawValue(args, name) ?: run {
-            if (required) return ParamExtract.Error("Missing required parameter '$name'")
+            if (isRequired) return ParamExtract.Error("Missing required parameter '$name'")
             return ParamExtract.Value(defaultValue)
         }
         if (raw !is JsonArray) {

@@ -111,18 +111,18 @@ internal class PerformNotificationActionTool(
     override val description = "Invoke an action button on an active notification."
 
     val notificationKey by stringParam("notification_key", "Key from list_active_notifications")
-    val actionIndex by intParam("action_index", "0-based")
+        .required()
+    val actionIndex by intParam("action_index", "0-based").required()
 
     override suspend fun execute(): ToolResult {
         if (!allowActions) {
             return ToolResult.Error(NotificationMcpProvider.errActionsDisabled())
         }
 
-        val key = notificationKey!!
-
         // Block actions on our own notifications
-        val isOwn = activeNotificationSource()
-            .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
+        val isOwn = activeNotificationSource().any {
+            it.key == notificationKey && NotificationCaptureService.isOwnPackage(it.packageName)
+        }
         if (isOwn) {
             return ToolResult.Error(
                 NotificationJson.encodeToString(
@@ -134,7 +134,7 @@ internal class PerformNotificationActionTool(
             )
         }
 
-        val success = actionPerformer(key, actionIndex!!)
+        val success = actionPerformer(notificationKey, actionIndex)
         val message = if (success) "Action performed" else "Failed to perform action"
         return ToolResult.Success(
             NotificationJson.encodeToString(
@@ -152,18 +152,17 @@ internal class DismissNotificationTool(
     override val name = "dismiss_notification"
     override val description = "Dismiss an active notification by key."
 
-    val notificationKey by stringParam("notification_key", "")
+    val notificationKey by stringParam("notification_key", "").required()
 
     override suspend fun execute(): ToolResult {
         if (!allowActions) {
             return ToolResult.Error(NotificationMcpProvider.errActionsDisabled())
         }
 
-        val key = notificationKey!!
-
         // Block dismissing our own notifications
-        val isOwn = activeNotificationSource()
-            .any { it.key == key && NotificationCaptureService.isOwnPackage(it.packageName) }
+        val isOwn = activeNotificationSource().any {
+            it.key == notificationKey && NotificationCaptureService.isOwnPackage(it.packageName)
+        }
         if (isOwn) {
             return ToolResult.Error(
                 NotificationJson.encodeToString(
@@ -175,7 +174,7 @@ internal class DismissNotificationTool(
             )
         }
 
-        val success = notificationDismisser(key)
+        val success = notificationDismisser(notificationKey)
         return ToolResult.Success(
             NotificationJson.encodeToString(NotificationSuccess(success = success))
         )

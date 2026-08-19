@@ -7,10 +7,10 @@ import kotlinx.serialization.json.buildJsonObject
 class IntParam(name: String, description: String) : ParamDef<Int>(name, description) {
     private var range: IntRange? = null
 
-    fun optional(): IntParam = apply { required = false }
+    fun optional(): IntParam = apply { isRequired = false }
 
     fun default(value: Int): IntParam = apply {
-        required = false
+        isRequired = false
         defaultValue = value
     }
 
@@ -29,7 +29,7 @@ class IntParam(name: String, description: String) : ParamDef<Int>(name, descript
     @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<Int> {
         val raw = rawValue(args, name) ?: run {
-            if (required) return ParamExtract.Error("Missing required parameter '$name'")
+            if (isRequired) return ParamExtract.Error("Missing required parameter '$name'")
             return ParamExtract.Value(defaultValue)
         }
         if (raw !is JsonPrimitive || raw.isString) {
