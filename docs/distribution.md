@@ -3,8 +3,16 @@
 Rouse Context ships in two distributions, built from the same source tree and
 selected by a Gradle build flag (`-Pgoogle`), not a product flavor (issue #467).
 The bare build is the **FOSS** distribution; `-Pgoogle` opts into the
-credentialed **Google** build. See `app/build.gradle.kts`
-(`val googleBuild = project.hasProperty("google")`).
+credentialed **Google** build. See `app/build.gradle.kts` (the `googleBuild`
+resolution at the top of the file).
+
+`-Pgoogle` has to be an explicit choice, so the build rejects the two property
+sources nobody can see from the build command — the `ORG_GRADLE_PROJECT_google`
+environment variable and `<gradle user home>/gradle.properties` — and logs the
+resolved distribution at configuration time. That is a first line of defence,
+not the guarantee; the guarantee is
+[`scripts/check-apk-distribution.sh`](#verifying-a-built-apk), which reads the
+built APK.
 
 ## The two distributions
 
@@ -33,6 +41,32 @@ same app, Firebase-free — not a separate package.
 
 Each tagged `v*` release publishes all of these (see
 `.github/workflows/release.yml`).
+
+## Verifying a built APK
+
+The FOSS claim is checked against the artifact, not against the build config
+(issue #548). `scripts/check-apk-distribution.sh` unzips an APK and counts
+occurrences of `com.google.firebase` / `com.google.android.gms` class references
+and of the `google_app_id` / `gcm_defaultSenderId` / `firebase_database_url`
+string resources the google-services plugin generates:
+
+```bash
+scripts/check-apk-distribution.sh --apk <path> --expect foss     # fails if ANY marker is present
+scripts/check-apk-distribution.sh --apk <path> --expect google   # fails if NONE is present
+```
+
+Both directions run in CI. `ci.yml` checks each debug APK immediately after its
+build (they share one output path, so order matters), and `release.yml` checks
+the **staged** `dist/…-foss.apk` and `dist/…-google.apk` — the exact files that
+get uploaded. The `--expect google` direction is the positive control: it fails
+if the patterns ever stop matching real Firebase code, so a green FOSS check
+cannot mean "the matcher is broken". The script also self-tests every pattern
+against a synthetic fixture and refuses to run on an APK with no
+`com/rousecontext` references.
+
+Note that a bare substring `firebase` would be a false positive here: the FOSS
+build legitimately contains the `firebaseToken` wire field name and UnifiedPush's
+own `…FirebaseReceiver`. The patterns are anchored on `com.google.`.
 
 ## FOSS first-run requirement: a UnifiedPush distributor
 

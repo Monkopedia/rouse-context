@@ -1,3 +1,4 @@
+import java.io.File
 import java.time.Duration
 import java.util.Properties
 
@@ -17,7 +18,55 @@ plugins {
 // the real relationship — FOSS is the universal base, Google a credentialed
 // superset — instead of the symmetric flavor framing that made the safe build
 // non-default and forced task-name sniffing to re-derive "is this credentialed?".
-val googleBuild = project.hasProperty("google")
+//
+// `-Pgoogle` must be an EXPLICIT, REVIEWABLE choice. `project.hasProperty` is
+// satisfied by ANY Gradle property source, and two of them are invisible to
+// anyone reading the build command or the repo (#548):
+//
+//   * the `ORG_GRADLE_PROJECT_google` environment variable — a reused or
+//     self-hosted runner, or an exported shell var, silently flips the
+//     distribution
+//   * `<gradle user home>/gradle.properties` — a dev sets `google=true` once for
+//     convenience and every later "FOSS" build they sideload is a Firebase build
+//
+// Both are rejected below. The command line (`-Pgoogle`) and the repo's own
+// `gradle.properties` are accepted: both are visible to whoever runs or reviews
+// the build. Either way the resolved distribution is logged at configuration
+// time, so a build always says out loud which one it thinks it is — and
+// `scripts/check-apk-distribution.sh` re-checks the claim against the produced
+// APK in CI, because a gate that only inspects its own inputs cannot see a
+// mis-staged artifact.
+val googleProperty = project.hasProperty("google")
+val googleFromEnvironment = System.getenv("ORG_GRADLE_PROJECT_google") != null
+val gradleUserHomeProperties = File(gradle.gradleUserHomeDir, "gradle.properties")
+val googleFromGradleUserHome = gradleUserHomeProperties.exists() &&
+    Properties()
+        .apply { gradleUserHomeProperties.inputStream().use { load(it) } }
+        .containsKey("google")
+
+if (googleProperty && (googleFromEnvironment || googleFromGradleUserHome)) {
+    val source = if (googleFromEnvironment) {
+        "the ORG_GRADLE_PROJECT_google environment variable"
+    } else {
+        "$gradleUserHomeProperties"
+    }
+    throw GradleException(
+        "The `google` build property was set by $source, which selects the " +
+            "credentialed Firebase distribution from outside the build command. " +
+            "That is how a build published as FOSS ends up containing Firebase " +
+            "(issue #548). Clear it and pass `-Pgoogle` on the command line if " +
+            "you really want the Google build."
+    )
+}
+
+val googleBuild = googleProperty
+logger.lifecycle(
+    if (googleBuild) {
+        "Rouse Context distribution: GOOGLE (-Pgoogle — Firebase FCM + Crashlytics)"
+    } else {
+        "Rouse Context distribution: FOSS (bare build — UnifiedPush + ACRA, no Firebase)"
+    }
+)
 
 // ALL Firebase / Google-services build config — the two Gradle plugins, the
 // Crashlytics per-build-type setup, and the Firebase runtime dependencies —
@@ -40,9 +89,20 @@ val googleBuild = project.hasProperty("google")
 // root project has no Android lint task — sidesteps that upstream crash while
 // still letting the `-Pgoogle` app build apply it.
 //
-// Applying the plugins only under `-Pgoogle` also preserves the google-services
-// plugin's hard-fail-on-missing-credentials: a `-Pgoogle` build with no
-// `google-services.json` fails loudly rather than producing a broken APK.
+// This comment used to claim that applying the plugins only under `-Pgoogle`
+// preserves the google-services plugin's hard-fail-on-missing-credentials —
+// "a `-Pgoogle` build with no google-services.json fails loudly". That was
+// FALSE and is worth stating plainly, because it was cited as a safety property
+// (#548): `app/google-services.json` is committed, so a `-Pgoogle` build always
+// finds credentials and there is nothing for the plugin to fail on. It is
+// exactly why the issue's reproduction — flipping the gate via an environment
+// variable — produced a working Firebase APK instead of erroring out.
+//
+// What actually guards the FOSS build is `scripts/check-apk-distribution.sh`,
+// which greps the built APK and fails if any Google/Firebase marker is present.
+// It runs on the FOSS APK in ci.yml and on the staged release asset in
+// release.yml. Whether the credentials file is committed is a separate
+// (deliberate, owner-owned) decision and is not what makes the split safe.
 if (googleBuild) {
     apply(from = "$rootDir/gradle/google-services.gradle.kts")
 }

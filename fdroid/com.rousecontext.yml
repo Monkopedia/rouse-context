@@ -35,7 +35,7 @@
 # The bare build IS the FOSS distribution (UnifiedPush wake + ACRA crash
 # reporting, zero Firebase / Google Play Services). `-Pgoogle` opts into the
 # credentialed Firebase build and is NEVER used here. See app/build.gradle.kts
-# (`val googleBuild = project.hasProperty("google")`) and docs/distribution.md.
+# (the `googleBuild` resolution at the top) and docs/distribution.md.
 # =============================================================================
 
 Categories:
@@ -141,8 +141,15 @@ Builds:
     # runs a bare `assembleRelease`; any extra `-P...` on the upstream side
     # (e.g. `-Pdomain=...`) would change buildConfig bytes and diverge from the
     # F-Droid from-source build. release.yml already builds the FOSS asset bare
-    # (no `-Pgoogle`, no `-Pdomain`), so this is satisfied today — just don't
-    # regress it.
+    # (no `-Pgoogle`, no `-Pdomain`), so this is satisfied today.
+    #
+    # The `-Pgoogle` half of that risk is now ENFORCED rather than merely noted:
+    # release.yml runs `scripts/check-apk-distribution.sh --expect foss` on the
+    # staged `…-foss.apk` and fails the release if any com.google.firebase /
+    # com.google.android.gms marker is present, whatever set the flag (issue
+    # #548). A stray `-Pdomain=` is still only a convention — it changes
+    # buildConfig bytes without adding Google code, so the purity gate cannot
+    # see it and the reproducibility compare is what would catch it.
     #
     # The only non-FOSS coordinates in the tree are the Firebase plugins/deps in
     # gradle/google-services.gradle.kts, which `prebuild:` deletes above before

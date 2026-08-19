@@ -79,13 +79,28 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -alias debug \
             -dname "CN=Debug,O=Debug,L=Debug,S=Debug,C=US"
+      # Both distributions write the SAME `app/build/outputs/apk/debug/` path
+      # (distribution is a flag, not a flavor — #467), so each build is verified
+      # immediately after it runs, before the next one overwrites it.
       - name: Build (Google distribution)
         run: ./gradlew :app:assembleDebug -Pgoogle
+      - name: "Google APK really contains Firebase (issue #548)"
+        # The inverse of the purity gate, and not decoration: it is the live
+        # positive control. The FOSS check below can only be trusted if these
+        # patterns still match real Firebase code, and this proves they do on
+        # every run — so the gate cannot rot into one that matches nothing and
+        # passes everything (#579).
+        run: bash scripts/check-apk-distribution.sh --apk app/build/outputs/apk/debug/app-debug.apk --expect google
       - name: Build (FOSS distribution, Firebase-free)
         # Bare build (no `-Pgoogle`) is the FOSS distribution: it skips the
         # Firebase Gradle plugins and proves it assembles without
         # google-services. See #467.
         run: ./gradlew :app:assembleDebug
+      - name: "FOSS APK contains no Google/Firebase code (issue #548)"
+        # Reads the artifact, not the build config: whatever flips the gate — a
+        # stray -P flag, a gradle.properties line, an ambient
+        # ORG_GRADLE_PROJECT_google — lands in the DEX and is caught here.
+        run: bash scripts/check-apk-distribution.sh --apk app/build/outputs/apk/debug/app-debug.apk --expect foss
       - name: Unit tests
         # Distribution is a build flag (#467): `:app` unit tests run once bare
         # (FOSS) and once with `-Pgoogle` (Firebase). `testDebugUnitTest`
