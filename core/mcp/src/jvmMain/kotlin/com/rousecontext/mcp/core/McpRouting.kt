@@ -190,6 +190,16 @@ class McpRoutes(
     private val sessions = mutableMapOf<String, SessionEntry>()
     private val sessionsMutex = Mutex()
 
+    /**
+     * Builds the [HttpTransport] for a new session. Production always uses a
+     * plain [HttpTransport]; `core:mcp` tests substitute one that records its
+     * `close()` so the session close paths ([shutdown], [sweepExpiredSessions],
+     * [evictOldestIfNeeded]) are observable at all — nothing else in the module
+     * can see a transport, because [sessions] and [SessionEntry] are private.
+     * Must be set before the first session is created. See issue #571.
+     */
+    internal var transportFactory: () -> HttpTransport = { HttpTransport() }
+
     // Resolve the public hostname from the request's Host header, falling back
     // to the configured hostname. This allows a single MCP session to serve
     // multiple integration hostnames correctly.
@@ -757,7 +767,7 @@ class McpRoutes(
         clientLabel: String
     ): SessionEntry {
         val (newServer, newTransport) =
-            createIntegrationServer(provider, serverName, serverVersion)
+            createIntegrationServer(provider, serverName, serverVersion, transportFactory)
         val entry = SessionEntry(
             server = newServer,
             transport = newTransport,
@@ -1117,7 +1127,8 @@ private suspend fun respondToDeviceCodePoll(
 private suspend fun createIntegrationServer(
     provider: McpServerProvider,
     serverName: String,
-    serverVersion: String
+    serverVersion: String,
+    transportFactory: () -> HttpTransport
 ): Pair<Server, HttpTransport> {
     val server = Server(
         Implementation(name = serverName, version = serverVersion),
@@ -1133,7 +1144,7 @@ private suspend fun createIntegrationServer(
     )
     provider.register(server)
 
-    val transport = HttpTransport()
+    val transport = transportFactory()
     server.createSession(transport)
 
     return Pair(server, transport)

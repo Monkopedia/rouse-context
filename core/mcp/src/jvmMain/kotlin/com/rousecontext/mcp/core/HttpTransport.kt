@@ -16,8 +16,12 @@ import kotlinx.coroutines.withTimeout
  *
  * This transport is long-lived per integration, persisting across HTTP requests.
  * The SDK Server is connected once and processes all subsequent requests.
+ *
+ * Open so `core:mcp` tests can substitute a subclass through
+ * [McpRoutes.transportFactory] and observe the session close paths — see
+ * issue #571.
  */
-internal class HttpTransport : Transport {
+internal open class HttpTransport : Transport {
 
     private var messageHandler: (suspend (JSONRPCMessage) -> Unit)? = null
     private var closeHandler: (() -> Unit)? = null

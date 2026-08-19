@@ -29,7 +29,11 @@ class McpShutdownTest {
         override val id = "health"
         override val displayName = "Health Connect"
 
+        /** Every SDK [Server] built for a session, in creation order. */
+        val servers = mutableListOf<Server>()
+
         override fun register(server: Server) {
+            servers += server
             server.addTool(
                 name = "echo",
                 description = "Echoes input",
@@ -49,6 +53,17 @@ class McpShutdownTest {
                     ?.jsonPrimitive?.content ?: "empty"
                 CallToolResult(content = listOf(TextContent(msg)))
             }
+        }
+    }
+
+    /** An [HttpTransport] that counts the `close()` calls it receives. */
+    private class RecordingTransport : HttpTransport() {
+        var closeCount = 0
+            private set
+
+        override suspend fun close() {
+            closeCount++
+            super.close()
         }
     }
 
@@ -132,17 +147,82 @@ class McpShutdownTest {
         assertEquals(sessionId, afterResp.headers["Mcp-Session-Id"])
     }
 
+    /**
+     * Asserts that [McpRoutes.shutdown] closes the transport of every live
+     * session, exactly once each, and that closing it tears the session down
+     * in the SDK.
+     *
+     * Two separate claims, because they can fail independently:
+     * - `closeCount` is the seam assertion — rouse-context's own behaviour,
+     *   that `shutdown` reaches each session's transport. It needs
+     *   [McpRoutes.transportFactory]; [SessionEntry] and the session map are
+     *   private, so nothing else in the module can see a transport at all.
+     * - `server.sessions` is the effect of the close. `HttpTransport.close()`
+     *   forwards to the close handler that `Server.createSession` installs via
+     *   the SDK's `Protocol.connect`, which unregisters the session. Nothing
+     *   in *this repo* registers a close handler, so this asserts SDK-side
+     *   teardown, not a rouse-context close semantic. See issue #571.
+     */
     @Test
-    fun `shutdown closes transports`() = withSession { _, _, routes ->
-        // After shutdown, the sessions map is cleared and transports are closed.
-        // We verify indirectly: creating a new session after shutdown should work
-        // (proving the route infrastructure isn't broken, just sessions cleared).
+    fun `shutdown closes transports`() = testApplication {
+        val registry = InMemoryProviderRegistry()
+        val provider = EchoProvider()
+        registry.register("health", provider)
+        registry.setEnabled("health", true)
+        val tokenStore = InMemoryTokenStore()
+        val token = tokenStore.createTokenPair("health", "client-A").accessToken
+
+        var capturedRoutes: McpRoutes? = null
+        application {
+            capturedRoutes = configureMcpRouting(
+                registry = registry,
+                tokenStore = tokenStore,
+                deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
+                hostname = "test.rousecontext.com",
+                integration = "health"
+            )
+        }
+
+        // Ktor's testApplication starts lazily, so `capturedRoutes` is null
+        // until the first request. Force startup with a request that creates
+        // no session, leaving a window to install the transport factory.
+        client.get("/nonexistent")
+        val routes = capturedRoutes!!
+        val transports = mutableListOf<RecordingTransport>()
+        routes.transportFactory = { RecordingTransport().also(transports::add) }
+
+        repeat(2) { i ->
+            val initResp = client.post("/mcp") {
+                header("Authorization", "Bearer $token")
+                contentType(ContentType.Application.Json)
+                setBody(mcpJsonRpc("initialize", initializeParams, id = i + 1))
+            }
+            assertEquals(HttpStatusCode.OK, initResp.status)
+        }
+        assertEquals("Each initialize creates a session", 2, transports.size)
+        assertEquals(
+            "Live sessions must not be closed",
+            listOf(0, 0),
+            transports.map { it.closeCount }
+        )
+        assertEquals(
+            "Live sessions must be registered with their SDK server",
+            listOf(1, 1),
+            provider.servers.map { it.sessions.size }
+        )
+
         routes.shutdown()
 
-        // A fresh initialize should succeed (new session)
-        val tokenStore = InMemoryTokenStore()
-        // Use the existing test setup -- the application already has routes configured
-        // Just re-initialize with a fresh POST
+        assertEquals(
+            "shutdown() must close each session's transport exactly once",
+            listOf(1, 1),
+            transports.map { it.closeCount }
+        )
+        assertEquals(
+            "Closing the transport must unregister the session from its SDK server",
+            listOf(0, 0),
+            provider.servers.map { it.sessions.size }
+        )
     }
 
     @Test
