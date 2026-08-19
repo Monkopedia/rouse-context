@@ -4,6 +4,7 @@ import kotlin.time.Duration
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
@@ -64,6 +65,15 @@ import kotlinx.coroutines.launch
  * runs first wins. `limitedParallelism(1)` caps parallelism, not concurrency —
  * the moment `handleFrame` suspends (e.g. on a full stream buffer) the next
  * frame starts and the two interleave.
+ *
+ * The consumer runs on [Dispatchers.Default], not on whatever backs [scope]
+ * (issue #569). Since it is now the *only* thing demultiplexing frames,
+ * inheriting the app's `Dispatchers.Main` scope would put the entire tunnel
+ * behind the main thread: a slow recomposition would stall frame handling, and
+ * a long enough stall would overflow the queue below and report it as a stalled
+ * stream reader — naming the wrong subsystem. Ordering is unaffected, because
+ * it comes from there being one consumer rather than from the dispatcher being
+ * single-threaded.
  *
  * The cost of one consumer is that it is a single point of failure (issue
  * #568): with a coroutine per frame a throw cost one frame, but the lone
@@ -170,7 +180,11 @@ class TunnelClientImpl(
             // stream forwarder and the ACTIVE-count collector are already
             // subscribed, and no OPEN can be handled before the tunnel has
             // reached CONNECTED.
-            inboundJob = scope.launch { consumeInboundFrames(inbound, demux) }
+            // Dispatchers.Default rather than the injected scope's dispatcher:
+            // the app injects a Dispatchers.Main scope, which would put every
+            // inbound frame in the app behind whatever else occupies the main
+            // thread. See the class kdoc.
+            inboundJob = scope.launch(Dispatchers.Default) { consumeInboundFrames(inbound, demux) }
 
             // Start periodic keepalive so a silent half-open socket is detected
             // even when no FCM wake is pending. See issue #179.
