@@ -6,10 +6,10 @@ import kotlinx.serialization.json.buildJsonObject
 
 class BoolParam(name: String, description: String) : ParamDef<Boolean>(name, description) {
 
-    fun optional(): BoolParam = apply { required = false }
+    fun optional(): BoolParam = apply { isRequired = false }
 
     fun default(value: Boolean): BoolParam = apply {
-        required = false
+        isRequired = false
         defaultValue = value
     }
 
@@ -22,7 +22,7 @@ class BoolParam(name: String, description: String) : ParamDef<Boolean>(name, des
     @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<Boolean> {
         val raw = rawValue(args, name) ?: run {
-            if (required) return ParamExtract.Error("Missing required parameter '$name'")
+            if (isRequired) return ParamExtract.Error("Missing required parameter '$name'")
             return ParamExtract.Value(defaultValue)
         }
         if (raw !is JsonPrimitive) {

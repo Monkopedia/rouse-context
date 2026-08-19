@@ -14,10 +14,10 @@ class MapParam(name: String, description: String) :
         description
     ) {
 
-    fun optional(): MapParam = apply { required = false }
+    fun optional(): MapParam = apply { isRequired = false }
 
     fun default(value: Map<String, String>): MapParam = apply {
-        required = false
+        isRequired = false
         defaultValue = value
     }
 
@@ -33,7 +33,7 @@ class MapParam(name: String, description: String) :
     @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<Map<String, String>> {
         val raw = rawValue(args, name) ?: run {
-            if (required) return ParamExtract.Error("Missing required parameter '$name'")
+            if (isRequired) return ParamExtract.Error("Missing required parameter '$name'")
             return ParamExtract.Value(defaultValue)
         }
         if (raw !is JsonObject) {

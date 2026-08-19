@@ -12,10 +12,10 @@ class EnumParam<T : Enum<T>>(name: String, description: String, private val kCla
     private val values: Array<T> = kClass.java.enumConstants
         ?: error("EnumParam requires an enum class, got ${kClass.qualifiedName}")
 
-    fun optional(): EnumParam<T> = apply { required = false }
+    fun optional(): EnumParam<T> = apply { isRequired = false }
 
     fun default(value: T): EnumParam<T> = apply {
-        required = false
+        isRequired = false
         defaultValue = value
     }
 
@@ -29,7 +29,7 @@ class EnumParam<T : Enum<T>>(name: String, description: String, private val kCla
     @Suppress("ReturnCount")
     override fun extract(args: JsonObject?): ParamExtract<T> {
         val raw = rawValue(args, name) ?: run {
-            if (required) return ParamExtract.Error("Missing required parameter '$name'")
+            if (isRequired) return ParamExtract.Error("Missing required parameter '$name'")
             return ParamExtract.Value(defaultValue)
         }
         if (raw !is JsonPrimitive || !raw.isString) {

@@ -78,14 +78,13 @@ internal class GetUsageSummaryTool(private val context: Context) : McpTool() {
     override val name = "get_usage_summary"
     override val description = "Screen time totals and top apps for a period."
 
-    val period by stringParam("period", UsageMcpProvider.PERIOD_DESCRIPTION)
+    val period by stringParam("period", UsageMcpProvider.PERIOD_DESCRIPTION).required()
     val limit by intParam("limit", "Max apps (default 10)").optional()
 
     override suspend fun execute(): ToolResult {
-        val periodStr = period!!
         val lim = limit ?: UsageMcpProvider.DEFAULT_LIMIT
-        val range = parsePeriod(periodStr)
-            ?: return invalidPeriodError(periodStr)
+        val range = parsePeriod(period)
+            ?: return invalidPeriodError(period)
 
         val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
         val stats = usageStatsManager.queryUsageStats(
@@ -106,7 +105,7 @@ internal class GetUsageSummaryTool(private val context: Context) : McpTool() {
         return ToolResult.Success(
             UsageJson.encodeToString(
                 UsageSummary(
-                    period = periodStr,
+                    period = period,
                     totalMinutes = totalMs / UsageMcpProvider.MS_PER_MIN,
                     apps = apps
                 )
@@ -119,14 +118,12 @@ internal class GetAppUsageTool(private val context: Context) : McpTool() {
     override val name = "get_app_usage"
     override val description = "Per-day usage for one app."
 
-    val packageName by stringParam("package_name", "")
-    val period by stringParam("period", UsageMcpProvider.PERIOD_DESCRIPTION)
+    val packageName by stringParam("package_name", "").required()
+    val period by stringParam("period", UsageMcpProvider.PERIOD_DESCRIPTION).required()
 
     override suspend fun execute(): ToolResult {
-        val pkg = packageName!!
-        val periodStr = period!!
-        val range = parsePeriod(periodStr)
-            ?: return invalidPeriodError(periodStr)
+        val range = parsePeriod(period)
+            ?: return invalidPeriodError(period)
 
         val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
         val stats = usageStatsManager.queryUsageStats(
@@ -135,17 +132,17 @@ internal class GetAppUsageTool(private val context: Context) : McpTool() {
             range.second
         )
 
-        val appStats = stats.filter { it.packageName == pkg }
-        val appName = resolveAppName(context, pkg)
-        val totalMs = mergeByPackage(appStats)[pkg] ?: 0L
+        val appStats = stats.filter { it.packageName == packageName }
+        val appName = resolveAppName(context, packageName)
+        val totalMs = mergeByPackage(appStats)[packageName] ?: 0L
         val daily = dailyBreakdown(appStats)
 
         return ToolResult.Success(
             UsageJson.encodeToString(
                 AppUsage(
-                    `package` = pkg,
+                    `package` = packageName,
                     name = appName,
-                    period = periodStr,
+                    period = period,
                     totalMinutes = totalMs / UsageMcpProvider.MS_PER_MIN,
                     daily = daily
                 )
@@ -159,7 +156,9 @@ internal class GetUsageEventsTool(private val context: Context) : McpTool() {
     override val description = "Raw app foreground/background events over a range."
 
     val since by stringParam("since", "Range start - " + UsageMcpProvider.PERIOD_DESCRIPTION)
+        .required()
     val until by stringParam("until", "Range end - " + UsageMcpProvider.PERIOD_DESCRIPTION)
+        .required()
     val packageFilter by stringParam("package", "").optional()
     val includeSystem by boolParam(
         "include_system",
@@ -168,12 +167,10 @@ internal class GetUsageEventsTool(private val context: Context) : McpTool() {
     val limit by intParam("limit", "Default 50").optional()
 
     override suspend fun execute(): ToolResult {
-        val sinceStr = since!!
-        val untilStr = until!!
-        val sinceRange = parsePeriod(sinceStr)
-            ?: return usageError("Invalid since period: $sinceStr")
-        val untilRange = parsePeriod(untilStr)
-            ?: return usageError("Invalid until period: $untilStr")
+        val sinceRange = parsePeriod(since)
+            ?: return usageError("Invalid since period: $since")
+        val untilRange = parsePeriod(until)
+            ?: return usageError("Invalid until period: $until")
 
         val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
         val events = usageStatsManager.queryEvents(sinceRange.first, untilRange.second)
@@ -193,19 +190,17 @@ internal class CompareUsageTool(private val context: Context) : McpTool() {
     override val name = "compare_usage"
     override val description = "Compare screen time between two periods; biggest deltas first."
 
-    val period1 by stringParam("period1", UsageMcpProvider.PERIOD_DESCRIPTION)
-    val period2 by stringParam("period2", UsageMcpProvider.PERIOD_DESCRIPTION)
+    val period1 by stringParam("period1", UsageMcpProvider.PERIOD_DESCRIPTION).required()
+    val period2 by stringParam("period2", UsageMcpProvider.PERIOD_DESCRIPTION).required()
     val limit by intParam("limit", "Max apps (default 10)").optional()
 
     override suspend fun execute(): ToolResult {
-        val p1Str = period1!!
-        val p2Str = period2!!
         val lim = limit ?: UsageMcpProvider.DEFAULT_LIMIT
 
-        val r1 = parsePeriod(p1Str)
-            ?: return invalidPeriodError(p1Str, "period1")
-        val r2 = parsePeriod(p2Str)
-            ?: return invalidPeriodError(p2Str, "period2")
+        val r1 = parsePeriod(period1)
+            ?: return invalidPeriodError(period1, "period1")
+        val r2 = parsePeriod(period2)
+            ?: return invalidPeriodError(period2, "period2")
 
         val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
         val stats1 = usageStatsManager.queryUsageStats(
@@ -219,7 +214,7 @@ internal class CompareUsageTool(private val context: Context) : McpTool() {
             r2.second
         )
 
-        return buildComparisonResult(context, p1Str, p2Str, stats1, stats2, lim)
+        return buildComparisonResult(context, period1, period2, stats1, stats2, lim)
     }
 }
 

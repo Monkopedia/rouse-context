@@ -133,13 +133,12 @@ internal class LaunchAppTool(
     override val name = "launch_app"
     override val description = "Launch an installed app by package name."
 
-    val packageName by stringParam("package_name", "Reverse-DNS, e.g. com.example.app")
+    val packageName by stringParam("package_name", "Reverse-DNS, e.g. com.example.app").required()
     val extras by mapParam("extras", "").optional()
 
     override suspend fun execute(): ToolResult {
-        val pkg = packageName!!
-        val intent = context.packageManager.getLaunchIntentForPackage(pkg)
-            ?: return outreachError("App not found: $pkg")
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            ?: return outreachError("App not found: $packageName")
 
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         extras?.forEach { (k, v) -> intent.putExtra(k, v) }
@@ -151,8 +150,8 @@ internal class LaunchAppTool(
             canLaunchDirectly = canLaunchDirectly,
             launchNotifier = launchNotifier,
             intent = intent,
-            description = "launch $pkg",
-            fallback = { launchNotifier?.postLaunchApp(intent, pkg, clientName) }
+            description = "launch $packageName",
+            fallback = { launchNotifier?.postLaunchApp(intent, packageName, clientName) }
         )
     }
 }
@@ -165,11 +164,10 @@ internal class OpenLinkTool(
     override val name = "open_link"
     override val description = "Open an http/https URL in the default app."
 
-    val url by stringParam("url", "")
+    val url by stringParam("url", "").required()
 
     override suspend fun execute(): ToolResult {
-        val u = url!!
-        val uri = Uri.parse(u)
+        val uri = Uri.parse(url)
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
             return outreachError("Only http and https URLs are allowed, got: $scheme")
@@ -183,8 +181,8 @@ internal class OpenLinkTool(
             canLaunchDirectly = canLaunchDirectly,
             launchNotifier = launchNotifier,
             intent = intent,
-            description = "open $u",
-            fallback = { launchNotifier?.postOpenLink(intent, u, clientName) }
+            description = "open $url",
+            fallback = { launchNotifier?.postOpenLink(intent, url, clientName) }
         )
     }
 }
@@ -193,7 +191,7 @@ internal class CopyToClipboardTool(private val context: Context) : McpTool() {
     override val name = "copy_to_clipboard"
     override val description = "Copy text to the clipboard."
 
-    val text by stringParam("text", "")
+    val text by stringParam("text", "").required()
     val label by stringParam("label", "").optional()
 
     override suspend fun execute(): ToolResult {
@@ -213,8 +211,8 @@ internal class SendNotificationTool(
     override val name = "send_notification"
     override val description = "Post a notification."
 
-    val title by stringParam("title", "")
-    val message by stringParam("message", "")
+    val title by stringParam("title", "").required()
+    val message by stringParam("message", "").required()
     val priority by stringParam("priority", "")
         .optional().choices("low", "default", "high")
     val channelId by stringParam("channel_id", "From create_notification_channel").optional()
@@ -237,8 +235,8 @@ internal class SendNotificationTool(
         val notificationId = idCounter.getAndIncrement()
         val builder = NotificationCompat.Builder(context, resolved)
             .setSmallIcon(com.rousecontext.api.R.drawable.ic_stat_rouse)
-            .setContentTitle(title!!)
-            .setContentText(message!!)
+            .setContentTitle(title)
+            .setContentText(message)
             .setAutoCancel(true)
             .setPriority(parsePriority(priority))
         addNotificationActions(context, builder, actions, notificationId)
@@ -270,8 +268,8 @@ internal class CreateNotificationChannelTool(private val context: Context) : Mcp
     override val name = "create_notification_channel"
     override val description = "Create a notification channel."
 
-    val id by stringParam("id", "")
-    val channelName by stringParam("name", "User-visible name")
+    val id by stringParam("id", "").required()
+    val channelName by stringParam("name", "User-visible name").required()
     val channelDescription by stringParam("description", "").optional()
     val importance by stringParam("importance", "")
         .default("default").choices("min", "low", "default", "high")
@@ -286,11 +284,10 @@ internal class CreateNotificationChannelTool(private val context: Context) : Mcp
                     "Notifications will still work with default settings."
             )
         }
-        val rawId = id!!
-        val channelId = if (rawId.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX)) {
-            rawId
+        val channelId = if (id.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX)) {
+            id
         } else {
-            "${OutreachMcpProvider.AI_CHANNEL_PREFIX}$rawId"
+            "${OutreachMcpProvider.AI_CHANNEL_PREFIX}$id"
         }
         val level = parseImportance(importance)
         val wantsSound = soundEnabled
@@ -336,7 +333,7 @@ internal class DeleteNotificationChannelTool(private val context: Context) : Mcp
     override val name = "delete_notification_channel"
     override val description = "Delete an AI-created notification channel."
 
-    val id by stringParam("id", "")
+    val id by stringParam("id", "").required()
 
     override suspend fun execute(): ToolResult {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -344,11 +341,10 @@ internal class DeleteNotificationChannelTool(private val context: Context) : Mcp
                 "Channel deletion not supported on this Android version (API < 26)"
             )
         }
-        val rawId = id!!
-        val channelId = if (rawId.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX)) {
-            rawId
+        val channelId = if (id.startsWith(OutreachMcpProvider.AI_CHANNEL_PREFIX)) {
+            id
         } else {
-            "${OutreachMcpProvider.AI_CHANNEL_PREFIX}$rawId"
+            "${OutreachMcpProvider.AI_CHANNEL_PREFIX}$id"
         }
         val nm = context.getSystemService(NotificationManager::class.java)
         val existing = nm.getNotificationChannel(channelId)
@@ -377,7 +373,7 @@ internal class SetDndStateTool(private val context: Context) : McpTool() {
     override val name = "set_dnd_state"
     override val description = "Set Do Not Disturb state."
 
-    val enabled by boolParam("enabled", "")
+    val enabled by boolParam("enabled", "").required()
     val mode by stringParam("mode", "")
         .optional().choices("total_silence", "priority_only", "alarms_only")
 
@@ -390,7 +386,7 @@ internal class SetDndStateTool(private val context: Context) : McpTool() {
         val previousEnabled =
             previousFilter != NotificationManager.INTERRUPTION_FILTER_ALL
         val previousMode = filterToMode(previousFilter)
-        val newFilter = if (enabled != true) {
+        val newFilter = if (!enabled) {
             NotificationManager.INTERRUPTION_FILTER_ALL
         } else {
             modeToFilter(mode)

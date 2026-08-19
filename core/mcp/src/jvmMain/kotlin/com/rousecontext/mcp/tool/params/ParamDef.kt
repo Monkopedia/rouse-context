@@ -13,8 +13,8 @@ import kotlinx.serialization.json.JsonObject
  * extracted value transparently during [com.rousecontext.mcp.tool.McpTool.execute].
  */
 abstract class ParamDef<T>(val name: String, val description: String) {
-    /** Whether a missing value should produce an error. Flipped by [optional]. */
-    var required: Boolean = true
+    /** Whether a missing value should produce an error. Cleared by `optional()`/`default()`. */
+    var isRequired: Boolean = true
         protected set
 
     /** Default value when optional and missing. Null means "no default". */
@@ -30,6 +30,12 @@ abstract class ParamDef<T>(val name: String, val description: String) {
      */
     abstract fun extract(args: JsonObject?): ParamExtract<T>
 }
+
+/**
+ * A [ParamDef] whose property delegate reads back non-null. Produced by
+ * `McpTool.required()`, which is also the only thing that can construct one.
+ */
+class RequiredParam<T> internal constructor(val param: ParamDef<T>)
 
 sealed class ParamExtract<out T> {
     data class Value<T>(val value: T?) : ParamExtract<T>()
