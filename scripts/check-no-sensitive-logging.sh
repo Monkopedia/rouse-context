@@ -14,6 +14,7 @@
 #   Log.<level>(... "$fcmToken"         -- FCM push token
 #   Log.<level>(... "$firebaseToken"    -- Firebase ID token
 #   Log.<level>(... "$verifier"         -- PKCE verifier
+#   Log.<level>(... "$pkceVerifier"     -- ditto, spelled out
 #   Log.<level>(... "$accessToken"      -- OAuth access token
 #   Log.<level>(... "$refreshToken"     -- OAuth refresh token
 #   Log.<level>(... "$clientSecret"     -- OAuth client secret

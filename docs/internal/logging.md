@@ -98,10 +98,38 @@ Before committing a new `Log.*`, `tracing::*!`, `println!`, or similar:
 ## Regression protection
 
 `scripts/check-no-sensitive-logging.sh`, run by `.github/workflows/ci.yml` on
-every PR, greps production Kotlin sources for known-bad patterns:
+every PR, greps production Kotlin sources (`--include='*.kt'`) for known-bad
+patterns. The script is the source of truth; this is its `PATTERN` verbatim, so
+that a drift between the two is visible rather than inferred:
 
-- `Log.*(\$token|\$bearer|\$fcmToken|\$firebaseToken|\$verifier|\$accessToken|\$refreshToken)`
-- `Log.*(args: \$|secret[^s]|private[_ ]?key)`
+```
+Log\.[dievw].*\$(token|bearer|fcmToken|firebaseToken|verifier|accessToken|refreshToken|clientSecret|privateKey|pkceVerifier)\b|Log\.[dievw].*args:[[:space:]]*\$
+```
+
+In words, a line trips the gate when it contains `Log.` plus an Android level
+letter (`d` `i` `e` `v` `w` -- so `Log.wtf` too) followed by either:
+
+- a Kotlin string-template interpolation of one of these exact variable names:
+  `$token`, `$bearer`, `$fcmToken`, `$firebaseToken`, `$verifier`,
+  `$accessToken`, `$refreshToken`, `$clientSecret`, `$privateKey`,
+  `$pkceVerifier`; or
+- the literal `args:` followed by `$`.
+
+That is the whole list. Nothing else is matched, and in particular the gate
+does **not** catch:
+
+- **Any name outside the alternation.** The match is on the interpolated
+  *variable name*, not on the value's sensitivity, so `$secretValue`,
+  `$private_key`, `$apiKey`, `$sessionToken` and `$integrationSecret` all pass
+  the gate despite being things this doc says never to log. The trailing `\b`
+  also means `$tokenEntity` passes -- deliberate, since `TokenEntity.label` is
+  safe to log.
+- **Anything that is not `Log.<level>`.** `println`, `System.out`, Timber, and
+  the relay's Rust `tracing::*!` are not scanned.
+- **Multi-line log calls.** The grep is line-level; a call split across lines
+  slips through. Output lines that look like block-comment continuations
+  (`* ...`) are filtered out, so the pattern list in a comment does not fail the
+  build.
 
 Run it locally the same way CI does: `bash scripts/check-no-sensitive-logging.sh`.
 
