@@ -199,7 +199,7 @@ for i in "${!PATTERNS[@]}"; do
   n=$(count_occurrences "$pattern" "$EXTRACT")
   printf '  %-34s %s occurrence(s)\n' "$pattern" "$n"
   total=$((total + n))
-  [ "$n" -gt 0 ] && hits+=("$pattern")
+  if [ "$n" -gt 0 ]; then hits+=("$pattern"); fi
 done
 echo
 
