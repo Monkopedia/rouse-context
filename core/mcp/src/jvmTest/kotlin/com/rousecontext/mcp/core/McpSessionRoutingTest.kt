@@ -12,6 +12,7 @@ import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -60,6 +61,28 @@ class McpSessionRoutingTest {
         }
     }
 
+    /**
+     * Echo provider that counts how many SDK [Server] instances were built for
+     * it. `createIntegrationServer` calls [register] exactly once per session
+     * server, so the count is a direct read of "how many times was this session
+     * constructed" — the only observable difference between a session that
+     * survived a sweep and one that was evicted and transparently recreated.
+     */
+    private class CountingEchoProvider : McpServerProvider {
+        private val delegate = EchoProvider()
+        private val registrations = AtomicInteger(0)
+
+        val registerCount: Int get() = registrations.get()
+
+        override val id = delegate.id
+        override val displayName = delegate.displayName
+
+        override fun register(server: Server) {
+            registrations.incrementAndGet()
+            delegate.register(server)
+        }
+    }
+
     private fun mcpJsonRpc(method: String, params: String? = null, id: Int = 1): String {
         val paramsStr = if (params != null) ""","params":$params""" else ""
         return """{"jsonrpc":"2.0","method":"$method"$paramsStr,"id":$id}"""
@@ -75,10 +98,11 @@ class McpSessionRoutingTest {
      */
     private fun testApp(
         clock: Clock = SystemClock,
+        provider: McpServerProvider = EchoProvider(),
         block: suspend io.ktor.server.testing.ApplicationTestBuilder.(token: String) -> Unit
     ) = testApplication {
         val registry = InMemoryProviderRegistry()
-        registry.register("health", EchoProvider())
+        registry.register("health", provider)
         registry.setEnabled("health", true)
         val tokenStore = InMemoryTokenStore()
         val token = tokenStore.createTokenPair("health", "test-client").accessToken
@@ -212,6 +236,64 @@ class McpSessionRoutingTest {
             }
             assertEquals(HttpStatusCode.OK, resp2.status)
             assertEquals(sessionId, resp2.headers["Mcp-Session-Id"])
+        }
+    }
+
+    // -- Test 4b: An actively used session is NOT evicted (issue #555) --
+    //
+    // The converse of test 4. Every request on an existing session touches
+    // `lastAccessedAt`, so a client that keeps talking never crosses the idle
+    // timeout. Eviction is transparent — an evicted session is recreated under
+    // the same id and answers 200 — so the status and the echoed session id
+    // are identical either way. The only observable difference is how many
+    // times the SDK Server was built, which is what the counting provider
+    // reads. Without the keep-alive touch, `lastAccessedAt` stays frozen at
+    // creation time and this session is rebuilt mid-conversation, silently
+    // losing its MCP state.
+
+    @Test
+    fun `active session survives past the idle timeout without being rebuilt`() {
+        val clock = FakeClock()
+        val provider = CountingEchoProvider()
+        testApp(clock = clock, provider = provider) { token ->
+            val initResp = client.post("/mcp") {
+                header("Authorization", "Bearer $token")
+                contentType(ContentType.Application.Json)
+                setBody(mcpJsonRpc("initialize", initializeParams))
+            }
+            assertEquals(HttpStatusCode.OK, initResp.status)
+            val sessionId = initResp.headers["Mcp-Session-Id"]!!
+            assertEquals("initialize should build exactly one server", 1, provider.registerCount)
+
+            // Well inside the timeout: the session is still live, and serving
+            // this request must refresh its keep-alive stamp.
+            clock.advanceMinutes(20)
+            val keepAlive = client.post("/mcp") {
+                header("Authorization", "Bearer $token")
+                header("Mcp-Session-Id", sessionId)
+                contentType(ContentType.Application.Json)
+                setBody(mcpJsonRpc("tools/list", id = 2))
+            }
+            assertEquals(HttpStatusCode.OK, keepAlive.status)
+
+            // 40 minutes since creation — past SESSION_IDLE_TIMEOUT_MS — but
+            // only 20 minutes since the last request, so the sweep must leave
+            // this session alone.
+            clock.advanceMinutes(20)
+            val afterTimeout = client.post("/mcp") {
+                header("Authorization", "Bearer $token")
+                header("Mcp-Session-Id", sessionId)
+                contentType(ContentType.Application.Json)
+                setBody(mcpJsonRpc("tools/list", id = 3))
+            }
+            assertEquals(HttpStatusCode.OK, afterTimeout.status)
+
+            assertEquals(
+                "Active session must not be evicted and rebuilt: " +
+                    "the SDK Server was constructed more than once",
+                1,
+                provider.registerCount
+            )
         }
     }
 
