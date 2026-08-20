@@ -40,7 +40,12 @@ if [ "$status" -gt 1 ]; then
   exit 1
 fi
 
-matches=$(printf '%s\n' "$raw" | grep -v ':[[:space:]]*\*' || true)
+# Drop block-comment continuation lines (` * ...`) so prose about runBlocking does
+# not fail the build. Anchored to the start of grep's `file:line:content` output
+# and applied only to the content field: an unanchored `grep -v ':[[:space:]]*\*'`
+# also swallowed real violations whose content happened to contain `: *` anywhere
+# (#590, the same defect as #577 in the sibling sensitive-logging gate).
+matches=$(printf '%s\n' "$raw" | grep -vE '^[^:]*:[0-9]+:[[:space:]]*\*' || true)
 
 if [ -n "$matches" ]; then
   echo "Found production runBlocking (issue #136 regression):"
