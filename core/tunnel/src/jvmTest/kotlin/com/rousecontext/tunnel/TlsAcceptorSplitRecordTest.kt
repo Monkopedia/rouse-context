@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
@@ -9,6 +10,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.jupiter.api.Timeout
 
 /**
  * Regression tests for the inverse of [TlsAcceptorTest]'s multi-record case.
@@ -26,7 +28,35 @@ import kotlinx.coroutines.withTimeout
  * The relay splices client bytes with a 16 KiB read buffer
  * (`relay/src/passthrough.rs`) while a TLS record can be ~16.4 KiB on the wire,
  * so any client burst over 16 KiB splits a record deterministically. See #558.
+ *
+ * ## Why the class carries a `SEPARATE_THREAD` timeout (#566)
+ *
+ * The defect these tests guard is an UNCANCELLABLE spin, so a regression does
+ * not report red -- it hangs. The `withTimeout` bounds below cannot prevent
+ * that: they bound the `await`, but the spinning `accept` coroutine is a child
+ * of this `runBlocking`, and a child that never reaches a suspension point
+ * ignores the cancellation `runBlocking` sends it. `runBlocking` then parks
+ * forever waiting for it, so a regression burns the whole job budget and writes
+ * no JUnit XML at all (measured on #563: killed at 300 s, 0 tests executed) --
+ * which the executed-count check reads as "the build never ran".
+ *
+ * Only a thread-level ceiling can turn that into a reported failure, and
+ * `SEPARATE_THREAD` is the one that does not depend on the wedged thread
+ * cooperating: it abandons the run and fails the test. (This is the same
+ * reasoning, and the same mechanism, as `MultiClientConcurrencyTest`'s
+ * method-level ceiling -- see #504.) The Gradle output-store hazard that
+ * `IntegrationHttpSupport` warns about for `SEPARATE_THREAD` does not apply
+ * here: `TlsAcceptor` logs nothing, so an abandoned coroutine emits no output
+ * to race the per-test store.
+ *
+ * 60 s is a ceiling, not a deadline. The class runs in ~0.7 s inside the warm
+ * suite and ~1.5 s cold, and the longest path that is merely SLOW rather than
+ * wedged is bounded by the in-test `withTimeout`s (45 s worst case in the
+ * second test), which fail with a more specific message and are still
+ * cancellable. 60 s sits above that and ~40x above the slowest observed
+ * runtime, so a loaded machine reports red for the right reason or not at all.
  */
+@Timeout(value = 60, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class TlsAcceptorSplitRecordTest {
 
     @Test

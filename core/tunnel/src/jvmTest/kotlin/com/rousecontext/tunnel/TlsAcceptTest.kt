@@ -2,6 +2,7 @@ package com.rousecontext.tunnel
 
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -14,10 +15,22 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.junit.jupiter.api.Timeout
 
 /**
  * Tests that verify TLS server-side accept over a MuxStream.
+ *
+ * Bounded for the same reason as [TlsAcceptorSplitRecordTest] -- see its KDoc
+ * for the full rationale (#566). In short: these tests drive `accept` in a
+ * `launch(Dispatchers.IO)` child of `runBlocking`, and the handshake pump has
+ * a demonstrated uncancellable-spin failure mode (#563, and #565 for the states
+ * still unhandled). A spin there makes `runBlocking` park forever, so the test
+ * HANGS instead of failing and no JUnit XML is written at all. Only a
+ * `SEPARATE_THREAD` ceiling turns that into a reported failure. 60 s is far
+ * above both the sub-second real runtime and the in-test `withTimeout` bounds,
+ * so it fires only on a genuine wedge.
  */
+@Timeout(value = 60, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class TlsAcceptTest {
     @Test
     fun `TLS handshake completes and plaintext flows through`() = runBlocking {
