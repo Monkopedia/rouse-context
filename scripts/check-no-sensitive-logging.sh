@@ -52,7 +52,12 @@ if [ "$status" -gt 1 ]; then
   exit 1
 fi
 
-matches=$(printf '%s\n' "$raw" | grep -v ':[[:space:]]*\*' || true)
+# Drop block-comment continuation lines (` * ...`) so a pattern list written in a
+# Kotlin comment does not fail the build. Anchored to the start of grep's
+# `file:line:content` output and applied only to the content field: an unanchored
+# `grep -v ':[[:space:]]*\*'` also swallowed real violations whose log string
+# happened to contain `: *` anywhere (#577).
+matches=$(printf '%s\n' "$raw" | grep -vE '^[^:]*:[0-9]+:[[:space:]]*\*' || true)
 
 if [ -n "$matches" ]; then
   echo "Found sensitive production log sites (issue #379 regression):"
