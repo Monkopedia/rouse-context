@@ -32,11 +32,14 @@ jobs:
         run: bash scripts/check-no-production-runblocking.sh
       - name: "Block sensitive production log sites (issue #379)"
         run: bash scripts/check-no-sensitive-logging.sh
-      # A green gate is not evidence the gate works: #577 was a post-filter that
-      # silently swallowed real violations while reporting clean. These tests run
-      # it against a throwaway repo and assert the red cases actually go red.
+      # A green gate is not evidence the gate works: #577 and #590 were the same
+      # post-filter, in both gates, silently swallowing real violations while
+      # reporting clean. These tests run each gate against a throwaway repo and
+      # assert the red cases actually go red.
       - name: "Sensitive-logging gate self-test (issue #577)"
         run: bash scripts/tests/check-no-sensitive-logging-test.sh
+      - name: "runBlocking gate self-test (issue #590)"
+        run: bash scripts/tests/check-no-production-runblocking-test.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
