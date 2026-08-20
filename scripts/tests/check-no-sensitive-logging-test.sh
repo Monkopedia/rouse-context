@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Regression tests for scripts/check-no-sensitive-logging.sh (#577).
+# Regression tests for scripts/check-no-sensitive-logging.sh (#577, #579).
 #
 # The gate reported clean while a real violation was being swallowed by its
 # comment-continuation post-filter, so a green run of the gate itself proves
 # nothing: this class of bug is only visible with a demonstrated-red control.
+# The same argument applies to every name in the gate's alternation, so each is
+# enumerated below with its own planted violation rather than sampled.
 #
 # The gate scans whatever `scripts/production-source-dirs.sh` derives from the
 # enclosing repo, so the tests run it against a throwaway repo built here rather
@@ -92,6 +94,39 @@ fun go(id: String) = android.util.Log.d("T", "id $id")'
 
 # Nothing planted at all.
 expect 0 'clean source set passes' 'fun go(id: String) = android.util.Log.d("T", "id $id")'
+
+# A one-line Kotlin log site interpolating $<name>, as literal source text.
+probe_line() {
+  printf 'fun go(v: String) = android.util.Log.d("T", "v=$%s")\n' "$1"
+}
+
+# The names the gate carried before #579. Enumerated, not sampled: widening the
+# alternation must not drop or typo one of the originals.
+for name in token bearer verifier fcmToken firebaseToken pkceVerifier \
+  accessToken refreshToken clientSecret privateKey; do
+  expect 1 "pre-existing \$$name is caught" "$(probe_line "$name")"
+done
+
+# The names #579 added: the camelCase gaps plus a snake_case spelling of every
+# multi-word name, since the relay and the policy doc use snake_case.
+for name in apiKey sessionToken integrationSecret secretPrefix \
+  fcm_token firebase_token pkce_verifier access_token refresh_token \
+  client_secret private_key api_key session_token integration_secret \
+  secret_prefix; do
+  expect 1 "newly covered \$$name is caught" "$(probe_line "$name")"
+done
+
+# Values docs/internal/logging.md explicitly says are SAFE to log. These are the
+# false positives that option 2 (a `\$[A-Za-z_]*(secret|token|key)` substring
+# rule) would introduce, so they are asserted green: if a later "simplification"
+# broadens the pattern, these fail loudly instead of the gate quietly becoming
+# something people work around.
+expect 0 'safe: $tokenEntity does not match' \
+  'fun go(tokenEntity: TokenEntity) = android.util.Log.d("T", "client=$tokenEntity")'
+expect 0 'safe: TokenEntity.label does not match' \
+  'fun go(e: TokenEntity) = android.util.Log.d("T", "client=${e.label} / $TokenEntity.label")'
+expect 0 'safe: Firebase key id does not match' \
+  'fun go(kid: String, keyId: String) = android.util.Log.d("T", "jwks kid=$kid id=$keyId")'
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures test(s) failed"
