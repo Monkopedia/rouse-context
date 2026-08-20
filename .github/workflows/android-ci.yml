@@ -68,6 +68,12 @@ jobs:
         # when interpolated values contain quotes, backslashes, or control
         # characters. Production code must use @Serializable + encodeToString.
         run: bash scripts/check-no-manual-json.sh
+      # A green gate is not evidence the gate works: #594 was a path allowlist,
+      # applied unanchored to grep's `file:line:content` output, that swallowed
+      # any violation merely mentioning the exempt file. This runs the gate
+      # against a throwaway repo and asserts the red cases actually go red.
+      - name: "Manual-JSON gate self-test (issue #594)"
+        run: bash scripts/tests/check-no-manual-json-test.sh
       # Both distributions write the SAME `app/build/outputs/apk/debug/` path
       # (distribution is a flag, not a flavor — #467), so each build is verified
       # immediately after it runs, before the next one overwrites it.
