@@ -3,6 +3,7 @@ package com.rousecontext.tunnel
 import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
@@ -10,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
@@ -18,7 +20,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Regression tests for issue #568.
+ * Regression tests for issues #568 and #576.
  *
  * #567 serialised inbound mux frames onto a single consumer coroutine to fix
  * the ordering bug in #562. That is the right shape, but it also means the
@@ -43,6 +45,8 @@ class InboundFrameConsumerFailureTest {
         const val QUIET_MS = 500L
 
         const val NONCE = 0xFEEDuL
+
+        const val STREAM_ID = 7u
     }
 
     /**
@@ -54,7 +58,7 @@ class InboundFrameConsumerFailureTest {
         val ioScope = CoroutineScope(Dispatchers.IO)
         try {
             val factory = DirectWebSocketFactory(
-                ScriptedHandle { throw IOException("socket write failed") }
+                ScriptedHandle(onSendBinary = { throw IOException("socket write failed") })
             )
             val client = TunnelClientImpl(ioScope, factory)
             client.connect("ws://mux-handler-throw.invalid/tunnel")
@@ -110,10 +114,12 @@ class InboundFrameConsumerFailureTest {
                 val wedged = CompletableDeferred<Unit>()
                 val insideHandleFrame = CompletableDeferred<Unit>()
                 val factory = DirectWebSocketFactory(
-                    ScriptedHandle {
-                        insideHandleFrame.complete(Unit)
-                        wedged.await()
-                    }
+                    ScriptedHandle(
+                        onSendBinary = {
+                            insideHandleFrame.complete(Unit)
+                            wedged.await()
+                        }
+                    )
                 )
                 val client = TunnelClientImpl(ioScope, factory)
                 client.connect("ws://mux-handler-cancel.invalid/tunnel")
@@ -146,6 +152,97 @@ class InboundFrameConsumerFailureTest {
         }
 
     /**
+     * The guard on the first of the consumer's three catch clauses
+     * (issue #576).
+     *
+     * `ClosedSendChannelException` is deliberately tolerated: a stream or the
+     * demux torn down while a frame was in flight is routine, not a tunnel
+     * failure. Nothing pinned that, so collapsing the three catches into one
+     * would have landed green while turning every benign teardown race into a
+     * full reconnect.
+     *
+     * The throw comes from production code, not from a test double.
+     * `disconnect()` closes the demux — and with it the channel behind
+     * [MuxDemux.incomingStreams] — *before* `cleanupRefs` closes the frame
+     * queue and cancels the consumer. The transport close is held mid-flight
+     * (a real WebSocket close writes a close frame and waits for the peer's
+     * ack, so it is not instant), which keeps that window open: an OPEN frame
+     * already on the queue is then handled against the closed channel and
+     * `MuxDemux.handleOpen` throws `ClosedSendChannelException` out of
+     * `incomingChannel.send`.
+     *
+     * The load-bearing assertion is the Pong. Both frames ride the one ordered
+     * queue, so the Ping is handled strictly after the OPEN that threw — it can
+     * only be echoed if the consumer *survived* the throw. Under the broad
+     * catch the consumer would instead have returned from `failInboundConsumer`
+     * with the queue closed, and the Ping would go nowhere.
+     */
+    @Test
+    fun `a frame racing the demux teardown is tolerated and the consumer keeps draining`() =
+        runBlocking {
+            val ioScope = CoroutineScope(Dispatchers.IO)
+            try {
+                val outgoing = Channel<MuxFrame>(Channel.BUFFERED)
+                val closeStarted = CompletableDeferred<Unit>()
+                // Never completed: parks disconnect() inside the transport
+                // close so the teardown window stays open for the assertions.
+                val closeWedged = CompletableDeferred<Unit>()
+                val factory = DirectWebSocketFactory(
+                    ScriptedHandle(
+                        onSendBinary = { outgoing.send(MuxCodec.decode(it)) },
+                        onClose = {
+                            closeStarted.complete(Unit)
+                            closeWedged.await()
+                        }
+                    )
+                )
+                val client = TunnelClientImpl(ioScope, factory)
+                client.connect("ws://mux-teardown-race.invalid/tunnel")
+                assertEquals(TunnelState.CONNECTED, client.state.value)
+
+                val errorReceived = CompletableDeferred<TunnelError>()
+                val subscribed = CompletableDeferred<Unit>()
+                val collect = launch {
+                    client.errors
+                        .onSubscription { subscribed.complete(Unit) }
+                        .collect { errorReceived.complete(it) }
+                }
+                subscribed.await()
+
+                val disconnecting = launch { client.disconnect() }
+                withTimeout(TIMEOUT_MS) { closeStarted.await() }
+
+                factory.deliver(MuxFrame.Open(STREAM_ID))
+                factory.deliver(MuxFrame.Ping(NONCE))
+
+                assertEquals(
+                    MuxFrame.Pong(NONCE),
+                    withTimeout(TIMEOUT_MS) { outgoing.receive() },
+                    "the frame after the tolerated one must still be handled"
+                )
+                assertNull(
+                    withTimeoutOrNull(QUIET_MS) { errorReceived.await() },
+                    "a benign teardown race must not be reported as a tunnel error"
+                )
+                // Not `assertEquals(CONNECTED, ...)`: handleOpen increments
+                // activeStreamCount before the send that throws, so the tunnel
+                // may legitimately have stepped to ACTIVE. What must not have
+                // happened is a teardown.
+                assertNotEquals(
+                    TunnelState.DISCONNECTED,
+                    client.state.value,
+                    "a benign teardown race must not tear the tunnel down"
+                )
+
+                disconnecting.cancel()
+                collect.cancel()
+                coroutineContext.cancelChildren()
+            } finally {
+                ioScope.cancel()
+            }
+        }
+
+    /**
      * A [WebSocketFactory] with no transport at all: [deliver] pushes an
      * encoded frame straight into the listener from the calling thread, the way
      * a WebSocket reader loop does.
@@ -166,9 +263,11 @@ class InboundFrameConsumerFailureTest {
         }
     }
 
-    /** A handle whose binary writes run [onSendBinary]. */
-    private class ScriptedHandle(private val onSendBinary: suspend (ByteArray) -> Unit) :
-        WebSocketHandle {
+    /** A handle whose binary writes run [onSendBinary] and whose close runs [onClose]. */
+    private class ScriptedHandle(
+        private val onSendBinary: suspend (ByteArray) -> Unit,
+        private val onClose: suspend () -> Unit = {}
+    ) : WebSocketHandle {
         override suspend fun sendBinary(data: ByteArray): Boolean {
             onSendBinary(data)
             return true
@@ -176,6 +275,6 @@ class InboundFrameConsumerFailureTest {
 
         override suspend fun sendText(text: String): Boolean = true
 
-        override suspend fun close(code: Int, reason: String) = Unit
+        override suspend fun close(code: Int, reason: String) = onClose()
     }
 }
