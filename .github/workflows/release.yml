@@ -69,6 +69,16 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk \
             "dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk"
 
+      # Verify the STAGED file, not the build output: step ordering plus a copy
+      # is the only thing that distinguishes the two artifacts (both variants
+      # write the same unprefixed `release/` path), so the thing that must be
+      # proven clean is the exact file that gets uploaded. Issue #548.
+      - name: "Staged FOSS APK contains no Google/Firebase code (issue #548)"
+        run: |
+          bash scripts/check-apk-distribution.sh \
+            --apk "dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk" \
+            --expect foss
+
       - name: Build Google release APK + AAB (-Pgoogle)
         env:
           ROUSE_RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
@@ -84,6 +94,16 @@ jobs:
             "dist/rouse-context-${{ steps.version.outputs.name }}-google.apk"
           cp app/build/outputs/bundle/release/app-release.aab \
             "dist/rouse-context-${{ steps.version.outputs.name }}-google.aab"
+
+      # If the two builds/stages ever get reordered or a copy silently fails,
+      # the FOSS APK gets published twice under two names. This catches that
+      # from the other side, and doubles as the positive control proving the
+      # FOSS check above ran with patterns that still match Firebase.
+      - name: "Staged Google APK really contains Firebase (issue #548)"
+        run: |
+          bash scripts/check-apk-distribution.sh \
+            --apk "dist/rouse-context-${{ steps.version.outputs.name }}-google.apk" \
+            --expect google
 
       - name: Upload FOSS APK artifact
         uses: actions/upload-artifact@v4
