@@ -68,13 +68,31 @@ jobs:
         # when interpolated values contain quotes, backslashes, or control
         # characters. Production code must use @Serializable + encodeToString.
         run: bash scripts/check-no-manual-json.sh
+      # Both distributions write the SAME `app/build/outputs/apk/debug/` path
+      # (distribution is a flag, not a flavor — #467), so each build is verified
+      # immediately after it runs, before the next one overwrites it.
       - name: Build (Google distribution)
         run: ./gradlew :app:assembleDebug -Pgoogle
+      - name: "Google APK really contains Firebase (issue #548)"
+        # The inverse of the purity gate, and not decoration: it is the live
+        # positive control. The FOSS check below can only be trusted if these
+        # patterns still match real Firebase code, and this proves they do on
+        # every run — so the gate cannot rot into one that matches nothing and
+        # passes everything (#579).
+        run: bash scripts/check-apk-distribution.sh --apk app/build/outputs/apk/debug/app-debug.apk --expect google
       - name: Build (FOSS distribution, Firebase-free)
         # Bare build (no `-Pgoogle`) is the FOSS distribution: it skips the
         # Firebase Gradle plugins and proves it assembles without
         # google-services. See #467.
         run: ./gradlew :app:assembleDebug
+      - name: "FOSS APK contains no Google/Firebase code (issue #548)"
+        # Reads the artifact, not the build config: whatever flips the gate — a
+        # stray -P flag, a gradle.properties line, an ambient
+        # ORG_GRADLE_PROJECT_google — lands in the DEX and is caught here.
+        # `android-ci.yml` builds both distributions too (#585); without these
+        # the gate would live only in `ci.yml`, and deleting that job as a
+        # "duplicate build" would silently take the purity check with it.
+        run: bash scripts/check-apk-distribution.sh --apk app/build/outputs/apk/debug/app-debug.apk --expect foss
       - name: Unit tests
         timeout-minutes: 20
         # Distribution is a build flag (#467), so `:app` unit tests run twice:
