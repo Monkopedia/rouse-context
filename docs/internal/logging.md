@@ -103,27 +103,34 @@ patterns. The script is the source of truth; this is its `PATTERN` verbatim, so
 that a drift between the two is visible rather than inferred:
 
 ```
-Log\.[dievw].*\$(token|bearer|fcmToken|firebaseToken|verifier|accessToken|refreshToken|clientSecret|privateKey|pkceVerifier)\b|Log\.[dievw].*args:[[:space:]]*\$
+Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix)\b|Log\.[dievw].*args:[[:space:]]*\$
 ```
 
 In words, a line trips the gate when it contains `Log.` plus an Android level
 letter (`d` `i` `e` `v` `w` -- so `Log.wtf` too) followed by either:
 
 - a Kotlin string-template interpolation of one of these exact variable names:
-  `$token`, `$bearer`, `$fcmToken`, `$firebaseToken`, `$verifier`,
-  `$accessToken`, `$refreshToken`, `$clientSecret`, `$privateKey`,
-  `$pkceVerifier`; or
+  `$token`, `$bearer`, `$verifier`, `$fcmToken`, `$firebaseToken`,
+  `$pkceVerifier`, `$accessToken`, `$refreshToken`, `$clientSecret`,
+  `$privateKey`, `$apiKey`, `$sessionToken`, `$integrationSecret`,
+  `$secretPrefix` -- each multi-word name in snake_case as well as camelCase
+  (`$fcm_token`, `$firebase_token`, `$pkce_verifier`, `$access_token`,
+  `$refresh_token`, `$client_secret`, `$private_key`, `$api_key`,
+  `$session_token`, `$integration_secret`, `$secret_prefix`); or
 - the literal `args:` followed by `$`.
 
 That is the whole list. Nothing else is matched, and in particular the gate
 does **not** catch:
 
 - **Any name outside the alternation.** The match is on the interpolated
-  *variable name*, not on the value's sensitivity, so `$secretValue`,
-  `$private_key`, `$apiKey`, `$sessionToken` and `$integrationSecret` all pass
-  the gate despite being things this doc says never to log. The trailing `\b`
-  also means `$tokenEntity` passes -- deliberate, since `TokenEntity.label` is
-  safe to log.
+  *variable name*, not on the value's sensitivity, so `$secretValue` or
+  `$credential` pass the gate despite being things this doc says never to log.
+  The list is explicit on purpose: a substring rule such as
+  `\$[A-Za-z_]*(secret|token|key)` would fire on values listed above as safe to
+  log, and a gate that flags safe lines gets worked around rather than heeded.
+  The trailing `\b` is part of the same trade: `$tokenEntity` passes, which is
+  deliberate, since `TokenEntity.label` is safe to log. Adding a name to the
+  alternation is cheap -- do that instead of broadening the shape.
 - **Anything that is not `Log.<level>`.** `println`, `System.out`, Timber, and
   the relay's Rust `tracing::*!` are not scanned.
 - **Multi-line log calls.** The grep is line-level; a call split across lines
@@ -132,6 +139,11 @@ does **not** catch:
   build.
 
 Run it locally the same way CI does: `bash scripts/check-no-sensitive-logging.sh`.
+The gate has its own tests at `scripts/tests/check-no-sensitive-logging-test.sh`
+(also run by CI), which plant a violation per name in a throwaway repo. When you
+add a name to the alternation, add its planted-violation case there too -- a
+gate whose only evidence is a green run is indistinguishable from one that
+matches nothing.
 
 Which trees count as "production" is derived by
 `scripts/production-source-dirs.sh` rather than hand-listed, and shared with the

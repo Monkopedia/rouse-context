@@ -11,15 +11,30 @@
 # false positives):
 #   Log.<level>(... "$token"            -- logging a token variable
 #   Log.<level>(... "$bearer"           -- ditto
+#   Log.<level>(... "$verifier"         -- PKCE verifier
 #   Log.<level>(... "$fcmToken"         -- FCM push token
 #   Log.<level>(... "$firebaseToken"    -- Firebase ID token
-#   Log.<level>(... "$verifier"         -- PKCE verifier
-#   Log.<level>(... "$pkceVerifier"     -- ditto, spelled out
+#   Log.<level>(... "$pkceVerifier"     -- PKCE verifier, spelled out
 #   Log.<level>(... "$accessToken"      -- OAuth access token
 #   Log.<level>(... "$refreshToken"     -- OAuth refresh token
 #   Log.<level>(... "$clientSecret"     -- OAuth client secret
 #   Log.<level>(... "$privateKey"       -- key material
+#   Log.<level>(... "$apiKey"           -- third-party API key
+#   Log.<level>(... "$sessionToken"     -- session bearer credential
+#   Log.<level>(... "$integrationSecret" -- per-integration bearer secret
+#   Log.<level>(... "$secretPrefix"     -- ditto, the SNI-label prefix form
 #   Log.<level>(... "args: $..."        -- tool-call arguments
+#
+# Each multi-word name is listed in both camelCase and snake_case (`$fcm_token`,
+# `$private_key`, `$integration_secret`, ...): the Kotlin sources are camelCase,
+# but the relay and the policy doc name these values in snake_case, so that is
+# how someone transcribing a value into a log line tends to spell it (#579).
+#
+# The list is deliberately explicit rather than a substring rule like
+# `\$[A-Za-z_]*(secret|token|key)`. Substring matching fires on values
+# docs/internal/logging.md says are safe to log -- `$tokenEntity`,
+# `TokenEntity.label`, Firebase `$kid` -- and a gate that flags safe lines gets
+# worked around instead of heeded. Adding a name here is cheap; keep it that way.
 #
 # The grep is line-level; multi-line log calls may slip through. The gate is a
 # cheap first line of defence; code review is what we rely on for anything it
@@ -37,7 +52,7 @@ mapfile -t DIRS <<<"$dirs"
 [ "${#DIRS[@]}" -gt 0 ] || { echo "ERROR: no production source dirs to scan" >&2; exit 1; }
 
 # shellcheck disable=SC2016  # literal regex; `$` must not expand
-PATTERN='Log\.[dievw].*\$(token|bearer|fcmToken|firebaseToken|verifier|accessToken|refreshToken|clientSecret|privateKey|pkceVerifier)\b|Log\.[dievw].*args:[[:space:]]*\$'
+PATTERN='Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix)\b|Log\.[dievw].*args:[[:space:]]*\$'
 
 # No `2>/dev/null` and no blanket `|| true`: see the note in
 # check-no-production-runblocking.sh. grep exits 1 for "no matches" and >1 for a
