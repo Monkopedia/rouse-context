@@ -122,7 +122,8 @@ class ConcurrentToolCallTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -176,7 +177,8 @@ class ConcurrentToolCallTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -235,7 +237,8 @@ class ConcurrentToolCallTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

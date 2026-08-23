@@ -41,7 +41,8 @@ class AuthMiddlewareTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -70,7 +71,8 @@ class AuthMiddlewareTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -97,7 +99,8 @@ class AuthMiddlewareTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -124,7 +127,8 @@ class AuthMiddlewareTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -146,7 +150,8 @@ class AuthMiddlewareTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

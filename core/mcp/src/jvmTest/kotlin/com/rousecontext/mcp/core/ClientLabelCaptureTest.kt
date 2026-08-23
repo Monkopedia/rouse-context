@@ -103,7 +103,8 @@ class ClientLabelCaptureTest {
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                auditListener = audit
+                auditListener = audit,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -156,7 +157,8 @@ class ClientLabelCaptureTest {
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                auditListener = audit
+                auditListener = audit,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

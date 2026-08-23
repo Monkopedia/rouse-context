@@ -28,7 +28,8 @@ class McpSessionStartFailureTest {
             tokenStore = tokenStore,
             hostname = "test.rousecontext.com",
             integration = "health",
-            serverStarter = { throw boom }
+            serverStarter = { throw boom },
+            serverVersion = TEST_SERVER_VERSION
         )
 
         try {

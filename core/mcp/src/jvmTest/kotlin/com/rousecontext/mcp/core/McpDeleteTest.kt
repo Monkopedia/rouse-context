@@ -83,7 +83,8 @@ class McpDeleteTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -174,7 +175,8 @@ class McpDeleteTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

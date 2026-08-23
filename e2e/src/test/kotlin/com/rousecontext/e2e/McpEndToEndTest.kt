@@ -400,6 +400,14 @@ class McpEndToEndTest {
                 "Server: ${serverInfo!!["name"]?.jsonPrimitive?.content} " +
                     serverInfo["version"]?.jsonPrimitive?.content
             )
+            // The handshake must advertise the build's real version. Before #603
+            // this was the hard-coded core:mcp default "0.1.0" for every release,
+            // because AppModule never passed serverVersion through.
+            assertEquals(
+                installedVersionName(),
+                serverInfo["version"]?.jsonPrimitive?.content,
+                "serverInfo.version must match the installed app versionName (#603)"
+            )
         }
     }
 
@@ -679,6 +687,18 @@ class McpEndToEndTest {
     }
 
     // --- ADB helpers ---
+
+    /**
+     * versionName of the debug package installed on the device -- the value
+     * `BuildConfig.VERSION_NAME` resolves to inside the running app.
+     */
+    private fun installedVersionName(): String {
+        val dump = adb("shell", "dumpsys", "package", "com.rousecontext.debug")
+        val version = Regex("""versionName=(\S+)""").find(dump)?.groupValues?.get(1)
+        return requireNotNull(version) {
+            "Could not read versionName for com.rousecontext.debug from dumpsys"
+        }
+    }
 
     private fun adb(vararg args: String): String {
         val serial = System.getProperty("adb.serial", "")

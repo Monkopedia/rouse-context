@@ -49,7 +49,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -76,7 +77,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -101,7 +103,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -128,7 +131,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -156,7 +160,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -179,7 +184,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -205,7 +211,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -235,7 +242,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = validToken
+                internalToken = validToken,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -263,7 +271,8 @@ class InternalTokenGuardTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                internalToken = null
+                internalToken = null,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -279,7 +288,8 @@ class InternalTokenGuardTest {
             registry = registry,
             tokenStore = tokenStore,
             hostname = "test.rousecontext.com",
-            integration = "health"
+            integration = "health",
+            serverVersion = TEST_SERVER_VERSION
         )
 
         try {

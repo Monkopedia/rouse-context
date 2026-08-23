@@ -497,6 +497,9 @@ val appModule = module {
             auditListener = get(),
             hostname = initialHostname,
             integration = defaultIntegration,
+            // The version every MCP client is told in the `initialize`
+            // handshake. See #603.
+            serverVersion = BuildConfig.VERSION_NAME,
             unknownClientLabeler = get(),
             securityAlertCheck = run {
                 // Issue #419 finding #1: wrap the combined alert flow in a

@@ -639,7 +639,8 @@ class ClaudeFullFlowEndToEndTest {
                         authorizationCodeManager = authorizationCodeManager,
                         hostname = INTEGRATION_HOST,
                         integration = INTEGRATION,
-                        internalToken = token
+                        internalToken = token,
+                        serverVersion = "0.0.0-test"
                     )
                 }
                 server.start(wait = false)

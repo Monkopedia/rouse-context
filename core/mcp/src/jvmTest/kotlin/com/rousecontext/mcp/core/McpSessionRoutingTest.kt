@@ -114,7 +114,8 @@ class McpSessionRoutingTest {
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                clock = clock
+                clock = clock,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

@@ -72,7 +72,8 @@ class McpSessionTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -94,7 +95,12 @@ class McpSessionTest {
         val result = json["result"]?.jsonObject
         assertTrue(result != null)
         assertTrue(result!!.containsKey("protocolVersion"))
-        assertTrue(result.containsKey("serverInfo"))
+        val serverInfo = result["serverInfo"]?.jsonObject
+        assertTrue(serverInfo != null)
+        assertEquals("rouse-context", serverInfo!!["name"]?.jsonPrimitive?.content)
+        // The handshake must advertise the version the caller supplied, not a
+        // module-local default. See #603.
+        assertEquals(TEST_SERVER_VERSION, serverInfo["version"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -113,7 +119,8 @@ class McpSessionTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -163,7 +170,8 @@ class McpSessionTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

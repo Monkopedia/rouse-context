@@ -22,7 +22,8 @@ import kotlinx.coroutines.CompletableDeferred
  *     tokenStore = roomTokenStore,
  *     auditListener = auditLog,
  *     hostname = "brave-health.abc123.rousecontext.com",
- *     integration = "health"
+ *     integration = "health",
+ *     serverVersion = BuildConfig.VERSION_NAME
  * )
  * session.start(port = 0) // starts embedded HTTP server
  * session.awaitClose()    // suspends until stopped
@@ -42,7 +43,13 @@ class McpSession(
     private val mcpRateLimiter: RateLimiter? = null,
     private val securityAlertCheck: (suspend () -> Boolean)? = null,
     private val serverName: String = "rouse-context",
-    private val serverVersion: String = "0.1.0",
+    /**
+     * Version advertised in the MCP `initialize` handshake. Deliberately has
+     * no default: the only correct value is the app's `BuildConfig.VERSION_NAME`,
+     * which this KMP module cannot read, so any default here is a version the
+     * build has never been. Omitting it must be a compile error. See #603.
+     */
+    private val serverVersion: String,
     private val unknownClientLabeler: UnknownClientLabeler? = null,
     private val log: (LogLevel, String) -> Unit = { _, _ -> },
     /**

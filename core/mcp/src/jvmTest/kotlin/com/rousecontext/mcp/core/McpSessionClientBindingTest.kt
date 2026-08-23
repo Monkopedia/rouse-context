@@ -82,7 +82,8 @@ class McpSessionClientBindingTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -208,7 +209,8 @@ class McpSessionClientBindingTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

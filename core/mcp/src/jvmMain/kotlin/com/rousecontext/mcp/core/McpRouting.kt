@@ -106,7 +106,9 @@ fun Application.configureMcpRouting(
     mcpRateLimiter: RateLimiter? = null,
     securityAlertCheck: (suspend () -> Boolean)? = null,
     serverName: String = "rouse-context",
-    serverVersion: String = "0.1.0",
+    // Version advertised in the `initialize` handshake -- required for the
+    // same reason as [McpSession.serverVersion]. See #603.
+    serverVersion: String,
     internalToken: String? = null,
     unknownClientLabeler: UnknownClientLabeler? = null,
     log: (LogLevel, String) -> Unit = { _, _ -> }
