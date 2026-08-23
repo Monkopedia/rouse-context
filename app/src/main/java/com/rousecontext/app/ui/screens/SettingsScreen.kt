@@ -179,7 +179,7 @@ data class SettingsState(
      */
     val backgroundDelivery: BackgroundDeliveryRowState? = null,
     val showBatteryWarning: Boolean = true,
-    val versionName: String = "0.1.0",
+    val versionName: String = BuildConfig.VERSION_NAME,
     val trustStatus: TrustStatusState? = null,
     /**
      * Whether the audit history surface should include every MCP JSON-RPC
