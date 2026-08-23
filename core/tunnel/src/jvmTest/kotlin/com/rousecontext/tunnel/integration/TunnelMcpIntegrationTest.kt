@@ -123,7 +123,8 @@ class TunnelMcpIntegrationTest {
                     deviceCodeManager = deviceCodeManager,
                     hostname = "test.rousecontext.com",
                     integration = "test",
-                    internalToken = token
+                    internalToken = token,
+                    serverVersion = "0.0.0-test"
                 )
             }
             server.start(wait = false)

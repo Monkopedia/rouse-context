@@ -99,7 +99,8 @@ class McpProtocolTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 auditListener = auditListener,
-                clock = clock
+                clock = clock,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
     }
@@ -246,7 +247,8 @@ class McpProtocolTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -548,32 +550,7 @@ class McpProtocolTest {
         val registry = InMemoryProviderRegistry()
         registry.register("health", FullProvider())
         registry.setEnabled("health", true)
-        registry.register(
-            "notifications",
-            object : McpServerProvider {
-                override val id = "notifications"
-                override val displayName = "Notifications"
-                override fun register(server: Server) {
-                    server.addTool(
-                        name = "send_notification",
-                        description = "Send a notification",
-                        inputSchema = ToolSchema(
-                            properties = buildJsonObject {
-                                put(
-                                    "message",
-                                    buildJsonObject {
-                                        put("type", JsonPrimitive("string"))
-                                    }
-                                )
-                            },
-                            required = listOf("message")
-                        )
-                    ) { _ ->
-                        CallToolResult(content = listOf(TextContent("sent")))
-                    }
-                }
-            }
-        )
+        registry.register("notifications", NotificationsProvider())
         registry.setEnabled("notifications", true)
 
         val tokenStore = InMemoryTokenStore()
@@ -595,7 +572,8 @@ class McpProtocolTest {
                     override suspend fun onToolCall(event: ToolCallEvent) {
                         events.add(event)
                     }
-                }
+                },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -658,6 +636,31 @@ class McpProtocolTest {
     }
 
     // -- onRequest audit coverage (issue #105) --
+
+    private class NotificationsProvider : McpServerProvider {
+        override val id = "notifications"
+        override val displayName = "Notifications"
+
+        override fun register(server: Server) {
+            server.addTool(
+                name = "send_notification",
+                description = "Send a notification",
+                inputSchema = ToolSchema(
+                    properties = buildJsonObject {
+                        put(
+                            "message",
+                            buildJsonObject {
+                                put("type", JsonPrimitive("string"))
+                            }
+                        )
+                    },
+                    required = listOf("message")
+                )
+            ) { _ ->
+                CallToolResult(content = listOf(TextContent("sent")))
+            }
+        }
+    }
 
     private class CollectingAuditListener : AuditListener {
         val toolCalls = mutableListOf<ToolCallEvent>()

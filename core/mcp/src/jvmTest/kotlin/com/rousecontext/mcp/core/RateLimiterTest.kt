@@ -84,7 +84,8 @@ class RateLimiterTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 clock = clock,
-                rateLimiter = rateLimiter
+                rateLimiter = rateLimiter,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -126,7 +127,8 @@ class RateLimiterTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 clock = clock,
-                rateLimiter = rateLimiter
+                rateLimiter = rateLimiter,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -157,7 +159,8 @@ class RateLimiterTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 clock = clock,
-                rateLimiter = rateLimiter
+                rateLimiter = rateLimiter,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -195,7 +198,8 @@ class RateLimiterTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 clock = clock,
-                rateLimiter = rateLimiter
+                rateLimiter = rateLimiter,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -235,7 +239,8 @@ class RateLimiterTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 clock = clock,
-                rateLimiter = rateLimiter
+                rateLimiter = rateLimiter,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -277,7 +282,8 @@ class RateLimiterTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 // Use the defaults McpSession supplies in production.
-                rateLimiter = McpSession.defaultOAuthInitRateLimiter()
+                rateLimiter = McpSession.defaultOAuthInitRateLimiter(),
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

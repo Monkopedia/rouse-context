@@ -48,7 +48,8 @@ class HttpRoutingTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -85,7 +86,8 @@ class HttpRoutingTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -109,7 +111,8 @@ class HttpRoutingTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -130,7 +133,8 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                securityAlertCheck = { true }
+                securityAlertCheck = { true },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -155,7 +159,8 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                securityAlertCheck = { true }
+                securityAlertCheck = { true },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -180,7 +185,8 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                securityAlertCheck = { true }
+                securityAlertCheck = { true },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -206,7 +212,8 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                securityAlertCheck = { true }
+                securityAlertCheck = { true },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -240,7 +247,8 @@ class HttpRoutingTest {
                         // returning the persisted alert verdict.
                         gateOpened.await()
                         true
-                    }
+                    },
+                    serverVersion = TEST_SERVER_VERSION
                 )
             }
 
@@ -270,7 +278,8 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                securityAlertCheck = { false }
+                securityAlertCheck = { false },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -293,7 +302,8 @@ class HttpRoutingTest {
                 deviceCodeManager = deviceCodeManager,
                 hostname = "brave-falcon.rousecontext.com",
                 integration = "health",
-                log = { level, msg -> captured.add(level to msg) }
+                log = { level, msg -> captured.add(level to msg) },
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 

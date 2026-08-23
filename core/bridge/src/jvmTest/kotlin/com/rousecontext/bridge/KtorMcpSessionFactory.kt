@@ -35,7 +35,8 @@ class KtorMcpSessionFactory(
                 deviceCodeManager = deviceCodeManager,
                 hostname = "test.rousecontext.com",
                 integration = defaultIntegration,
-                internalToken = token
+                internalToken = token,
+                serverVersion = "0.0.0-test"
             )
         }
         server.start(wait = false)

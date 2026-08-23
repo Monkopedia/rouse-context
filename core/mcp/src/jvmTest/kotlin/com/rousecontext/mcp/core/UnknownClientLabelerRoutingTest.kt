@@ -118,7 +118,8 @@ class UnknownClientLabelerRoutingTest {
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                unknownClientLabeler = labeler
+                unknownClientLabeler = labeler,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -162,7 +163,8 @@ class UnknownClientLabelerRoutingTest {
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
                 integration = "health",
-                unknownClientLabeler = labeler
+                unknownClientLabeler = labeler,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -205,7 +207,8 @@ class UnknownClientLabelerRoutingTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 auditListener = audit,
-                unknownClientLabeler = labeler
+                unknownClientLabeler = labeler,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -272,7 +275,8 @@ class UnknownClientLabelerRoutingTest {
                 hostname = "test.rousecontext.com",
                 integration = "health",
                 auditListener = audit,
-                unknownClientLabeler = labeler
+                unknownClientLabeler = labeler,
+                serverVersion = TEST_SERVER_VERSION
             )
         }
 
@@ -322,7 +326,8 @@ class UnknownClientLabelerRoutingTest {
                 tokenStore = tokenStore,
                 deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore),
                 hostname = "test.rousecontext.com",
-                integration = "health"
+                integration = "health",
+                serverVersion = TEST_SERVER_VERSION
                 // no unknownClientLabeler supplied
             )
         }
