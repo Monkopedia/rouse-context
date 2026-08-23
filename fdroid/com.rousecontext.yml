@@ -75,8 +75,8 @@ Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rous
 AllowedAPKSigningKeys: 7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 
 Builds:
-  - versionName: 1.0.8
-    versionCode: 9
+  - versionName: 1.0.9
+    versionCode: 10
     # Build from the signed release tag. `v1.0.8` does not exist yet; it is
     # created when the owner cuts the release. Until then this is a template.
     #
@@ -88,7 +88,7 @@ Builds:
     # full commit SHA rather than a movable tag ref. A SHA can't be retargeted
     # after submission, so the from-source build is locked to exactly the bytes
     # F-Droid reviewed.
-    commit: v1.0.8
+    commit: v1.0.9
     subdir: app
     # Remove the Google-only Gradle config BEFORE F-Droid scans/builds. All
     # Firebase / Google-services build coordinates (the two Gradle plugins, the
@@ -232,5 +232,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.0.8
-CurrentVersionCode: 9
+CurrentVersion: 1.0.9
+CurrentVersionCode: 10
