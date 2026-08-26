@@ -30,13 +30,13 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
         recordType: String,
         from: Instant,
         to: Instant,
-        limit: Int?
+        maxRecords: Int
     ): List<JsonObject> = when (recordType) {
         "MenstruationFlow" -> reader.queryRecords(
             MenstruationFlowRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -50,7 +50,7 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
             MenstruationPeriodRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -63,7 +63,7 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
             CervicalMucusRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -78,7 +78,7 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
             OvulationTestRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -92,7 +92,7 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
             IntermenstrualBleedingRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -105,7 +105,7 @@ class ReproductiveQueries(private val reader: RecordReader) : CategoryQueries {
             SexualActivityRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(

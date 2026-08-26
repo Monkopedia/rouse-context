@@ -61,7 +61,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("Steps", from, to, null)
+        val result = queries.query("Steps", from, to)
         assertEquals(1, result.size)
         val day = result[0]
         assertEquals("1250", day["count"]!!.jsonPrimitive.content)
@@ -86,7 +86,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("ActiveCaloriesBurned", from, to, null)
+        val result = queries.query("ActiveCaloriesBurned", from, to)
         assertEquals(1, result.size)
         assertEquals("500.0", result[0]["kcal"]!!.jsonPrimitive.content)
         assertNotNull(result[0]["start_time"])
@@ -109,7 +109,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("TotalCaloriesBurned", from, to, null)
+        val result = queries.query("TotalCaloriesBurned", from, to)
         assertEquals("1800.0", result[0]["kcal"]!!.jsonPrimitive.content)
     }
 
@@ -127,7 +127,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("BasalMetabolicRate", from, to, null)
+        val result = queries.query("BasalMetabolicRate", from, to)
         assertEquals(1, result.size)
         assertNotNull(result[0]["watts"])
         assertNotNull(result[0]["kcal_per_day"])
@@ -150,7 +150,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("Distance", from, to, null)
+        val result = queries.query("Distance", from, to)
         assertEquals("5000.0", result[0]["meters"]!!.jsonPrimitive.content)
     }
 
@@ -170,7 +170,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("ElevationGained", from, to, null)
+        val result = queries.query("ElevationGained", from, to)
         assertEquals("100.0", result[0]["meters"]!!.jsonPrimitive.content)
     }
 
@@ -190,7 +190,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("FloorsClimbed", from, to, null)
+        val result = queries.query("FloorsClimbed", from, to)
         assertEquals("12.0", result[0]["floors"]!!.jsonPrimitive.content)
     }
 
@@ -222,7 +222,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("ExerciseSession", from, to, null)
+        val result = queries.query("ExerciseSession", from, to)
         assertEquals(2, result.size)
         assertEquals("Morning run", result[0]["title"]!!.jsonPrimitive.content)
         assertNull(result[1]["title"])
@@ -253,7 +253,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("Speed", from, to, null)
+        val result = queries.query("Speed", from, to)
         assertEquals(2, result.size)
         assertEquals("3.0", result[0]["meters_per_second"]!!.jsonPrimitive.content)
         assertEquals("4.0", result[1]["meters_per_second"]!!.jsonPrimitive.content)
@@ -280,7 +280,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("Power", from, to, null)
+        val result = queries.query("Power", from, to)
         assertEquals(1, result.size)
         assertEquals("200.0", result[0]["watts"]!!.jsonPrimitive.content)
     }
@@ -306,7 +306,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("CyclingPedalingCadence", from, to, null)
+        val result = queries.query("CyclingPedalingCadence", from, to)
         assertEquals("90.0", result[0]["rpm"]!!.jsonPrimitive.content)
     }
 
@@ -331,7 +331,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("StepsCadence", from, to, null)
+        val result = queries.query("StepsCadence", from, to)
         assertEquals("120.0", result[0]["steps_per_minute"]!!.jsonPrimitive.content)
     }
 
@@ -351,7 +351,7 @@ class ActivityQueriesTest {
                 )
             )
         )
-        val result = queries.query("WheelchairPushes", from, to, null)
+        val result = queries.query("WheelchairPushes", from, to)
         assertEquals("42", result[0]["count"]!!.jsonPrimitive.content)
     }
 
@@ -372,13 +372,13 @@ class ActivityQueriesTest {
             }
         )
         assertEquals(2, queries.query("Distance", from, to, 2).size)
-        assertEquals(5, queries.query("Distance", from, to, null).size)
+        assertEquals(5, queries.query("Distance", from, to).size)
     }
 
     @Test
     fun `query forwards from and to to reader`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("Distance", from, to, null)
+        queries.query("Distance", from, to)
         assertEquals(1, reader.reads.size)
         assertEquals(DistanceRecord::class, reader.reads[0].type)
         assertEquals(from, reader.reads[0].from)
@@ -424,7 +424,7 @@ class ActivityQueriesTest {
     fun `unsupported recordType throws`() = runBlocking {
         val (queries, _) = make()
         try {
-            queries.query("Weight", from, to, null)
+            queries.query("Weight", from, to)
             throw AssertionError("expected IllegalArgumentException")
         } catch (_: IllegalArgumentException) {
             // ok

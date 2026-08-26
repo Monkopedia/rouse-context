@@ -48,7 +48,7 @@ class BodyQueriesTest {
                 )
             )
         )
-        val result = queries.query("Weight", from, to, null)
+        val result = queries.query("Weight", from, to)
         assertEquals(2, result.size)
         assertEquals("70.0", result[0]["kg"]!!.jsonPrimitive.content)
         assertEquals("72.5", result[1]["kg"]!!.jsonPrimitive.content)
@@ -68,7 +68,7 @@ class BodyQueriesTest {
                 )
             )
         )
-        val result = queries.query("Height", from, to, null)
+        val result = queries.query("Height", from, to)
         assertEquals("1.75", result[0]["meters"]!!.jsonPrimitive.content)
     }
 
@@ -86,7 +86,7 @@ class BodyQueriesTest {
                 )
             )
         )
-        val result = queries.query("BodyFat", from, to, null)
+        val result = queries.query("BodyFat", from, to)
         assertEquals("18.5", result[0]["percentage"]!!.jsonPrimitive.content)
     }
 
@@ -104,7 +104,7 @@ class BodyQueriesTest {
                 )
             )
         )
-        val result = queries.query("BoneMass", from, to, null)
+        val result = queries.query("BoneMass", from, to)
         assertEquals("2.9", result[0]["kg"]!!.jsonPrimitive.content)
     }
 
@@ -122,7 +122,7 @@ class BodyQueriesTest {
                 )
             )
         )
-        val result = queries.query("LeanBodyMass", from, to, null)
+        val result = queries.query("LeanBodyMass", from, to)
         assertEquals("58.0", result[0]["kg"]!!.jsonPrimitive.content)
     }
 
@@ -141,7 +141,7 @@ class BodyQueriesTest {
                 )
             )
         )
-        val result = queries.query("Vo2Max", from, to, null)
+        val result = queries.query("Vo2Max", from, to)
         assertEquals("45.5", result[0]["ml_per_min_per_kg"]!!.jsonPrimitive.content)
         assertNotNull(result[0]["measurement_method"])
     }
@@ -166,7 +166,7 @@ class BodyQueriesTest {
     @Test
     fun `query forwards from and to to reader`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("Weight", from, to, null)
+        queries.query("Weight", from, to)
         assertEquals(from, reader.reads[0].from)
         assertEquals(to, reader.reads[0].to)
     }

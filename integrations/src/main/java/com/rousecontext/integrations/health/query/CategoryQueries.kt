@@ -1,6 +1,8 @@
 package com.rousecontext.integrations.health.query
 
+import com.rousecontext.integrations.health.MAX_RECORDS
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -18,11 +20,17 @@ interface CategoryQueries {
     val recordTypes: Set<String>
 
     /**
-     * Query records of [recordType] within the time range.
+     * Query records of [recordType] within the time range, reading at most
+     * [maxRecords] records. The bound reaches the Health Connect request itself.
      *
      * @throws IllegalArgumentException if [recordType] is not handled by this category.
      */
-    suspend fun query(recordType: String, from: Instant, to: Instant, limit: Int?): List<JsonObject>
+    suspend fun query(
+        recordType: String,
+        from: Instant,
+        to: Instant,
+        maxRecords: Int = MAX_RECORDS
+    ): List<JsonObject>
 
     /**
      * Contribute summary fields for this category. Implementations MUST only
@@ -32,13 +40,14 @@ interface CategoryQueries {
     suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject
 
     /**
-     * Extract the per-record scalar values for [recordType] over the time range,
+     * Stream the per-record scalar values for [recordType] over the time range,
      * for bucketed aggregation. Returns `null` when [recordType] is not a
      * bucketable (instantaneous single-scalar) type — e.g. sessions, multi-value,
      * or cumulative types — in which case the caller reports a clear error.
      *
-     * The default returns `null`; categories that own scalar types override this.
+     * Streaming is what lets a window wider than any record cap be aggregated
+     * without materialising it. The default returns `null`; categories that own
+     * scalar types override this.
      */
-    suspend fun bucketValues(recordType: String, from: Instant, to: Instant): List<TimedValue>? =
-        null
+    fun bucketValues(recordType: String, from: Instant, to: Instant): Flow<TimedValue>? = null
 }

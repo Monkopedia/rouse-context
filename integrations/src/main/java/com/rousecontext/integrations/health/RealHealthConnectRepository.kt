@@ -17,9 +17,13 @@ import com.rousecontext.integrations.health.query.SleepQueries
 import com.rousecontext.integrations.health.query.VitalsQueries
 import com.rousecontext.integrations.health.query.bucketize
 import com.rousecontext.integrations.health.query.downsampleEvenly
+import com.rousecontext.integrations.health.query.spanningBucketWidth
 import java.time.Duration
 import java.time.Instant
 import kotlin.reflect.KClass
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.transform
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 
@@ -87,18 +91,34 @@ class RealHealthConnectRepository internal constructor(
         limit: Int?
     ): QueryResult {
         val category = categoryFor(recordType)
-        // Read raw (paginated inside the reader); apply the cap as an even
-        // downsample so coverage spans the whole range rather than trimming one end.
-        val mapped = category.query(recordType, from, to, limit = null)
         val cap = limit ?: DEFAULT_MAX_RECORDS
-        return if (mapped.size > cap) {
-            QueryResult(
-                records = downsampleEvenly(mapped, cap),
-                totalCount = mapped.size,
-                downsampled = true
+        // Read one past the cap: enough to tell "the range fits" from "there is
+        // more", and never more than that.
+        val mapped = category.query(recordType, from, to, maxRecords = cap + 1)
+        if (mapped.size <= cap) {
+            return QueryResult.Records(mapped, totalCount = mapped.size, downsampled = false)
+        }
+        // The range holds more than the cap, so the records that fit are its
+        // earliest slice, not a picture of it. Answer with per-window aggregates
+        // spanning the whole range instead, at the resolution the cap implies.
+        val width = spanningBucketWidth(from, to, buckets = minOf(cap, MAX_BUCKETS))
+        return when (val bucketed = bucketRecords(recordType, from, to, width)) {
+            is BucketResult.Success -> QueryResult.Buckets(
+                bucketed.buckets,
+                width,
+                bucketed.totalCount,
+                bucketed.truncated
             )
-        } else {
-            QueryResult(records = mapped, totalCount = mapped.size, downsampled = false)
+            // Not a bucketable type (session, multi-value, cumulative): there is
+            // nothing to aggregate, so spread real records across the range.
+            is BucketResult.Error -> {
+                val all = category.query(recordType, from, to, maxRecords = MAX_RECORDS)
+                QueryResult.Records(
+                    records = downsampleEvenly(all, cap),
+                    totalCount = all.size,
+                    downsampled = true
+                )
+            }
         }
     }
 
@@ -128,7 +148,12 @@ class RealHealthConnectRepository internal constructor(
                 "Bucketing not supported for $recordType " +
                     "(session/multi-value/cumulative)."
             )
-        return BucketResult.Success(bucketize(values, from, bucket))
+        val aggregated = bucketize(values, from, bucket, maxValues = MAX_RECORDS)
+        return BucketResult.Success(
+            aggregated.buckets,
+            aggregated.totalCount,
+            aggregated.truncated
+        )
     }
 
     private fun categoryFor(recordType: String): CategoryQueries {
@@ -172,10 +197,13 @@ internal typealias PageFetcher =
 /**
  * [RecordReader] implementation backed by a [HealthConnectClient].
  *
- * Reads are paginated with a bounded [READ_PAGE_SIZE] and looped over the
- * response `pageToken` until exhausted, so a single Binder transaction never
- * carries a full unbounded page — the crash for high-volume types (e.g.
- * BloodGlucose from a CGM). Accumulation stops at [MAX_RECORDS] to bound memory.
+ * Reads are paginated and looped over the response `pageToken` until exhausted
+ * or the caller's cap is met. The cap reaches the request itself — page size is
+ * the smaller of [READ_PAGE_SIZE] and what the caller still needs — so a small
+ * cap costs a small read instead of materialising the whole range. A stream is
+ * normally bounded by its collector, which ends collection once it has folded
+ * enough; it also carries its own [STREAM_MAX_RECORDS] ceiling so that records
+ * yielding nothing to fold cannot walk the whole range.
  *
  * [fetchPage] is a seam so pagination can be unit-tested without a real client.
  */
@@ -185,23 +213,50 @@ internal class HealthConnectClientRecordReader(private val fetchPage: PageFetche
         fetchPage = { request -> client.readRecords(request) }
     )
 
-    @Suppress("UNCHECKED_CAST")
-    override suspend fun <T : Record> read(type: KClass<T>, from: Instant, to: Instant): List<T> {
-        val filter = TimeRangeFilter.between(from, to)
+    override suspend fun <T : Record> read(
+        type: KClass<T>,
+        from: Instant,
+        to: Instant,
+        maxRecords: Int
+    ): List<T> {
         val accumulated = mutableListOf<T>()
+        pages(type, from, to, maxRecords).collect { accumulated += it }
+        return accumulated.take(maxRecords)
+    }
+
+    override fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T> =
+        pages(type, from, to, STREAM_MAX_RECORDS).transform { page -> page.forEach { emit(it) } }
+
+    /**
+     * Pages of records, requesting no more per page than [maxRecords] still needs
+     * and stopping once that many have been fetched. Cancelling collection stops
+     * the read, so a collector that needs only the first few records pays for one
+     * page.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Record> pages(
+        type: KClass<T>,
+        from: Instant,
+        to: Instant,
+        maxRecords: Int
+    ): Flow<List<T>> = flow {
+        val filter = TimeRangeFilter.between(from, to)
+        var fetched = 0
         var pageToken: String? = null
         do {
             val response = fetchPage(
                 ReadRecordsRequest(
                     recordType = type,
                     timeRangeFilter = filter,
-                    pageSize = READ_PAGE_SIZE,
+                    pageSize = minOf(READ_PAGE_SIZE, maxRecords - fetched),
                     pageToken = pageToken
                 )
             ) as ReadRecordsResponse<T>
-            accumulated += response.records
+            emit(response.records)
+            fetched += response.records.size
             pageToken = response.pageToken
-        } while (pageToken != null && accumulated.size < MAX_RECORDS)
-        return accumulated
+            // An empty page ends the read: without this a token that never
+            // advances would loop forever.
+        } while (pageToken != null && response.records.isNotEmpty() && fetched < maxRecords)
     }
 }

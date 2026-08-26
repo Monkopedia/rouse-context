@@ -13,6 +13,7 @@ import androidx.health.connect.client.records.StepsCadenceRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WheelchairPushesRecord
+import com.rousecontext.integrations.health.MAX_RECORDS
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -48,14 +49,14 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
         recordType: String,
         from: Instant,
         to: Instant,
-        limit: Int?
+        maxRecords: Int
     ): List<JsonObject> = when (recordType) {
-        "Steps" -> querySteps(from, to, limit)
+        "Steps" -> querySteps(from, to)
         "ActiveCaloriesBurned" -> reader.queryRecords(
             ActiveCaloriesBurnedRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -69,7 +70,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             TotalCaloriesBurnedRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -83,7 +84,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             BasalMetabolicRateRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -98,7 +99,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             DistanceRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -112,7 +113,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             ElevationGainedRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -126,7 +127,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             FloorsClimbedRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -140,7 +141,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             ExerciseSessionRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -155,7 +156,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             SpeedRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             record.samples.map { sample ->
@@ -169,7 +170,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             PowerRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             record.samples.map { sample ->
@@ -183,7 +184,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             CyclingPedalingCadenceRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             record.samples.map { sample ->
@@ -197,7 +198,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             StepsCadenceRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             record.samples.map { sample ->
@@ -211,7 +212,7 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
             WheelchairPushesRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -227,14 +228,20 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("Steps" in granted) {
-                val steps = querySteps(from, to, null)
+                val steps = querySteps(from, to)
                 val total = steps.sumOf { it["count"]?.toString()?.toLongOrNull() ?: 0L }
                 put("steps_total", total)
             }
         }
 
-    private suspend fun querySteps(from: Instant, to: Instant, limit: Int?): List<JsonObject> {
-        val records = reader.read(StepsRecord::class, from, to)
+    /**
+     * Steps are returned as a per-day rollup, so the response is already an
+     * aggregate spanning the range and its size is bounded by the number of days
+     * rather than by the number of records. Totalling a day requires every record
+     * in it, so this reads up to [MAX_RECORDS] regardless of the caller's cap.
+     */
+    private suspend fun querySteps(from: Instant, to: Instant): List<JsonObject> {
+        val records = reader.read(StepsRecord::class, from, to, MAX_RECORDS)
         return records
             .groupBy { it.startTime.atZone(ZoneId.systemDefault()).toLocalDate() }
             .map { (date, dayRecords) ->
@@ -246,6 +253,5 @@ class ActivityQueries(private val reader: RecordReader) : CategoryQueries {
                 }
             }
             .sortedBy { it["date"].toString() }
-            .let { if (limit != null) it.take(limit) else it }
     }
 }

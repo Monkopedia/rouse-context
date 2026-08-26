@@ -49,7 +49,7 @@ class SleepQueriesTest {
                 )
             )
         )
-        val result = queries.query("SleepSession", from, to, null)
+        val result = queries.query("SleepSession", from, to)
         assertEquals(1, result.size)
         assertEquals(
             "2026-04-10T22:00:00Z",
@@ -83,13 +83,13 @@ class SleepQueriesTest {
             }
         )
         assertEquals(1, queries.query("SleepSession", from, to, 1).size)
-        assertEquals(3, queries.query("SleepSession", from, to, null).size)
+        assertEquals(3, queries.query("SleepSession", from, to).size)
     }
 
     @Test
     fun `query forwards from and to to reader`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("SleepSession", from, to, null)
+        queries.query("SleepSession", from, to)
         assertEquals(from, reader.reads[0].from)
         assertEquals(to, reader.reads[0].to)
     }

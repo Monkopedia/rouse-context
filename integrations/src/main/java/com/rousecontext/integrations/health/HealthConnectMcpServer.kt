@@ -1,11 +1,13 @@
 package com.rousecontext.integrations.health
 
 import com.rousecontext.integrations.common.PeriodParser
+import com.rousecontext.integrations.health.query.Bucket
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.mcp.tool.McpTool
 import com.rousecontext.mcp.tool.ToolResult
 import com.rousecontext.mcp.tool.registerTool
 import io.modelcontextprotocol.kotlin.sdk.server.Server
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -94,13 +96,20 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
     override val description =
         "Query Health Connect records by type and time range; " +
             "see list_record_types for types. " +
-            "Default returns raw records; when the range holds more than the cap " +
-            "(limit, else 500) the records are evenly downsampled across the range " +
-            "and the response carries total_count and downsampled=true. " +
-            "Pass 'bucket' (e.g. 1m, 5m, 1h, 1d) to instead get per-period stats " +
-            "{start,count,min,max,avg}; bucketing works only for scalar types " +
-            "(BloodGlucose, HeartRate, temperatures, weight, etc.) and rejects a " +
-            "too-fine bucket over a large range."
+            "Returns raw records when the range holds no more than the cap " +
+            "(limit, else 500). When it holds more, the records that fit would be " +
+            "only the range's earliest slice, so the answer is instead per-period " +
+            "stats {start,count,min,max,avg} across the range, with the chosen " +
+            "'bucket' width and a 'note' saying so; narrow the range or raise " +
+            "'limit' for raw records. A very dense range can exceed the sample " +
+            "ceiling aggregation folds, in which case 'truncated' is true and the " +
+            "buckets cover only the earliest part of it. Record types that cannot be aggregated " +
+            "(sessions, multi-value, cumulative) return records evenly spread " +
+            "across the range with downsampled=true. " +
+            "Pass 'bucket' (e.g. 1m, 5m, 1h, 1d) to ask for per-period stats " +
+            "directly; bucketing works only for scalar types (BloodGlucose, " +
+            "HeartRate, temperatures, weight, etc.) and rejects a too-fine bucket " +
+            "over a large range."
 
     val recordType by stringParam("record_type", "e.g. Steps, HeartRate, SleepSession").required()
     val since by stringParam("since", "ISO 8601 date or datetime").required()
@@ -137,13 +146,29 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
     }
 
     private suspend fun executeRaw(type: String, from: Instant, to: Instant): ToolResult {
-        val query = repository.queryRecords(type, from, to, limit)
-        val result = buildJsonObject {
-            put("record_type", type)
-            put("count", JsonPrimitive(query.records.size))
-            put("total_count", JsonPrimitive(query.totalCount))
-            put("downsampled", query.downsampled)
-            put("records", buildJsonArray { query.records.forEach { add(it) } })
+        val result = when (val query = repository.queryRecords(type, from, to, limit)) {
+            is QueryResult.Records -> buildJsonObject {
+                put("record_type", type)
+                put("count", JsonPrimitive(query.records.size))
+                put("total_count", JsonPrimitive(query.totalCount))
+                put("downsampled", query.downsampled)
+                put("records", buildJsonArray { query.records.forEach { add(it) } })
+            }
+            is QueryResult.Buckets -> {
+                val spec = formatBucket(query.width)
+                bucketsJson(
+                    type = type,
+                    bucketSpec = spec,
+                    buckets = query.buckets,
+                    totalCount = query.totalCount,
+                    truncated = query.truncated,
+                    note = "The range holds more than the cap of " +
+                        "${limit ?: DEFAULT_MAX_RECORDS} records, so returning $spec " +
+                        "aggregates instead of its earliest records. " +
+                        coverageNote(query, to) +
+                        " Narrow 'since'/'until' or raise 'limit' to get raw records."
+                )
+            }
         }
         return ToolResult.Success(Json.encodeToString(result))
     }
@@ -161,30 +186,85 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
             )
         return when (val outcome = repository.bucketRecords(type, from, to, duration)) {
             is BucketResult.Error -> ToolResult.Error(outcome.message)
-            is BucketResult.Success -> {
-                val result = buildJsonObject {
-                    put("record_type", type)
-                    put("bucket", bucketSpec)
-                    put("buckets", buildJsonArray { outcome.buckets.forEach { add(it.toJson()) } })
-                }
-                ToolResult.Success(Json.encodeToString(result))
-            }
+            is BucketResult.Success -> ToolResult.Success(
+                Json.encodeToString(
+                    bucketsJson(
+                        type = type,
+                        bucketSpec = bucketSpec,
+                        buckets = outcome.buckets,
+                        totalCount = outcome.totalCount,
+                        truncated = outcome.truncated,
+                        note = if (outcome.truncated) truncationNote(outcome.buckets) else null
+                    )
+                )
+            )
         }
+    }
+
+    private fun bucketsJson(
+        type: String,
+        bucketSpec: String,
+        buckets: List<Bucket>,
+        totalCount: Int,
+        truncated: Boolean,
+        note: String?
+    ) = buildJsonObject {
+        put("record_type", type)
+        put("bucket", bucketSpec)
+        put("total_count", JsonPrimitive(totalCount))
+        put("truncated", truncated)
+        put("buckets", buildJsonArray { buckets.forEach { add(it.toJson()) } })
+        if (note != null) put("note", note)
+    }
+
+    /**
+     * Says what the buckets actually cover. Aggregation stops at a sample
+     * ceiling, so on a very dense range the buckets end early — claiming
+     * whole-range coverage there would be false.
+     */
+    private fun coverageNote(query: QueryResult.Buckets, to: Instant): String =
+        if (query.truncated) {
+            truncationNote(query.buckets)
+        } else {
+            "They span the whole range, up to $to."
+        }
+
+    private fun truncationNote(buckets: List<Bucket>): String {
+        val covered = buckets.lastOrNull()?.start
+        return "Aggregation stopped at its ceiling of $MAX_RECORDS samples, so these " +
+            "buckets cover only the earliest part of the range" +
+            (if (covered != null) ", up to $covered" else "") +
+            " — narrow 'since'/'until' to see the rest."
     }
 
     private companion object {
         private val BUCKET_PATTERN = Regex("^(\\d+)([smhd])$")
 
         /** Parse a `<int><unit>` bucket spec (unit s/m/h/d) to a positive [Duration]. */
-        fun parseBucket(spec: String): java.time.Duration? {
+        fun parseBucket(spec: String): Duration? {
             val match = BUCKET_PATTERN.matchEntire(spec.trim()) ?: return null
             val amount = match.groupValues[1].toLongOrNull()?.takeIf { it > 0 } ?: return null
             return when (match.groupValues[2]) {
-                "s" -> java.time.Duration.ofSeconds(amount)
-                "m" -> java.time.Duration.ofMinutes(amount)
-                "h" -> java.time.Duration.ofHours(amount)
-                "d" -> java.time.Duration.ofDays(amount)
+                "s" -> Duration.ofSeconds(amount)
+                "m" -> Duration.ofMinutes(amount)
+                "h" -> Duration.ofHours(amount)
+                "d" -> Duration.ofDays(amount)
                 else -> null
+            }
+        }
+
+        /**
+         * Render a bucket width in the same `<int><unit>` form the tool accepts,
+         * using the largest unit that divides it exactly. Sub-second widths round
+         * up to `1s`, the finest spec the tool can express.
+         */
+        fun formatBucket(width: Duration): String {
+            val seconds = width.toSeconds().coerceAtLeast(1)
+            return when {
+                seconds % 86_400L == 0L -> "${seconds / 86_400L}d"
+                seconds % 3_600L == 0L -> "${seconds / 3_600L}h"
+                seconds % 60L == 0L -> "${seconds / 60L}m"
+                else -> "${seconds}s"
             }
         }
     }

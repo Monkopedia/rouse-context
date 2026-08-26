@@ -7,6 +7,8 @@ import androidx.health.connect.client.records.LeanBodyMassRecord
 import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.WeightRecord
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -30,13 +32,13 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
         recordType: String,
         from: Instant,
         to: Instant,
-        limit: Int?
+        maxRecords: Int
     ): List<JsonObject> = when (recordType) {
         "Weight" -> reader.queryRecords(
             WeightRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -50,7 +52,7 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
             HeightRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -64,7 +66,7 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
             BodyFatRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -78,7 +80,7 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
             BoneMassRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -92,7 +94,7 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
             LeanBodyMassRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -106,7 +108,7 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
             Vo2MaxRecord::class,
             from,
             to,
-            limit,
+            maxRecords,
             sortByTime = true
         ) { record ->
             listOf(
@@ -120,30 +122,27 @@ class BodyQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override suspend fun bucketValues(
-        recordType: String,
-        from: Instant,
-        to: Instant
-    ): List<TimedValue>? = when (recordType) {
-        "Weight" -> reader.read(WeightRecord::class, from, to)
-            .map { TimedValue(it.time, it.weight.inKilograms) }
-        "Height" -> reader.read(HeightRecord::class, from, to)
-            .map { TimedValue(it.time, it.height.inMeters) }
-        "BodyFat" -> reader.read(BodyFatRecord::class, from, to)
-            .map { TimedValue(it.time, it.percentage.value) }
-        "BoneMass" -> reader.read(BoneMassRecord::class, from, to)
-            .map { TimedValue(it.time, it.mass.inKilograms) }
-        "LeanBodyMass" -> reader.read(LeanBodyMassRecord::class, from, to)
-            .map { TimedValue(it.time, it.mass.inKilograms) }
-        "Vo2Max" -> reader.read(Vo2MaxRecord::class, from, to)
-            .map { TimedValue(it.time, it.vo2MillilitersPerMinuteKilogram) }
-        else -> null
-    }
+    override fun bucketValues(recordType: String, from: Instant, to: Instant): Flow<TimedValue>? =
+        when (recordType) {
+            "Weight" -> reader.stream(WeightRecord::class, from, to)
+                .map { TimedValue(it.time, it.weight.inKilograms) }
+            "Height" -> reader.stream(HeightRecord::class, from, to)
+                .map { TimedValue(it.time, it.height.inMeters) }
+            "BodyFat" -> reader.stream(BodyFatRecord::class, from, to)
+                .map { TimedValue(it.time, it.percentage.value) }
+            "BoneMass" -> reader.stream(BoneMassRecord::class, from, to)
+                .map { TimedValue(it.time, it.mass.inKilograms) }
+            "LeanBodyMass" -> reader.stream(LeanBodyMassRecord::class, from, to)
+                .map { TimedValue(it.time, it.mass.inKilograms) }
+            "Vo2Max" -> reader.stream(Vo2MaxRecord::class, from, to)
+                .map { TimedValue(it.time, it.vo2MillilitersPerMinuteKilogram) }
+            else -> null
+        }
 
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("Weight" in granted) {
-                val weights = query("Weight", from, to, null)
+                val weights = query("Weight", from, to)
                 val latest = weights.lastOrNull()
                 if (latest != null) {
                     val kg = latest["kg"]?.toString()?.toDoubleOrNull()

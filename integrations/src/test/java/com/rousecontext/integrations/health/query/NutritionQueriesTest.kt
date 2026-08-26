@@ -41,7 +41,7 @@ class NutritionQueriesTest {
                 )
             )
         )
-        val result = queries.query("Hydration", from, to, null)
+        val result = queries.query("Hydration", from, to)
         assertEquals("0.5", result[0]["liters"]!!.jsonPrimitive.content)
         assertNotNull(result[0]["start_time"])
         assertNotNull(result[0]["end_time"])
@@ -67,7 +67,7 @@ class NutritionQueriesTest {
                 )
             )
         )
-        val result = queries.query("Nutrition", from, to, null)
+        val result = queries.query("Nutrition", from, to)
         assertEquals("Lunch", result[0]["name"]!!.jsonPrimitive.content)
         assertEquals("650.0", result[0]["kcal"]!!.jsonPrimitive.content)
         assertEquals("35.0", result[0]["protein_g"]!!.jsonPrimitive.content)
@@ -90,7 +90,7 @@ class NutritionQueriesTest {
                 )
             )
         )
-        val result = queries.query("Nutrition", from, to, null)
+        val result = queries.query("Nutrition", from, to)
         assertNull(result[0]["name"])
         assertNull(result[0]["kcal"])
         assertNull(result[0]["protein_g"])
@@ -121,7 +121,7 @@ class NutritionQueriesTest {
     @Test
     fun `query forwards from and to`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("Hydration", from, to, null)
+        queries.query("Hydration", from, to)
         assertEquals(from, reader.reads[0].from)
         assertEquals(to, reader.reads[0].to)
     }
