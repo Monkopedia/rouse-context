@@ -19,6 +19,7 @@ import androidx.health.connect.client.units.Temperature
 import androidx.health.connect.client.units.TemperatureDelta
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -65,7 +66,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("HeartRate", from, to, null)
+        val result = queries.query("HeartRate", from, to)
         assertEquals(2, result.size)
         assertEquals("70", result[0]["bpm"]!!.jsonPrimitive.content)
         assertEquals("75", result[1]["bpm"]!!.jsonPrimitive.content)
@@ -85,7 +86,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("RestingHeartRate", from, to, null)
+        val result = queries.query("RestingHeartRate", from, to)
         assertEquals("58", result[0]["bpm"]!!.jsonPrimitive.content)
     }
 
@@ -103,7 +104,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("HeartRateVariabilityRmssd", from, to, null)
+        val result = queries.query("HeartRateVariabilityRmssd", from, to)
         assertEquals("45.2", result[0]["rmssd_ms"]!!.jsonPrimitive.content)
     }
 
@@ -124,7 +125,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("BloodPressure", from, to, null)
+        val result = queries.query("BloodPressure", from, to)
         assertEquals("120.0", result[0]["systolic"]!!.jsonPrimitive.content)
         assertEquals("80.0", result[0]["diastolic"]!!.jsonPrimitive.content)
     }
@@ -146,7 +147,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("BloodGlucose", from, to, null)
+        val result = queries.query("BloodGlucose", from, to)
         assertEquals("5.4", result[0]["mmol_per_l"]!!.jsonPrimitive.content)
     }
 
@@ -164,7 +165,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("OxygenSaturation", from, to, null)
+        val result = queries.query("OxygenSaturation", from, to)
         assertEquals("98.0", result[0]["percentage"]!!.jsonPrimitive.content)
     }
 
@@ -182,7 +183,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("RespiratoryRate", from, to, null)
+        val result = queries.query("RespiratoryRate", from, to)
         assertEquals("16.0", result[0]["breaths_per_minute"]!!.jsonPrimitive.content)
     }
 
@@ -201,7 +202,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("BodyTemperature", from, to, null)
+        val result = queries.query("BodyTemperature", from, to)
         assertEquals("37.0", result[0]["celsius"]!!.jsonPrimitive.content)
         assertNotNull(result[0]["measurement_location"])
     }
@@ -221,7 +222,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("BasalBodyTemperature", from, to, null)
+        val result = queries.query("BasalBodyTemperature", from, to)
         assertEquals("36.6", result[0]["celsius"]!!.jsonPrimitive.content)
     }
 
@@ -248,7 +249,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val result = queries.query("SkinTemperature", from, to, null)
+        val result = queries.query("SkinTemperature", from, to)
         assertEquals(1, result.size)
         assertEquals("34.0", result[0]["baseline_celsius"]!!.jsonPrimitive.content)
         val deltas = result[0]["deltas"]!!.jsonPrimitive.content
@@ -276,7 +277,7 @@ class VitalsQueriesTest {
     @Test
     fun `query forwards from and to`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("RestingHeartRate", from, to, null)
+        queries.query("RestingHeartRate", from, to)
         assertEquals(from, reader.reads[0].from)
         assertEquals(to, reader.reads[0].to)
     }
@@ -341,7 +342,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val values = queries.bucketValues("BloodGlucose", from, to)!!
+        val values = queries.bucketValues("BloodGlucose", from, to)!!.toList()
         assertEquals(1, values.size)
         assertEquals(5.4, values[0].value, 0.0001)
         assertEquals(Instant.parse("2026-04-10T08:00:00Z"), values[0].time)
@@ -366,7 +367,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val values = queries.bucketValues("HeartRate", from, to)!!
+        val values = queries.bucketValues("HeartRate", from, to)!!.toList()
         assertEquals(listOf(70.0, 80.0), values.map { it.value })
     }
 

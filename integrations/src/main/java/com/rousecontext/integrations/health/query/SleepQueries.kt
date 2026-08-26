@@ -19,13 +19,13 @@ class SleepQueries(private val reader: RecordReader) : CategoryQueries {
         recordType: String,
         from: Instant,
         to: Instant,
-        limit: Int?
+        maxRecords: Int
     ): List<JsonObject> = when (recordType) {
         "SleepSession" -> reader.queryRecords(
             SleepSessionRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             val stagesArray = buildJsonArray {
                 record.stages.forEach { stage ->
@@ -52,7 +52,7 @@ class SleepQueries(private val reader: RecordReader) : CategoryQueries {
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
             if ("SleepSession" in granted) {
-                val sessions = query("SleepSession", from, to, null)
+                val sessions = query("SleepSession", from, to)
                 val totalMinutes = sessions.sumOf { session ->
                     val start = session["start_time"]?.toString()?.trim('"')
                     val end = session["end_time"]?.toString()?.trim('"')

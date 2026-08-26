@@ -58,7 +58,7 @@ class MindfulnessQueriesTest {
                 )
             )
         )
-        val result = queries.query("MindfulnessSession", from, to, null)
+        val result = queries.query("MindfulnessSession", from, to)
         assertEquals(2, result.size)
         assertNotNull(result[0]["session_type"])
         assertEquals("Morning", result[0]["title"]!!.jsonPrimitive.content)
@@ -91,7 +91,7 @@ class MindfulnessQueriesTest {
     @Test
     fun `query forwards from and to`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("MindfulnessSession", from, to, null)
+        queries.query("MindfulnessSession", from, to)
         assertEquals(from, reader.reads[0].from)
         assertEquals(to, reader.reads[0].to)
     }

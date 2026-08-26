@@ -2,6 +2,9 @@ package com.rousecontext.integrations.health.query
 
 import java.time.Duration
 import java.time.Instant
+import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,14 +14,16 @@ class BucketAggregationTest {
     private val from: Instant = Instant.parse("2026-04-01T00:00:00Z")
 
     @Test
-    fun `bucketize groups by hour and computes count min max avg`() {
+    fun `bucketize groups by hour and computes count min max avg`() = runBlocking {
         val values = listOf(
             TimedValue(from.plusSeconds(60), 5.0),
             TimedValue(from.plusSeconds(120), 7.0),
             // second hour
             TimedValue(from.plusSeconds(3600 + 30), 10.0)
         )
-        val buckets = bucketize(values, from, Duration.ofHours(1))
+        val aggregated = bucketize(values.asFlow(), from, Duration.ofHours(1))
+        assertEquals(3, aggregated.totalCount)
+        val buckets = aggregated.buckets
         assertEquals(2, buckets.size)
 
         assertEquals(from, buckets[0].start)
@@ -33,21 +38,37 @@ class BucketAggregationTest {
     }
 
     @Test
-    fun `bucketize skips empty buckets`() {
+    fun `bucketize skips empty buckets`() = runBlocking {
         val values = listOf(
             TimedValue(from.plusSeconds(30), 1.0),
             // gap: nothing in hours 1 and 2
             TimedValue(from.plusSeconds(3 * 3600 + 30), 2.0)
         )
-        val buckets = bucketize(values, from, Duration.ofHours(1))
+        val buckets = bucketize(values.asFlow(), from, Duration.ofHours(1)).buckets
         assertEquals(2, buckets.size)
         assertEquals(from, buckets[0].start)
         assertEquals(from.plusSeconds(3 * 3600), buckets[1].start)
     }
 
     @Test
-    fun `bucketize returns empty for no values`() {
-        assertTrue(bucketize(emptyList(), from, Duration.ofHours(1)).isEmpty())
+    fun `bucketize returns empty for no values`() = runBlocking {
+        val aggregated = bucketize(emptyFlow(), from, Duration.ofHours(1))
+        assertTrue(aggregated.buckets.isEmpty())
+        assertEquals(0, aggregated.totalCount)
+    }
+
+    @Test
+    fun `spanningBucketWidth divides the range into at most the requested buckets`() {
+        val to = from.plus(Duration.ofDays(30))
+        val width = spanningBucketWidth(from, to, buckets = 100)
+        assertTrue(
+            "width must cover the range in <= 100 buckets",
+            width.toMillis() * 100 >= Duration.between(from, to).toMillis()
+        )
+        assertTrue(
+            "width must not be needlessly coarse",
+            width.toMillis() * 101 >= Duration.between(from, to).toMillis()
+        )
     }
 
     @Test

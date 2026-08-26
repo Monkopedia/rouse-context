@@ -1,6 +1,7 @@
 package com.rousecontext.integrations.health
 
 import com.rousecontext.integrations.health.query.Bucket
+import java.time.Duration
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
 
@@ -15,13 +16,17 @@ interface HealthConnectRepository {
     /**
      * Query records of the given [recordType] within the time range.
      *
-     * The underlying read is paginated and bounded, so high-volume types (e.g.
-     * BloodGlucose from a CGM) no longer overflow the Health Connect Binder
-     * transaction limit. When the number of mapped records exceeds the cap
-     * ([limit] if given, else a default), the result is evenly downsampled across
-     * the whole range — real records are kept, spread out — and
-     * [QueryResult.downsampled] is set with the pre-downsample
-     * [QueryResult.totalCount].
+     * The read is bounded by the cap ([limit] if given, else
+     * [DEFAULT_MAX_RECORDS]) — the cap reaches the Health Connect request rather
+     * than being applied to a fully materialised range.
+     *
+     * When the range holds more than the cap, returning the records that fit
+     * would return its *earliest slice*, which is not an answer about the range.
+     * So the query is instead answered with [QueryResult.Buckets]: per-window
+     * count/min/max/avg spanning the whole range, streamed and folded so the
+     * range is never materialised. Record types that cannot be bucketed
+     * (sessions, multi-value, cumulative) fall back to [QueryResult.Records]
+     * evenly spread across the range with `downsampled` set.
      *
      * @param recordType one of the names in [RecordTypeRegistry], e.g. "Steps"
      * @param from start of time range (inclusive)
@@ -49,7 +54,7 @@ interface HealthConnectRepository {
         recordType: String,
         from: Instant,
         to: Instant,
-        bucket: java.time.Duration
+        bucket: Duration
     ): BucketResult
 
     /**
@@ -81,12 +86,34 @@ interface HealthConnectRepository {
 /**
  * Result of [HealthConnectRepository.queryRecords].
  *
- * @param records the (possibly downsampled) record objects, wire-compatible with
- *   the pre-existing per-type JSON shape
- * @param totalCount number of mapped records before any downsampling
- * @param downsampled true when [records] is an evenly-spread subset of the full set
+ *  - [Records] carries raw record objects, wire-compatible with the pre-existing
+ *    per-type JSON shape.
+ *  - [Buckets] carries per-window aggregates, used when the range holds more raw
+ *    records than the cap so that the answer spans the range instead of being its
+ *    earliest slice.
  */
-data class QueryResult(val records: List<JsonObject>, val totalCount: Int, val downsampled: Boolean)
+sealed class QueryResult {
+
+    /**
+     * @param records the record objects, evenly spread across the range when
+     *   [downsampled] is set
+     * @param totalCount number of mapped records before any downsampling
+     * @param downsampled true when [records] is an evenly-spread subset
+     */
+    data class Records(
+        val records: List<JsonObject>,
+        val totalCount: Int,
+        val downsampled: Boolean
+    ) : QueryResult()
+
+    /**
+     * @param buckets per-window count/min/max/avg, ordered by start time
+     * @param width the window width the range was divided into
+     * @param totalCount number of samples aggregated
+     */
+    data class Buckets(val buckets: List<Bucket>, val width: Duration, val totalCount: Int) :
+        QueryResult()
+}
 
 /**
  * Result of [HealthConnectRepository.bucketRecords].
@@ -96,18 +123,29 @@ data class QueryResult(val records: List<JsonObject>, val totalCount: Int, val d
  *    large range, or a non-bucketable record type). Callers surface it verbatim.
  */
 sealed class BucketResult {
-    data class Success(val buckets: List<Bucket>) : BucketResult()
+    data class Success(val buckets: List<Bucket>, val totalCount: Int) : BucketResult()
 
     data class Error(val message: String) : BucketResult()
 }
 
-/** Upper bound on records accumulated by a single paginated read, to bound memory. */
+/** Upper bound on records a single read or aggregation will visit, to bound work. */
 const val MAX_RECORDS: Int = 50_000
 
 /** Default cap on raw records returned by a query when the caller gives no limit. */
 const val DEFAULT_MAX_RECORDS: Int = 500
 
-/** Health Connect page size for paginated reads, safely under the Binder limit. */
+/**
+ * Health Connect page size for paginated reads.
+ *
+ * This deliberately pins `ReadRecordsRequest`'s own default rather than picking a
+ * smaller number: a Pixel 6 Pro read real Health Connect cleanly at page sizes up
+ * to 3000 (issue #545), so shrinking it to stay under the Binder transaction
+ * limit would be a speculative fix for a mechanism that was measured not to
+ * exist, at the cost of tripling the round-trips. `PaginatedReaderTest` asserts
+ * the pinning, so a change in the library default surfaces as a failing test
+ * rather than a silent drift. A caller's own cap still shrinks the page below
+ * this — see [com.rousecontext.integrations.health.query.RecordReader.read].
+ */
 const val READ_PAGE_SIZE: Int = 1000
 
 /** Upper bound on the number of buckets a single bucketed query may produce. */

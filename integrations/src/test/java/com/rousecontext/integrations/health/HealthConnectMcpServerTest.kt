@@ -213,7 +213,8 @@ class HealthConnectMcpServerTest {
                     max = 7.0,
                     avg = 6.0
                 )
-            )
+            ),
+            totalCount = 2
         )
         val result = callTool(
             "query_health_data",

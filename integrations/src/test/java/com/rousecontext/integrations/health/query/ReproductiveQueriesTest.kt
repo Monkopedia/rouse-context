@@ -39,7 +39,7 @@ class ReproductiveQueriesTest {
                 )
             )
         )
-        val result = queries.query("MenstruationFlow", from, to, null)
+        val result = queries.query("MenstruationFlow", from, to)
         assertNotNull(result[0]["flow"])
         assertNotNull(result[0]["time"])
     }
@@ -59,7 +59,7 @@ class ReproductiveQueriesTest {
                 )
             )
         )
-        val result = queries.query("MenstruationPeriod", from, to, null)
+        val result = queries.query("MenstruationPeriod", from, to)
         assertEquals(
             "2026-04-10T00:00:00Z",
             result[0]["start_time"]!!.jsonPrimitive.content
@@ -85,7 +85,7 @@ class ReproductiveQueriesTest {
                 )
             )
         )
-        val result = queries.query("CervicalMucus", from, to, null)
+        val result = queries.query("CervicalMucus", from, to)
         assertNotNull(result[0]["appearance"])
         assertNotNull(result[0]["sensation"])
     }
@@ -104,7 +104,7 @@ class ReproductiveQueriesTest {
                 )
             )
         )
-        val result = queries.query("OvulationTest", from, to, null)
+        val result = queries.query("OvulationTest", from, to)
         assertNotNull(result[0]["result"])
     }
 
@@ -121,7 +121,7 @@ class ReproductiveQueriesTest {
                 )
             )
         )
-        val result = queries.query("IntermenstrualBleeding", from, to, null)
+        val result = queries.query("IntermenstrualBleeding", from, to)
         assertEquals(
             "2026-04-10T08:00:00Z",
             result[0]["time"]!!.jsonPrimitive.content
@@ -142,7 +142,7 @@ class ReproductiveQueriesTest {
                 )
             )
         )
-        val result = queries.query("SexualActivity", from, to, null)
+        val result = queries.query("SexualActivity", from, to)
         assertNotNull(result[0]["protection_used"])
     }
 
@@ -166,7 +166,7 @@ class ReproductiveQueriesTest {
     @Test
     fun `query forwards from and to`() = runBlocking {
         val (queries, reader) = make()
-        queries.query("MenstruationFlow", from, to, null)
+        queries.query("MenstruationFlow", from, to)
         assertEquals(from, reader.reads[0].from)
         assertEquals(to, reader.reads[0].to)
     }

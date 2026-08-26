@@ -2,6 +2,7 @@ package com.rousecontext.integrations.health.query
 
 import java.time.Duration
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -34,37 +35,69 @@ data class Bucket(
     }
 }
 
+/** [buckets] plus the number of samples they were folded from. */
+data class BucketedValues(val buckets: List<Bucket>, val totalCount: Int)
+
 /**
- * Group [values] into fixed-width [bucket] windows aligned to [from], emitting a
+ * Fold [values] into fixed-width [width] windows aligned to [from], emitting a
  * [Bucket] per non-empty window (empty windows are skipped). Buckets are ordered
  * by start time.
+ *
+ * Values are folded as they arrive, so aggregating a range costs memory
+ * proportional to the number of buckets rather than to the number of records in
+ * it — the whole point of answering a wide window with aggregates.
  */
-fun bucketize(values: List<TimedValue>, from: Instant, bucket: Duration): List<Bucket> {
-    if (values.isEmpty()) return emptyList()
-    val width = bucket.toMillis()
+suspend fun bucketize(values: Flow<TimedValue>, from: Instant, width: Duration): BucketedValues {
+    val widthMillis = width.toMillis()
     val fromMillis = from.toEpochMilli()
-    val byIndex = sortedMapOf<Long, MutableList<Double>>()
-    for (tv in values) {
+    val byIndex = sortedMapOf<Long, Accumulator>()
+    var total = 0
+    values.collect { tv ->
+        total++
         val offset = tv.time.toEpochMilli() - fromMillis
-        val index = if (offset < 0) 0L else offset / width
-        byIndex.getOrPut(index) { mutableListOf() }.add(tv.value)
+        val index = if (offset < 0) 0L else offset / widthMillis
+        byIndex.getOrPut(index) { Accumulator() }.add(tv.value)
     }
-    return byIndex.map { (index, vals) ->
-        Bucket(
-            start = Instant.ofEpochMilli(fromMillis + index * width),
-            count = vals.size,
-            min = vals.min(),
-            max = vals.max(),
-            avg = vals.average()
-        )
+    val buckets = byIndex.map { (index, acc) ->
+        acc.toBucket(Instant.ofEpochMilli(fromMillis + index * widthMillis))
     }
+    return BucketedValues(buckets, total)
+}
+
+/**
+ * Bucket width that divides `[from, to)` into at most [buckets] windows, so the
+ * answer spans the whole range at the resolution the caller's cap implies.
+ * Never shorter than a millisecond.
+ */
+fun spanningBucketWidth(from: Instant, to: Instant, buckets: Int): Duration {
+    require(buckets > 0) { "buckets must be positive" }
+    val span = (to.toEpochMilli() - from.toEpochMilli()).coerceAtLeast(1)
+    return Duration.ofMillis((span + buckets - 1) / buckets)
+}
+
+/** Running count/min/max/sum for one bucket, so no per-bucket value list is kept. */
+private class Accumulator {
+    private var count = 0
+    private var min = Double.MAX_VALUE
+    private var max = -Double.MAX_VALUE
+    private var sum = 0.0
+
+    fun add(value: Double) {
+        count++
+        if (value < min) min = value
+        if (value > max) max = value
+        sum += value
+    }
+
+    fun toBucket(start: Instant): Bucket =
+        Bucket(start = start, count = count, min = min, max = max, avg = sum / count)
 }
 
 /**
  * Evenly downsample [items] to at most [cap] entries, preserving order and always
- * retaining the first and last element. Used to bound raw-record responses for
- * high-volume record types (e.g. CGM blood glucose) while keeping coverage spread
- * across the whole time range rather than clustered at one end.
+ * retaining the first and last element. Used to spread the response across the
+ * whole time range for record types that cannot be bucketed (sessions,
+ * multi-value, cumulative) rather than returning its earliest slice.
  */
 fun <T> downsampleEvenly(items: List<T>, cap: Int): List<T> {
     require(cap > 0) { "cap must be positive" }

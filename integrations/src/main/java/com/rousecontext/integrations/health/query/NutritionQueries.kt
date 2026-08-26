@@ -18,13 +18,13 @@ class NutritionQueries(private val reader: RecordReader) : CategoryQueries {
         recordType: String,
         from: Instant,
         to: Instant,
-        limit: Int?
+        maxRecords: Int
     ): List<JsonObject> = when (recordType) {
         "Hydration" -> reader.queryRecords(
             HydrationRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {
@@ -38,7 +38,7 @@ class NutritionQueries(private val reader: RecordReader) : CategoryQueries {
             NutritionRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {

@@ -19,13 +19,13 @@ class MindfulnessQueries(private val reader: RecordReader) : CategoryQueries {
         recordType: String,
         from: Instant,
         to: Instant,
-        limit: Int?
+        maxRecords: Int
     ): List<JsonObject> = when (recordType) {
         "MindfulnessSession" -> reader.queryRecords(
             MindfulnessSessionRecord::class,
             from,
             to,
-            limit
+            maxRecords
         ) { record ->
             listOf(
                 buildJsonObject {

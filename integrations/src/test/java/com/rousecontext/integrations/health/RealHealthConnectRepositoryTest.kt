@@ -4,6 +4,8 @@ import com.rousecontext.integrations.health.query.CategoryQueries
 import com.rousecontext.integrations.health.query.TimedValue
 import java.time.Duration
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -34,17 +36,25 @@ class RealHealthConnectRepositoryTest {
         private val summaryValue: Long = 0L,
         private val bucketable: Map<String, List<TimedValue>> = emptyMap()
     ) : CategoryQueries {
-        val queryCalls: MutableList<Triple<String, Instant, Instant>> = mutableListOf()
+        val queryCalls: MutableList<QueryCall> = mutableListOf()
         var bucketValuesCalled = false
+
+        data class QueryCall(
+            val recordType: String,
+            val from: Instant,
+            val to: Instant,
+            val maxRecords: Int
+        )
 
         override suspend fun query(
             recordType: String,
             from: Instant,
             to: Instant,
-            limit: Int?
+            maxRecords: Int
         ): List<JsonObject> {
-            queryCalls += Triple(recordType, from, to)
-            return queryResponse
+            queryCalls += QueryCall(recordType, from, to, maxRecords)
+            // Behave like the real reader: never hand back more than was asked for.
+            return queryResponse.take(maxRecords)
         }
 
         override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
@@ -54,13 +64,13 @@ class RealHealthConnectRepositoryTest {
                 }
             }
 
-        override suspend fun bucketValues(
+        override fun bucketValues(
             recordType: String,
             from: Instant,
             to: Instant
-        ): List<TimedValue>? {
+        ): Flow<TimedValue>? {
             bucketValuesCalled = true
-            return bucketable[recordType]
+            return bucketable[recordType]?.asFlow()
         }
     }
 
@@ -84,10 +94,10 @@ class RealHealthConnectRepositoryTest {
         repo.queryRecords("Distance", from, to, 10)
 
         assertEquals(1, body.queryCalls.size)
-        assertEquals("Weight", body.queryCalls[0].first)
+        assertEquals("Weight", body.queryCalls[0].recordType)
 
         assertEquals(1, activity.queryCalls.size)
-        assertEquals("Distance", activity.queryCalls[0].first)
+        assertEquals("Distance", activity.queryCalls[0].recordType)
     }
 
     @Test
@@ -170,40 +180,113 @@ class RealHealthConnectRepositoryTest {
     }
 
     @Test
-    fun `queryRecords under cap returns all with downsampled false`() = runBlocking {
+    fun `queryRecords under cap returns all records and reads only the cap`() = runBlocking {
         val cat = RecordingCategory(setOf("BloodGlucose"), queryResponse = jsonRecords(10))
         val repo = make(listOf(cat))
 
         val result = repo.queryRecords("BloodGlucose", from, to, limit = 100)
+        result as QueryResult.Records
         assertEquals(10, result.records.size)
         assertEquals(10, result.totalCount)
         assertTrue(!result.downsampled)
+        // One bounded read, sized to the cap (+1, to tell "fits" from "there is more").
+        assertEquals(1, cat.queryCalls.size)
+        assertEquals(101, cat.queryCalls[0].maxRecords)
     }
 
     @Test
-    fun `queryRecords over cap downsamples to cap keeping first and last`() = runBlocking {
-        val cat = RecordingCategory(setOf("BloodGlucose"), queryResponse = jsonRecords(100))
-        val repo = make(listOf(cat))
+    fun `queryRecords over a spanning window returns buckets covering the whole range`() =
+        runBlocking {
+            // 2000 samples evenly spread across the window: far more than the cap.
+            val count = 2000
+            val step = Duration.between(from, to).toMillis() / count
+            val values = (0 until count).map {
+                TimedValue(from.plusMillis(it * step), it.toDouble())
+            }
+            val cat = RecordingCategory(
+                setOf("BloodGlucose"),
+                queryResponse = jsonRecords(count),
+                bucketable = mapOf("BloodGlucose" to values)
+            )
+            val repo = make(listOf(cat))
 
-        val result = repo.queryRecords("BloodGlucose", from, to, limit = 10)
-        assertEquals(10, result.records.size)
-        assertEquals(100, result.totalCount)
-        assertTrue(result.downsampled)
-        assertEquals(0, result.records.first()["i"]!!.jsonPrimitive.content.toInt())
-        assertEquals(99, result.records.last()["i"]!!.jsonPrimitive.content.toInt())
-    }
+            val result = repo.queryRecords("BloodGlucose", from, to, limit = 100)
+
+            assertTrue(
+                "a spanning query must be answered with aggregates across the range, not " +
+                    "its earliest slice; got ${result::class.simpleName}",
+                result is QueryResult.Buckets
+            )
+            result as QueryResult.Buckets
+            assertEquals(count, result.totalCount)
+            assertTrue("must produce buckets", result.buckets.size > 1)
+
+            // The answer must be a picture of the WHOLE window, not its earliest slice.
+            val firstStart = result.buckets.first().start
+            val lastStart = result.buckets.last().start
+            assertTrue(
+                "first bucket must start at the window start, was $firstStart",
+                !firstStart.isBefore(from) && firstStart.isBefore(from.plus(result.width))
+            )
+            assertTrue(
+                "last bucket must reach the window end, was $lastStart",
+                !lastStart.isBefore(to.minus(result.width.multipliedBy(2)))
+            )
+            // and it must carry the values from the far end of the window
+            assertEquals((count - 1).toDouble(), result.buckets.last().max, 0.0001)
+        }
 
     @Test
-    fun `queryRecords uses default cap when limit null`() = runBlocking {
+    fun `queryRecords does not materialise the window when routing to buckets`() = runBlocking {
+        val count = 2000
+        val step = Duration.between(from, to).toMillis() / count
+        val values = (0 until count).map { TimedValue(from.plusMillis(it * step), it.toDouble()) }
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
+            queryResponse = jsonRecords(count),
+            bucketable = mapOf("BloodGlucose" to values)
+        )
+        val repo = make(listOf(cat))
+
+        repo.queryRecords("BloodGlucose", from, to, limit = 50)
+
+        assertEquals(
+            "only the bounded probe read; the spread comes from streamed aggregation",
+            1,
+            cat.queryCalls.size
+        )
+        assertEquals(51, cat.queryCalls[0].maxRecords)
+    }
+
+    @Test
+    fun `queryRecords spreads records across the range for a non-bucketable overflow`() =
+        runBlocking {
+            // No bucketable values => cannot aggregate; must still span the range.
+            val cat = RecordingCategory(setOf("SleepSession"), queryResponse = jsonRecords(100))
+            val repo = make(listOf(cat))
+
+            val result = repo.queryRecords("SleepSession", from, to, limit = 10)
+            result as QueryResult.Records
+            assertEquals(10, result.records.size)
+            assertEquals(100, result.totalCount)
+            assertTrue(result.downsampled)
+            assertEquals(0, result.records.first()["i"]!!.jsonPrimitive.content.toInt())
+            assertEquals(99, result.records.last()["i"]!!.jsonPrimitive.content.toInt())
+        }
+
+    @Test
+    fun `queryRecords uses the default cap when limit is null`() = runBlocking {
+        val cat = RecordingCategory(
+            setOf("SleepSession"),
             queryResponse = jsonRecords(DEFAULT_MAX_RECORDS + 50)
         )
         val repo = make(listOf(cat))
 
-        val result = repo.queryRecords("BloodGlucose", from, to, limit = null)
+        val result = repo.queryRecords("SleepSession", from, to, limit = null)
+        result as QueryResult.Records
         assertEquals(DEFAULT_MAX_RECORDS, result.records.size)
         assertTrue(result.downsampled)
+        assertEquals(DEFAULT_MAX_RECORDS + 1, cat.queryCalls[0].maxRecords)
     }
 
     @Test
@@ -226,6 +309,7 @@ class RealHealthConnectRepositoryTest {
             Duration.ofHours(1)
         )
         result as BucketResult.Success
+        assertEquals(3, result.totalCount)
         assertEquals(2, result.buckets.size)
         assertEquals(6.0, result.buckets[0].avg, 0.0001)
         assertEquals(10.0, result.buckets[1].avg, 0.0001)

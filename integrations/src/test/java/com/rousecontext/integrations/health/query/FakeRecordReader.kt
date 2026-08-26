@@ -5,13 +5,15 @@ import androidx.health.connect.client.records.metadata.Device
 import androidx.health.connect.client.records.metadata.Metadata
 import java.time.Instant
 import kotlin.reflect.KClass
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.asFlow
 
 /**
  * In-memory fake [RecordReader] for category unit tests.
  *
  * Populate [records] via [put] with stub records keyed by their [KClass].
- * [read] filters to the requested time range so tests can verify that
- * categories pass [from]/[to] through unchanged.
+ * [read] honours the caller's cap and records the call, so tests can verify both
+ * the time range and the bound that reached the read.
  */
 class FakeRecordReader : RecordReader {
 
@@ -25,12 +27,28 @@ class FakeRecordReader : RecordReader {
         records[type] = value
     }
 
-    data class ReadCall(val type: KClass<out Record>, val from: Instant, val to: Instant)
+    data class ReadCall(
+        val type: KClass<out Record>,
+        val from: Instant,
+        val to: Instant,
+        val maxRecords: Int
+    )
 
     @Suppress("UNCHECKED_CAST")
-    override suspend fun <T : Record> read(type: KClass<T>, from: Instant, to: Instant): List<T> {
-        reads += ReadCall(type, from, to)
-        return (records[type] as? List<T>) ?: emptyList()
+    override suspend fun <T : Record> read(
+        type: KClass<T>,
+        from: Instant,
+        to: Instant,
+        maxRecords: Int
+    ): List<T> {
+        reads += ReadCall(type, from, to, maxRecords)
+        return ((records[type] as? List<T>) ?: emptyList()).take(maxRecords)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T> {
+        reads += ReadCall(type, from, to, Int.MAX_VALUE)
+        return (((records[type] as? List<T>) ?: emptyList())).asFlow()
     }
 }
 
