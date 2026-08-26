@@ -124,6 +124,35 @@ class HealthConnectSetupViewModelTest {
         assertEquals(setOf("Steps", "HeartRate"), vm.grantedRecordTypes.value)
     }
 
+    /**
+     * #537: the setup screen no longer navigates away when the base grant
+     * lands, so it recomposes with whatever the view model holds at that
+     * instant. If `grantedRecordTypes` only caught up when the async refresh
+     * finished, the screen would briefly show its pre-grant state (the
+     * "Grant All Health Access" label, the disabled historical-access
+     * button) before flipping. Hence: no `advanceUntilIdle()` here.
+     */
+    @Test
+    fun `onPermissionsResult exposes granted record types before the refresh lands`() =
+        runTest(testDispatcher) {
+            val repo = FakeRepo()
+            val vm = HealthConnectSetupViewModel(FakeStore(), repo)
+
+            vm.onPermissionsResult(
+                setOf(
+                    "android.permission.health.READ_STEPS",
+                    "android.permission.health.READ_HEART_RATE"
+                )
+            )
+
+            // READ_STEPS covers both Steps and StepsCadence, exactly as the
+            // repository's own permission-to-record-type mapping reports it.
+            assertEquals(
+                setOf("Steps", "StepsCadence", "HeartRate"),
+                vm.grantedRecordTypes.value
+            )
+        }
+
     @Test
     fun `refreshPermissions swallows repo exceptions and leaves state empty`() =
         runTest(testDispatcher) {
@@ -145,11 +174,10 @@ class HealthConnectSetupViewModelTest {
             val repo = FakeRepo()
             val vm = HealthConnectSetupViewModel(FakeStore(), repo)
 
-            val enabled = vm.onPermissionsResult(
+            vm.onPermissionsResult(
                 setOf("android.permission.health.READ_STEPS", HEALTH_DATA_HISTORY_PERMISSION)
             )
 
-            assertTrue(enabled)
             assertTrue(vm.historicalAccessGranted.value)
         }
 
@@ -159,9 +187,8 @@ class HealthConnectSetupViewModelTest {
             val repo = FakeRepo().apply { historicalReadGranted = false }
             val vm = HealthConnectSetupViewModel(FakeStore(), repo)
 
-            val enabled = vm.onPermissionsResult(setOf("android.permission.health.READ_STEPS"))
+            vm.onPermissionsResult(setOf("android.permission.health.READ_STEPS"))
 
-            assertTrue(enabled)
             assertFalse(vm.historicalAccessGranted.value)
         }
 
@@ -229,9 +256,8 @@ class HealthConnectSetupViewModelTest {
             assertTrue(vm.historicalAccessGranted.value)
 
             // Now the user opens the main grant dialog and denies everything.
-            val enabled = vm.onPermissionsResult(emptySet())
+            vm.onPermissionsResult(emptySet())
 
-            assertFalse(enabled)
             // Historical flag is re-derived from the (empty) granted set,
             // so it flips to false even though the user previously granted it.
             assertFalse(vm.historicalAccessGranted.value)

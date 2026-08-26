@@ -334,4 +334,14 @@ object RecordTypeRegistry {
 
     /** All read permissions needed for all supported record types. */
     val allPermissions: Set<String> get() = types.values.map { it.readPermission }.toSet()
+
+    /**
+     * Names of the record types whose read permission appears in [permissions].
+     *
+     * Translates a set of Health Connect permission strings — as returned by
+     * the permission controller or a permission-request result — into the
+     * record-type names used throughout the app.
+     */
+    fun namesForPermissions(permissions: Set<String>): Set<String> =
+        types.values.filter { it.readPermission in permissions }.map { it.name }.toSet()
 }
