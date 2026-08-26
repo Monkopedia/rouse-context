@@ -1,0 +1,8 @@
+Fixes an app freeze that could stop the tunnel from answering.
+
+Crash reporting collected device logs in a way that never finished, which could
+hang the app until Android killed it. That collection is gone, and crash reports
+now carry only the stack trace and basic device details.
+
+Also: several fixes to the encrypted tunnel so sessions stay reliable under
+load, and the app now reports its real version to AI clients and in Settings.
