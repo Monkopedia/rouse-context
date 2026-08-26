@@ -100,20 +100,13 @@ fun NavGraphBuilder.healthConnectSetupDestination(navController: NavController) 
                 contract = PermissionController
                     .createRequestPermissionResultContract()
             ) { granted ->
-                val enabled =
-                    viewModel.onPermissionsResult(granted)
-                if (enabled && mode == SetupMode.SETUP) {
-                    navController.navigate(
-                        Routes.integrationSetup(
-                            HealthConnectSetupViewModel
-                                .HEALTH_INTEGRATION_ID
-                        )
-                    ) {
-                        popUpTo(Routes.ADD_INTEGRATION) {
-                            inclusive = true
-                        }
-                    }
-                } else if (mode == SetupMode.SETTINGS) {
+                viewModel.onPermissionsResult(granted)
+                // SETUP deliberately stays on this screen: the
+                // "Grant historical access" button only becomes
+                // usable once the base permission has landed, so
+                // advancing here would make it unreachable (#537).
+                // The user leaves via the Continue button below.
+                if (mode == SetupMode.SETTINGS) {
                     navController.popBackStack()
                 }
             }
@@ -148,6 +141,18 @@ fun NavGraphBuilder.healthConnectSetupDestination(navController: NavController) 
                     requestPermissions.launch(
                         HEALTH_CONNECT_PERMISSIONS
                     )
+                }
+            },
+            onContinue = {
+                navController.navigate(
+                    Routes.integrationSetup(
+                        HealthConnectSetupViewModel
+                            .HEALTH_INTEGRATION_ID
+                    )
+                ) {
+                    popUpTo(Routes.ADD_INTEGRATION) {
+                        inclusive = true
+                    }
                 }
             },
             onCancel = {

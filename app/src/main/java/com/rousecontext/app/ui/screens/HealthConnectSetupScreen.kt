@@ -57,6 +57,7 @@ import com.rousecontext.integrations.health.RecordTypeRegistry
 fun HealthConnectSetupContent(
     mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit = {},
+    onContinue: () -> Unit = {},
     onCancel: () -> Unit = {},
     historicalAccessGranted: Boolean = false,
     onRequestHistoricalAccess: () -> Unit = {},
@@ -66,6 +67,7 @@ fun HealthConnectSetupContent(
     HealthConnectSetupBody(
         mode = mode,
         onGrantAccess = onGrantAccess,
+        onContinue = onContinue,
         onCancel = onCancel,
         historicalAccessGranted = historicalAccessGranted,
         onRequestHistoricalAccess = onRequestHistoricalAccess,
@@ -97,6 +99,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
     ) { padding ->
         HealthConnectSetupBody(
             onGrantAccess = onGrantAccess,
+            onContinue = {},
             onCancel = onCancel,
             historicalAccessGranted = false,
             onRequestHistoricalAccess = {},
@@ -110,6 +113,7 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
 private fun HealthConnectSetupBody(
     mode: SetupMode = SetupMode.SETUP,
     onGrantAccess: () -> Unit,
+    onContinue: () -> Unit,
     onCancel: () -> Unit,
     historicalAccessGranted: Boolean,
     onRequestHistoricalAccess: () -> Unit,
@@ -258,14 +262,20 @@ private fun HealthConnectSetupBody(
         Spacer(modifier = Modifier.weight(1f))
         Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xxl)))
 
-        val buttonText = if (mode == SetupMode.SETTINGS) {
-            stringResource(R.string.screen_health_connect_setup_manage)
-        } else {
-            stringResource(R.string.screen_health_connect_setup_grant_all)
+        // Once the base grant has landed, the primary action is no longer
+        // "grant" — the user has to be able to leave the screen deliberately,
+        // because SETUP no longer advances on the grant itself (#537). The
+        // historical-access button above is the reason to linger.
+        val readyToContinue = mode == SetupMode.SETUP && grantedRecordTypes.isNotEmpty()
+        val buttonText = when {
+            mode == SetupMode.SETTINGS ->
+                stringResource(R.string.screen_health_connect_setup_manage)
+            readyToContinue -> stringResource(R.string.common_continue)
+            else -> stringResource(R.string.screen_health_connect_setup_grant_all)
         }
 
         Button(
-            onClick = onGrantAccess,
+            onClick = if (readyToContinue) onContinue else onGrantAccess,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(buttonText)

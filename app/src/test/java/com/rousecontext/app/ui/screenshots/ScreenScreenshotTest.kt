@@ -9,7 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.rousecontext.app.ui.navigation.LocalNavBarController
@@ -93,17 +95,32 @@ class ScreenScreenshotTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private fun captureDark(name: String, content: @Composable () -> Unit) {
+    /**
+     * [scrollTo] names a text node to scroll into view before capturing, for
+     * screens whose interesting state lives below the fold at this window
+     * size.
+     */
+    private fun captureDark(
+        name: String,
+        scrollTo: String? = null,
+        content: @Composable () -> Unit
+    ) {
         composeRule.setContent {
             RouseContextTheme(darkTheme = true) { content() }
         }
+        scrollTo?.let { composeRule.onNodeWithText(it).performScrollTo() }
         composeRule.onRoot().captureRoboImage("screenshots/${name}_dark.png")
     }
 
-    private fun captureLight(name: String, content: @Composable () -> Unit) {
+    private fun captureLight(
+        name: String,
+        scrollTo: String? = null,
+        content: @Composable () -> Unit
+    ) {
         composeRule.setContent {
             RouseContextTheme(darkTheme = false) { content() }
         }
+        scrollTo?.let { composeRule.onNodeWithText(it).performScrollTo() }
         composeRule.onRoot().captureRoboImage("screenshots/${name}_light.png")
     }
 
@@ -488,6 +505,34 @@ class ScreenScreenshotTest {
     @Test
     fun healthConnectSetupLight() = captureLight("25_health_connect_setup") {
         HealthConnectSetupScreen()
+    }
+
+    /**
+     * The post-grant SETUP state (#537): base permissions are in, so the
+     * historical-access button is live and the primary action has become
+     * "Continue". Scrolled to the bottom of the screen (anchored on Cancel)
+     * because that is where the newly-reachable controls sit.
+     */
+    @Test
+    fun healthConnectSetupGrantedDark() = captureDark(
+        "25a_health_connect_setup_granted",
+        scrollTo = "Cancel"
+    ) {
+        HealthConnectSetupContent(
+            mode = SetupMode.SETUP,
+            grantedRecordTypes = SAMPLE_GRANTED_RECORD_TYPES
+        )
+    }
+
+    @Test
+    fun healthConnectSetupGrantedLight() = captureLight(
+        "25a_health_connect_setup_granted",
+        scrollTo = "Cancel"
+    ) {
+        HealthConnectSetupContent(
+            mode = SetupMode.SETUP,
+            grantedRecordTypes = SAMPLE_GRANTED_RECORD_TYPES
+        )
     }
 
     @Test

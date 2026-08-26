@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.integrations.health.HEALTH_DATA_HISTORY_PERMISSION
 import com.rousecontext.integrations.health.HealthConnectRepository
+import com.rousecontext.integrations.health.RecordTypeRegistry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -79,21 +80,23 @@ class HealthConnectSetupViewModel(
      * Called after the Health Connect permission request completes.
      * If any permissions were granted, marks the integration as enabled.
      *
-     * Also updates [historicalAccessGranted] based on whether the history
-     * permission is present in [grantedPermissions], and triggers a
-     * [refreshPermissions] so [grantedRecordTypes] reflects the post-grant
-     * state.
-     *
-     * @return true if permissions were granted and integration was enabled
+     * Also updates [historicalAccessGranted] and [grantedRecordTypes] from
+     * [grantedPermissions] immediately, then triggers a [refreshPermissions]
+     * to reconcile with Health Connect.
      */
-    fun onPermissionsResult(grantedPermissions: Set<String>): Boolean {
+    fun onPermissionsResult(grantedPermissions: Set<String>) {
         _historicalAccessGranted.value = HISTORY_PERMISSION in grantedPermissions
+        // Publish the result synchronously: the setup screen recomposes as
+        // soon as the permission dialog returns, and since #537 it stays on
+        // screen afterwards, so the post-grant state (the "Continue" button,
+        // the enabled historical-access prompt) must be correct on that first
+        // recomposition rather than a beat later when the refresh lands.
+        _grantedRecordTypes.value = RecordTypeRegistry.namesForPermissions(grantedPermissions)
         refreshPermissions()
-        if (grantedPermissions.isEmpty()) return false
+        if (grantedPermissions.isEmpty()) return
         viewModelScope.launch {
             stateStore.setUserEnabled(HEALTH_INTEGRATION_ID, true)
         }
-        return true
     }
 
     /**

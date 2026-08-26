@@ -14,6 +14,58 @@ Newest entries on top.
 
 ---
 
+## 2026-08-26 — Health Connect setup no longer auto-advances on the base grant (#537)
+
+**Decision:** In `SetupMode.SETUP`, granting the base Health Connect
+permissions **keeps the user on the Health Connect setup screen** instead of
+navigating straight to the integration-setup screen. The primary button becomes
+state-aware: it reads **"Grant All Health Access"** until at least one record
+type is granted, and **"Continue"** afterwards — and Continue is what performs
+the navigation that the grant result used to perform. `SetupMode.SETTINGS` is
+untouched.
+
+**Approved by:** Jason, in-session, after reviewing a rendered mockup of the
+post-grant state:
+- *"ok, we can do option 2"*
+- *"we need to change the text to something like continue"*
+- *"keep both as is, I think Continue/Cancel is most correct for the app
+  currently, although we could re-evaluate cancel across the board at a later
+  date"*
+
+**Context:** The "Grant historical access" button (the
+`READ_HEALTH_DATA_HISTORY` permission — without it, reads are capped at the last
+30 days) is disabled until the base permission lands. But the base grant
+immediately navigated away, so the button was never in a pressable state: it was
+unreachable for the entire onboarding flow. Option 2 from #537.
+
+**Cancel is deliberately unchanged** — same label, same behaviour (navigate to
+the integration-manage screen). Its semantics across the app are being
+re-evaluated separately, so this PR does not touch them.
+
+**Alternatives considered:**
+- **Option 1 — hide the historical button during onboarding** (offer it only
+  from Settings). Simpler diff, but it drops the one moment where the user is
+  already thinking about health permissions, and leaves an
+  every-read-is-30-days-capped integration as the default outcome.
+- **Auto-request the historical permission right after the base grant** (two
+  system dialogs back to back). Rejected implicitly by choosing option 2:
+  chaining permission prompts without a user action between them is exactly the
+  pattern the permission-timing rule exists to prevent.
+
+**Trade-off accepted:** Onboarding gains one deliberate tap — the user now
+presses Continue instead of being carried forward by the grant result. Accepted
+because that tap is the only thing that makes historical access reachable, and
+the post-grant screen is where the user is already looking.
+
+**Relevant:**
+- Issue: `#537`
+- Screens: `HealthConnectSetupScreen.kt` (button state),
+  `HealthConnectSetupDestination.kt` (navigation)
+- Screenshot: `app/screenshots/25a_health_connect_setup_granted_{light,dark}.png`
+  — the post-grant state, which no user could previously see.
+
+---
+
 ## 2026-06-28 — FOSS Home wake banner distinguishes "finishing setup" from "needs setup" (#530)
 
 **Decision:** The foss Home on-demand-wake banner now has **two** distinct

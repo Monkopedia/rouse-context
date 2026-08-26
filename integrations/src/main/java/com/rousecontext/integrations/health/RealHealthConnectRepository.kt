@@ -56,11 +56,9 @@ class RealHealthConnectRepository internal constructor(
             )
         },
         grantedPermissionsProvider = {
-            val granted = clientProvider.value.permissionController.getGrantedPermissions()
-            RecordTypeRegistry.allTypes
-                .filter { info -> granted.contains(info.readPermission) }
-                .map { it.name }
-                .toSet()
+            RecordTypeRegistry.namesForPermissions(
+                clientProvider.value.permissionController.getGrantedPermissions()
+            )
         },
         historicalReadGrantedProvider = {
             HEALTH_DATA_HISTORY_PERMISSION in
