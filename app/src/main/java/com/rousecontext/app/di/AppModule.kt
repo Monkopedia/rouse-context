@@ -530,6 +530,14 @@ val appModule = module {
             session.authorizationCodeManager.onNewRequest = { displayCode, integration ->
                 notifier.post(displayCode, integration)
             }
+            // #606: the RFC 8628 device flow had no notification hook at all, so a
+            // headless client's request never reached the user. `integration` here
+            // is the one the request resolved to (Host-header derived, see
+            // McpRouting.resolveIntegration) -- NOT `defaultIntegration` above,
+            // which would mislabel approvals for any non-first integration.
+            session.deviceCodeManager.onNewRequest = { userCode, integration ->
+                notifier.post(userCode, integration)
+            }
         }
     }
 
@@ -681,6 +689,7 @@ val appModule = module {
     viewModel {
         AuthorizationApprovalViewModel(
             get<McpSession>().authorizationCodeManager,
+            get<McpSession>().deviceCodeManager,
             androidContext().getSystemService(NotificationManager::class.java)
         )
     }

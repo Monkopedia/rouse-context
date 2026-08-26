@@ -10,7 +10,8 @@ import org.koin.core.component.inject
 
 /**
  * Handles Approve/Deny actions from authorization request notifications.
- * Retrieves the [McpSession] via Koin and delegates to the authorization code manager.
+ * Retrieves the [McpSession] via Koin and delegates to the authorization code
+ * manager, falling back to the device code manager for RFC 8628 user codes.
  */
 class AuthApprovalReceiver :
     BroadcastReceiver(),
@@ -23,8 +24,18 @@ class AuthApprovalReceiver :
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
 
         when (intent.action) {
-            ACTION_APPROVE -> mcpSession.authorizationCodeManager.approve(displayCode)
-            ACTION_DENY -> mcpSession.authorizationCodeManager.deny(displayCode)
+            // The notification carries either an auth-code display code or an
+            // RFC 8628 user code -- they are indistinguishable by shape, so ask
+            // the auth-code manager first and fall through to the device-code
+            // manager when it doesn't own the code (#606).
+            ACTION_APPROVE ->
+                if (!mcpSession.authorizationCodeManager.approve(displayCode)) {
+                    mcpSession.deviceCodeManager.approve(displayCode)
+                }
+            ACTION_DENY ->
+                if (!mcpSession.authorizationCodeManager.deny(displayCode)) {
+                    mcpSession.deviceCodeManager.deny(displayCode)
+                }
         }
 
         // Dismiss the notification
