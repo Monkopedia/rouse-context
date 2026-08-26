@@ -5,6 +5,8 @@ import app.cash.turbine.test
 import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.ui.screens.AuthorizationApprovalUiState
 import com.rousecontext.mcp.core.AuthorizationCodeManager
+import com.rousecontext.mcp.core.DeviceCodeManager
+import com.rousecontext.mcp.core.DeviceCodeStatus
 import com.rousecontext.mcp.core.InMemoryTokenStore
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,6 +26,7 @@ class AuthorizationApprovalViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule(testDispatcher)
     private val mockNotificationManager: NotificationManager = mockk(relaxed = true)
+    private val deviceManager = DeviceCodeManager(tokenStore = InMemoryTokenStore())
 
     private val defaultRedirectUri = "http://localhost/callback"
     private val validCodeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -41,7 +44,7 @@ class AuthorizationApprovalViewModelTest {
     @Test
     fun `initial state has no pending requests`() = runTest(testDispatcher) {
         val manager = createManager()
-        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
+        val vm = AuthorizationApprovalViewModel(manager, deviceManager, mockNotificationManager)
 
         vm.pendingRequests.test {
             val initial = awaitItem()
@@ -52,7 +55,7 @@ class AuthorizationApprovalViewModelTest {
     @Test
     fun `reflects new pending requests without polling`() = runTest(testDispatcher) {
         val manager = createManager()
-        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
+        val vm = AuthorizationApprovalViewModel(manager, deviceManager, mockNotificationManager)
 
         vm.pendingRequests.test {
             // Initial empty state
@@ -87,7 +90,7 @@ class AuthorizationApprovalViewModelTest {
             integration = "health"
         )
 
-        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
+        val vm = AuthorizationApprovalViewModel(manager, deviceManager, mockNotificationManager)
 
         vm.pendingRequests.test {
             val withRequest = awaitItem()
@@ -114,7 +117,7 @@ class AuthorizationApprovalViewModelTest {
             integration = "health"
         )
 
-        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
+        val vm = AuthorizationApprovalViewModel(manager, deviceManager, mockNotificationManager)
 
         vm.pendingRequests.test {
             val withRequest = awaitItem()
@@ -131,7 +134,7 @@ class AuthorizationApprovalViewModelTest {
     @Test
     fun `uiState transitions from Loading to Loaded on first emission`() = runTest(testDispatcher) {
         val manager = createManager()
-        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
+        val vm = AuthorizationApprovalViewModel(manager, deviceManager, mockNotificationManager)
 
         // Before any coroutine runs, we're in Loading
         assertTrue(vm.uiState.value is AuthorizationApprovalUiState.Loading)
@@ -150,7 +153,7 @@ class AuthorizationApprovalViewModelTest {
     @Test
     fun `uiState reflects pending request items`() = runTest(testDispatcher) {
         val manager = createManager()
-        val vm = AuthorizationApprovalViewModel(manager, mockNotificationManager)
+        val vm = AuthorizationApprovalViewModel(manager, deviceManager, mockNotificationManager)
 
         manager.createRequest(
             clientId = "test-client",
@@ -168,4 +171,67 @@ class AuthorizationApprovalViewModelTest {
         assertEquals(1, items.size)
         assertEquals("health", items[0].integration)
     }
+
+    @Test
+    fun `uiState surfaces pending device codes so they can be approved`() =
+        runTest(testDispatcher) {
+            val manager = createManager()
+            val vm = AuthorizationApprovalViewModel(
+                manager,
+                deviceManager,
+                mockNotificationManager
+            )
+
+            val device = deviceManager.authorize("outreach")
+            advanceUntilIdle()
+
+            val state = vm.uiState.value
+            assertTrue(state is AuthorizationApprovalUiState.Loaded)
+            val items = (state as AuthorizationApprovalUiState.Loaded).pendingRequests
+            assertEquals(1, items.size)
+            assertEquals(device.userCode, items[0].displayCode)
+            assertEquals("outreach", items[0].integration)
+        }
+
+    @Test
+    fun `approve resolves a device code the auth-code manager does not know`() =
+        runTest(testDispatcher) {
+            val manager = createManager()
+            val vm = AuthorizationApprovalViewModel(
+                manager,
+                deviceManager,
+                mockNotificationManager
+            )
+
+            val device = deviceManager.authorize("outreach")
+            advanceUntilIdle()
+
+            vm.approve(device.userCode)
+
+            assertEquals(
+                DeviceCodeStatus.APPROVED,
+                deviceManager.poll(device.deviceCode).status
+            )
+        }
+
+    @Test
+    fun `deny resolves a device code the auth-code manager does not know`() =
+        runTest(testDispatcher) {
+            val manager = createManager()
+            val vm = AuthorizationApprovalViewModel(
+                manager,
+                deviceManager,
+                mockNotificationManager
+            )
+
+            val device = deviceManager.authorize("outreach")
+            advanceUntilIdle()
+
+            vm.deny(device.userCode)
+
+            assertEquals(
+                DeviceCodeStatus.ACCESS_DENIED,
+                deviceManager.poll(device.deviceCode).status
+            )
+        }
 }

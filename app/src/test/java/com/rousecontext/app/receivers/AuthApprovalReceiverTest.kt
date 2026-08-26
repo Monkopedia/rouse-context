@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.test.core.app.ApplicationProvider
 import com.rousecontext.mcp.core.AuthorizationCodeManager
+import com.rousecontext.mcp.core.DeviceCodeManager
 import com.rousecontext.mcp.core.McpSession
 import io.mockk.every
 import io.mockk.mockk
@@ -27,8 +28,10 @@ import org.robolectric.annotation.Config
 class AuthApprovalReceiverTest {
 
     private val authManager = mockk<AuthorizationCodeManager>(relaxed = true)
+    private val deviceManager = mockk<DeviceCodeManager>(relaxed = true)
     private val mcpSession = mockk<McpSession> {
         every { authorizationCodeManager } returns authManager
+        every { deviceCodeManager } returns deviceManager
     }
     private lateinit var context: Context
 
@@ -119,5 +122,56 @@ class AuthApprovalReceiverTest {
 
         verify(exactly = 0) { authManager.approve(any()) }
         verify(exactly = 0) { authManager.deny(any()) }
+    }
+
+    @Test
+    fun `approve falls through to deviceCodeManager when the code is not an auth request`() {
+        // The RFC 8628 device flow mints user codes in the same shape but in a
+        // different manager. Before #606 the receiver only ever asked the
+        // auth-code manager, so a device-code notification had a dead button.
+        every { authManager.approve(any()) } returns false
+
+        val receiver = AuthApprovalReceiver()
+        val intent = Intent(context, AuthApprovalReceiver::class.java).apply {
+            action = AuthApprovalReceiver.ACTION_APPROVE
+            putExtra(AuthApprovalReceiver.EXTRA_DISPLAY_CODE, "YC7CUQ-ZFCWJM")
+            putExtra(AuthApprovalReceiver.EXTRA_NOTIFICATION_ID, 5003)
+        }
+
+        receiver.onReceive(context, intent)
+
+        verify { deviceManager.approve("YC7CUQ-ZFCWJM") }
+    }
+
+    @Test
+    fun `deny falls through to deviceCodeManager when the code is not an auth request`() {
+        every { authManager.deny(any()) } returns false
+
+        val receiver = AuthApprovalReceiver()
+        val intent = Intent(context, AuthApprovalReceiver::class.java).apply {
+            action = AuthApprovalReceiver.ACTION_DENY
+            putExtra(AuthApprovalReceiver.EXTRA_DISPLAY_CODE, "YC7CUQ-ZFCWJM")
+            putExtra(AuthApprovalReceiver.EXTRA_NOTIFICATION_ID, 5004)
+        }
+
+        receiver.onReceive(context, intent)
+
+        verify { deviceManager.deny("YC7CUQ-ZFCWJM") }
+    }
+
+    @Test
+    fun `approve does not touch deviceCodeManager when the auth manager handled it`() {
+        every { authManager.approve(any()) } returns true
+
+        val receiver = AuthApprovalReceiver()
+        val intent = Intent(context, AuthApprovalReceiver::class.java).apply {
+            action = AuthApprovalReceiver.ACTION_APPROVE
+            putExtra(AuthApprovalReceiver.EXTRA_DISPLAY_CODE, "ABC-123")
+            putExtra(AuthApprovalReceiver.EXTRA_NOTIFICATION_ID, 5005)
+        }
+
+        receiver.onReceive(context, intent)
+
+        verify(exactly = 0) { deviceManager.approve(any()) }
     }
 }

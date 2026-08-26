@@ -22,6 +22,53 @@ class DeviceCodeFlowTest {
     }
 
     @Test
+    fun `authorize invokes onNewRequest exactly once with user code and integration`() {
+        val manager = DeviceCodeManager()
+        val notified = mutableListOf<Pair<String, String>>()
+        manager.onNewRequest = { userCode, integration ->
+            notified.add(userCode to integration)
+        }
+
+        val response = manager.authorize("outreach")
+
+        assertEquals(listOf(response.userCode to "outreach"), notified)
+    }
+
+    @Test
+    fun `onNewRequest reports the integration passed to authorize`() {
+        val manager = DeviceCodeManager()
+        val notified = mutableListOf<Pair<String, String>>()
+        manager.onNewRequest = { userCode, integration ->
+            notified.add(userCode to integration)
+        }
+
+        val health = manager.authorize("health")
+        val outreach = manager.authorize("outreach")
+
+        assertEquals(
+            listOf(health.userCode to "health", outreach.userCode to "outreach"),
+            notified
+        )
+    }
+
+    @Test
+    fun `pendingCodesFlow exposes codes awaiting approval and drops them once resolved`() {
+        val manager = DeviceCodeManager()
+        assertEquals(emptyList<PendingDeviceCode>(), manager.pendingCodesFlow.value)
+
+        val auth = manager.authorize("outreach")
+
+        assertEquals(
+            listOf(auth.userCode to "outreach"),
+            manager.pendingCodesFlow.value.map { it.userCode to it.integrationId }
+        )
+
+        manager.approve(auth.userCode)
+
+        assertEquals(emptyList<PendingDeviceCode>(), manager.pendingCodesFlow.value)
+    }
+
+    @Test
     fun `poll before approval returns authorization pending`() {
         val manager = DeviceCodeManager()
         val auth = manager.authorize("health")

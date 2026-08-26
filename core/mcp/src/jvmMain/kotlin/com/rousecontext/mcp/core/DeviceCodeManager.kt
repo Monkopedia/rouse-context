@@ -1,6 +1,9 @@
 package com.rousecontext.mcp.core
 
 import java.security.SecureRandom
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Status of a device code poll request.
@@ -62,6 +65,23 @@ class DeviceCodeManager(
     private val pendingCodes = mutableListOf<PendingCode>()
 
     /**
+     * Called when a new device authorization request is created.
+     * Parameters are the user code and the integration the request was made
+     * against -- the one passed to [authorize], never a session-wide default.
+     * Set this from the app layer to trigger notifications.
+     */
+    var onNewRequest: ((userCode: String, integration: String) -> Unit)? = null
+
+    private val _pendingCodesFlow = MutableStateFlow<List<PendingDeviceCode>>(emptyList())
+
+    /**
+     * Observable list of device codes awaiting approval. Mirrors
+     * [AuthorizationCodeManager.pendingRequestsFlow] so the approval UI can
+     * render both flows from a single list without polling.
+     */
+    val pendingCodesFlow: StateFlow<List<PendingDeviceCode>> = _pendingCodesFlow.asStateFlow()
+
+    /**
      * Creates a new device code + user code pair for the given integration.
      * Returns the codes and polling interval.
      */
@@ -80,7 +100,13 @@ class DeviceCodeManager(
                     createdAt = now
                 )
             )
+            publishPendingCodesLocked(now)
         }
+
+        // Outside the lock, mirroring AuthorizationCodeManager.createRequest: the
+        // app-layer listener posts a notification and must not run under it.
+        // `integrationId` is the one the request resolved to, never a default.
+        onNewRequest?.invoke(userCode, integrationId)
 
         return DeviceCodeResponse(
             deviceCode = deviceCode,
@@ -100,6 +126,7 @@ class DeviceCodeManager(
             val elapsed = now - pending.createdAt
             if (elapsed > DEVICE_CODE_TTL_MS) {
                 pendingCodes.remove(pending)
+                publishPendingCodesLocked(now)
                 return DeviceCodePollResult(DeviceCodeStatus.EXPIRED_TOKEN)
             }
 
@@ -144,6 +171,7 @@ class DeviceCodeManager(
     fun approve(userCode: String) {
         synchronized(this) {
             pendingCodes.find { it.userCode == userCode }?.approved = true
+            publishPendingCodesLocked(clock.currentTimeMillis())
         }
     }
 
@@ -154,6 +182,7 @@ class DeviceCodeManager(
     fun deny(userCode: String) {
         synchronized(this) {
             pendingCodes.find { it.userCode == userCode }?.approved = false
+            publishPendingCodesLocked(clock.currentTimeMillis())
         }
     }
 
@@ -162,18 +191,29 @@ class DeviceCodeManager(
      */
     fun pendingCodes(): List<PendingDeviceCode> {
         synchronized(this) {
-            val now = clock.currentTimeMillis()
-            return pendingCodes
-                .filter { it.approved == null && (now - it.createdAt) <= DEVICE_CODE_TTL_MS }
-                .map {
-                    PendingDeviceCode(
-                        userCode = it.userCode,
-                        integrationId = it.integrationId,
-                        createdAt = it.createdAt
-                    )
-                }
+            return snapshotLocked(clock.currentTimeMillis())
         }
     }
+
+    /**
+     * Republishes [pendingCodesFlow]. Must be called inside synchronized(this).
+     */
+    private fun publishPendingCodesLocked(now: Long) {
+        _pendingCodesFlow.value = snapshotLocked(now)
+    }
+
+    /**
+     * Unresolved, unexpired codes as of [now]. Must be called inside synchronized(this).
+     */
+    private fun snapshotLocked(now: Long): List<PendingDeviceCode> = pendingCodes
+        .filter { it.approved == null && (now - it.createdAt) <= DEVICE_CODE_TTL_MS }
+        .map {
+            PendingDeviceCode(
+                userCode = it.userCode,
+                integrationId = it.integrationId,
+                createdAt = it.createdAt
+            )
+        }
 
     /**
      * Removes expired pending codes. Must be called inside synchronized(this).

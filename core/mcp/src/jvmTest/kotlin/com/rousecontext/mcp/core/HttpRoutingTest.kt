@@ -75,6 +75,46 @@ class HttpRoutingTest {
     }
 
     @Test
+    fun `device authorize notifies with the requested integration not the session default`() =
+        testApplication {
+            val registry = testRegistry(
+                "health" to stubProvider("health", "Health Connect"),
+                "outreach" to stubProvider("outreach", "Outreach")
+            )
+            val tokenStore = InMemoryTokenStore()
+            val deviceCodeManager = DeviceCodeManager(tokenStore = tokenStore)
+            val notified = mutableListOf<Pair<String, String>>()
+            deviceCodeManager.onNewRequest = { userCode, integration ->
+                notified.add(userCode to integration)
+            }
+
+            application {
+                configureMcpRouting(
+                    registry = registry,
+                    tokenStore = tokenStore,
+                    deviceCodeManager = deviceCodeManager,
+                    hostname = "brave-falcon.rousecontext.com",
+                    // AppModule builds its single McpSession with the FIRST enabled
+                    // integration (see the per-integration-session TODO there), so
+                    // "health" here is the session-wide default the notification must
+                    // NOT use.
+                    integration = "health",
+                    serverVersion = TEST_SERVER_VERSION
+                )
+            }
+
+            val response = client.post("/device/authorize") {
+                header("Host", "s3cr3t-outreach.brave-falcon.rousecontext.com")
+            }
+            assertEquals(HttpStatusCode.OK, response.status)
+
+            val userCode = Json.parseToJsonElement(response.bodyAsText())
+                .jsonObject["user_code"]?.jsonPrimitive?.content
+
+            assertEquals(listOf(userCode to "outreach"), notified)
+        }
+
+    @Test
     fun `unknown path returns 404`() = testApplication {
         val registry = testRegistry("health" to stubProvider("health", "Health Connect"))
         val tokenStore = InMemoryTokenStore()
