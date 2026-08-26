@@ -2,6 +2,7 @@ package com.rousecontext.integrations.health.query
 
 import androidx.health.connect.client.records.Record
 import com.rousecontext.integrations.health.MAX_RECORDS
+import com.rousecontext.integrations.health.STREAM_MAX_RECORDS
 import java.time.Instant
 import kotlin.reflect.KClass
 import kotlinx.coroutines.flow.Flow
@@ -34,9 +35,11 @@ interface RecordReader {
      *
      * Collectors see records without the whole range ever being held in memory,
      * which is what lets a wide window be aggregated into buckets. Ending
-     * collection stops the read, so `take(n)` costs only the pages it needed —
-     * and it is the collector, not this method, that bounds the work: see
-     * [bucketize]'s `maxValues`.
+     * collection stops the read, so `take(n)` costs only the pages it needed, and
+     * in practice the collector is what stops it first — see [bucketize]'s
+     * `maxValues`. That cap counts samples, though, so a record yielding none
+     * would never trip it; implementations MUST also stop at
+     * [STREAM_MAX_RECORDS] records so such a range terminates.
      */
     fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T>
 }

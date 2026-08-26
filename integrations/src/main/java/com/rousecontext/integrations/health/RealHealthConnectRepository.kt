@@ -201,8 +201,9 @@ internal typealias PageFetcher =
  * or the caller's cap is met. The cap reaches the request itself — page size is
  * the smaller of [READ_PAGE_SIZE] and what the caller still needs — so a small
  * cap costs a small read instead of materialising the whole range. A stream is
- * bounded by its collector instead, which ends collection once it has folded
- * enough.
+ * normally bounded by its collector, which ends collection once it has folded
+ * enough; it also carries its own [STREAM_MAX_RECORDS] ceiling so that records
+ * yielding nothing to fold cannot walk the whole range.
  *
  * [fetchPage] is a seam so pagination can be unit-tested without a real client.
  */
@@ -224,7 +225,7 @@ internal class HealthConnectClientRecordReader(private val fetchPage: PageFetche
     }
 
     override fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T> =
-        pages(type, from, to, Int.MAX_VALUE).transform { page -> page.forEach { emit(it) } }
+        pages(type, from, to, STREAM_MAX_RECORDS).transform { page -> page.forEach { emit(it) } }
 
     /**
      * Pages of records, requesting no more per page than [maxRecords] still needs

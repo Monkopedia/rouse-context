@@ -1,5 +1,6 @@
 package com.rousecontext.integrations.health
 
+import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.metadata.Device
@@ -7,6 +8,8 @@ import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.response.ReadRecordsResponse
 import androidx.health.connect.client.time.TimeRangeFilter
+import com.rousecontext.integrations.health.query.VitalsQueries
+import java.time.Duration
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlinx.coroutines.flow.take
@@ -166,5 +169,49 @@ class PaginatedReaderTest {
         val first = reader.stream(RestingHeartRateRecord::class, from, to).take(5).toList()
         assertEquals(5, first.size)
         assertEquals("collector stopped after one page", 1, calls)
+    }
+
+    @Test
+    fun `stream stays bounded when records yield no values to fold`() = runBlocking {
+        // A HeartRate record with no samples folds to nothing, so the aggregation's
+        // sample cap never trips. The stream's own record bound is what has to stop
+        // the read; without it this walks the whole range.
+        val emptySampleRecord = HeartRateRecord(
+            startTime = from,
+            startZoneOffset = ZoneOffset.UTC,
+            endTime = from.plusSeconds(60),
+            endZoneOffset = ZoneOffset.UTC,
+            samples = emptyList(),
+            metadata = Metadata.manualEntry(Device(type = Device.TYPE_PHONE))
+        )
+        val fullPage = List(READ_PAGE_SIZE) { emptySampleRecord }
+        val supply = 400
+        var calls = 0
+        val reader = HealthConnectClientRecordReader(
+            fetchPage = {
+                calls++
+                @Suppress("UNCHECKED_CAST")
+                ReadRecordsResponse(
+                    fullPage as List<Nothing>,
+                    if (calls < supply) "more" else null
+                ) as ReadRecordsResponse<out Record>
+            }
+        )
+        val repo = RealHealthConnectRepository(
+            categoriesProvider = { listOf(VitalsQueries(reader)) },
+            grantedPermissionsProvider = { emptySet() },
+            historicalReadGrantedProvider = { false }
+        )
+
+        val result = repo.bucketRecords("HeartRate", from, to, Duration.ofHours(1))
+
+        result as BucketResult.Success
+        assertEquals(0, result.totalCount)
+        val maxPages = (MAX_RECORDS + READ_PAGE_SIZE) / READ_PAGE_SIZE
+        assertTrue(
+            "records that yield no values must not defeat the stream bound; " +
+                "fetched $calls pages, bound allows $maxPages",
+            calls <= maxPages
+        )
     }
 }

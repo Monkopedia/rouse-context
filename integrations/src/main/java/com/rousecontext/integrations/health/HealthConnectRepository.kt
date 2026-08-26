@@ -149,6 +149,12 @@ sealed class BucketResult {
  * Upper bound on records a single read will accumulate, and on samples a single
  * aggregation will fold, to bound work. Hitting it while aggregating is reported
  * (`truncated`) rather than passed off as whole-range coverage.
+ *
+ * It does not bound a streamed read directly: a stream carries records, and the
+ * fold that consumes them counts samples. Records normally yield at least one
+ * sample each, so the sample cap trips first and the stream ends within a page of
+ * this many records — but a record that yields none would not trip it at all,
+ * which is what [STREAM_MAX_RECORDS] exists to stop.
  */
 const val MAX_RECORDS: Int = 50_000
 
@@ -168,6 +174,15 @@ const val DEFAULT_MAX_RECORDS: Int = 500
  * this — see [com.rousecontext.integrations.health.query.RecordReader.read].
  */
 const val READ_PAGE_SIZE: Int = 1000
+
+/**
+ * Hard ceiling on records a single streamed read will fetch.
+ *
+ * One page of slack over [MAX_RECORDS], so it never cuts short a fold that the
+ * sample cap would have satisfied, and it still terminates a range of records
+ * that yield no samples at all.
+ */
+const val STREAM_MAX_RECORDS: Int = MAX_RECORDS + READ_PAGE_SIZE
 
 /** Upper bound on the number of buckets a single bucketed query may produce. */
 const val MAX_BUCKETS: Int = 1000
