@@ -99,9 +99,11 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
             "Returns raw records when the range holds no more than the cap " +
             "(limit, else 500). When it holds more, the records that fit would be " +
             "only the range's earliest slice, so the answer is instead per-period " +
-            "stats {start,count,min,max,avg} spanning the whole range, with the " +
-            "chosen 'bucket' width and a 'note' saying so; narrow the range or " +
-            "raise 'limit' for raw records. Record types that cannot be aggregated " +
+            "stats {start,count,min,max,avg} across the range, with the chosen " +
+            "'bucket' width and a 'note' saying so; narrow the range or raise " +
+            "'limit' for raw records. A very dense range can exceed the sample " +
+            "ceiling aggregation folds, in which case 'truncated' is true and the " +
+            "buckets cover only the earliest part of it. Record types that cannot be aggregated " +
             "(sessions, multi-value, cumulative) return records evenly spread " +
             "across the range with downsampled=true. " +
             "Pass 'bucket' (e.g. 1m, 5m, 1h, 1d) to ask for per-period stats " +
@@ -159,10 +161,12 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
                     bucketSpec = spec,
                     buckets = query.buckets,
                     totalCount = query.totalCount,
-                    note = "The range holds ${query.totalCount} records, more than the cap of " +
-                        "${limit ?: DEFAULT_MAX_RECORDS}, so returning $spec aggregates spanning " +
-                        "the whole range rather than only its earliest records. Narrow " +
-                        "'since'/'until' or raise 'limit' to get raw records."
+                    truncated = query.truncated,
+                    note = "The range holds more than the cap of " +
+                        "${limit ?: DEFAULT_MAX_RECORDS} records, so returning $spec " +
+                        "aggregates instead of its earliest records. " +
+                        coverageNote(query, to) +
+                        " Narrow 'since'/'until' or raise 'limit' to get raw records."
                 )
             }
         }
@@ -184,7 +188,14 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
             is BucketResult.Error -> ToolResult.Error(outcome.message)
             is BucketResult.Success -> ToolResult.Success(
                 Json.encodeToString(
-                    bucketsJson(type, bucketSpec, outcome.buckets, outcome.totalCount, note = null)
+                    bucketsJson(
+                        type = type,
+                        bucketSpec = bucketSpec,
+                        buckets = outcome.buckets,
+                        totalCount = outcome.totalCount,
+                        truncated = outcome.truncated,
+                        note = if (outcome.truncated) truncationNote(outcome.buckets) else null
+                    )
                 )
             )
         }
@@ -195,13 +206,35 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
         bucketSpec: String,
         buckets: List<Bucket>,
         totalCount: Int,
+        truncated: Boolean,
         note: String?
     ) = buildJsonObject {
         put("record_type", type)
         put("bucket", bucketSpec)
         put("total_count", JsonPrimitive(totalCount))
+        put("truncated", truncated)
         put("buckets", buildJsonArray { buckets.forEach { add(it.toJson()) } })
         if (note != null) put("note", note)
+    }
+
+    /**
+     * Says what the buckets actually cover. Aggregation stops at a sample
+     * ceiling, so on a very dense range the buckets end early — claiming
+     * whole-range coverage there would be false.
+     */
+    private fun coverageNote(query: QueryResult.Buckets, to: Instant): String =
+        if (query.truncated) {
+            truncationNote(query.buckets)
+        } else {
+            "They span the whole range, up to $to."
+        }
+
+    private fun truncationNote(buckets: List<Bucket>): String {
+        val covered = buckets.lastOrNull()?.start
+        return "Aggregation stopped at its ceiling of $MAX_RECORDS samples, so these " +
+            "buckets cover only the earliest part of the range" +
+            (if (covered != null) ", up to $covered" else "") +
+            " — narrow 'since'/'until' to see the rest."
     }
 
     private companion object {

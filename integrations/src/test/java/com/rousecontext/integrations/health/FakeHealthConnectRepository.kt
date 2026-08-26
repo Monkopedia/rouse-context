@@ -35,6 +35,13 @@ class FakeHealthConnectRepository : HealthConnectRepository {
     /** Canned bucket results by record type. */
     var buckets: MutableMap<String, BucketResult> = mutableMapOf()
 
+    /**
+     * Canned [queryRecords] results by record type, for the spanning case where
+     * the real repository answers a raw query with aggregates instead of records.
+     * Takes precedence over [records] when set.
+     */
+    var queryResults: MutableMap<String, QueryResult> = mutableMapOf()
+
     /** Captures the last [bucketRecords] call for assertions. */
     var lastBucketCall: BucketCall? = null
 
@@ -52,6 +59,7 @@ class FakeHealthConnectRepository : HealthConnectRepository {
         limit: Int?
     ): QueryResult {
         shouldThrow?.let { throw it }
+        queryResults[recordType]?.let { return it }
         val all = records[recordType] ?: emptyList()
         val cap = limit ?: DEFAULT_MAX_RECORDS
         return if (all.size > cap) {

@@ -33,8 +33,10 @@ interface RecordReader {
      * Stream every record of [type] in the range, one page at a time.
      *
      * Collectors see records without the whole range ever being held in memory,
-     * which is what lets a wide window be aggregated into buckets. Collection
-     * stops the read, so `take(n)` costs only the pages it needed.
+     * which is what lets a wide window be aggregated into buckets. Ending
+     * collection stops the read, so `take(n)` costs only the pages it needed —
+     * and it is the collector, not this method, that bounds the work: see
+     * [bucketize]'s `maxValues`.
      */
     fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T>
 }

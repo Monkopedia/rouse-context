@@ -103,8 +103,12 @@ class RealHealthConnectRepository internal constructor(
         // spanning the whole range instead, at the resolution the cap implies.
         val width = spanningBucketWidth(from, to, buckets = minOf(cap, MAX_BUCKETS))
         return when (val bucketed = bucketRecords(recordType, from, to, width)) {
-            is BucketResult.Success ->
-                QueryResult.Buckets(bucketed.buckets, width, bucketed.totalCount)
+            is BucketResult.Success -> QueryResult.Buckets(
+                bucketed.buckets,
+                width,
+                bucketed.totalCount,
+                bucketed.truncated
+            )
             // Not a bucketable type (session, multi-value, cumulative): there is
             // nothing to aggregate, so spread real records across the range.
             is BucketResult.Error -> {
@@ -144,8 +148,12 @@ class RealHealthConnectRepository internal constructor(
                 "Bucketing not supported for $recordType " +
                     "(session/multi-value/cumulative)."
             )
-        val aggregated = bucketize(values, from, bucket)
-        return BucketResult.Success(aggregated.buckets, aggregated.totalCount)
+        val aggregated = bucketize(values, from, bucket, maxValues = MAX_RECORDS)
+        return BucketResult.Success(
+            aggregated.buckets,
+            aggregated.totalCount,
+            aggregated.truncated
+        )
     }
 
     private fun categoryFor(recordType: String): CategoryQueries {
@@ -192,8 +200,9 @@ internal typealias PageFetcher =
  * Reads are paginated and looped over the response `pageToken` until exhausted
  * or the caller's cap is met. The cap reaches the request itself — page size is
  * the smaller of [READ_PAGE_SIZE] and what the caller still needs — so a small
- * cap costs a small read instead of materialising the whole range. Reads stop at
- * [MAX_RECORDS] to bound work on unbounded ranges.
+ * cap costs a small read instead of materialising the whole range. A stream is
+ * bounded by its collector instead, which ends collection once it has folded
+ * enough.
  *
  * [fetchPage] is a seam so pagination can be unit-tested without a real client.
  */
@@ -215,7 +224,7 @@ internal class HealthConnectClientRecordReader(private val fetchPage: PageFetche
     }
 
     override fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T> =
-        pages(type, from, to, MAX_RECORDS).transform { page -> page.forEach { emit(it) } }
+        pages(type, from, to, Int.MAX_VALUE).transform { page -> page.forEach { emit(it) } }
 
     /**
      * Pages of records, requesting no more per page than [maxRecords] still needs

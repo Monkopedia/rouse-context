@@ -3,6 +3,7 @@ package com.rousecontext.integrations.health.query
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.take
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -35,8 +36,14 @@ data class Bucket(
     }
 }
 
-/** [buckets] plus the number of samples they were folded from. */
-data class BucketedValues(val buckets: List<Bucket>, val totalCount: Int)
+/**
+ * [buckets] plus the number of samples they were folded from.
+ *
+ * @param truncated true when the fold stopped at its sample ceiling, so [buckets]
+ *   cover only the earliest part of the requested range. Callers must not claim
+ *   whole-range coverage when this is set.
+ */
+data class BucketedValues(val buckets: List<Bucket>, val totalCount: Int, val truncated: Boolean)
 
 /**
  * Fold [values] into fixed-width [width] windows aligned to [from], emitting a
@@ -46,13 +53,29 @@ data class BucketedValues(val buckets: List<Bucket>, val totalCount: Int)
  * Values are folded as they arrive, so aggregating a range costs memory
  * proportional to the number of buckets rather than to the number of records in
  * it — the whole point of answering a wide window with aggregates.
+ *
+ * At most [maxValues] are folded; hitting that ceiling stops collection (and so
+ * the underlying read) and sets [BucketedValues.truncated], because the buckets
+ * then describe only the earliest part of the range.
  */
-suspend fun bucketize(values: Flow<TimedValue>, from: Instant, width: Duration): BucketedValues {
+suspend fun bucketize(
+    values: Flow<TimedValue>,
+    from: Instant,
+    width: Duration,
+    maxValues: Int
+): BucketedValues {
     val widthMillis = width.toMillis()
     val fromMillis = from.toEpochMilli()
     val byIndex = sortedMapOf<Long, Accumulator>()
     var total = 0
-    values.collect { tv ->
+    var truncated = false
+    // One past the ceiling: enough to tell "that was all of it" from "there is
+    // more", without folding the extra value.
+    values.take(maxValues + 1).collect { tv ->
+        if (total == maxValues) {
+            truncated = true
+            return@collect
+        }
         total++
         val offset = tv.time.toEpochMilli() - fromMillis
         val index = if (offset < 0) 0L else offset / widthMillis
@@ -61,7 +84,7 @@ suspend fun bucketize(values: Flow<TimedValue>, from: Instant, width: Duration):
     val buckets = byIndex.map { (index, acc) ->
         acc.toBucket(Instant.ofEpochMilli(fromMillis + index * widthMillis))
     }
-    return BucketedValues(buckets, total)
+    return BucketedValues(buckets, total, truncated)
 }
 
 /**

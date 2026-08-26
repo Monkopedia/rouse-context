@@ -199,6 +199,79 @@ class HealthConnectMcpServerTest {
         assertEquals("true", json["downsampled"]!!.jsonPrimitive.content)
     }
 
+    // --- query_health_data routed to buckets (spanning range) ---
+
+    @Test
+    fun `query_health_data over a spanning range returns buckets across the range`() = runBlocking {
+        val from = java.time.Instant.parse("2026-04-01T00:00:00Z")
+        repo.queryResults["BloodGlucose"] = QueryResult.Buckets(
+            buckets = listOf(
+                bucket(from, count = 400, avg = 5.0),
+                bucket(from.plus(java.time.Duration.ofHours(12)), count = 400, avg = 9.0)
+            ),
+            width = java.time.Duration.ofHours(12),
+            totalCount = 800,
+            truncated = false
+        )
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "BloodGlucose")
+                put("since", "2026-04-01")
+                put("until", "2026-04-02")
+                put("limit", 2)
+            }
+        )
+        assertTrue(result.isError != true)
+        val json = Json.parseToJsonElement(
+            (result.content.first() as TextContent).text!!
+        ).jsonObject
+        assertEquals("BloodGlucose", json["record_type"]!!.jsonPrimitive.content)
+        assertEquals("12h", json["bucket"]!!.jsonPrimitive.content)
+        assertEquals(800, json["total_count"]!!.jsonPrimitive.int)
+        assertEquals("false", json["truncated"]!!.jsonPrimitive.content)
+        assertEquals(2, json["buckets"]!!.jsonArray.size)
+        assertEquals(null, json["records"])
+        val note = json["note"]!!.jsonPrimitive.content
+        assertTrue("note must explain the switch: $note", note.contains("cap of 2"))
+        assertTrue("note must claim whole-range coverage: $note", note.contains("whole range"))
+    }
+
+    @Test
+    fun `query_health_data note does not claim whole-range coverage when truncated`() =
+        runBlocking {
+            val from = java.time.Instant.parse("2026-01-01T00:00:00Z")
+            // Aggregation stopped at the ceiling: the last bucket is nowhere near
+            // the requested 'until', so the response must not claim the whole range.
+            val lastStart = from.plus(java.time.Duration.ofDays(300))
+            repo.queryResults["BloodGlucose"] = QueryResult.Buckets(
+                buckets = listOf(bucket(from, count = 1, avg = 5.0), bucket(lastStart, 1, 9.0)),
+                width = java.time.Duration.ofDays(1),
+                totalCount = MAX_RECORDS,
+                truncated = true
+            )
+            val result = callTool(
+                "query_health_data",
+                buildJsonObject {
+                    put("record_type", "BloodGlucose")
+                    put("since", "2026-01-01")
+                    put("until", "2026-12-31")
+                    put("limit", 365)
+                }
+            )
+            val json = Json.parseToJsonElement(
+                (result.content.first() as TextContent).text!!
+            ).jsonObject
+            assertEquals("true", json["truncated"]!!.jsonPrimitive.content)
+            val note = json["note"]!!.jsonPrimitive.content
+            assertTrue(
+                "must not claim whole-range coverage when truncated: $note",
+                !note.contains("whole range")
+            )
+            assertTrue("must say the ceiling was hit: $note", note.contains("$MAX_RECORDS"))
+            assertTrue("must say how far it got: $note", note.contains(lastStart.toString()))
+        }
+
     // --- query_health_data bucketed ---
 
     @Test
@@ -234,9 +307,44 @@ class HealthConnectMcpServerTest {
         assertEquals(1, buckets.size)
         assertEquals(2, buckets[0].jsonObject["count"]!!.jsonPrimitive.int)
         assertEquals(6.0, buckets[0].jsonObject["avg"]!!.jsonPrimitive.content.toDouble(), 0.0001)
+        assertEquals(2, json["total_count"]!!.jsonPrimitive.int)
+        assertEquals("false", json["truncated"]!!.jsonPrimitive.content)
+        assertEquals(null, json["note"])
         // duration threaded through to the repo
         assertEquals(java.time.Duration.ofHours(1), repo.lastBucketCall!!.bucket)
     }
+
+    @Test
+    fun `query_health_data bucket flags truncation from the repository`() = runBlocking {
+        val from = java.time.Instant.parse("2026-04-01T00:00:00Z")
+        repo.buckets["BloodGlucose"] = BucketResult.Success(
+            buckets = listOf(bucket(from, count = 2, avg = 6.0)),
+            totalCount = MAX_RECORDS,
+            truncated = true
+        )
+        val result = callTool(
+            "query_health_data",
+            buildJsonObject {
+                put("record_type", "BloodGlucose")
+                put("since", "2026-04-01")
+                put("bucket", "1h")
+            }
+        )
+        val json = Json.parseToJsonElement(
+            (result.content.first() as TextContent).text!!
+        ).jsonObject
+        assertEquals("true", json["truncated"]!!.jsonPrimitive.content)
+        assertTrue(json["note"]!!.jsonPrimitive.content.contains("$MAX_RECORDS"))
+    }
+
+    private fun bucket(start: java.time.Instant, count: Int, avg: Double) =
+        com.rousecontext.integrations.health.query.Bucket(
+            start = start,
+            count = count,
+            min = avg,
+            max = avg,
+            avg = avg
+        )
 
     @Test
     fun `query_health_data bucket surfaces repository error`() = runBlocking {

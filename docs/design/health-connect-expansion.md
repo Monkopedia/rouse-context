@@ -45,6 +45,10 @@ temperatures, weight, height, body fat, bone mass, lean body mass, VO2 max) and 
 bucket over a wide range (max 1000 buckets). Aggregation streams records page by page and folds
 them as they arrive, so a wide range is never materialised.
 
+A single aggregation folds at most `MAX_RECORDS` (50,000) samples. A range denser than that is
+reported with `truncated: true` and a `note` naming how far the buckets actually reach — the
+buckets then cover only the earliest part of the range, and nothing claims otherwise.
+
 Health Connect's own `aggregateGroupByDuration` is deliberately not used: as of
 `connect-client:1.1.0` it has no `AggregateMetric` for BloodGlucose, HRV, SpO2, respiratory rate, or
 either body temperature — six of the eight bucketable types, including the CGM case that motivated

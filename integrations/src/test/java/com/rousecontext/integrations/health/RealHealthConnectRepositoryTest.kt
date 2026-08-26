@@ -6,6 +6,8 @@ import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -34,7 +36,7 @@ class RealHealthConnectRepositoryTest {
         private val queryResponse: List<JsonObject> = emptyList(),
         private val summaryKey: String? = null,
         private val summaryValue: Long = 0L,
-        private val bucketable: Map<String, List<TimedValue>> = emptyMap()
+        private val bucketable: Map<String, Flow<TimedValue>> = emptyMap()
     ) : CategoryQueries {
         val queryCalls: MutableList<QueryCall> = mutableListOf()
         var bucketValuesCalled = false
@@ -70,7 +72,7 @@ class RealHealthConnectRepositoryTest {
             to: Instant
         ): Flow<TimedValue>? {
             bucketValuesCalled = true
-            return bucketable[recordType]?.asFlow()
+            return bucketable[recordType]
         }
     }
 
@@ -206,7 +208,7 @@ class RealHealthConnectRepositoryTest {
             val cat = RecordingCategory(
                 setOf("BloodGlucose"),
                 queryResponse = jsonRecords(count),
-                bucketable = mapOf("BloodGlucose" to values)
+                bucketable = mapOf("BloodGlucose" to values.asFlow())
             )
             val repo = make(listOf(cat))
 
@@ -218,6 +220,7 @@ class RealHealthConnectRepositoryTest {
                 result is QueryResult.Buckets
             )
             result as QueryResult.Buckets
+            assertTrue("the whole range was folded, so nothing is truncated", !result.truncated)
             assertEquals(count, result.totalCount)
             assertTrue("must produce buckets", result.buckets.size > 1)
 
@@ -237,6 +240,29 @@ class RealHealthConnectRepositoryTest {
         }
 
     @Test
+    fun `queryRecords reports truncation when aggregation hits its sample ceiling`() = runBlocking {
+        // Twice the ceiling, generated lazily: the fold must stop and say so
+        // rather than presenting the earliest half as the whole range.
+        val step = Duration.between(from, to).toMillis() / (MAX_RECORDS * 2L)
+        val values = flow {
+            for (i in 0 until MAX_RECORDS * 2) {
+                emit(TimedValue(from.plusMillis(i * step), i.toDouble()))
+            }
+        }
+        val cat = RecordingCategory(
+            setOf("BloodGlucose"),
+            queryResponse = jsonRecords(600),
+            bucketable = mapOf("BloodGlucose" to values)
+        )
+        val repo = make(listOf(cat))
+
+        val result = repo.queryRecords("BloodGlucose", from, to, limit = 100)
+        result as QueryResult.Buckets
+        assertTrue("must report that the ceiling stopped the fold", result.truncated)
+        assertEquals(MAX_RECORDS, result.totalCount)
+    }
+
+    @Test
     fun `queryRecords does not materialise the window when routing to buckets`() = runBlocking {
         val count = 2000
         val step = Duration.between(from, to).toMillis() / count
@@ -244,7 +270,7 @@ class RealHealthConnectRepositoryTest {
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
             queryResponse = jsonRecords(count),
-            bucketable = mapOf("BloodGlucose" to values)
+            bucketable = mapOf("BloodGlucose" to values.asFlow())
         )
         val repo = make(listOf(cat))
 
@@ -298,7 +324,7 @@ class RealHealthConnectRepositoryTest {
         )
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
-            bucketable = mapOf("BloodGlucose" to values)
+            bucketable = mapOf("BloodGlucose" to values.asFlow())
         )
         val repo = make(listOf(cat))
 
@@ -319,7 +345,7 @@ class RealHealthConnectRepositoryTest {
     fun `bucketRecords rejects too-fine bucket before reading`() = runBlocking {
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
-            bucketable = mapOf("BloodGlucose" to emptyList())
+            bucketable = mapOf("BloodGlucose" to emptyFlow())
         )
         val repo = make(listOf(cat))
 

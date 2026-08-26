@@ -23,8 +23,10 @@ interface HealthConnectRepository {
      * When the range holds more than the cap, returning the records that fit
      * would return its *earliest slice*, which is not an answer about the range.
      * So the query is instead answered with [QueryResult.Buckets]: per-window
-     * count/min/max/avg spanning the whole range, streamed and folded so the
-     * range is never materialised. Record types that cannot be bucketed
+     * count/min/max/avg across the range, streamed and folded so the range is
+     * never materialised. A range holding more than [MAX_RECORDS] samples folds
+     * only the earliest [MAX_RECORDS] of them and says so via
+     * [QueryResult.Buckets.truncated]. Record types that cannot be bucketed
      * (sessions, multi-value, cumulative) fall back to [QueryResult.Records]
      * evenly spread across the range with `downsampled` set.
      *
@@ -110,9 +112,15 @@ sealed class QueryResult {
      * @param buckets per-window count/min/max/avg, ordered by start time
      * @param width the window width the range was divided into
      * @param totalCount number of samples aggregated
+     * @param truncated true when aggregation stopped at [MAX_RECORDS] samples, so
+     *   [buckets] cover only the earliest part of the requested range
      */
-    data class Buckets(val buckets: List<Bucket>, val width: Duration, val totalCount: Int) :
-        QueryResult()
+    data class Buckets(
+        val buckets: List<Bucket>,
+        val width: Duration,
+        val totalCount: Int,
+        val truncated: Boolean
+    ) : QueryResult()
 }
 
 /**
@@ -123,12 +131,25 @@ sealed class QueryResult {
  *    large range, or a non-bucketable record type). Callers surface it verbatim.
  */
 sealed class BucketResult {
-    data class Success(val buckets: List<Bucket>, val totalCount: Int) : BucketResult()
+
+    /**
+     * @param truncated true when aggregation stopped at [MAX_RECORDS] samples, so
+     *   [buckets] cover only the earliest part of the requested range
+     */
+    data class Success(
+        val buckets: List<Bucket>,
+        val totalCount: Int,
+        val truncated: Boolean = false
+    ) : BucketResult()
 
     data class Error(val message: String) : BucketResult()
 }
 
-/** Upper bound on records a single read or aggregation will visit, to bound work. */
+/**
+ * Upper bound on records a single read will accumulate, and on samples a single
+ * aggregation will fold, to bound work. Hitting it while aggregating is reported
+ * (`truncated`) rather than passed off as whole-range coverage.
+ */
 const val MAX_RECORDS: Int = 50_000
 
 /** Default cap on raw records returned by a query when the caller gives no limit. */
