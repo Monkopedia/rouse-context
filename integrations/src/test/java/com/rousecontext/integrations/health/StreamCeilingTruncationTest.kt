@@ -135,6 +135,21 @@ class StreamCeilingTruncationTest {
     }
 
     @Test
+    fun `a supply that runs out exactly at the record ceiling is not truncated`() {
+        // The sharpest negative control: the read ends having fetched exactly
+        // STREAM_MAX_RECORDS records, so anything keyed on the record count
+        // alone calls this truncated. It is not — the range ended on the page
+        // that filled the ceiling. Only "the ceiling is why we stopped" counts,
+        // and that distinction rests on the reader checking exhaustion before
+        // its ceiling, which is one refactor away from being lost silently.
+        val pages = STREAM_MAX_RECORDS / READ_PAGE_SIZE
+        val measured = measure(listOf(1, 0), supplyPages = pages)
+        assertEquals(pages, measured.pages)
+        assertEquals(STREAM_MAX_RECORDS / 2, measured.folded)
+        assertFalse("the range ended; the ceiling merely coincided", measured.truncated)
+    }
+
+    @Test
     fun `a range of empty records that runs out is not reported as truncated`() {
         val measured = measure(listOf(0), supplyPages = 3)
         assertEquals(3, measured.pages)

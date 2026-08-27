@@ -113,9 +113,11 @@ sealed class QueryResult {
      * @param buckets per-window count/min/max/avg, ordered by start time
      * @param width the window width the range was divided into
      * @param totalCount number of samples aggregated
-     * @param truncated true when aggregation stopped at a ceiling — [MAX_RECORDS]
-     *   samples folded, or [STREAM_MAX_RECORDS] records read — so [buckets] cover
-     *   only the earliest part of the requested range
+     * @param truncated true when aggregation stopped at a ceiling — the range
+     *   held more than [MAX_RECORDS] samples to fold, or more than
+     *   [STREAM_MAX_RECORDS] records to read through — so [buckets] cover only
+     *   the earliest part of the requested range. A range that simply ended is
+     *   not truncated, however few samples it held.
      */
     data class Buckets(
         val buckets: List<Bucket>,
@@ -135,9 +137,11 @@ sealed class QueryResult {
 sealed class BucketResult {
 
     /**
-     * @param truncated true when aggregation stopped at a ceiling — [MAX_RECORDS]
-     *   samples folded, or [STREAM_MAX_RECORDS] records read — so [buckets] cover
-     *   only the earliest part of the requested range
+     * @param truncated true when aggregation stopped at a ceiling — the range
+     *   held more than [MAX_RECORDS] samples to fold, or more than
+     *   [STREAM_MAX_RECORDS] records to read through — so [buckets] cover only
+     *   the earliest part of the requested range. A range that simply ended is
+     *   not truncated, however few samples it held.
      */
     data class Success(
         val buckets: List<Bucket>,
