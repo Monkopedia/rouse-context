@@ -10,6 +10,8 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -35,6 +37,9 @@ class TlsAcceptor(private val sslContext: SSLContext) {
          * Reads plaintext bytes into [buf] starting at [off] for up to [len] bytes.
          *
          * @return number of bytes read, or -1 on EOF
+         * @throws java.io.IOException if the engine reports a status this layer
+         *   does not know how to handle. That is a defect, not end-of-stream, and
+         *   reporting it as EOF is how such defects stayed invisible (#565).
          */
         suspend fun read(buf: ByteArray, off: Int = 0, len: Int = buf.size - off): Int
 
@@ -73,7 +78,7 @@ class TlsAcceptor(private val sslContext: SSLContext) {
      */
     private suspend fun pumpHandshake(engine: SSLEngine, stream: MuxStream): java.nio.ByteBuffer {
         val session = engine.session
-        val appIn = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
+        var appIn = java.nio.ByteBuffer.allocate(session.applicationBufferSize)
         val appOut = java.nio.ByteBuffer.allocate(0) // empty: no app data during handshake
         var netIn = java.nio.ByteBuffer.allocate(session.packetBufferSize)
         val netOut = java.nio.ByteBuffer.allocate(session.packetBufferSize)
@@ -88,6 +93,10 @@ class TlsAcceptor(private val sslContext: SSLContext) {
         while (hsStatus != SSLEngineResult.HandshakeStatus.FINISHED &&
             hsStatus != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING
         ) {
+            // The bug family this loop keeps hitting (#558, #563, #565) is a
+            // no-progress spin with no suspension point, which is uncancellable
+            // and therefore invisible to timeouts. Check explicitly.
+            currentCoroutineContext().ensureActive()
             when (hsStatus) {
                 SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
                     netOut.clear()
@@ -98,7 +107,8 @@ class TlsAcceptor(private val sslContext: SSLContext) {
                         stream.write(drain(netOut))
                     }
                 }
-                SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+                SSLEngineResult.HandshakeStatus.NEED_UNWRAP,
+                SSLEngineResult.HandshakeStatus.NEED_UNWRAP_AGAIN -> {
                     // Read from the stream when netIn has nothing left to unwrap,
                     // OR when the last unwrap underflowed. Multiple TLS records
                     // may arrive in ONE mux DATA frame (so we must not read while
@@ -106,7 +116,15 @@ class TlsAcceptor(private val sslContext: SSLContext) {
                     // SPLIT across two frames (so we must read when netIn holds
                     // only a partial record -- otherwise unwrap underflows forever
                     // on the same bytes, spinning at 100% CPU). See #558.
-                    if (netIn.position() == 0 || needMoreNetData) {
+                    //
+                    // NEED_UNWRAP_AGAIN is the explicit "I already have buffered
+                    // data to process, do NOT hand me more network bytes" signal,
+                    // so it never reads. It used to fall into `else -> break`,
+                    // abandoning a handshake that was still progressing while the
+                    // caller saw an ordinary return. See #565.
+                    val needsNetData = hsStatus == SSLEngineResult.HandshakeStatus.NEED_UNWRAP &&
+                        (netIn.position() == 0 || needMoreNetData)
+                    if (needsNetData) {
                         netIn = appendTo(netIn, stream.read())
                     }
                     netIn.flip()
@@ -115,23 +133,28 @@ class TlsAcceptor(private val sslContext: SSLContext) {
                     hsStatus = result.handshakeStatus
                     needMoreNetData =
                         result.status == SSLEngineResult.Status.BUFFER_UNDERFLOW
+                    if (result.status == SSLEngineResult.Status.BUFFER_OVERFLOW) {
+                        // appIn cannot hold the record's plaintext. Nothing was
+                        // consumed, so without growing the buffer the next
+                        // iteration re-unwraps the same bytes forever.
+                        // SuspendTlsSession.read has always handled this; the two
+                        // paths must agree about whether it can happen. See #565.
+                        appIn = growBuffer(appIn)
+                    }
                 }
                 SSLEngineResult.HandshakeStatus.NEED_TASK -> {
                     runDelegatedTasks(engine)
                     hsStatus = engine.handshakeStatus
                 }
-                else -> break
+                // An unknown handshake status is a bug, not a completed handshake.
+                // Breaking here returned a half-open session indistinguishable
+                // from a good one -- exactly how #558 survived four filings.
+                else -> throw TunnelError.TlsHandshakeFailed(
+                    "Unhandled TLS handshake status: $hsStatus"
+                )
             }
         }
         return netIn
-    }
-
-    private fun runDelegatedTasks(engine: SSLEngine) {
-        var task = engine.delegatedTask
-        while (task != null) {
-            task.run()
-            task = engine.delegatedTask
-        }
     }
 
     /**
@@ -267,6 +290,40 @@ private fun appendTo(buffer: java.nio.ByteBuffer, data: ByteArray): java.nio.Byt
 private fun drain(buffer: java.nio.ByteBuffer): ByteArray =
     ByteArray(buffer.remaining()).also { buffer.get(it) }
 
+/** Smallest buffer [growBuffer] will hand back, so a zero-capacity buffer still grows. */
+private const val MIN_BUFFER_GROWTH = 1024
+
+/**
+ * Double a "fill"-mode buffer (position = write pointer), preserving what is
+ * already written. Used by both the handshake pump and [SuspendTlsSession.read]
+ * to recover from `BUFFER_OVERFLOW`: `unwrap` consumed nothing, so the retry only
+ * terminates because the destination got bigger.
+ */
+private fun growBuffer(buffer: java.nio.ByteBuffer): java.nio.ByteBuffer {
+    val grown = java.nio.ByteBuffer.allocate(
+        (buffer.capacity() * 2).coerceAtLeast(MIN_BUFFER_GROWTH)
+    )
+    buffer.flip()
+    grown.put(buffer)
+    return grown
+}
+
+/**
+ * Run every task the engine has deferred, on the IO dispatcher -- a delegated
+ * task is blocking work (key agreement, and for some providers CRL/OCSP fetches).
+ *
+ * Shared by the handshake pump and [SuspendTlsSession.read]; the engine can ask
+ * for a task after the handshake as well, and a read path that ignores it makes
+ * no progress at all. See #565.
+ */
+private suspend fun runDelegatedTasks(engine: SSLEngine): Unit = withContext(Dispatchers.IO) {
+    var task = engine.delegatedTask
+    while (task != null) {
+        task.run()
+        task = engine.delegatedTask
+    }
+}
+
 /**
  * A suspend-native [TlsAcceptor.TlsSession] that encrypts/decrypts plaintext against
  * an underlying [MuxStream]. Reads and writes are serialized with separate mutexes
@@ -312,10 +369,10 @@ private class SuspendTlsSession(
         // socket read timeout fires. See #558.
         var needMoreNetData = false
         while (true) {
-            // Read from the stream when netIn has nothing left to unwrap, OR when
-            // the last unwrap underflowed. Multiple TLS records may arrive in ONE
-            // mux DATA frame, and ONE TLS record may be SPLIT across two frames.
-            if ((netIn.position() == 0 || needMoreNetData) && !pullNetData()) {
+            // A no-progress iteration here has no suspension point of its own, so
+            // it would spin uncancellably (#558/#563). Check explicitly.
+            currentCoroutineContext().ensureActive()
+            if (!ensureNetData(forceRead = needMoreNetData)) {
                 eof = true
                 return@withLock -1
             }
@@ -324,6 +381,7 @@ private class SuspendTlsSession(
 
             val result = engine.unwrap(netIn, appIn)
             netIn.compact()
+            runTasksIfRequested(result)
 
             when (result.status) {
                 SSLEngineResult.Status.OK -> {
@@ -347,20 +405,46 @@ private class SuspendTlsSession(
                 SSLEngineResult.Status.BUFFER_OVERFLOW -> {
                     // Grow the app buffer and retry unwrap immediately
                     // (netIn still has the data that caused overflow)
-                    val newBuf = java.nio.ByteBuffer.allocate(appIn.capacity() * 2)
-                    appIn.flip()
-                    newBuf.put(appIn)
-                    appIn = newBuf
+                    appIn = growBuffer(appIn)
                     continue
                 }
+                // An unknown unwrap status is a bug, not end-of-stream. Returning
+                // -1 reported a clean EOF for it and hid the defect. See #565.
                 else -> {
                     eof = true
-                    return@withLock -1
+                    throw java.io.IOException("Unhandled TLS unwrap status: ${result.status}")
                 }
             }
         }
         @Suppress("UNREACHABLE_CODE")
         -1
+    }
+
+    /**
+     * Make sure [netIn] holds bytes worth unwrapping, pulling one more mux DATA
+     * frame when it is empty or when [forceRead] says the last unwrap underflowed
+     * on a partial record. Multiple TLS records may arrive in ONE mux DATA frame
+     * (so we must not read while netIn still holds whole records), and ONE TLS
+     * record may be SPLIT across two frames (so we must read when netIn holds
+     * only a partial one). See #558.
+     *
+     * @return false on EOF
+     */
+    private suspend fun ensureNetData(forceRead: Boolean): Boolean {
+        if (netIn.position() != 0 && !forceRead) return true
+        return pullNetData()
+    }
+
+    /**
+     * Run whatever the engine deferred. The engine can ask for a delegated task
+     * after the handshake too; the handshake pump has always run these, and
+     * without the same branch here `read` re-unwraps the same bytes forever
+     * because nothing else can advance the engine. See #565.
+     */
+    private suspend fun runTasksIfRequested(result: SSLEngineResult) {
+        if (result.handshakeStatus == SSLEngineResult.HandshakeStatus.NEED_TASK) {
+            runDelegatedTasks(engine)
+        }
     }
 
     /** Hand back up to [len] plaintext bytes already decoded into [appIn]. */
