@@ -107,6 +107,33 @@ All Gradle commands need `JAVA_HOME=/usr/lib/jvm/java-21-openjdk`.
 ./gradlew ktlintFormat
 ```
 
+## Screenshot goldens (Roborazzi)
+
+`:app` and `:notifications` commit golden PNGs and compare against them in CI
+(#628). `testDebugUnitTest` alone does NOT compare — it renders and passes — so
+a UI change that reflows a shared component looks green locally and goes red on
+the `Screenshot goldens match the committed PNGs` step. That is expected: the
+goldens need re-recording as part of the change that caused the drift.
+
+```bash
+# Compare against the committed PNGs (what CI runs). --continue so a mismatch
+# in one module still reports the other's.
+./gradlew :app:verifyRoborazziDebug :notifications:verifyRoborazziDebug --continue
+
+# On a mismatch: <name>_actual.png and <name>_compare.png land in
+# app/build/outputs/roborazzi/, and an HTML index in
+# app/build/reports/roborazzi/debug/index.html. CI uploads both as the
+# `roborazzi-screenshot-diffs` artifact.
+
+# Re-record after an intended UI change, then EYEBALL the diff before committing
+./gradlew :app:recordRoborazziDebug
+./gradlew :notifications:recordRoborazziDebug
+```
+
+Golden locations: `app/screenshots/` (the browsable gallery),
+`fastlane/metadata/android/en-US/images/phoneScreenshots/` (the F-Droid store
+listing, written by `ListingScreenshotTest`), `notifications/screenshots/`.
+
 ## Relay (Rust)
 
 ```bash
