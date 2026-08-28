@@ -74,6 +74,24 @@ jobs:
       # against a throwaway repo and asserts the red cases actually go red.
       - name: "Manual-JSON gate self-test (issue #594)"
         run: bash scripts/tests/check-no-manual-json-test.sh
+      # Same reasoning applied to #628's positive control. That control compares
+      # a count of goldens on disk against Roborazzi's own tally, and an
+      # equality check has a vacuous solution: zero == zero passes. The first
+      # draft went green with the goldens deleted. Runs here — no JDK, under a
+      # second, long before the build — so a regression in the control reports
+      # in seconds rather than surviving because the thing it guards happened to
+      # be healthy that day (#597).
+      - name: "Roborazzi coverage-control self-test (issue #628)"
+        run: bash scripts/tests/check-roborazzi-coverage-test.sh
+      # Where the screenshot-verify step sits below is load-bearing and nothing
+      # fails if it moves: above "Upload test reports" it would overwrite
+      # app/build/reports/tests/ before that upload collects it, so the artifact
+      # would omit the reports for the tests that failed (#626, live). A comment
+      # is documentation; this is the gate.
+      - name: "Roborazzi step order is preserved (issue #628)"
+        run: bash scripts/check-roborazzi-step-order.sh
+      - name: "Roborazzi step-order gate self-test (issue #628)"
+        run: bash scripts/tests/check-roborazzi-step-order-test.sh
       # Both distributions write the SAME `app/build/outputs/apk/debug/` path
       # (distribution is a flag, not a flavor — #467), so each build is verified
       # immediately after it runs, before the next one overwrites it.
@@ -203,3 +221,84 @@ jobs:
         with:
           name: test-reports
           path: "**/build/reports/tests/"
+      # Screenshot verification runs LAST, and that placement is load-bearing
+      # (issue #628).
+      #
+      # Until now no workflow ran any Roborazzi task at all: `testDebugUnitTest`
+      # executes the screenshot tests in Roborazzi's DEFAULT mode, which renders
+      # each composable and passes without ever comparing it to the committed
+      # PNG. #490 and #508 both shipped stale goldens fully green that way, for
+      # ~2 and ~9 weeks, and the drift surfaced only because an unrelated PR
+      # (#610) happened to run a record task. `verifyRoborazziDebug` is the mode
+      # that actually compares.
+      #
+      # Why last, rather than next to the "Unit tests" step it belongs beside:
+      #
+      #   * Verify mode is a task INPUT, not a flag on the side. Measured: a
+      #     plain `:app:testDebugUnitTest` immediately after a verify run
+      #     re-EXECUTES (4 executed, 111 up-to-date) rather than reporting
+      #     UP-TO-DATE, and vice versa. So a verify step placed anywhere above
+      #     "Coverage report (Kover)" would leave `:app:testDebugUnitTest` out of
+      #     date for Kover's `-Pgoogle` pass, falsifying that step's documented
+      #     "Gradle will reuse those results via UP-TO-DATE" and adding a full
+      #     ~1.5-min suite re-run inside its 10-minute cap. Below the Kover step,
+      #     the inputs Kover sees are byte-identical to before this change.
+      #
+      #   * The verify run re-runs `:app`'s whole unit suite and OVERWRITES
+      #     `app/build/reports/tests/`. Above "Upload test reports" it would
+      #     clobber a failing `-Pgoogle` run's report with its own — producing
+      #     precisely #626's artifact-that-omits-the-failure. Below it, the
+      #     uploaded reports are already collected.
+      #
+      # `:notifications` carries 40 goldens of its own and had the identical
+      # hole, so it is verified in the same invocation. `--continue` so a
+      # mismatch in one module still reports the other's, instead of the first
+      # failure masking the rest.
+      - name: "Screenshot goldens match the committed PNGs (issue #628)"
+        id: roborazzi
+        if: success() || failure()
+        timeout-minutes: 20
+        # Bare (FOSS) distribution: the screenshot tests live in the shared
+        # `src/test` tree and the goldens are recorded with a bare
+        # `./gradlew :app:recordRoborazziDebug`, so this compares like for like.
+        run: ./gradlew :app:verifyRoborazziDebug :notifications:verifyRoborazziDebug --continue
+      # A green verify is NOT evidence that verification happened: Roborazzi
+      # prints BUILD SUCCESSFUL both when it compared 129 goldens and found no
+      # drift and when it compared zero. That second state is the one CI was
+      # already in, and the same rot #579/#594 describe for the grep gates. This
+      # reads the tally Roborazzi writes and asserts it equals the number of
+      # golden PNGs actually committed, so the gate cannot quietly stop covering
+      # them. Runs even when the verify above went red — the tally is written
+      # either way, and a mismatch changes what the red X means.
+      - name: "Roborazzi really compared every committed golden (issue #628)"
+        id: roborazzi_coverage
+        if: success() || failure()
+        run: bash scripts/check-roborazzi-coverage.sh
+      # `outputs/roborazzi/` is where Roborazzi writes `<name>_actual.png` and
+      # `<name>_compare.png` on a mismatch, and it is EMPTY on a clean run —
+      # confirmed by running the verify task against a deliberately perturbed
+      # golden and listing the tree. `reports/roborazzi/` holds the HTML index,
+      # whose <img> tags point at `../../../outputs/roborazzi/<name>_compare.png`
+      # — a repo-relative link, so both trees must be uploaded together and with
+      # their paths intact or the report renders as broken images. Uploading
+      # them as sibling paths makes upload-artifact root the archive at their
+      # common ancestor, which preserves that link. `test-results/roborazzi/`
+      # carries the JSON tallies the step above asserts on.
+      #
+      # `if-no-files-found: error` is deliberate: the HTML index is written on
+      # every verify run that reaches the comparison, so an empty artifact here
+      # means the paths have moved — the failure mode where an artifact is named
+      # for exactly the thing it omits (#626).
+      - name: Upload Roborazzi comparison images
+        if: failure() && (steps.roborazzi.outcome == 'failure' || steps.roborazzi_coverage.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-screenshot-diffs
+          if-no-files-found: error
+          path: |
+            app/build/outputs/roborazzi/
+            app/build/reports/roborazzi/
+            app/build/test-results/roborazzi/
+            notifications/build/outputs/roborazzi/
+            notifications/build/reports/roborazzi/
+            notifications/build/test-results/roborazzi/

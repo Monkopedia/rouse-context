@@ -115,6 +115,15 @@ jobs:
         # (unqualified) covers the library modules' `:app` foss run plus the
         # distribution-agnostic modules; the `-Pgoogle` pass covers the Firebase
         # distribution.
+        #
+        # These runs do NOT verify the Roborazzi screenshot goldens: in its
+        # default mode Roborazzi renders each composable and passes without
+        # comparing it to the committed PNG (#628). `verifyRoborazziDebug` is
+        # the mode that compares, and it lives in `android-ci.yml`'s `test` job
+        # — deliberately in ONE job only. It re-runs the whole `:app` suite, so
+        # a second copy here would double that cost and, worse, make any flake
+        # look like a real golden mismatch half the time. Add it here only if it
+        # is being REMOVED from `android-ci.yml`.
         run: |
           ./gradlew testDebugUnitTest :core:tunnel:jvmTest :core:mcp:jvmTest :core:bridge:jvmTest
           ./gradlew :app:testDebugUnitTest -Pgoogle
