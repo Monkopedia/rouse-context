@@ -8,10 +8,19 @@
 # gates acquired bugs that made them silently green -- so the control's own red
 # paths are exercised here rather than trusted.
 #
-# The case that matters most is `zero_glob`: the control compares a count on
-# disk with a count in Roborazzi's summary, and an equality check is satisfied
-# by 0 == 0. The first draft of the control passed that case green. If the guard
-# regresses, this goes red.
+# Two cases matter most, and both were live bugs in earlier drafts:
+#
+#   * `zero_glob` -- the control compares a count on disk with a count from
+#     Roborazzi, and an equality check is satisfied by 0 == 0. The first draft
+#     passed that case green.
+#   * `retried_failure` -- `summary.total` counts comparisons PERFORMED, and the
+#     `test-retry` plugin re-runs a failing test up to 3x. The second draft
+#     asserted on `total`, so every genuinely drifted image made the control
+#     fire a bogus coverage failure ALONGSIDE the real one (measured: total 131
+#     against 129 goldens, from a single perturbed pixel). The control must
+#     count DISTINCT goldens, which is what that case pins.
+#
+# If either guard regresses, this goes red.
 #
 # Fourth instance of the harness shape behind #577/#588, #590/#593 and #594:
 # build a throwaway tree and run the REAL script end-to-end.
@@ -45,13 +54,29 @@ setup_sandbox() {
   touch "$sandbox/$app_goldens"/{01_a_dark.png,01_a_light.png,02_b_dark.png}
   touch "$sandbox/$listing_goldens"/{1_welcome.png,2_home.png}
   touch "$sandbox/$notif_goldens"/{01_c_dark.png,01_c_light.png,02_d_dark.png,02_d_light.png}
-  write_summary "$sandbox/$app_summary" 5
-  write_summary "$sandbox/$notif_summary" 4
+  write_summary "$sandbox/$app_summary" \
+    01_a_dark.png 01_a_light.png 02_b_dark.png 1_welcome.png 2_home.png
+  write_summary "$sandbox/$notif_summary" \
+    01_c_dark.png 01_c_light.png 02_d_dark.png 02_d_light.png
 }
 
+# write_summary <file> <golden-name>...
+#
+# One `results[]` entry per name, so passing the same name twice simulates the
+# `test-retry` plugin re-running a failed comparison. `summary.total` is set to
+# the number of ENTRIES (what Roborazzi really does) rather than the number of
+# distinct names, so a fixture with retries has an inflated total exactly like a
+# real one -- which is what makes the retried_failure case meaningful.
 write_summary() {
-  printf '{"summary":{"total":%s,"recorded":0,"added":0,"changed":0,"unchanged":%s}}\n' \
-    "$2" "$2" > "$1"
+  local file=$1
+  shift
+  local entries="" name
+  for name in "$@"; do
+    [ -n "$entries" ] && entries="$entries,"
+    entries="$entries{\"golden_file_path\":\"/sandbox/$name\",\"type\":\"unchanged\"}"
+  done
+  printf '{"summary":{"total":%s,"recorded":0,"added":0,"changed":0,"unchanged":%s},"results":[%s]}\n' \
+    "$#" "$#" "$entries" > "$file"
 }
 
 # expect <exit-status> <name> [<substring the output must contain>]
@@ -88,37 +113,37 @@ expect 0 "counts agree across both :app golden trees and :notifications"
 # is the case the control exists to catch, so it is the case most worth pinning.
 setup_sandbox
 rm -f "$sandbox/$app_goldens"/*.png "$sandbox/$listing_goldens"/*.png
-write_summary "$sandbox/$app_summary" 0
+write_summary "$sandbox/$app_summary"
 expect 1 "zero_glob: no goldens on disk, nothing compared" "found 0 golden PNGs"
 
 # Same shape via a RENAMED tree rather than deleted files: the dirs the control
 # names no longer exist, which must not be mistaken for a clean run.
 setup_sandbox
 mv "$sandbox/$notif_goldens" "$sandbox/notifications/screenshots-renamed"
-write_summary "$sandbox/$notif_summary" 0
+write_summary "$sandbox/$notif_summary"
 expect 1 "zero_glob: golden tree renamed out from under the control" "does not exist"
 
 # --- drift between the two counts -------------------------------------------
 setup_sandbox
-write_summary "$sandbox/$app_summary" 3
-expect 1 "a screenshot test stopped running (total understates the goldens)" \
-  "compared 3 images, but 5 golden"
+write_summary "$sandbox/$app_summary" 01_a_dark.png 01_a_light.png 02_b_dark.png
+expect 1 "a screenshot test stopped running (fewer goldens compared than committed)" \
+  "compared 3 distinct goldens"
 
 setup_sandbox
 touch "$sandbox/$app_goldens/03_orphan_dark.png"
 expect 1 "an orphan golden is committed with no test rendering it" \
-  "compared 5 images, but 6 golden"
+  "compared 5 distinct goldens"
 
 # Only the fastlane tree drifts: proves :app's second golden tree is counted,
 # not just app/screenshots.
 setup_sandbox
 touch "$sandbox/$listing_goldens/3_orphan.png"
 expect 1 "drift confined to the fastlane listing tree is still caught" \
-  "compared 5 images, but 6 golden"
+  "compared 5 distinct goldens"
 
 # Per-module isolation: :notifications drifting must not be reported as :app.
 setup_sandbox
-write_summary "$sandbox/$notif_summary" 2
+write_summary "$sandbox/$notif_summary" 01_c_dark.png 01_c_light.png
 expect 1 "a :notifications mismatch is attributed to :notifications" \
   "FAIL [notifications]"
 
@@ -128,8 +153,34 @@ rm -f "$sandbox/$app_summary"
 expect 1 "verify never ran (no results summary)" "no Roborazzi results summary"
 
 setup_sandbox
-printf '{"summary":{"recorded":0}}\n' > "$sandbox/$app_summary"
-expect 1 "summary exists but carries no total" 'could not read "total"'
+printf '{"summary":{"total":5,"recorded":0}}\n' > "$sandbox/$app_summary"
+expect 1 "summary exists but records no per-image results" "records no golden_file_path"
+
+# Roborazzi renaming the field must break LOUDLY, not silently pass. A control
+# that stops being able to read its input and reports OK is the whole bug class.
+setup_sandbox
+sed -i 's/golden_file_path/golden_image_path/g' "$sandbox/$app_summary"
+expect 1 "the per-image field was renamed by a Roborazzi upgrade" \
+  "records no golden_file_path"
+
+# --- THE retry case ----------------------------------------------------------
+# A genuinely drifted image, retried 3x by the test-retry plugin: 7 comparisons
+# over 5 distinct goldens. The verify task reports the drift; the control must
+# stay QUIET, because coverage is fine. Asserting on summary.total made this red
+# and buried the real failure under a bogus one.
+setup_sandbox
+write_summary "$sandbox/$app_summary" \
+  01_a_dark.png 01_a_dark.png 01_a_dark.png 01_a_light.png 02_b_dark.png \
+  1_welcome.png 2_home.png
+expect 0 "retried_failure: 7 comparisons over 5 distinct goldens is full coverage"
+
+# The retry must not MASK a coverage gap either: one golden genuinely missing,
+# another retried to the same total. Counting comparisons would call this fine.
+setup_sandbox
+write_summary "$sandbox/$app_summary" \
+  01_a_dark.png 01_a_dark.png 01_a_light.png 02_b_dark.png 1_welcome.png
+expect 1 "retries cannot paper over a golden that was never compared" \
+  "compared 4 distinct goldens"
 
 if [ "$failures" -ne 0 ]; then
   echo

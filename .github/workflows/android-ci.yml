@@ -83,6 +83,15 @@ jobs:
       # be healthy that day (#597).
       - name: "Roborazzi coverage-control self-test (issue #628)"
         run: bash scripts/tests/check-roborazzi-coverage-test.sh
+      # Where the screenshot-verify step sits below is load-bearing and nothing
+      # fails if it moves: above "Upload test reports" it would overwrite
+      # app/build/reports/tests/ before that upload collects it, so the artifact
+      # would omit the reports for the tests that failed (#626, live). A comment
+      # is documentation; this is the gate.
+      - name: "Roborazzi step order is preserved (issue #628)"
+        run: bash scripts/check-roborazzi-step-order.sh
+      - name: "Roborazzi step-order gate self-test (issue #628)"
+        run: bash scripts/tests/check-roborazzi-step-order-test.sh
       # Both distributions write the SAME `app/build/outputs/apk/debug/` path
       # (distribution is a flag, not a flavor — #467), so each build is verified
       # immediately after it runs, before the next one overwrites it.
