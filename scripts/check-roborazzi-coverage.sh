@@ -21,6 +21,14 @@
 #
 # The expected counts are DERIVED from the filesystem, never hardcoded: adding
 # or removing a golden needs no edit here.
+#
+# An equality check has a vacuous solution -- zero goldens on disk compared
+# against zero images verified -- and `0 -eq 0` is a pass. That is this script's
+# own defect one level up: a renamed golden directory, a moved tree, or a
+# `*.png` glob that stops matching would take the goldens and the comparison out
+# together and report OK. So each module must also find a NON-ZERO number of
+# goldens; a module that has stopped having goldens at all is a red flag, not a
+# clean run.
 
 set -euo pipefail
 
@@ -56,6 +64,16 @@ check_module() {
     fi
     expected=$((expected + $(find "$dir" -maxdepth 1 -name '*.png' -type f | wc -l)))
   done
+
+  # The zero-glob guard. Without it the equality below is satisfied by
+  # "no goldens, nothing compared" -- a green run that verifies nothing.
+  if [[ "$expected" -eq 0 ]]; then
+    echo "FAIL [$module]: found 0 golden PNGs under: $*"
+    echo "      A module with no goldens cannot be verified, so comparing counts"
+    echo "      here would pass vacuously. The tree has moved or been emptied."
+    EXIT=1
+    return
+  fi
 
   # `total` is the last integer on the summary's `"total":` field. Parsed with
   # sed rather than jq: `jq` is not guaranteed on every runner, and the shape of

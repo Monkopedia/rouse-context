@@ -74,6 +74,15 @@ jobs:
       # against a throwaway repo and asserts the red cases actually go red.
       - name: "Manual-JSON gate self-test (issue #594)"
         run: bash scripts/tests/check-no-manual-json-test.sh
+      # Same reasoning applied to #628's positive control. That control compares
+      # a count of goldens on disk against Roborazzi's own tally, and an
+      # equality check has a vacuous solution: zero == zero passes. The first
+      # draft went green with the goldens deleted. Runs here — no JDK, under a
+      # second, long before the build — so a regression in the control reports
+      # in seconds rather than surviving because the thing it guards happened to
+      # be healthy that day (#597).
+      - name: "Roborazzi coverage-control self-test (issue #628)"
+        run: bash scripts/tests/check-roborazzi-coverage-test.sh
       # Both distributions write the SAME `app/build/outputs/apk/debug/` path
       # (distribution is a flag, not a flavor — #467), so each build is verified
       # immediately after it runs, before the next one overwrites it.
