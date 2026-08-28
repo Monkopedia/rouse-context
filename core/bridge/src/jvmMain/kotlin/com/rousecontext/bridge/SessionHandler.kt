@@ -3,9 +3,11 @@ package com.rousecontext.bridge
 import com.rousecontext.mcp.core.INTERNAL_TOKEN_HEADER
 import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TlsAcceptor
+import com.rousecontext.tunnel.TunnelError
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.Socket
+import javax.net.ssl.SSLContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -29,7 +31,15 @@ import kotlinx.coroutines.withContext
  */
 class SessionHandler(
     private val certProvider: TlsCertProvider,
-    private val mcpSessionFactory: McpSessionFactory
+    private val mcpSessionFactory: McpSessionFactory,
+    /**
+     * How an incoming [MuxStream] becomes a TLS session. Defaults to the real
+     * [TlsAcceptor]; exists as a parameter so tests can drive the byte-copy
+     * loops with a stub [TlsAcceptor.TlsSession] instead of standing up a real
+     * handshake. Production wiring never passes it.
+     */
+    private val tlsAccept: suspend (SSLContext, MuxStream) -> TlsAcceptor.TlsSession =
+        { sslContext, stream -> TlsAcceptor.create(sslContext).accept(stream) }
 ) {
 
     /**
@@ -39,13 +49,16 @@ class SessionHandler(
      * Cleans up TLS, TCP, and MCP resources on exit.
      *
      * @throws IllegalStateException if no TLS certificate is available
+     * @throws TunnelError.UnhandledTlsState if the TLS layer hits a state it has
+     *   no handling for. Ordinary peer disconnects do NOT surface here -- they
+     *   end the session quietly, which is what makes this throw worth reading.
+     *   See #616.
      */
     suspend fun handleStream(stream: MuxStream) {
         val sslContext = certProvider.serverSslContext()
             ?: error("No TLS certificate available for server accept")
 
-        val acceptor = TlsAcceptor.create(sslContext)
-        val tlsSession = acceptor.accept(stream)
+        val tlsSession = tlsAccept(sslContext, stream)
 
         val mcpHandle = mcpSessionFactory.create()
         try {
@@ -147,6 +160,11 @@ class SessionHandler(
      * running every byte through [injector] so that each request's header block
      * is rewritten to include the `X-Internal-Token` shared secret.
      *
+     * Ordinary failures -- the peer hanging up mid-copy, the stream closing --
+     * are normal, frequent, and end the loop quietly. The one exception is
+     * [TunnelError.UnhandledTlsState], which reports a defect in our own TLS
+     * layer rather than anything the peer did; that propagates. See #616.
+     *
      * Must run under [Dispatchers.IO].
      */
     private suspend fun copyTlsToStream(
@@ -166,13 +184,30 @@ class SessionHandler(
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (e: TunnelError.UnhandledTlsState) {
+            // NOT a peer going away: our own TLS layer reached a state it has no
+            // handling for. Swallowing it here reproduced the pre-#615 clean EOF
+            // bit for bit, so the guard #615 added could never be heard (#616).
+            // Rethrow: `TunnelForegroundService.collectIncomingSessions` already
+            // does Log.e + crashReporter.logCaughtException around handleStream,
+            // and it catches per stream, so one bad session still cannot take the
+            // tunnel down. This module is a KMP jvm target with no Android
+            // logging or CrashReporter dependency, so propagating to that
+            // existing handler is how the defect becomes observable.
+            throw e
         } catch (_: Exception) {
-            // Stream closed or peer errored -- treat as EOF.
+            // Stream closed or peer errored -- expected and frequent. Treat as
+            // EOF and stay silent: making routine disconnects noisy would train
+            // whoever reads the logs to ignore them, which is the same failure
+            // one level up.
         }
     }
 
     /**
      * Copies bytes from [from] into [tlsSession] until EOF or error.
+     *
+     * Same quiet-on-disconnect, loud-on-defect split as [copyTlsToStream]. See #616.
+     *
      * Must run under [Dispatchers.IO] -- the underlying [InputStream.read] call is blocking.
      */
     private suspend fun copyStreamToTls(from: InputStream, tlsSession: TlsAcceptor.TlsSession) {
@@ -185,8 +220,20 @@ class SessionHandler(
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (e: TunnelError.UnhandledTlsState) {
+            // Same discriminator as the read direction: a defect in our own TLS
+            // layer is not a disconnect and must not be filed as one. No write
+            // path throws this today (`SuspendTlsSession.write` reports both a
+            // dead peer and a bad wrap status as plain IOExceptions, which is
+            // itself why IOException cannot be the discriminator), but the two
+            // copy loops are the same invariant and had the same bare catch, so
+            // they get the same treatment rather than diverging. See #616.
+            throw e
         } catch (_: Exception) {
-            // Stream closed or peer errored -- treat as EOF.
+            // Stream closed or peer errored -- expected and frequent. Treat as
+            // EOF and stay silent: making routine disconnects noisy would train
+            // whoever reads the logs to ignore them, which is the same failure
+            // one level up.
         }
     }
 

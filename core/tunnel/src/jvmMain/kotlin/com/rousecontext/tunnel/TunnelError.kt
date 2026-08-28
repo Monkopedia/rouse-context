@@ -31,6 +31,20 @@ sealed class TunnelError(message: String, cause: Throwable? = null) : Exception(
     /** Certificate store operation failed. */
     class CertificateError(message: String) : TunnelError(message)
 
+    /**
+     * This layer reached a state it has no handling for -- a defect in our own
+     * TLS/mux code, not anything the peer did.
+     *
+     * Deliberately its own type rather than a bare [java.io.IOException]: an
+     * ordinary peer disconnect surfaces as an `IOException` too (see
+     * `SuspendTlsSession.write`, which throws `IOException("TLS write failed:
+     * stream closed")` for exactly that), so `IOException` cannot tell a defect
+     * apart from a routine hang-up. The session copy loops in `SessionHandler`
+     * key off THIS type to stay quiet about disconnects while still surfacing
+     * a defect. See #565, #615, #616.
+     */
+    class UnhandledTlsState(message: String) : TunnelError(message)
+
     /** Invalid state transition attempted. */
     class InvalidStateTransition(val from: TunnelState, val to: TunnelState) :
         TunnelError("Invalid transition from $from to $to")
