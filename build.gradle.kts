@@ -22,6 +22,40 @@ subprojects {
     }
 }
 
+// Pin the default timezone of every test JVM (issue #633).
+//
+// Screenshot goldens render wall-clock timestamps through *display* formatters
+// that inherit the JVM default zone — `SimpleDateFormat(pattern,
+// Locale.getDefault())` and `ZoneId.systemDefault()`. Device-local time is the
+// correct product behaviour there and those formatters are deliberately left
+// alone, but it makes a recorded golden host-dependent: the same tree recorded
+// in `America/New_York` renders `06:40` where a UTC CI runner renders `10:40`,
+// so `verifyRoborazziDebug` fails for reasons unrelated to UI correctness.
+// The goldens are deterministic per host and host-dependent across hosts, which
+// is why re-recording never fixed it — see #633.
+//
+// Pinned as a JVM system property rather than a per-suite JUnit rule on
+// purpose. The affected formatters are statics (`DETAIL_TIMESTAMP_FORMAT` in
+// `AuditDetailScreen.kt`, `TIME_FORMAT` in `AuditHistoryViewModel`'s companion)
+// and `SimpleDateFormat` captures the default zone at *construction*, i.e. at
+// class-initialization time. A rule setting `TimeZone.setDefault` from `@Before`
+// runs after those classes may already have been initialized by an earlier test
+// in the same JVM, so the pin would silently depend on test ordering.
+// `-Duser.timezone` is in effect before any class loads, so it cannot be
+// out-ordered — and it cannot be forgotten by the next screenshot test either.
+//
+// Applied to every test task in every module rather than only the screenshot
+// suites: CI already runs the whole suite under UTC and it is green, so this
+// adds no new failure mode — it only makes every other host reproduce CI. A
+// test that genuinely needs a particular zone can still set one explicitly
+// (`TimeZone.setDefault`, Robolectric `@Config`); what no test may rely on is
+// the *host's* ambient zone, which is precisely the defect being closed.
+subprojects {
+    tasks.withType<Test>().configureEach {
+        systemProperty("user.timezone", "UTC")
+    }
+}
+
 // Kover aggregation. The root project collects coverage from every production
 // module listed below; each module also applies the plugin (see their
 // build.gradle.kts) so Kover can instrument their test source sets. This
