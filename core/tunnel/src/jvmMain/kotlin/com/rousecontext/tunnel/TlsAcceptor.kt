@@ -37,9 +37,12 @@ class TlsAcceptor(private val sslContext: SSLContext) {
          * Reads plaintext bytes into [buf] starting at [off] for up to [len] bytes.
          *
          * @return number of bytes read, or -1 on EOF
-         * @throws java.io.IOException if the engine reports a status this layer
-         *   does not know how to handle. That is a defect, not end-of-stream, and
-         *   reporting it as EOF is how such defects stayed invisible (#565).
+         * @throws TunnelError.UnhandledTlsState if the engine reports a status this
+         *   layer does not know how to handle. That is a defect, not end-of-stream,
+         *   and reporting it as EOF is how such defects stayed invisible (#565).
+         *   It carries its own type precisely so callers can let it through while
+         *   still swallowing the `IOException`s an ordinary peer disconnect
+         *   produces (#616).
          */
         suspend fun read(buf: ByteArray, off: Int = 0, len: Int = buf.size - off): Int
 
@@ -410,9 +413,14 @@ private class SuspendTlsSession(
                 }
                 // An unknown unwrap status is a bug, not end-of-stream. Returning
                 // -1 reported a clean EOF for it and hid the defect. See #565.
+                // The type is TunnelError.UnhandledTlsState rather than a plain
+                // IOException because the only caller has to swallow ordinary
+                // disconnect IOExceptions and must still let THIS one out. See #616.
                 else -> {
                     eof = true
-                    throw java.io.IOException("Unhandled TLS unwrap status: ${result.status}")
+                    throw TunnelError.UnhandledTlsState(
+                        "Unhandled TLS unwrap status: ${result.status}"
+                    )
                 }
             }
         }
