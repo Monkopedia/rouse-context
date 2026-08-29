@@ -50,6 +50,10 @@ internal abstract class ScriptedSslEngine(private val scriptedSession: SSLSessio
     var unwrapCalls: Int = 0
         protected set
 
+    /** Number of `wrap` calls the production loop has made. */
+    var wrapCalls: Int = 0
+        protected set
+
     override fun beginHandshake() = Unit
 
     override fun closeInbound() = Unit
@@ -100,12 +104,25 @@ internal abstract class ScriptedSslEngine(private val scriptedSession: SSLSessio
 
     override fun setSSLParameters(params: SSLParameters?) = Unit
 
-    override fun wrap(
+    final override fun wrap(
         srcs: Array<out ByteBuffer>?,
         offset: Int,
         length: Int,
         dst: ByteBuffer?
-    ): SSLEngineResult = error("scripted engine: unexpected wrap()")
+    ): SSLEngineResult {
+        wrapCalls++
+        return scriptedWrap(requireNotNull(srcs)[offset], requireNotNull(dst))
+    }
+
+    /**
+     * Scripted body for a single `wrap(src, dst)` call.
+     *
+     * Defaults to failing loudly: most scripts drive only the read path. Override
+     * to script the write path -- see [TlsAcceptorWrapStatusTest], which supplies
+     * the `wrap` statuses SunJSSE will not produce on a healthy exchange.
+     */
+    protected open fun scriptedWrap(src: ByteBuffer, dst: ByteBuffer): SSLEngineResult =
+        error("scripted engine: unexpected wrap()")
 
     final override fun unwrap(
         src: ByteBuffer?,

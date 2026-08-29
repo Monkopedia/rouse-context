@@ -222,12 +222,15 @@ class SessionHandler(
             throw e
         } catch (e: TunnelError.UnhandledTlsState) {
             // Same discriminator as the read direction: a defect in our own TLS
-            // layer is not a disconnect and must not be filed as one. No write
-            // path throws this today (`SuspendTlsSession.write` reports both a
-            // dead peer and a bad wrap status as plain IOExceptions, which is
-            // itself why IOException cannot be the discriminator), but the two
-            // copy loops are the same invariant and had the same bare catch, so
-            // they get the same treatment rather than diverging. See #616.
+            // layer is not a disconnect and must not be filed as one.
+            //
+            // #616 added this clause; until #630 it was inert, because
+            // `SuspendTlsSession.write` reported BOTH a dead peer and an
+            // unhandled wrap status as plain IOExceptions -- which is itself why
+            // IOException cannot be the discriminator. `wrap` now classifies:
+            // CLOSED stays an ordinary IOException and falls through to the
+            // broad catch below, while BUFFER_OVERFLOW / BUFFER_UNDERFLOW arrive
+            // here as UnhandledTlsState and propagate.
             throw e
         } catch (_: Exception) {
             // Stream closed or peer errored -- expected and frequent. Treat as
