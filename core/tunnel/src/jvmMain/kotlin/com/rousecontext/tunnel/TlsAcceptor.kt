@@ -49,6 +49,14 @@ class TlsAcceptor(private val sslContext: SSLContext) {
         /**
          * Writes [len] plaintext bytes from [buf] starting at [off], encrypting them
          * to the underlying mux stream.
+         *
+         * @throws TunnelError.UnhandledTlsState if `wrap` reports a status this
+         *   layer does not know how to handle. Symmetric with [read]: an ordinary
+         *   peer disconnect leaves as a plain [java.io.IOException] that the copy
+         *   loops swallow, so a defect needs its own type or it ends the session
+         *   as a clean EOF and is never heard (#630).
+         * @throws java.io.IOException if the peer went away -- routine, and
+         *   deliberately quiet.
          */
         suspend fun write(buf: ByteArray, off: Int = 0, len: Int = buf.size - off)
 
@@ -492,10 +500,52 @@ private class SuspendTlsSession(
                     throw java.io.IOException("TLS write failed: stream closed", e)
                 }
             }
-            if (result.status != SSLEngineResult.Status.OK) {
-                throw java.io.IOException("TLS wrap failed: ${result.status}")
-            }
+            classifyWrapStatus(result.status)
         }
+    }
+
+    /**
+     * Decide what a `wrap` status means. `SSLEngineResult.Status` is a closed
+     * four-member enum, so this is decidable rather than arguable -- and the two
+     * kinds of non-OK outcome must NOT share an exception type:
+     *
+     *  - `CLOSED` is the peer hanging up mid-response. Routine on a bridge. It
+     *    ends the copy loop quietly, as a plain [java.io.IOException] -- the same
+     *    thing a dead transport a few lines above reports, and the same thing
+     *    `SessionHandler.copyStreamToTls` deliberately swallows. Making routine
+     *    disconnects noisy trains whoever reads the log to ignore it.
+     *  - `BUFFER_OVERFLOW` and `BUFFER_UNDERFLOW` are defects in THIS layer, and
+     *    a plain `IOException` cannot say so: the loop that catches it has to
+     *    keep swallowing disconnect `IOException`s, so a defect wearing that type
+     *    ends the session as a clean EOF and is never heard. That is exactly the
+     *    hole #616 closed on the read side; #626 added the specific catch clause
+     *    on this side but nothing here threw the type it keys off, leaving it
+     *    inert. See #630.
+     *
+     * `netOut` is allocated at `session.packetBufferSize` and `clear()`ed before
+     * every wrap, so the destination always offers the engine's own advertised
+     * maximum for one record: `BUFFER_OVERFLOW` here means that bound was broken,
+     * not that we under-allocated, so growing and retrying (which is the right
+     * answer on the unwrap side, where `appIn` is drained incrementally by the
+     * caller) would only hide it. `BUFFER_UNDERFLOW` is an unwrap concept -- it
+     * means the source holds less than one whole TLS record -- and `wrap` has no
+     * minimum input at all, so reporting it is a contract violation. The read
+     * path treats both as ordinary for reasons that do not survive the trip here;
+     * the asymmetry is deliberate.
+     *
+     * There is deliberately no `else`: the `when` is used as an expression, so it
+     * must stay exhaustive. Should a future JDK add a fifth member, this stops
+     * compiling instead of silently classifying it as success.
+     */
+    private fun classifyWrapStatus(status: SSLEngineResult.Status) {
+        val defect = when (status) {
+            SSLEngineResult.Status.OK -> return
+            SSLEngineResult.Status.CLOSED ->
+                throw java.io.IOException("TLS wrap failed: connection closed")
+            SSLEngineResult.Status.BUFFER_OVERFLOW,
+            SSLEngineResult.Status.BUFFER_UNDERFLOW -> status
+        }
+        throw TunnelError.UnhandledTlsState("Unhandled TLS wrap status: $defect")
     }
 
     override suspend fun close() {
