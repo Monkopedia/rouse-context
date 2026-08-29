@@ -215,12 +215,88 @@ jobs:
         with:
           name: test-coverage
           path: build/reports/kover/html/
-      - name: Upload test reports
+      # HTML is for a human reading a report in a browser; it is NOT where the
+      # failure text lives in a form anything can parse. Both uploads sit here,
+      # ABOVE the Roborazzi verify step, for the reason spelled out at that step:
+      # verify re-runs `:app`'s unit suite and overwrites both
+      # `app/build/reports/tests/` and `app/build/test-results/`.
+      # Deliberately NOT scoped to which step failed. `Integration tests (relay)`
+      # and `Coverage report (Kover)` both carry `if: success() || failure()`,
+      # so at least one test-running step executes in every non-cancelled run of
+      # this job — including one where `Lint` or a build step went red first.
+      # There is therefore always something to collect, and a step-scoped
+      # condition here would be a no-op dressed up as a gate.
+      #
+      # One case does reach `if-no-files-found: error` with nothing to upload: a
+      # compile failure in the test sources, where no task gets far enough to
+      # write a report. That adds a second red step to an already-red run, which
+      # is the right trade for never letting an empty artifact report as a clean
+      # upload.
+      - name: Upload test reports (HTML)
         if: success() || failure()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
+          if-no-files-found: error
           path: "**/build/reports/tests/"
+      # The XML is the half of a test report that a tool can read: the failure
+      # message, the type, the full stack trace, and the captured stdout. Until
+      # #631 no workflow collected it — `Android CI` run 33135432024's
+      # `test-reports` artifact held 258 HTML files and zero XML.
+      #
+      # What this does NOT do, stated plainly because #631 originally claimed
+      # otherwise: it would not have recovered that run's `:app:integrationTest`
+      # failures. That task was killed by its own Gradle task timeout
+      # (`timeout.set(Duration.ofMinutes(10L))`, app/build.gradle.kts) --
+      # "Requesting stop of task ':app:integrationTest' as it has exceeded its
+      # configured timeout of 10m" -- and Gradle writes nothing at all for a
+      # Test task killed that way: no XML, no HTML, no binary results. Confirmed
+      # from the incident's own artifacts: `app/build/reports/tests/
+      # integrationTest` is ABSENT from the timed-out attempt and present in the
+      # green re-run, while `core/tunnel`'s appears in both. So this closes a
+      # real gap for every test task that COMPLETES -- which is most of them --
+      # and closes nothing for one that is killed.
+      #
+      # The bare `java.lang.AssertionError` with no message in that log is a
+      # separate defect: Gradle's `testLogging.exceptionFormat` defaults to
+      # SHORT and is unset repo-wide (#641). That fix matters more than this one
+      # for the same symptom, because the job log survives a task kill, the
+      # runner, and artifact expiry -- which no artifact does.
+      #
+      # Uploaded unconditionally, not `if: failure()`, for two reasons beyond
+      # size (the XML for a full run is a few hundred KB): a green run's XML is
+      # the only record of WHICH tests executed, and `:app` sets
+      # `isFailOnNoMatchingTests = false` (#632), so a `--tests` filter matching
+      # nothing reports SUCCESS. Counting `<testcase>` elements in a green run's
+      # artifact is what distinguishes a full suite from zero tests. Read that
+      # count per suite directory: `app/build/test-results/testDebugUnitTest/`
+      # holds the `-Pgoogle` pass only, because both `:app` passes write the
+      # same directory and Gradle clears it per run (#640). Measured on green
+      # run 33228348111: 245 XML files, 1772 testcases, of which `:app`
+      # contributes 73 files / 614 tests -- NOT the 623 a local bare
+      # `:app:testDebugUnitTest` produces.
+      #
+      # A SEPARATE step, and a separate artifact name, on purpose:
+      # `if-no-files-found` is evaluated over a step's whole match set, so
+      # folding these two paths into one step would let the HTML satisfy the
+      # check while the XML path silently matched nothing — the exact defect
+      # this issue is about. And the names must differ: upload-artifact@v4
+      # documents that "artifact names must be unique since each created
+      # artifact is idempotent", and with the default `overwrite: false` a
+      # second upload under the same name fails the step rather than merging.
+      #
+      # `if-no-files-found: error` on both, rather than the default `warn`.
+      # `warn` leaves an annotation and a GREEN step, so an artifact containing
+      # nothing would be indistinguishable from one that worked. That is the
+      # same shape as #626 and this issue -- a collection step whose output
+      # nobody checks -- not the same cause.
+      - name: Upload test results (XML)
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-xml
+          if-no-files-found: error
+          path: "**/build/test-results/**/*.xml"
       # Screenshot verification runs LAST, and that placement is load-bearing
       # (issue #628).
       #
@@ -244,11 +320,13 @@ jobs:
       #     ~1.5-min suite re-run inside its 10-minute cap. Below the Kover step,
       #     the inputs Kover sees are byte-identical to before this change.
       #
-      #   * The verify run re-runs `:app`'s whole unit suite and OVERWRITES
-      #     `app/build/reports/tests/`. Above "Upload test reports" it would
-      #     clobber a failing `-Pgoogle` run's report with its own — producing
-      #     precisely #626's artifact-that-omits-the-failure. Below it, the
-      #     uploaded reports are already collected.
+      #   * The verify run re-runs `:app`'s whole unit suite and OVERWRITES both
+      #     `app/build/reports/tests/` and `app/build/test-results/`. Above the
+      #     two upload steps it would clobber a failing `-Pgoogle` run's report
+      #     AND its XML with its own — producing precisely #626's
+      #     artifact-that-omits-the-failure, and #631's
+      #     artifact-without-the-assertion-message. Below them, both are already
+      #     collected. `scripts/check-roborazzi-step-order.sh` pins this.
       #
       # `:notifications` carries 40 goldens of its own and had the identical
       # hole, so it is verified in the same invocation. `--continue` so a
