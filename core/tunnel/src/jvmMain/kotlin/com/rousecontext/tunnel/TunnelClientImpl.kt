@@ -217,10 +217,16 @@ class TunnelClientImpl(
      * `IllegalStateException`), so before #644 a scope teardown while
      * `opened.await()` was suspended fell into the broad `catch` and came back
      * as a [TunnelError.ConnectionFailed] -- thrown to
-     * `TunnelForegroundService`, whose untyped catch crash-reports it, *and*
-     * published on `errors`, which the app surfaces to the user. Neither is
-     * true of a cancelled connect: the caller went away, the connection did not
-     * fail. Same defect as `TlsAcceptor.accept`.
+     * `TunnelForegroundService`, whose untyped catch calls
+     * `crashReporter.logCaughtException`, and additionally published on
+     * [errors]. Neither is true of a cancelled connect: the caller went away,
+     * the connection did not fail. Same defect as `TlsAcceptor.accept`.
+     *
+     * The crash report is the consequence that actually lands. The [errors]
+     * publication is not a user-visible surface today: that `SharedFlow` has
+     * no production collector anywhere in the repo -- measured against
+     * `incomingSessions`, which has three, so the empty result is a real read
+     * rather than a broken search.
      *
      * The cancellation path still performs this cleanup -- neither call
      * suspends, so both are safe in a cancelled coroutine, and leaving the

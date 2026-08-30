@@ -27,10 +27,16 @@ import org.junit.jupiter.api.Timeout
  *
  *  - thrown to `TunnelForegroundService.connectToRelay`, whose untyped
  *    `catch (e: Exception)` calls `crashReporter.logCaughtException`; and
- *  - published on `errors`, which the app collects and surfaces to the user.
+ *  - published on `errors`.
  *
  * Neither is true of a cancelled connect: the caller went away, the connection
  * did not fail. Cancellation must come back as itself.
+ *
+ * The crash report is the half that actually lands. `errors` has no production
+ * collector anywhere in the repo -- measured against `incomingSessions`, which
+ * has three, so the empty result is a real read -- so this test asserts the
+ * publication is suppressed as a property of the contract, not because a user
+ * would otherwise see it.
  *
  * The cleanup is deliberately still performed on the cancellation path -- the
  * inbound queue is closed and the state machine moves to `DISCONNECTED`, since
