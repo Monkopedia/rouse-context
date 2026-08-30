@@ -70,7 +70,12 @@ class TlsAcceptor(private val sslContext: SSLContext) {
      * Perform TLS server-side handshake over the given [MuxStream].
      * Returns a suspend-native [TlsSession] on success.
      *
-     * @throws TunnelError.TlsHandshakeFailed if handshake fails
+     * @throws TunnelError.TlsHandshakeFailed if the handshake fails, including
+     *   when the peer closes mid-handshake. It never returns a session over an
+     *   engine that did not finish handshaking. See #618.
+     * @throws TunnelError.UnhandledTlsState if the engine reports a status the
+     *   handshake pump has no handling for -- a defect in this layer rather
+     *   than anything the peer did.
      */
     suspend fun accept(stream: MuxStream): TlsSession = withContext(Dispatchers.IO) {
         try {
@@ -117,6 +122,12 @@ class TlsAcceptor(private val sslContext: SSLContext) {
                     if (netOut.hasRemaining()) {
                         stream.write(drain(netOut))
                     }
+                    // Classified AFTER the write, deliberately: a record the
+                    // engine did produce (the responding close_notify is the
+                    // case that matters) still reaches the peer, and a
+                    // cancellation raised by the transport write wins over the
+                    // classification rather than being reclassified as a defect.
+                    classifyHandshakeWrapStatus(result.status)
                 }
                 SSLEngineResult.HandshakeStatus.NEED_UNWRAP,
                 SSLEngineResult.HandshakeStatus.NEED_UNWRAP_AGAIN -> {
@@ -142,16 +153,23 @@ class TlsAcceptor(private val sslContext: SSLContext) {
                     val result = engine.unwrap(netIn, appIn)
                     netIn.compact()
                     hsStatus = result.handshakeStatus
-                    needMoreNetData =
-                        result.status == SSLEngineResult.Status.BUFFER_UNDERFLOW
-                    if (result.status == SSLEngineResult.Status.BUFFER_OVERFLOW) {
+                    // Two `if`s on `result.status` used to live here, which left
+                    // {OK, CLOSED} unhandled -- and CLOSED silently produced a
+                    // session over a closed engine. Both `when`s below are
+                    // expressions with no `else`, so the residual is empty by
+                    // construction. See #618.
+                    val action = classifyHandshakeUnwrapStatus(result.status)
+                    appIn = when (action) {
                         // appIn cannot hold the record's plaintext. Nothing was
                         // consumed, so without growing the buffer the next
                         // iteration re-unwraps the same bytes forever.
                         // SuspendTlsSession.read has always handled this; the two
                         // paths must agree about whether it can happen. See #565.
-                        appIn = growBuffer(appIn)
+                        HandshakeUnwrapAction.GROW_APP_BUFFER -> growBuffer(appIn)
+                        HandshakeUnwrapAction.PROCEED,
+                        HandshakeUnwrapAction.PULL_MORE_NET_DATA -> appIn
                     }
+                    needMoreNetData = action == HandshakeUnwrapAction.PULL_MORE_NET_DATA
                 }
                 SSLEngineResult.HandshakeStatus.NEED_TASK -> {
                     runDelegatedTasks(engine)
@@ -166,6 +184,94 @@ class TlsAcceptor(private val sslContext: SSLContext) {
             }
         }
         return netIn
+    }
+
+    /**
+     * Decide what an `unwrap` status means *during the handshake*.
+     *
+     * `SSLEngineResult.Status` is a closed four-member enum (`OK`, `CLOSED`,
+     * `BUFFER_OVERFLOW`, `BUFFER_UNDERFLOW`, verified with `javap` against the
+     * JDK this module builds on), so this is decidable rather than arguable:
+     *
+     *  - `OK` -- a record was consumed; carry on.
+     *  - `BUFFER_UNDERFLOW` -- `netIn` holds only part of a TLS record. That is
+     *    the everyday case of one record split across two mux DATA frames, so it
+     *    is ordinary: pull another frame. Re-unwrapping the same bytes instead
+     *    is #558's 100%-CPU spin.
+     *  - `BUFFER_OVERFLOW` -- `appIn` cannot hold the record's plaintext. Its
+     *    size comes from `applicationBufferSize`, a hint rather than a bound, so
+     *    growing and retrying is real recovery. `SuspendTlsSession.read` has
+     *    always done this and the two paths must agree (#565).
+     *  - `CLOSED` -- the peer sent `close_notify` mid-handshake. Ordinary peer
+     *    behaviour, NOT a defect in this layer, so it must not wear
+     *    [TunnelError.UnhandledTlsState]: that type exists so `SessionHandler`
+     *    can stay quiet about disconnects while still surfacing our own defects
+     *    (#616, #630), and filing routine peer behaviour under it trains whoever
+     *    reads those reports to ignore the type. It must still fail the
+     *    handshake. Falling through returned a session over an already-closed
+     *    engine whose first `read` degrades to a clean EOF -- a half-open
+     *    session indistinguishable from a good one, which is how #558 survived
+     *    four filings. [TunnelError.TlsHandshakeFailed] is the type `accept`
+     *    already documents and the one #615 chose for this loop's residual
+     *    `else`. See #618.
+     *
+     * There is deliberately no `else`: the `when` is used as an expression, so
+     * it must stay exhaustive. Should a future JDK add a fifth member, this
+     * stops compiling instead of silently doing nothing with it.
+     */
+    private fun classifyHandshakeUnwrapStatus(
+        status: SSLEngineResult.Status
+    ): HandshakeUnwrapAction = when (status) {
+        SSLEngineResult.Status.OK -> HandshakeUnwrapAction.PROCEED
+        SSLEngineResult.Status.BUFFER_UNDERFLOW -> HandshakeUnwrapAction.PULL_MORE_NET_DATA
+        SSLEngineResult.Status.BUFFER_OVERFLOW -> HandshakeUnwrapAction.GROW_APP_BUFFER
+        SSLEngineResult.Status.CLOSED -> throw TunnelError.TlsHandshakeFailed(
+            "TLS handshake failed: peer closed during the handshake (unwrap status CLOSED)"
+        )
+    }
+
+    /**
+     * Decide what a `wrap` status means *during the handshake*.
+     *
+     * This branch used to read only `result.handshakeStatus` and never look at
+     * `result.status` at all -- residual 0 of 4, the widest in the file, and
+     * invisible to an audit that only looks at `when`s and `if`s because a
+     * never-read field is not a branch. See #618.
+     *
+     * The buffer statuses are classified the opposite way from the unwrap path
+     * above, and the asymmetry is argued rather than inherited:
+     *
+     *  - `BUFFER_OVERFLOW` -- `netOut` is private to this pump, allocated at
+     *    `session.packetBufferSize` and `clear()`ed before every `wrap`, so the
+     *    destination always offers the engine its own advertised maximum for one
+     *    record. Overflowing it means that bound was broken, not that we
+     *    under-allocated; growing would only hide it. Left unclassified it also
+     *    leaves `hsStatus` at `NEED_WRAP` with nothing produced, so the pump
+     *    re-wraps at 100% CPU until the caller times out.
+     *  - `BUFFER_UNDERFLOW` -- an `unwrap` concept ("the source holds less than
+     *    a whole record"). A handshake `wrap` emits records from engine state and
+     *    takes no application input at all: `appOut` here is deliberately
+     *    zero-capacity. Reporting underflow from it is a contract violation.
+     *
+     * Both are therefore defects in this layer and get
+     * [TunnelError.UnhandledTlsState], which `SessionHandler` catches and
+     * rethrows and which reaches `Log.e` + `crashReporter.logCaughtException` at
+     * the service boundary (#630). `CLOSED` is the engine shutting down
+     * mid-handshake -- the same "not our defect, but still not a completed
+     * handshake" case as on the unwrap side, and classified identically.
+     *
+     * No `else`, for the same reason as above: the `when` is an expression.
+     */
+    private fun classifyHandshakeWrapStatus(status: SSLEngineResult.Status) {
+        val defect = when (status) {
+            SSLEngineResult.Status.OK -> return
+            SSLEngineResult.Status.CLOSED -> throw TunnelError.TlsHandshakeFailed(
+                "TLS handshake failed: engine closed during the handshake (wrap status CLOSED)"
+            )
+            SSLEngineResult.Status.BUFFER_OVERFLOW,
+            SSLEngineResult.Status.BUFFER_UNDERFLOW -> status
+        }
+        throw TunnelError.UnhandledTlsState("Unhandled TLS handshake wrap status: $defect")
     }
 
     /**
@@ -283,6 +389,23 @@ class TlsAcceptor(private val sslContext: SSLContext) {
             }
         }
     }
+}
+
+/**
+ * What the handshake pump must do next after an `unwrap`, once its
+ * `SSLEngineResult.Status` has been classified. The statuses that are not
+ * recoverable do not appear here -- the classifier throws for them -- so every
+ * member of this enum is an ordinary continuation.
+ */
+private enum class HandshakeUnwrapAction {
+    /** The record was consumed; carry on with whatever the engine asks next. */
+    PROCEED,
+
+    /** `netIn` holds a partial record: pull one more mux DATA frame. */
+    PULL_MORE_NET_DATA,
+
+    /** `appIn` was too small for the record's plaintext: grow it and retry. */
+    GROW_APP_BUFFER
 }
 
 private fun ensureCapacity(buffer: java.nio.ByteBuffer, additionalBytes: Int): java.nio.ByteBuffer {
