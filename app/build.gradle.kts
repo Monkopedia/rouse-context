@@ -426,6 +426,69 @@ dependencies {
 // with `-Pgoogle` (Firebase-backed), so both are exercised end-to-end.
 private val integrationPackage = "com.rousecontext.app.integration"
 
+// Per-distribution test output directories (issue #640).
+//
+// Distribution is a build FLAG, not a flavor (#467), so `:app:testDebugUnitTest`
+// and `:app:integrationTest` keep the same task names across both passes and,
+// by default, the same output paths. CI runs each task twice -- bare (FOSS)
+// then `-Pgoogle` -- so Gradle cleared the shared results directory at the start
+// of the second pass and the FOSS results were gone before either upload step
+// ran. Measured on green run 33228348111: the `test-results-xml` artifact held
+// 73 `:app` XML files / 614 tests (the `-Pgoogle` pass) where a bare local run
+// produces 76 / 623, and the seven FOSS-only classes -- `AcraCrashReporterTest`,
+// `FossFgsTypeSelectorTest`, the `UnifiedPush*` suites -- appeared nowhere.
+// They ran, they passed, and no record survived.
+//
+// On a FAILING run the data was preserved by accident (the workflow's `run: |`
+// block is `bash -e`, so a red FOSS pass means the `-Pgoogle` line never
+// executes). What was lost is the GREEN-run audit trail, which is the whole
+// reason #637 uploads the XML unconditionally.
+//
+// Fixed at the source rather than by copying directories aside in the workflow:
+// one declaration covers every consumer (both workflows, Kover, a developer
+// reading `app/build/`), and it keeps each pass's outputs as real, separately
+// tracked Gradle outputs instead of a shell `cp` that only one of the two
+// workflows would remember to make.
+//
+// The workflows' `**/build/test-results/**/*.xml` and `**/build/reports/tests/`
+// globs are unchanged -- both still match one level deeper.
+private val distributionSlug = if (googleBuild) "google" else "foss"
+
+// Registered from `afterEvaluate`, and that is load-bearing rather than
+// cargo-culted. AGP creates its unit-test tasks in its own `afterEvaluate` and
+// sets `reports.junitXml.outputLocation` / `reports.html.outputLocation` from a
+// `TaskProvider.configure {}` registered there, so a plain top-level
+// `tasks.withType<Test>().configureEach {}` in this script is registered
+// EARLIER and is silently overwritten at realization time. Measured: with the
+// same three `set(...)` calls in the top-level block, `binaryResultsDirectory`
+// moved (nothing else sets it) while both report locations resolved back to
+// AGP's defaults --
+//
+//   DBG testDebugUnitTest junitXml=.../app/build/test-results/testDebugUnitTest
+//   DBG testDebugUnitTest html=.../app/build/reports/tests/testDebugUnitTest
+//   DBG testDebugUnitTest binary=.../app/build/test-results/testDebugUnitTest/foss/binary
+//
+// -- i.e. a change that looks applied, builds green, and does nothing: the
+// failure mode all four of the issues in this PR are about. This block runs
+// after AGP's, so its `set(...)` is the last one to win. It also still reaches
+// the hand-registered `integrationTest`, which AGP never touches.
+afterEvaluate {
+    tasks.withType<Test>().configureEach {
+        // See the note above (#640): each distribution gets its own results and
+        // reports tree, so the bare (FOSS) pass survives the `-Pgoogle` pass
+        // that follows it instead of being cleared by it.
+        reports.junitXml.outputLocation.set(
+            layout.buildDirectory.dir("test-results/$name/$distributionSlug")
+        )
+        reports.html.outputLocation.set(
+            layout.buildDirectory.dir("reports/tests/$name/$distributionSlug")
+        )
+        binaryResultsDirectory.set(
+            layout.buildDirectory.dir("test-results/$name/$distributionSlug/binary")
+        )
+    }
+}
+
 tasks.withType<Test>().configureEach {
     // Cheap backstop for the stubborn single-JVM `TestMainDispatcher` leak flake
     // (#376): retry only the FAILED tests in a fresh JVM, so an intermittent
@@ -437,12 +500,79 @@ tasks.withType<Test>().configureEach {
         maxRetries.set(2)
         failOnPassedAfterRetry.set(false)
     }
+    // Roborazzi goldens are an INPUT of the suite that compares them (#636).
+    //
+    // Without this, `verifyRoborazziDebug` has a false-green mode that is worse
+    // than no gate: corrupt a committed PNG, run the verify task WITHOUT
+    // clearing `build/`, and it exits 0. `:app:testDebugUnitTest` was
+    // `UP-TO-DATE` and never ran -- a changed file under `app/screenshots/` was
+    // not a declared input, so Gradle correctly concluded nothing had changed
+    // -- and the verify then had no fresh results to compare. The task the gate
+    // depends on skipped, and the skip reported success. CI is unaffected (it
+    // checks out fresh); every LOCAL verification is exposed, which is exactly
+    // the evidence agents and reviewers run before pushing.
+    //
+    // Both golden trees `:app` renders into are declared, because
+    // `:app:verifyRoborazziDebug` compares both:
+    //   * `app/screenshots/`  -- the browsable gallery (ScreenScreenshotTest,
+    //     SwitchRowScreenshotTest, BackgroundDeliveryScreenshotTest)
+    //   * `fastlane/.../phoneScreenshots/` -- the F-Droid store listing
+    //     (ListingScreenshotTest, which captures via a `../fastlane/...` path)
+    // Declaring only the first would leave the listing goldens with the same
+    // hole this closes.
+    //
+    // `PathSensitivity.RELATIVE` so the declaration hashes CONTENT under a
+    // relative path, not absolute paths: ordinary runs that touch no golden
+    // still report UP-TO-DATE, and the entries stay portable across checkout
+    // locations and cacheable.
+    if (name == "testDebugUnitTest") {
+        inputs.dir(layout.projectDirectory.dir("screenshots"))
+            .withPropertyName("roborazziGalleryGoldens")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        inputs.dir(
+            rootProject.layout.projectDirectory.dir(
+                "fastlane/metadata/android/en-US/images/phoneScreenshots"
+            )
+        )
+            .withPropertyName("roborazziListingGoldens")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    }
+
     // The fast `testDebugUnitTest` run stays lean by excluding the slow
     // relay-backed integration scenarios, which run via `integrationTest`.
     if (name == "testDebugUnitTest") {
         filter {
             excludeTestsMatching("$integrationPackage.*")
-            isFailOnNoMatchingTests = false
+            // Gradle's default, restated so it cannot drift back (issue #632).
+            //
+            // WHY IT WAS `false`, since flipping a value someone set deserves an
+            // answer: it arrived with `integrationTest` in #258/#250, on BOTH
+            // filters, in the same hunk, with no comment and no mention in the
+            // commit message -- and nothing in the repo has ever depended on it.
+            //   * The patterns here are static package globs that always match:
+            //     this exclude, and `integrationTest`'s include below.
+            //   * No workflow step passes `--tests` at all. The only `--tests`
+            //     strings under `.github/` are prose inside comments.
+            //   * `:core:tunnel`'s own `integrationTest` never set it, so it has
+            //     had Gradle's strict default all along -- and the documented
+            //     recipe in `docs/agent-quickstart.md`
+            //     (`:core:tunnel:integrationTest --tests '*OAuthEndToEndTest*'`)
+            //     works fine against it. `:app` was the only outlier.
+            // It reads as a defensive default copied in with a new task, not a
+            // requirement.
+            //
+            // What it cost: `--tests` with a pattern matching nothing printed
+            // BUILD SUCCESSFUL and exited 0 having run ZERO tests, which is
+            // indistinguishable from a full green suite -- the near-miss on
+            // #626, where the author ran a filter that matched nothing and
+            // caught it only by checking the count by hand. A misspelled TASK
+            // name hard-errors; a misspelled TEST name did not.
+            //
+            // If some future caller genuinely needs a filter that may match
+            // nothing, the opt-out belongs on that caller -- its own `Test`
+            // task, or this line re-set to `false` with the reason written down
+            // -- rather than on the shared default for everyone.
+            isFailOnNoMatchingTests = true
         }
     }
 }
@@ -468,7 +598,12 @@ tasks.register<Test>("integrationTest") {
 
     filter {
         includeTestsMatching("$integrationPackage.*")
-        isFailOnNoMatchingTests = false
+        // See the note on `testDebugUnitTest` above (issue #632). Same
+        // unexplained default, same silent-zero-tests hazard -- and worse here,
+        // because this task exists to run the relay-backed scenarios and a
+        // filter that selected none of them would report a green integration
+        // tier that ran nothing.
+        isFailOnNoMatchingTests = true
     }
 
     useJUnit()

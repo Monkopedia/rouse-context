@@ -161,19 +161,20 @@ jobs:
           if-no-files-found: error
           path: "**/build/reports/tests/"
       # Uploaded on green runs too, unlike the HTML. The XML is a few hundred KB
-      # and it is the only record of WHICH tests executed: `:app` sets
-      # `isFailOnNoMatchingTests = false` (#632), so a `--tests` filter matching
-      # nothing reports SUCCESS, and `BUILD SUCCESSFUL` prints identically for
-      # a full suite and for zero tests. Counting `<testcase>` elements in this
-      # artifact is what tells those two apart after the fact.
+      # and it is the only record of WHICH tests executed: `BUILD SUCCESSFUL`
+      # prints identically for a full suite and for zero tests, so counting
+      # `<testcase>` elements in this artifact is what tells those two apart
+      # after the fact.
       #
-      # Read that count per suite directory, not as a repo total, and know that
-      # `app/build/test-results/testDebugUnitTest/` holds the `-Pgoogle` pass
-      # only: both `:app` passes write the same directory and Gradle clears it
-      # on each run, so the bare (FOSS) results are gone by upload time (#640).
-      # Measured on this workflow's green run 33228348112: 204 XML files, 1682
-      # tests, of which `:app` contributes 73 files / 614 tests -- NOT the 623
-      # a local bare `:app:testDebugUnitTest` produces.
+      # Read that count per suite directory, not as a repo total. `:app`'s two
+      # distribution passes now write SEPARATE trees (#640) --
+      # `test-results/testDebugUnitTest/foss/` (76 files / 623 tests) and
+      # `.../google/` (73 files / 614 tests) -- so both reach this upload.
+      # Before that they shared one directory that Gradle clears per run, and
+      # this workflow's green run 33228348112 carried the `-Pgoogle` pass only:
+      # 73 files / 614 tests, NOT the 623 a bare `:app:testDebugUnitTest`
+      # produces. The two counts differ legitimately -- each distribution
+      # compiles its own `src/test{Foss,Google}` sources.
       #
       # Separate step and separate artifact name on purpose: `if-no-files-found`
       # is evaluated over a step's whole match set, so folding both paths into

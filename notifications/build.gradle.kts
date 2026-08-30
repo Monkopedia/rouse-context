@@ -38,6 +38,21 @@ android {
     }
 }
 
+// Roborazzi goldens are an INPUT of the suite that compares them (#636).
+//
+// `:notifications` carries 40 goldens of its own under `notifications/screenshots/`
+// and had the identical hole `:app` did: with the PNGs undeclared, corrupting
+// one left `:notifications:testDebugUnitTest` UP-TO-DATE, so
+// `verifyRoborazziDebug` compared nothing and exited 0. See the longer note in
+// `app/build.gradle.kts`.
+tasks.withType<Test>().configureEach {
+    if (name == "testDebugUnitTest") {
+        inputs.dir(layout.projectDirectory.dir("screenshots"))
+            .withPropertyName("roborazziGoldens")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+    }
+}
+
 // Room schema exports land under notifications/schemas/<db-class-fqn>/<version>.json.
 // Migration tests and the migration-review workflow in issue #344 read these
 // schema snapshots to validate that each ALTER TABLE / CREATE INDEX matches
