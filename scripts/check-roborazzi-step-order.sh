@@ -97,6 +97,13 @@ require_before() {
 require_before "Upload test reports" "Screenshot goldens" \
   "The verify run re-runs :app's suite and overwrites app/build/reports/tests/, so above the upload it would clobber a failing run's report (#626)."
 
+# Same invariant, other artifact. `verifyRoborazziDebug` overwrites
+# app/build/test-results/ as well as app/build/reports/tests/, and the XML is
+# the half that actually carries the assertion message (#631). Pinned
+# separately so the two uploads cannot drift apart.
+require_before "Upload test results (XML)" "Screenshot goldens" \
+  "The verify run re-runs :app's suite and overwrites app/build/test-results/, so above the upload it would clobber the XML carrying a failing run's assertion text (#631)."
+
 require_before "Coverage report (Kover)" "Screenshot goldens" \
   "Verify mode is a Gradle task input; above Kover it breaks that step's documented UP-TO-DATE reuse and adds a full suite re-run inside its 10-minute cap."
 

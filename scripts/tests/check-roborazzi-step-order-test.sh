@@ -46,6 +46,7 @@ good_order=(
   "Coverage report (Kover)"
   "Upload coverage HTML"
   "Upload test reports"
+  "Upload test results (XML)"
   "Screenshot goldens match the committed PNGs (issue #628)"
   "Roborazzi really compared every committed golden (issue #628)"
   "Upload Roborazzi comparison images"
@@ -86,8 +87,22 @@ write_workflow "$sandbox/wf.yml" \
   "Screenshot goldens match the committed PNGs (issue #628)" \
   "Upload Roborazzi comparison images" \
   "Upload coverage HTML" \
-  "Upload test reports"
+  "Upload test reports" \
+  "Upload test results (XML)"
 expect 1 "verify hoisted above Upload test reports" "must run AFTER 'Upload test reports'"
+
+# Same move, seen from the XML upload: verify also overwrites
+# app/build/test-results/, and the XML is the half carrying the assertion
+# message (#631). Hoisting verify above it is the #631 failure mode.
+write_workflow "$sandbox/wf.yml" \
+  "Unit tests" \
+  "Coverage report (Kover)" \
+  "Upload test reports" \
+  "Screenshot goldens match the committed PNGs (issue #628)" \
+  "Upload Roborazzi comparison images" \
+  "Upload test results (XML)"
+expect 1 "verify hoisted above Upload test results (XML)" \
+  "must run AFTER 'Upload test results (XML)'"
 
 # Verify hoisted above Kover: breaks the documented UP-TO-DATE reuse.
 write_workflow "$sandbox/wf.yml" \
@@ -95,6 +110,7 @@ write_workflow "$sandbox/wf.yml" \
   "Screenshot goldens match the committed PNGs (issue #628)" \
   "Coverage report (Kover)" \
   "Upload test reports" \
+  "Upload test results (XML)" \
   "Upload Roborazzi comparison images"
 expect 1 "verify hoisted above Coverage report (Kover)" "must run AFTER 'Coverage report (Kover)'"
 
@@ -103,6 +119,7 @@ write_workflow "$sandbox/wf.yml" \
   "Unit tests" \
   "Coverage report (Kover)" \
   "Upload test reports" \
+  "Upload test results (XML)" \
   "Upload Roborazzi comparison images" \
   "Screenshot goldens match the committed PNGs (issue #628)"
 expect 1 "upload placed before the verify step" \
@@ -112,16 +129,28 @@ expect 1 "upload placed before the verify step" \
 # A renamed or deleted step takes the workflow step and the protection with it;
 # that must be red, not a silent pass over steps that no longer exist.
 write_workflow "$sandbox/wf.yml" \
-  "Unit tests" "Coverage report (Kover)" "Upload test reports"
+  "Unit tests" "Coverage report (Kover)" "Upload test reports" "Upload test results (XML)"
 expect 1 "the verify step is missing entirely" "no step named like 'Screenshot goldens'"
 
 write_workflow "$sandbox/wf.yml" \
   "Unit tests" \
   "Coverage report (Kover)" \
+  "Upload test results (XML)" \
   "Screenshot goldens match the committed PNGs (issue #628)" \
   "Upload Roborazzi comparison images"
 expect 1 "the Upload test reports step was renamed away" \
   "no step named like 'Upload test reports'"
+
+# The XML upload deleted or renamed: the #631 collection stops happening and
+# the artifact goes back to HTML-only. That must be red here, not a silent pass.
+write_workflow "$sandbox/wf.yml" \
+  "Unit tests" \
+  "Coverage report (Kover)" \
+  "Upload test reports" \
+  "Screenshot goldens match the committed PNGs (issue #628)" \
+  "Upload Roborazzi comparison images"
+expect 1 "the Upload test results (XML) step was renamed away" \
+  "no step named like 'Upload test results (XML)'"
 
 # The flat scan is only valid for a single job; a second job must force a human
 # to revisit it rather than silently comparing steps across jobs.

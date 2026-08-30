@@ -110,6 +110,7 @@ jobs:
         # ORG_GRADLE_PROJECT_google — lands in the DEX and is caught here.
         run: bash scripts/check-apk-distribution.sh --apk app/build/outputs/apk/debug/app-debug.apk --expect foss
       - name: Unit tests
+        id: unit_tests
         # Distribution is a build flag (#467): `:app` unit tests run once bare
         # (FOSS) and once with `-Pgoogle` (Firebase). `testDebugUnitTest`
         # (unqualified) covers the library modules' `:app` foss run plus the
@@ -139,9 +140,55 @@ jobs:
         # is what converts "never looked at" into "known to build" — the gap
         # #549 describes — and it costs seconds.
         run: ./gradlew :device-tests:compileTestKotlin :e2e:compileTestKotlin
-      - name: Upload test results
-        if: failure()
+      # Same gap as android-ci.yml had (#631): this collected only the HTML
+      # reports, so a failure's assertion message — which Gradle writes to
+      # `build/test-results/**/TEST-*.xml`, and only there in machine-readable
+      # form — was discarded with the runner.
+      #
+      # Both uploads are scoped to the "Unit tests" step having actually run.
+      # That scoping is real HERE and would be a no-op in android-ci.yml: this
+      # job's "Unit tests" step carries no `if:`, so an earlier failure --
+      # `assembleDebug`, or either APK-distribution gate, none of which produce
+      # test output -- skips it, and under `if-no-files-found: error` a bare
+      # `failure()` would bolt a spurious "no files found" error onto every such
+      # run. In android-ci.yml the test steps run unconditionally, so the same
+      # condition there would always be true; it is omitted rather than faked.
+      - name: Upload test reports (HTML)
+        if: failure() && steps.unit_tests.conclusion != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: test-results
+          if-no-files-found: error
           path: "**/build/reports/tests/"
+      # Uploaded on green runs too, unlike the HTML. The XML is a few hundred KB
+      # and it is the only record of WHICH tests executed: `:app` sets
+      # `isFailOnNoMatchingTests = false` (#632), so a `--tests` filter matching
+      # nothing reports SUCCESS, and `BUILD SUCCESSFUL` prints identically for
+      # a full suite and for zero tests. Counting `<testcase>` elements in this
+      # artifact is what tells those two apart after the fact.
+      #
+      # Read that count per suite directory, not as a repo total, and know that
+      # `app/build/test-results/testDebugUnitTest/` holds the `-Pgoogle` pass
+      # only: both `:app` passes write the same directory and Gradle clears it
+      # on each run, so the bare (FOSS) results are gone by upload time (#640).
+      # Measured on this workflow's green run 33228348112: 204 XML files, 1682
+      # tests, of which `:app` contributes 73 files / 614 tests -- NOT the 623
+      # a local bare `:app:testDebugUnitTest` produces.
+      #
+      # Separate step and separate artifact name on purpose: `if-no-files-found`
+      # is evaluated over a step's whole match set, so folding both paths into
+      # one step would let the HTML satisfy the check while the XML path
+      # silently matched nothing. And upload-artifact@v4 documents that artifact
+      # names must be unique — with the default `overwrite: false` a second
+      # upload under the same name fails the step — so the names must differ.
+      #
+      # `if-no-files-found: error` rather than the default `warn`: `warn` leaves
+      # an annotation and a GREEN step, so an empty artifact looks exactly like
+      # a working one.
+      - name: Upload test results (XML)
+        if: (success() || failure()) && steps.unit_tests.conclusion != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-xml
+          if-no-files-found: error
+          path: "**/build/test-results/**/*.xml"
