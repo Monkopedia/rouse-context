@@ -1,3 +1,6 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.api.tasks.testing.logging.TestLogEvent
+
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.android.library) apply false
@@ -53,6 +56,43 @@ subprojects {
 subprojects {
     tasks.withType<Test>().configureEach {
         systemProperty("user.timezone", "UTC")
+
+        // Make a failing test's MESSAGE reach the job log (issue #641).
+        //
+        // `testLogging.exceptionFormat` was unset repo-wide, so Gradle's
+        // default `SHORT` applied and every CI failure logged
+        //
+        //     java.lang.AssertionError at SomeTest.kt:14
+        //
+        // -- the file and line, and nothing about what was actually asserted.
+        // `FULL` logs the exception's message and its stack trace instead.
+        //
+        // Why the log rather than (only) the XML artifact #631 added: the job
+        // log is the ONE record that survives every failure mode. Gradle writes
+        // no XML, no HTML and no `results.bin` for a Test task killed by its own
+        // `timeout.set(...)` -- the actual cause of run 33135432024's
+        // undiagnosable `:app:integrationTest` failures -- and artifacts expire
+        // while logs stay with the run.
+        //
+        // Configured HERE, on `tasks.withType<Test>` in every subproject,
+        // because the test tasks are created in three different places and no
+        // single one of them reaches all three: AGP's variant unit tests
+        // (`testDebugUnitTest`), the Kotlin JVM plugin's `jvmTest`, and the
+        // hand-registered `integrationTest` tasks in `:app` and `:core:tunnel`.
+        // `android.testOptions.unitTests.all` reaches only the first -- the same
+        // trap `robolectric.graphicsMode` and #633's timezone pin above both had
+        // to work around by hand.
+        //
+        // `events(FAILED)` is Gradle's own default at the lifecycle log level
+        // and is restated only so the exception format has something to attach
+        // to; nothing is logged for a passing or skipped test, so a green run's
+        // log volume is unchanged.
+        testLogging {
+            events(TestLogEvent.FAILED)
+            exceptionFormat = TestExceptionFormat.FULL
+            showStackTraces = true
+            showCauses = true
+        }
     }
 }
 

@@ -265,16 +265,24 @@ jobs:
       #
       # Uploaded unconditionally, not `if: failure()`, for two reasons beyond
       # size (the XML for a full run is a few hundred KB): a green run's XML is
-      # the only record of WHICH tests executed, and `:app` sets
-      # `isFailOnNoMatchingTests = false` (#632), so a `--tests` filter matching
-      # nothing reports SUCCESS. Counting `<testcase>` elements in a green run's
-      # artifact is what distinguishes a full suite from zero tests. Read that
-      # count per suite directory: `app/build/test-results/testDebugUnitTest/`
-      # holds the `-Pgoogle` pass only, because both `:app` passes write the
-      # same directory and Gradle clears it per run (#640). Measured on green
-      # run 33228348111: 245 XML files, 1772 testcases, of which `:app`
-      # contributes 73 files / 614 tests -- NOT the 623 a local bare
-      # `:app:testDebugUnitTest` produces.
+      # the only record of WHICH tests executed, and `BUILD SUCCESSFUL` prints
+      # identically for a full suite and for zero tests. Counting `<testcase>`
+      # elements in a green run's artifact is what distinguishes the two.
+      #
+      # Read that count per suite directory. `:app`'s two distribution passes
+      # now write SEPARATE trees (#640) --
+      #
+      #   app/build/test-results/testDebugUnitTest/foss/     76 files / 623 tests
+      #   app/build/test-results/testDebugUnitTest/google/   73 files / 614 tests
+      #
+      # -- so both survive to the upload. They did not before: both passes wrote
+      # `app/build/test-results/testDebugUnitTest/` and Gradle clears it per run,
+      # so green run 33228348111's artifact held the `-Pgoogle` pass only (73
+      # files / 614 tests) and the seven FOSS-only classes -- ACRA, UnifiedPush,
+      # the FOSS FGS selector -- ran, passed, and left no record anywhere.
+      #
+      # The counts differ legitimately: each distribution compiles its own
+      # `src/test{Foss,Google}` sources, so neither is a subset failure.
       #
       # A SEPARATE step, and a separate artifact name, on purpose:
       # `if-no-files-found` is evaluated over a step's whole match set, so
