@@ -191,18 +191,51 @@ class TunnelClientImpl(
             keepaliveJob = scope.launch {
                 runKeepaliveLoop(demux)
             }
+        } catch (e: CancellationException) {
+            // MUST stay above both clauses below -- see [abandonConnect] (#644).
+            abandonConnect(inbound)
+            throw e
         } catch (e: TunnelError) {
-            closeInboundQueue(inbound)
-            stateMachine.transition(TunnelState.DISCONNECTED)
+            abandonConnect(inbound)
             _errors.emit(e)
             throw e
         } catch (e: Exception) {
-            closeInboundQueue(inbound)
-            stateMachine.transition(TunnelState.DISCONNECTED)
+            abandonConnect(inbound)
             val error = TunnelError.ConnectionFailed("Failed to connect: ${e.message}", e)
             _errors.emit(error)
             throw error
         }
+    }
+
+    /**
+     * Unwind a half-built connection: close the inbound queue and reflect that
+     * the client is not connected.
+     *
+     * Shared by all three failure paths out of [connect], including the
+     * cancellation one. Cancellation IS an `Exception` on the JVM
+     * (`java.util.concurrent.CancellationException` extends
+     * `IllegalStateException`), so before #644 a scope teardown while
+     * `opened.await()` was suspended fell into the broad `catch` and came back
+     * as a [TunnelError.ConnectionFailed] -- thrown to
+     * `TunnelForegroundService`, whose untyped catch calls
+     * `crashReporter.logCaughtException`, and additionally published on
+     * [errors]. Neither is true of a cancelled connect: the caller went away,
+     * the connection did not fail. Same defect as `TlsAcceptor.accept`.
+     *
+     * The crash report is the consequence that actually lands. The [errors]
+     * publication is not a user-visible surface today: that `SharedFlow` has
+     * no production collector anywhere in the repo -- measured against
+     * `incomingSessions`, which has three, so the empty result is a real read
+     * rather than a broken search.
+     *
+     * The cancellation path still performs this cleanup -- neither call
+     * suspends, so both are safe in a cancelled coroutine, and leaving the
+     * queue open or the state at `CONNECTING` would strand the client. Only the
+     * error *report* is dropped.
+     */
+    private fun abandonConnect(inbound: Channel<MuxFrame>) {
+        closeInboundQueue(inbound)
+        stateMachine.transition(TunnelState.DISCONNECTED)
     }
 
     /**
