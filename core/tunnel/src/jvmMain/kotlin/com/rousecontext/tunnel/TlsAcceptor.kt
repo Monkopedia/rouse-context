@@ -9,6 +9,7 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -76,11 +77,31 @@ class TlsAcceptor(private val sslContext: SSLContext) {
      * @throws TunnelError.UnhandledTlsState if the engine reports a status the
      *   handshake pump has no handling for -- a defect in this layer rather
      *   than anything the peer did.
+     * @throws kotlinx.coroutines.CancellationException if the calling scope is
+     *   cancelled mid-handshake. Cancellation is teardown, never a handshake
+     *   failure, and propagates as itself: it used to be caught by the broad
+     *   clause below and refiled as [TunnelError.TlsHandshakeFailed], which
+     *   turned every service shutdown into a crash report (#644).
      */
     suspend fun accept(stream: MuxStream): TlsSession = withContext(Dispatchers.IO) {
         try {
             val engine = createServerEngine()
             SuspendTlsSession(engine, stream, pumpHandshake(engine, stream))
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch. On the JVM cancellation IS an
+            // Exception -- `java.util.concurrent.CancellationException` extends
+            // `IllegalStateException` -- so without this clause every ordinary
+            // teardown (service shutdown, scope cancellation, a `withTimeout`
+            // expiring, a client going away mid-connect) came back out of
+            // `accept` as a `TlsHandshakeFailed`. `TunnelForegroundService`
+            // catches `Exception` untyped around the session path and calls
+            // `crashReporter.logCaughtException`, so routine lifecycle events
+            // were filed as non-fatal crash reports -- noise in exactly the
+            // channel #616/#626/#630/#643 made meaningful. It also left a
+            // `withTimeout` around `accept` unable to recognise its own
+            // timeout, the same shape as #563's uncancellable spin one layer
+            // up. See #644; the boundary half is #642.
+            throw e
         } catch (e: TunnelError) {
             throw e
         } catch (e: Exception) {
@@ -597,7 +618,7 @@ private class SuspendTlsSession(
     private suspend fun pullNetData(): Boolean {
         val tlsData = try {
             stream.read()
-        } catch (e: kotlinx.coroutines.CancellationException) {
+        } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             return false
@@ -617,7 +638,7 @@ private class SuspendTlsSession(
                 netOut.get(data)
                 try {
                     stream.write(data)
-                } catch (e: kotlinx.coroutines.CancellationException) {
+                } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     throw java.io.IOException("TLS write failed: stream closed", e)
