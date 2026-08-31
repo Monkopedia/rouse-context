@@ -16,21 +16,34 @@ import java.util.Locale
  *
  * The sites this replaced held a `SimpleDateFormat` in a companion object (or
  * as a top-level `val`), and `SimpleDateFormat` resolves its [java.util.TimeZone]
- * at **construction**. Because those statics are built once at class
- * initialisation, a DST rollover, a device timezone change or a locale change
- * inside a single process kept rendering with whatever was installed at class
+ * and its [Locale] at **construction**. Because those statics are built once at
+ * class initialisation, a **device timezone change** (travel, manual change) or
+ * a **device locale change** kept rendering with whatever was installed at class
  * load, until the process restarted. No error, no crash — the timestamps were
- * simply wrong by a fixed offset. For the rate-limit retry-after dates that
- * can name the wrong calendar day and tell the user to come back at the wrong
- * time.
+ * simply wrong, which is the hardest kind of wrong to notice. For the
+ * rate-limit retry-after dates that can name the wrong calendar day and tell
+ * the user to come back at the wrong time.
+ *
+ * **A DST rollover was NOT one of the failure modes, despite what #635's
+ * original report and this file's first draft both claimed.** A
+ * `SimpleDateFormat` captures a *region* `TimeZone` (`ZoneInfo`, with
+ * `useDaylightTime = true`), and `format()` applies that zone's transition
+ * rules per call — so one long-lived instance already rendered a January
+ * instant and a July instant at correctly different offsets. What it captured
+ * was *which zone*, not *which offset*. Only changing the zone or the locale
+ * out from under it went stale, and those are the two the tests cover. Stated
+ * here because the false version was written down in four places before it was
+ * measured, and this is the copy that outlives the issue and the pull request.
  *
  * The patterns stay static because a [DateTimeFormatter] is **immutable and
  * thread-safe**: [DateTimeFormatter.withZone] and [DateTimeFormatter.withLocale]
  * return new instances rather than mutating the shared one. Applying both per
- * call is what makes the rendering follow the device, and it also removes the
- * second latent defect in the replaced lines — `SimpleDateFormat` is *not*
- * thread-safe, so a shared static instance formatted from arbitrary coroutines
- * could interleave and corrupt its own output.
+ * call is what makes the rendering follow the device. That also retires a
+ * **latent — not live** thread-safety hazard: `SimpleDateFormat` is not
+ * thread-safe and `TIME_FORMAT` was shared across three ViewModels, but all
+ * three read it from `stateIn(viewModelScope)` with no `flowOn`, so every call
+ * was Main-confined and no interleaving could actually occur. Nothing enforced
+ * that confinement; [DateTimeFormatter] makes it a non-question.
  *
  * Not for anything that leaves the device. Wire formats must carry an explicit
  * offset — see `UsageMcpProvider`'s `ISO_OFFSET_DATE_TIME`.

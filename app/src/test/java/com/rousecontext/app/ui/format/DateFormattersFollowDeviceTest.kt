@@ -60,11 +60,19 @@ import org.robolectric.annotation.Config
  * that happened to be installed when the enclosing class was initialised.
  *
  * The defect these tests pin down is that a `SimpleDateFormat` held in a
- * companion object (or as a top-level `val`) resolves its zone at
- * *construction*. Within a single process a DST rollover, a device timezone
- * change or a locale change therefore keeps rendering with the captured
- * values until the process restarts — silently, with no error, off by a fixed
- * offset. For the two retry-after sites that can name the wrong calendar day.
+ * companion object (or as a top-level `val`) resolves its zone and locale at
+ * *construction*. Within a single process a **device timezone change** or a
+ * **device locale change** therefore keeps rendering with the captured values
+ * until the process restarts — silently, with no error. For the two
+ * retry-after sites that can name the wrong calendar day.
+ *
+ * A DST rollover is deliberately NOT tested here, because it is not a failure
+ * mode: `SimpleDateFormat` captures a *region* `TimeZone` and applies its
+ * transition rules per `format()` call, so even the old statics rendered
+ * summer and winter instants at correctly different offsets. #635's report
+ * claimed otherwise; it was wrong. Worth stating in the test file rather than
+ * only in the PR, because a DST test would pass against unmodified `main` and
+ * would therefore look like coverage while proving nothing.
  *
  * Shape of every test: format, change the JVM default zone/locale, format
  * again, assert the rendering CHANGED. Nothing is pinned to a fixed zone —
