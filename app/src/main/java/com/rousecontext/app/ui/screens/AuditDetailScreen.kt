@@ -32,10 +32,8 @@ import com.rousecontext.app.R
 import com.rousecontext.app.ui.components.ErrorState
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.appBarColors
+import com.rousecontext.app.ui.format.DisplayDateFormat
 import com.rousecontext.app.ui.theme.RouseContextTheme
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * UI state for the audit detail screen: loading from Room, loaded with details,
@@ -208,12 +206,9 @@ private fun CodeBlock(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-private val DETAIL_TIMESTAMP_FORMAT =
-    SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
-
 private fun formatTimestamp(millis: Long, unknownLabel: String): String {
     if (millis == 0L) return unknownLabel
-    return DETAIL_TIMESTAMP_FORMAT.format(Date(millis))
+    return DisplayDateFormat.auditTimestamp(millis)
 }
 
 private fun formatJsonOrRaw(json: String?, noneLabel: String): String {

@@ -7,12 +7,10 @@ import com.rousecontext.app.auth.DeviceCredentialProvider
 import com.rousecontext.app.auth.FcmTokenProvider
 import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.ui.format.DisplayDateFormat
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -251,8 +249,9 @@ class OnboardingViewModel(
 
     private fun formatRetryDate(retryAfterSeconds: Long?): String =
         retryAfterSeconds?.let { seconds ->
-            val date = Date(System.currentTimeMillis() + seconds * MILLIS_PER_SECOND)
-            DATE_FORMAT.format(date)
+            DisplayDateFormat.shortDate(
+                System.currentTimeMillis() + seconds * MILLIS_PER_SECOND
+            )
         } ?: "later"
 
     fun retry() {
@@ -268,6 +267,5 @@ class OnboardingViewModel(
     companion object {
         private const val TAG = "Onboarding"
         private const val MILLIS_PER_SECOND = 1000L
-        private val DATE_FORMAT = SimpleDateFormat("MMM d", Locale.getDefault())
     }
 }

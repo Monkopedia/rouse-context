@@ -6,6 +6,7 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.deriveIntegrationState
 import com.rousecontext.app.McpUrlProvider
+import com.rousecontext.app.ui.format.DisplayDateFormat
 import com.rousecontext.app.ui.screens.AuthorizedClient
 import com.rousecontext.app.ui.screens.IntegrationManageState
 import com.rousecontext.app.ui.screens.IntegrationStatus
@@ -14,9 +15,6 @@ import com.rousecontext.mcp.core.TokenStore
 import com.rousecontext.notifications.FieldEncryptor
 import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -109,8 +107,8 @@ class IntegrationManageViewModel(
         val clients = tokenList.map { token ->
             AuthorizedClient(
                 name = token.label,
-                authorizedDate = DATE_FORMAT.format(Date(token.createdAt)),
-                lastUsed = DATE_FORMAT.format(Date(token.lastUsedAt))
+                authorizedDate = DisplayDateFormat.shortDateWithYear(token.createdAt),
+                lastUsed = DisplayDateFormat.shortDateWithYear(token.lastUsedAt)
             )
         }
 
@@ -162,6 +160,5 @@ class IntegrationManageViewModel(
     companion object {
         private const val RECENT_LIMIT = 5
         private const val STOP_TIMEOUT_MS = 5_000L
-        private val DATE_FORMAT = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     }
 }

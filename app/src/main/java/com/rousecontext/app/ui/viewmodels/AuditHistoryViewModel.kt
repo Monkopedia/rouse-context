@@ -3,6 +3,7 @@ package com.rousecontext.app.ui.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rousecontext.api.NotificationSettingsProvider
+import com.rousecontext.app.ui.format.DisplayDateFormat
 import com.rousecontext.app.ui.screens.AuditHistoryEntry
 import com.rousecontext.app.ui.screens.AuditHistoryGroup
 import com.rousecontext.app.ui.screens.AuditHistoryItem
@@ -14,13 +15,8 @@ import com.rousecontext.notifications.audit.AuditDao
 import com.rousecontext.notifications.audit.AuditEntry
 import com.rousecontext.notifications.audit.McpRequestDao
 import com.rousecontext.notifications.audit.McpRequestEntry
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -172,8 +168,6 @@ class AuditHistoryViewModel(
          */
         val DEFAULT_DATE_FILTER: DateFilterOption = DateFilterOption.LAST_7_DAYS
 
-        private val TIME_FORMAT = SimpleDateFormat("HH:mm", Locale.getDefault())
-
         /**
          * Map a persisted [AuditEntry] Room row to the view-layer
          * [AuditHistoryEntry] used by the shared `ToolCallRow` widget. Shared
@@ -194,7 +188,7 @@ class AuditHistoryViewModel(
             val decryptedResult = fieldEncryptor?.decrypt(entry.resultJson)
             return AuditHistoryEntry(
                 id = entry.id,
-                time = TIME_FORMAT.format(Date(entry.timestampMillis)),
+                time = DisplayDateFormat.clockTime(entry.timestampMillis),
                 toolName = entry.toolName,
                 provider = entry.provider,
                 durationMs = entry.durationMillis,
@@ -210,7 +204,7 @@ class AuditHistoryViewModel(
             val now = System.currentTimeMillis()
             val dayMs = 24 * 60 * 60 * 1000L
             val startOfToday = LocalDate.now()
-                .atStartOfDay(ZoneId.systemDefault())
+                .atStartOfDay(DisplayDateFormat.deviceZone())
                 .toInstant()
                 .toEpochMilli()
 
@@ -245,7 +239,7 @@ class AuditHistoryViewModel(
             val requestItems: List<AuditHistoryItem> = requestEntries.map { req ->
                 AuditHistoryItem.Request(
                     id = req.id,
-                    time = TIME_FORMAT.format(Date(req.timestampMillis)),
+                    time = DisplayDateFormat.clockTime(req.timestampMillis),
                     method = req.method,
                     provider = req.provider,
                     durationMs = req.durationMillis,
@@ -256,14 +250,14 @@ class AuditHistoryViewModel(
             return (toolCallItems + requestItems)
                 .groupBy { item ->
                     Instant.ofEpochMilli(item.timestampMillis)
-                        .atZone(ZoneId.systemDefault())
+                        .atZone(DisplayDateFormat.deviceZone())
                         .toLocalDate()
                 }
                 .entries
                 .sortedByDescending { it.key }
                 .map { (date, dayItems) ->
                     AuditHistoryGroup(
-                        dateLabel = date.format(DateTimeFormatter.ofPattern("MMMM d, yyyy")),
+                        dateLabel = DisplayDateFormat.dayHeader(date),
                         items = dayItems.sortedByDescending { it.timestampMillis }
                     )
                 }
