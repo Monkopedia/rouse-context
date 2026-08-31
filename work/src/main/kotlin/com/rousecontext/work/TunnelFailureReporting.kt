@@ -78,14 +78,34 @@ internal fun classifyTunnelFailure(e: Throwable): TunnelFailureKind = when (e) {
     // IllegalStateException), so any later arm could otherwise swallow it.
     is CancellationException -> TunnelFailureKind.Cancellation
     is TunnelError.UnhandledTlsState -> TunnelFailureKind.Defect
+    is TunnelError.ConnectionFailed -> classifyConnectionFailed(e)
     is TunnelError.TlsHandshakeFailed,
-    is TunnelError.ConnectionFailed,
     is TunnelError.WebSocketClosed,
     is TunnelError.StreamRefused,
     is TunnelError.StreamReset -> TunnelFailureKind.PeerOrTransport
     is IOException -> TunnelFailureKind.PeerOrTransport
     else -> TunnelFailureKind.Defect
 }
+
+/**
+ * [TunnelError.ConnectionFailed] needs its cause inspected, because it is not
+ * only raised to describe a lost connection -- `TunnelClientImpl.connect` also
+ * wraps *anything* non-`TunnelError` that escapes it into a `ConnectionFailed`.
+ * Classifying the type blanket-quiet would therefore silence any defect that
+ * broad wrap laundered, which is precisely the "report nothing" failure this
+ * change exists to avoid.
+ *
+ * So: a connection that failed for a connection-shaped reason (an
+ * [IOException], or no cause at all -- our own code stating plainly that the
+ * link is gone) is routine; a `ConnectionFailed` wrapping an
+ * [IllegalStateException], an NPE or anything else is a laundered defect and
+ * stays loud.
+ */
+private fun classifyConnectionFailed(e: TunnelError.ConnectionFailed): TunnelFailureKind =
+    when (e.cause) {
+        null, is IOException -> TunnelFailureKind.PeerOrTransport
+        else -> TunnelFailureKind.Defect
+    }
 
 /**
  * The single boundary policy, applied identically wherever the service wraps a

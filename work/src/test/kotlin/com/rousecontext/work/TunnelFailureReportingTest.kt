@@ -51,6 +51,7 @@ class TunnelFailureReportingTest {
         val routine = listOf(
             TunnelError.TlsHandshakeFailed("peer aborted mid-handshake"),
             TunnelError.ConnectionFailed("relay unreachable"),
+            TunnelError.ConnectionFailed("no network", IOException("network unreachable")),
             TunnelError.WebSocketClosed("closed by remote"),
             TunnelError.StreamRefused(1u, "refused"),
             TunnelError.StreamReset(1u, "reset"),
@@ -61,6 +62,23 @@ class TunnelFailureReportingTest {
         assertEquals(
             routine.map { TunnelFailureKind.PeerOrTransport },
             routine.map { classifyTunnelFailure(it) }
+        )
+    }
+
+    @Test
+    fun `a ConnectionFailed wrapping a non-IO defect stays loud`() {
+        // TunnelClientImpl.connect wraps anything non-TunnelError that escapes
+        // it into a ConnectionFailed. Classifying that type blanket-quiet would
+        // silence every defect the wrap laundered -- the "report nothing"
+        // failure this change exists to avoid.
+        assertEquals(
+            TunnelFailureKind.Defect,
+            classifyTunnelFailure(
+                TunnelError.ConnectionFailed(
+                    "Failed to connect: null",
+                    NullPointerException("laundered by the broad wrap")
+                )
+            )
         )
     }
 
