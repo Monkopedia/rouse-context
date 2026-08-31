@@ -23,6 +23,7 @@ import com.rousecontext.notifications.SessionSummaryNotifier
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -202,6 +203,11 @@ class TunnelForegroundService : LifecycleService() {
                     intentionalDisconnect = true
                     try {
                         tunnelClient.disconnect()
+                    } catch (e: CancellationException) {
+                        // disconnect() is a suspend call, so the untyped catch
+                        // below would otherwise swallow the scope shutting down
+                        // and let the wake continue into connect() (#642 sweep).
+                        throw e
                     } catch (_: Exception) {
                         // Best-effort
                     }
@@ -221,11 +227,13 @@ class TunnelForegroundService : LifecycleService() {
             connectPushReporter.reportOnConnect()
             triggerOpportunisticSecurityCheck()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to relay", e)
-            // The reconnect loop handles recovery; we still surface the first
-            // connect failure because it often points at cert/provisioning
-            // bugs that never self-heal.
-            crashReporter.logCaughtException(e)
+            // Same three-way policy as the session boundary below (#642). The
+            // reconnect loop handles recovery; we still surface a *defect* on
+            // the first connect because it often points at cert/provisioning
+            // bugs that never self-heal — but a phone that woke with no network
+            // (ConnectionFailed / IOException) is not one of those, and the
+            // service being destroyed mid-connect is not a failure at all.
+            crashReporter.reportTunnelFailure(TAG, "Failed to connect to relay", e)
         }
     }
 
@@ -250,11 +258,19 @@ class TunnelForegroundService : LifecycleService() {
                 try {
                     sessionHandler.handleStream(stream)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Session handler failed for stream ${stream.id}", e)
-                    // Session-level exceptions are normally caught upstream so
-                    // a single tool call crashing doesn't kill the tunnel. Log
-                    // here as non-fatal so the error still reaches Crashlytics.
-                    crashReporter.logCaughtException(e)
+                    // Three-way, not two (#642). Every exception used to become
+                    // a non-fatal crash report here, which discarded the
+                    // discrimination #616/#626/#630/#639/#643/#647 built inside
+                    // the TLS layer: a peer aborting mid-handshake, this
+                    // layer's own defects and plain cancellation all landed in
+                    // the same channel. See [reportTunnelFailure]; it rethrows
+                    // CancellationException. Still catches per stream, so one
+                    // bad session cannot take the tunnel down.
+                    crashReporter.reportTunnelFailure(
+                        TAG,
+                        "Session handler failed for stream ${stream.id}",
+                        e
+                    )
                 } finally {
                     Log.i(TAG, "Session ended for stream ${stream.id}")
                 }
@@ -372,6 +388,10 @@ class TunnelForegroundService : LifecycleService() {
                     Log.i(TAG, "Reconnect succeeded")
                     connectPushReporter.reportOnConnect()
                     return@launch
+                } catch (e: CancellationException) {
+                    // Not a failed attempt: the loop is being torn down. Logging
+                    // it as one is the same conflation as #642, one level down.
+                    throw e
                 } catch (e: Exception) {
                     Log.w(TAG, "Reconnect attempt failed", e)
                 }

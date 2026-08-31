@@ -3,6 +3,7 @@ package com.rousecontext.work
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
 import kotlin.time.Duration
+import kotlinx.coroutines.CancellationException
 
 /**
  * Decides whether a wake-up (FCM, Start command, etc.) should trigger a new
@@ -52,6 +53,12 @@ object WakeReconnectDecider {
             TunnelState.ACTIVE -> {
                 val live = try {
                     tunnelClient.healthCheck(healthCheckTimeout)
+                } catch (e: CancellationException) {
+                    // healthCheck is a suspend call: without this arm the broad
+                    // catch below turns "the scope is shutting down" into
+                    // "the tunnel is dead", and the caller goes on to
+                    // disconnect/reconnect after cancellation (#642 sweep).
+                    throw e
                 } catch (_: Exception) {
                     false
                 }

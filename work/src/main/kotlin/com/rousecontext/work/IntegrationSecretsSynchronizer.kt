@@ -7,6 +7,7 @@ import com.rousecontext.api.McpIntegration
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -157,13 +158,7 @@ class IntegrationSecretsSynchronizer(
         repeat(pushAttempts) { attempt ->
             when (val result = relayApiClient.updateSecrets(subdomain, orderedIds)) {
                 is RelayApiResult.Success -> {
-                    try {
-                        certStore.storeIntegrationSecrets(result.data.secrets)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to persist rotated integration secrets", e)
-                        crashReporter.logCaughtException(e)
-                        return
-                    }
+                    if (!persistSecrets(result.data.secrets)) return
                     lastPushedSet = enabledSet
                     mutablePushCount.value += 1
                     Log.i(
@@ -204,6 +199,26 @@ class IntegrationSecretsSynchronizer(
         crashReporter.log(
             "IntegrationSecretsSynchronizer: push failed after $pushAttempts attempts"
         )
+    }
+
+    /**
+     * Persists freshly rotated secrets. Returns false when the persist failed,
+     * so the caller abandons the push.
+     *
+     * The `CancellationException` arm is not decoration: `storeIntegrationSecrets`
+     * is a suspend call, so without it the broad catch would file "the scope is
+     * shutting down" as a keystore defect -- the same conflation #642 fixed at
+     * the tunnel boundary. A genuine persist failure stays loud.
+     */
+    private suspend fun persistSecrets(secrets: Map<String, String>): Boolean = try {
+        certStore.storeIntegrationSecrets(secrets)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to persist rotated integration secrets", e)
+        crashReporter.logCaughtException(e)
+        false
     }
 
     companion object {
