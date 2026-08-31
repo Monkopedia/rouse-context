@@ -28,24 +28,26 @@ subprojects {
 // Pin the default timezone of every test JVM (issue #633).
 //
 // Screenshot goldens render wall-clock timestamps through *display* formatters
-// that inherit the JVM default zone — `SimpleDateFormat(pattern,
-// Locale.getDefault())` and `ZoneId.systemDefault()`. Device-local time is the
-// correct product behaviour there and those formatters are deliberately left
-// alone, but it makes a recorded golden host-dependent: the same tree recorded
-// in `America/New_York` renders `06:40` where a UTC CI runner renders `10:40`,
+// that follow the JVM default zone (`DisplayDateFormat`, which reads
+// `ZoneId.systemDefault()` and `Locale.getDefault()` on every call). Device-local
+// time is the correct product behaviour there and is deliberately preserved, but
+// it makes a recorded golden host-dependent: the same tree recorded in
+// `America/New_York` renders `06:40` where a UTC CI runner renders `10:40`,
 // so `verifyRoborazziDebug` fails for reasons unrelated to UI correctness.
 // The goldens are deterministic per host and host-dependent across hosts, which
 // is why re-recording never fixed it — see #633.
 //
-// Pinned as a JVM system property rather than a per-suite JUnit rule on
-// purpose. The affected formatters are statics (`DETAIL_TIMESTAMP_FORMAT` in
-// `AuditDetailScreen.kt`, `TIME_FORMAT` in `AuditHistoryViewModel`'s companion)
-// and `SimpleDateFormat` captures the default zone at *construction*, i.e. at
-// class-initialization time. A rule setting `TimeZone.setDefault` from `@Before`
-// runs after those classes may already have been initialized by an earlier test
-// in the same JVM, so the pin would silently depend on test ordering.
-// `-Duser.timezone` is in effect before any class loads, so it cannot be
-// out-ordered — and it cannot be forgotten by the next screenshot test either.
+// Pinned as a JVM system property rather than a per-suite JUnit rule on purpose.
+// `-Duser.timezone` is in effect before any class loads and applies to every
+// test task in the tree, so it cannot be out-ordered by class initialization and
+// it cannot be forgotten by the next screenshot test either. That ordering point
+// used to be load-bearing: until #635 the affected formatters were
+// `SimpleDateFormat` statics that captured the default zone at *construction*,
+// so a `TimeZone.setDefault` from `@Before` could run after an earlier test in
+// the same JVM had already initialized them. #635 replaced them with immutable
+// `DateTimeFormatter`s that resolve zone and locale per call, so the ordering
+// hazard is gone — but the pin is not redundant, because the goldens still
+// render device-local time and would still track the recorder's host without it.
 //
 // Applied to every test task in every module rather than only the screenshot
 // suites: CI already runs the whole suite under UTC and it is green, so this

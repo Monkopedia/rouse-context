@@ -7,6 +7,7 @@ import com.rousecontext.api.CrashReporter
 import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.app.cert.LazyWebSocketFactory
 import com.rousecontext.app.state.DeviceRegistrationStatus
+import com.rousecontext.app.ui.format.DisplayDateFormat
 import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
 import com.rousecontext.tunnel.CertProvisioningFlow
@@ -15,9 +16,6 @@ import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -191,8 +189,9 @@ class IntegrationSetupViewModel(
             }
             is CertProvisioningResult.RateLimited -> {
                 val retryDate = result.retryAfterSeconds?.let { seconds ->
-                    val date = Date(System.currentTimeMillis() + seconds * MILLIS_PER_SECOND)
-                    DATE_FORMAT.format(date)
+                    DisplayDateFormat.shortDate(
+                        System.currentTimeMillis() + seconds * MILLIS_PER_SECOND
+                    )
                 } ?: "later"
                 _state.value = IntegrationSetupState.RateLimited(retryDate = retryDate)
             }
@@ -308,6 +307,5 @@ class IntegrationSetupViewModel(
         internal const val BACKOFF_FACTOR = 2L
         internal const val SECRETS_PUSH_FAILED_MESSAGE =
             "Couldn't register integration with relay. Try again."
-        private val DATE_FORMAT = SimpleDateFormat("MMM d", Locale.getDefault())
     }
 }
