@@ -109,7 +109,7 @@ interface NotificationSettingsProvider {
 }
 ```
 
-The active subdomain is *not* exposed as a flow. `CertificateStore` offers `suspend fun getSubdomain(): String?`, and per-integration URLs are built through `McpUrlProvider` (`app/src/main/java/com/rousecontext/app/UrlBuilder.kt`), a `:app`-owned wrapper whose `buildUrl(integrationId)` / `buildHostname(integrationId)` combine the stored subdomain with that integration's secret prefix. The MCP endpoint path is always `/mcp`; the integration is identified by hostname, so `McpIntegration.path` is not what routes a request.
+The active subdomain is *not* exposed as a flow. `CertificateStore` offers `suspend fun getSubdomain(): String?`, and per-integration URLs are built through `McpUrlProvider` (`app/src/main/java/com/rousecontext/app/UrlBuilder.kt`), a `:app`-owned wrapper whose `buildUrl(integrationId)` / `buildHostname(integrationId)` combine the stored subdomain with that integration's secret prefix. The MCP endpoint path is always `/mcp`, so the URL *path component* is not what selects an integration — the hostname is. `McpRouting.resolveIntegration` (`core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt:216-224`) parses the first `Host` label as `{secret}-{integration}` and hands the extracted name to `ProviderRegistry.providerForPath`, whose production map is keyed on `McpIntegration.path` with the leading `/` stripped (`app/src/main/java/com/rousecontext/app/registry/IntegrationProviderRegistry.kt:41`, consumed at `:77-81`). So `path` is still the routing key — changing an integration's `path` would break its routing; it is simply no longer consumed as a URL path component.
 
 ## Navigation
 
@@ -163,7 +163,7 @@ Failure semantics:
 
 ### UI flow
 
-Drawn from `OnboardingViewModel.kt:69-140` and the destinations under `app/src/main/java/com/rousecontext/app/ui/navigation/destinations/`:
+Drawn from `OnboardingViewModel.kt:67-138` and the destinations under `app/src/main/java/com/rousecontext/app/ui/navigation/destinations/`:
 
 ```
 Welcome  ──▶  NotificationPreferences  ──▶  onboarding?autostart=true  ──▶  Home
@@ -179,7 +179,7 @@ Step-by-step:
 5. **Provisioning certificates** — `OnboardingState.InProgress(ProvisioningCerts)` while `POST /register/certs` runs (multi-second ACME hop). UI flips to "Provisioning certificates" copy.
 6. **Onboarded** — navigates to `HOME`.
 
-There is no separate "generating keys" UI step; key generation happens inside `CertProvisioningFlow` while the UI is in `ProvisioningCerts`. The two `OnboardingStep` values in `OnboardingViewModel.kt:41-44` are exhaustive.
+There is no separate "generating keys" UI step; key generation happens inside `CertProvisioningFlow` while the UI is in `ProvisioningCerts`. The two `OnboardingStep` values in `OnboardingViewModel.kt:39-42` are exhaustive.
 
 The decision to run cert provisioning at Continue (rather than deferring to the first integration add) is logged in `docs/ux-decisions.md` under the 2026-04-24 entry.
 
