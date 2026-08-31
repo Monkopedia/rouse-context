@@ -10,26 +10,31 @@ Runtime topology of a live session:
 
 ```
 AI client ──TLS──▶ relay (SNI passthrough) ──mux/WebSocket──▶
-  TunnelForegroundService (in :work) ──▶ TunnelSessionManager (in :core:bridge) ──▶
+  TunnelForegroundService.collectIncomingSessions (in :work) ──▶
+  SessionHandler.handleStream (in :core:bridge) ──▶
   McpSession (in :core:mcp) ──▶ McpIntegration.provider (one per integration)
 ```
+
+`TunnelForegroundService` collects `TunnelClient.incomingSessions` itself and calls `sessionHandler.handleStream(stream)` directly, one child coroutine per stream (`work/src/main/kotlin/com/rousecontext/work/TunnelForegroundService.kt:254-279`).
+
+`:core:bridge` also contains a `TunnelSessionManager` that collects `incomingSessions` and dispatches to the same `SessionHandler`. **It is not on this path.** No `main` source set constructs it and there is no Koin binding for it; the only callers are tests (`core/bridge/src/jvmTest/.../TunnelSessionManagerTest.kt`, `ClientPassthroughTest.kt`, and `app/src/test/.../ToolCallViaSniPassthroughTest.kt`). Its broad `catch (_: Exception)` around `handleStream` therefore describes nothing that ships — a reader chasing "where do session errors surface?" wants the three-way policy under [Session handling and failure discrimination](#session-handling-and-failure-discrimination) instead. Whether that class should be deleted or fixed to match the shipped policy is tracked in issue #638.
 
 Per-integration audit, notification, and permission state surfaces in the app UI; the integration itself only supplies metadata, an MCP `provider`, and an availability check.
 
 ## Module Map
 
-Canonical list from `settings.gradle.kts:25-35`. Eleven modules; nine ship in the APK (`:core:testfixtures`, `:device-tests`, and `:e2e` are test-only).
+Canonical list from `settings.gradle.kts:25-35`. Eleven modules; eight ship in the APK (`:core:testfixtures`, `:device-tests`, and `:e2e` are test-only).
 
 | Module | Path | Role | Project deps |
 |---|---|---|---|
 | `:app` | `app/` | Single Activity, Koin graph, navigation, integration registry, all setup/manage screens. Only module that knows about every other module. | `:core:tunnel`, `:core:mcp`, `:core:bridge`, `:api`, `:integrations`, `:notifications`, `:work` |
 | `:core:tunnel` | `core/tunnel/` | KMP. Mux protocol, WebSocket client, `CertificateStore`, `OnboardingFlow`, `CertProvisioningFlow`, `RelayApiClient`. No MCP knowledge. | (none) |
 | `:core:mcp` | `core/mcp/` | KMP. `McpSession`, `McpServerProvider`, OAuth device-code flow, token store, HTTP routing, `AuditListener`. | (none) |
-| `:core:bridge` | `core/bridge/` | KMP. Wires `:core:tunnel` mux streams to `:core:mcp` sessions: `TunnelSessionManager`, `SessionHandler`, `McpSessionFactory`, `HttpHeaderInjector`, `TlsCertProvider`. | `:core:tunnel`, `:core:mcp` |
+| `:core:bridge` | `core/bridge/` | KMP. Wires `:core:tunnel` mux streams to `:core:mcp` sessions: `SessionHandler`, `McpSessionFactory`, `HttpHeaderInjector`, `TlsCertProvider`. Also holds `TunnelSessionManager`, which nothing in a `main` source set constructs (#638). | `:core:tunnel`, `:core:mcp` |
 | `:api` | `api/` | The `McpIntegration` interface plus the supporting `IntegrationStateStore` / `NotificationSettingsProvider` contracts. | `:core:mcp` |
 | `:integrations` | `integrations/` | Hosts every shipped MCP server: `health`, `notifications`, `outreach`, `usage`. Each subpackage exports an `McpServerProvider` plus its own data layer. | `:core:mcp`, `:api`, `:notifications` |
 | `:notifications` | `notifications/` | Notification channels, foreground notification builder, audit Room database, post-session decisioning. | `:core:tunnel`, `:core:mcp`, `:api` |
-| `:work` | `work/` | `TunnelForegroundService`, FCM receiver + dispatch, WorkManager workers (`CertRenewalWorker`, `SecurityCheckWorker`), `IntegrationSecretsSynchronizer`, `IdleTimeoutManager`, `WakelockManager`, `WakeReconnectDecider`. | `:api`, `:core:tunnel`, `:core:bridge`, `:notifications` |
+| `:work` | `work/` | `TunnelForegroundService`, `TunnelFailureReporting`, `GracefulTunnelShutdown`, push dispatch (`FcmDispatch` + `WakeDispatcher` — the `FirebaseMessagingService` itself lives in `:app`, see below), WorkManager workers (`CertRenewalWorker`, `SecurityCheckWorker`), `IntegrationSecretsSynchronizer`, `IdleTimeoutManager`, `WakelockManager`, `WakeReconnectDecider`, `SessionActivityTracker`. | `:api`, `:core:tunnel`, `:core:bridge`, `:notifications` |
 | `:core:testfixtures` | `core/testfixtures/` | Test-only. `TestRelayFixture` for booting the real relay binary in integration tests. | (test) |
 | `:device-tests` | `device-tests/` | Instrumented tests. | (test) |
 | `:e2e` | `e2e/` | Cold-start and end-to-end harnesses. | (test) |
@@ -49,6 +54,8 @@ Edges below are derived from the `build.gradle.kts` file in each module.
 :app            ──▶ :core:tunnel, :core:mcp, :core:bridge, :api,
                     :integrations, :notifications, :work
 ```
+
+`:core:bridge` exposes both of its dependencies with `api(...)` rather than `implementation(...)`, so `:core:mcp` types reach `:work` transitively even though `work/build.gradle.kts` does not name `:core:mcp`.
 
 There is no separate `:health`, `:outreach`, `:usage`, or `:notifications-mcp` module; all four MCP integrations live as subpackages of `:integrations` (`integrations/src/main/{java,kotlin}/com/rousecontext/integrations/{health,notifications,outreach,usage}`).
 
@@ -88,21 +95,25 @@ Each delegates to the corresponding `*McpProvider`/`*McpServer` in `:integration
 
 ```kotlin
 interface IntegrationStateStore {
-    fun isUserEnabled(integrationId: String): Boolean
-    fun setUserEnabled(integrationId: String, enabled: Boolean)
+    suspend fun isUserEnabled(integrationId: String): Boolean
+    suspend fun setUserEnabled(integrationId: String, enabled: Boolean)
     fun observeUserEnabled(integrationId: String): Flow<Boolean>
+    suspend fun wasEverEnabled(integrationId: String): Boolean
+    fun observeEverEnabled(integrationId: String): Flow<Boolean>
+    fun observeChanges(): Flow<Unit>
 }
 
 interface NotificationSettingsProvider {
-    val settings: NotificationSettings
+    suspend fun settings(): NotificationSettings
+    // plus a reactive Flow view of the same settings
 }
 ```
 
-The active subdomain is exposed as a `StateFlow<String?>` from `CertificateStore` and bound directly in Koin — integrations consume it for URL display without a wrapper interface.
+The active subdomain is *not* exposed as a flow. `CertificateStore` offers `suspend fun getSubdomain(): String?`, and per-integration URLs are built through `McpUrlProvider` (`app/src/main/java/com/rousecontext/app/UrlBuilder.kt`), a `:app`-owned wrapper whose `buildUrl(integrationId)` / `buildHostname(integrationId)` combine the stored subdomain with that integration's secret prefix. The MCP endpoint path is always `/mcp`; the integration is identified by hostname, so `McpIntegration.path` is not what routes a request.
 
 ## Navigation
 
-Single Activity, Compose Navigation. All routes are defined as constants in `Routes` (`app/src/main/java/com/rousecontext/app/ui/navigation/AppNavigation.kt:40-96`) and registered as composables in `AppNavigation()`.
+Single Activity, Compose Navigation. All routes are defined as constants in `Routes` (`app/src/main/java/com/rousecontext/app/ui/navigation/AppNavigation.kt:42-111`) and registered as composables in `AppNavigation()`.
 
 | Route constant | Pattern | Purpose |
 |---|---|---|
@@ -110,6 +121,7 @@ Single Activity, Compose Navigation. All routes are defined as constants in `Rou
 | `ONBOARDING_BASE` | `onboarding` | NavHost start destination; resolves to the `ONBOARDING` composable because the arg is nullable. |
 | `ONBOARDING_AUTOSTART` | `onboarding?autostart=true` | Concrete URL used by `NotificationPreferences` Continue (#392). |
 | `NOTIFICATION_PREFERENCES` | `onboarding/notification_preferences` | Post-session mode picker, plus inline `POST_NOTIFICATIONS` permission request. |
+| `BACKGROUND_DELIVERY` | `background_delivery?settings={settings}` | UnifiedPush distributor picker (#463). Registered unconditionally, navigated to only in the `foss` flavor. `BACKGROUND_DELIVERY_BASE` / `BACKGROUND_DELIVERY_SETTINGS` are the onboarding-step and Settings-entry URLs. |
 | `HOME` | `home` | Main dashboard. |
 | `AUDIT` | `audit?provider={provider}&scrollToCallId={scrollToCallId}` | Audit list, optionally filtered + scrolled. |
 | `AUDIT_DETAIL` | `audit_detail/{entryId}` | Single audit row detail. |
@@ -129,7 +141,7 @@ Single Activity, Compose Navigation. All routes are defined as constants in `Rou
 
 There are no integration-owned routes. Each `*_setup` destination is registered in `:app` (`app/src/main/java/com/rousecontext/app/ui/navigation/destinations/`) and the integration only supplies an `id` plus an `McpServerProvider`.
 
-Bottom nav: Home, Audit, Settings (3 tabs). The bottom bar and top bar are hidden during the onboarding routes (`AppNavigation.kt:98-153`).
+Bottom nav: Home, Audit, Settings (3 tabs). The bottom bar and top bar are hidden during the onboarding routes — which include the two background-delivery routes (`ONBOARDING_ROUTES` at `AppNavigation.kt:113-119`, applied at `AppNavigation.kt:142-183`).
 
 ## Device Onboarding
 
@@ -167,7 +179,7 @@ Step-by-step:
 5. **Provisioning certificates** — `OnboardingState.InProgress(ProvisioningCerts)` while `POST /register/certs` runs (multi-second ACME hop). UI flips to "Provisioning certificates" copy.
 6. **Onboarded** — navigates to `HOME`.
 
-There is no separate "generating keys" UI step; key generation happens inside `CertProvisioningFlow` while the UI is in `ProvisioningCerts`. The two `OnboardingStep` values in `OnboardingViewModel.kt:40-43` are exhaustive.
+There is no separate "generating keys" UI step; key generation happens inside `CertProvisioningFlow` while the UI is in `ProvisioningCerts`. The two `OnboardingStep` values in `OnboardingViewModel.kt:41-44` are exhaustive.
 
 The decision to run cert provisioning at Continue (rather than deferring to the first integration add) is logged in `docs/ux-decisions.md` under the 2026-04-24 entry.
 
@@ -180,34 +192,60 @@ Failure surfaces:
 
 ## Foreground Service & Tunnel Lifecycle (`:work`)
 
-`:work` owns every Android-lifecycle concern around the tunnel. It does not know about MCP — that's `:core:bridge`'s job, invoked from inside the service.
+`:work` owns every Android-lifecycle concern around the tunnel. Bridging TLS and MCP is `:core:bridge`'s job, invoked from inside the service — but `:work` is not MCP-free: `TunnelForegroundService` injects `McpSession` and `ProviderRegistry`, `WakeDispatcher` gates on `ProviderRegistry.enabledPaths()`, `SessionActivityAuditListener` implements `:core:mcp`'s `AuditListener`, and `GracefulTunnelShutdown` takes an `McpSession`. Those types reach `:work` transitively through `:core:bridge`'s `api(project(":core:mcp"))`.
 
 ### `TunnelForegroundService`
 
-- Started by `FcmReceiver` on `type: "wake"`.
+- Started by `WakeDispatcher` on a `type: "wake"` push, and only when at least one integration is enabled.
+- `startForeground()` is the first non-trivial call in `onCreate` (#325); a start blocked by the Android 15 `dataSync` budget posts an `FgsLimitNotifier` notification and stops the service, and `onTimeout()` does the same mid-run (#450, #451).
 - Holds the singleton `TunnelClient` from Koin; calls `connect()`.
-- Posts the foreground notification via the builder from `:notifications`.
-- Updates the notification as `TunnelState` changes.
+- Posts and updates the foreground notification as `TunnelState` changes, with defensive reconciles after `awaitReady()` and after a successful `connect()` (#510).
+- Reconnects with exponential backoff on an unexpected `DISCONNECTED`, giving up after 5 minutes.
 - Stops via `IdleTimeoutManager` after the configured idle window with no active streams.
 
-### FCM dispatch (`FcmDispatch`, `FcmReceiver`)
+### Session handling and failure discrimination
 
-`FirebaseMessagingService` subclass dispatches by `type`:
+`collectIncomingSessions` (`TunnelForegroundService.kt:254-279`) collects `tunnelClient.incomingSessions`, launches one child coroutine per mux stream, and calls `sessionHandler.handleStream(stream)` inside a per-stream `try`. Catching per stream is what keeps one bad session from taking the tunnel down.
 
-- `wake` → start `TunnelForegroundService`.
-- `renew` → enqueue `CertRenewalWorker`.
-- unknown → log + ignore.
+What happens to a throwable that escapes `handleStream` is decided by `work/src/main/kotlin/com/rousecontext/work/TunnelFailureReporting.kt`, which classifies into **three** kinds — not the binary "report it or swallow it" the older layout implied (#642, #650):
 
-`onNewToken()` triggers `FcmTokenRegistrar` to update the relay.
+| Kind | What it means | What the boundary does |
+|---|---|---|
+| `Cancellation` | The scope is shutting down (service destroyed, idle timeout, tunnel teardown). | Rethrown, so the coroutine completes as cancelled. Never logged as an error, never reported. |
+| `PeerOrTransport` | The peer, network, or relay did something ordinary — hung up, aborted mid-handshake, reset a stream. | `Log.i` with the exception class and message, so the *rate* stays visible in logcat. No crash report. |
+| `Defect` | This layer reached a state it has no handling for. | `Log.e` **and** `CrashReporter.logCaughtException`. |
+
+`classifyTunnelFailure` matches in this order:
+
+1. `CancellationException` → `Cancellation`. It must come first: `CancellationException` extends `IllegalStateException`, so any later arm could otherwise swallow it.
+2. `TunnelError.UnhandledTlsState` → `Defect`. By its own kdoc this is a defect in our TLS/mux code, not anything the peer did (#616).
+3. `TunnelError.ConnectionFailed` → depends on the cause. `TunnelClientImpl.connect` wraps *anything* non-`TunnelError` that escapes it, so a `null` or `IOException` cause is routine (`PeerOrTransport`) while any other cause is a laundered defect and stays loud.
+4. `TunnelError.TlsHandshakeFailed`, `WebSocketClosed`, `StreamRefused`, `StreamReset`, and plain `IOException` → `PeerOrTransport`.
+5. Everything else → `Defect`.
+
+The quiet set is a **closed allowlist** and the `else` arm is `Defect`, deliberately: an unanticipated throwable — the `IllegalStateException` from `SessionHandler.handleStream`'s missing-cert `error(...)`, an NPE, `TunnelError.ProtocolError`, `InternalError`, `CertificateError`, `InvalidStateTransition` — is by definition something this layer did not plan for, so the default has to be loud or the policy decays into "report nothing". `TunnelError` extends `Exception` rather than `IOException`, which is what keeps the `is IOException` arm from capturing a tunnel error.
+
+The same policy is applied at the connect boundary: `connectToRelay`'s catch around `tunnelClient.connect(relayUrl)` calls `reportTunnelFailure` too, so a phone that woke with no network is quiet while a cert/provisioning bug is loud. Two nearby sites rethrow cancellation by hand for the same reason: the best-effort `disconnect()` inside `connectToRelay`, and the backoff loop in `launchReconnect` (which logs other attempt failures at `Log.w`, since the loop itself is the recovery).
+
+Below this boundary, `SessionHandler`'s two copy loops rethrow `CancellationException` and `TunnelError.UnhandledTlsState` and treat every other exception as a quiet EOF (#616, #626, #630). `:core:bridge` is a KMP jvm target with no `Log` or `CrashReporter`, so propagating to `TunnelForegroundService` *is* how a defect down there becomes observable.
+
+### Push dispatch (`FcmDispatch`, `WakeDispatcher`, `FcmReceiver`)
+
+The receiver is flavor-specific; the routing is not.
+
+- `FcmDispatch.resolve(data)` (in `:work`) is pure: it maps `type` to `FcmAction.StartService` / `EnqueueRenewal` / `Ignore`.
+- `WakeDispatcher` (in `:work`, extracted in #463) executes the action. Before acting it calls `ProviderRegistry.awaitReadyBlocking(2s)` (#414) and drops the push if the registry never becomes ready or if no integration is enabled — avoiding pointless foreground-service starts and ACME quota burn. `wake` starts `TunnelForegroundService`; `renew` enqueues `CertRenewalWorker` with `ExistingWorkPolicy.KEEP`; unknown types are logged and ignored.
+- `FcmReceiver`, the `FirebaseMessagingService` subclass, lives in **`app/src/google/java/com/rousecontext/app/push/FcmReceiver.kt`**, not `:work` — so the shared `:work` module links no `firebase-messaging` (#476). Its `onNewToken()` calls `FcmTokenRegistrar` (still in `:work`) to update the relay.
+- The `foss` flavor's `UnifiedPushReceiver` (`app/src/foss/java/com/rousecontext/app/push/`) routes the identical relay payloads through the same `WakeDispatcher`.
 
 ### WorkManager workers
 
-- **`CertRenewalWorker`** — periodic, daily, network-constrained. Reads cert expiry from `CertificateStore`; if <14 days left, calls `POST /renew` (mTLS if cert valid, Firebase-signature otherwise). Schedules backoff on failure; honors `retry_after` on `rate_limited`.
+- **`CertRenewalWorker`** — periodic, daily, network-constrained. Reads cert expiry from `CertificateStore`; if the cert is expired or within `DEFAULT_RENEWAL_WINDOW_DAYS` (21) of expiry, calls `POST /renew` (mTLS while the cert is still valid, credential-signed once it has expired). Schedules backoff on failure; honors `retry_after` on `rate_limited`.
 - **`SecurityCheckWorker`** — periodic self-check against the device's own cert and crt.sh. Persists results via `SecurityCheckPreferences`. Triggered by `SecurityCheckScheduler`.
 
 ### Wakelock and reconnect logic
 
-- `WakelockManager` observes `TunnelClient.state`: ACTIVE (>=1 stream) holds `PARTIAL_WAKE_LOCK`; CONNECTED idle releases; CONNECTING holds for the Doze window; DISCONNECTED releases.
+- `WakelockManager` observes `TunnelClient.state`: CONNECTING and ACTIVE acquire `PARTIAL_WAKE_LOCK`; DISCONNECTING and DISCONNECTED release it immediately; CONNECTED schedules a release after a 3 s grace (`CONNECTED_GRACE_MS`), cancelled if ACTIVE arrives first — so the relay's first request frame after the handshake is not deferred by Doze on non-exempt devices. Idempotent: never double-acquires or double-releases.
 - `WakeReconnectDecider` decides whether a `wake` FCM should reconnect immediately or be treated as spurious (`SpuriousWakeRecorder` keeps the rolling history).
 
 ### Integration secret synchronization
@@ -216,25 +254,38 @@ Failure surfaces:
 
 ### Idle timeout
 
-`IdleTimeoutManager` (`work/src/main/kotlin/com/rousecontext/work/IdleTimeoutManager.kt`) arms the timer when `TunnelClient.state` enters CONNECTED and fires `tunnelClient.disconnect()` on expiry. The timeout duration (default 5 min) and the "disable timeout" toggle are user-facing settings; the toggle is gated on the device being battery-optimization-exempt.
+`IdleTimeoutManager` (`work/src/main/kotlin/com/rousecontext/work/IdleTimeoutManager.kt`) arms the timer on each entry into CONNECTED and cancels it on each transition to ACTIVE. On expiry it invokes an injected `onTimeout`, which `AppModule` wires to `gracefulTunnelShutdown(mcpSession, tunnelClient)` rather than a bare `disconnect()`.
+
+The duration is adaptive: a *substantive* wake cycle (one that issued at least one `tools/call`, tracked by `SessionActivityTracker`) gets the user-facing "Idle timeout" (`idle_timeout_minutes`, default 5); a discovery-only or spurious wake gets the much shorter "Quick disconnect" (`quick_disconnect_seconds`, default 30), so a lightweight wake does not hold the foreground service up and burn the Android 15 `dataSync` budget. The "disable timeout" toggle makes `timeoutProvider` return `null` so the timer never arms; it is gated on the device being battery-optimization-exempt. Completed wake cycles are reported to `SpuriousWakeRecorder`.
 
 ## Audit & Notifications (`:notifications`)
 
 ### Audit persistence
 
-Room database, schema in `notifications/src/main/.../audit/`. Implements `AuditListener` from `:core:mcp` so every tool call/response surfaces with timestamps, arguments JSON, result JSON, duration, session ID, and provider ID. Retained for 30 days; pruned on app launch.
+Room database, schema in `notifications/src/main/.../audit/`. `RoomAuditListener` implements `AuditListener` from `:core:mcp` so every tool call/response surfaces with timestamps, arguments JSON, result JSON, duration, session ID, and provider ID; `:work`'s `SessionActivityAuditListener` wraps it so each `tools/call` also marks the wake cycle substantive for the adaptive idle timeout. There is no automatic retention window: `AuditDao.deleteOlderThan` exists but the only production caller is the user-driven "clear history" action in `AuditHistoryViewModel`, and the UI says so ("Audit history is kept until you clear it manually").
 
 Notification taps deep-link into `AUDIT?provider={id}&scrollToCallId={id}` so the user lands on the specific call.
 
 ### Notification channels
 
-- **Active Session** — foreground service, ongoing.
-- **Session Summary** — controllable via `post_session_notifications` setting (`summary` / `each_usage` / `suppress`).
-- **Warnings/Errors** — escalating severity, including security-check alerts.
+Eight channels, all created by `NotificationChannels.createAll()` (`notifications/src/main/.../NotificationChannels.kt`):
+
+| Channel id | Name | Importance |
+|---|---|---|
+| `rouse_foreground` | Foreground Service | LOW |
+| `rouse_session` | Session Activity | DEFAULT |
+| `rouse_error` | Errors | HIGH |
+| `rouse_alert` | Security Alerts | HIGH |
+| `rouse_auth_request` | Authorization Requests | DEFAULT |
+| `rouse_session_summary` | Session Summaries | LOW |
+| `rouse_outreach_launch` | Outreach Launch Requests | DEFAULT |
+| `rouse_fgs_limit` | Foreground Service Limit | HIGH |
+
+The Session Summaries channel is the one controlled by the `post_session_mode` setting (`summary` / `each_usage` / `suppress`).
 
 ### Foreground notification builder
 
-`createForegroundNotification(state: TunnelState, activeStreams: Int): Notification` is provided to `:work` via Koin. Always posted while the service is running, regardless of `post_session_notifications` mode.
+`ForegroundNotifier.build(context, message: String): Notification` — an object in `:notifications`, called directly by `TunnelForegroundService` rather than injected through Koin, because a foreground-service notification must be *returned* to `startForeground()` rather than posted. `TunnelForegroundService` maps `TunnelState` to the message string itself. Always posted while the service is running, regardless of `post_session_mode`.
 
 ## Cross-Cutting Concerns
 
@@ -266,8 +317,9 @@ Other key bindings:
 - `single<TokenStore> { ... }` — Room-backed.
 - `single<IntegrationStateStore> { DataStoreIntegrationStateStore(...) }`.
 - `single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(...) }`.
-- `single<AuditListener> { ... }` — Room-backed; consumed by `:core:mcp`.
-- `single { TunnelSessionManager(...) }` — bridges tunnel mux streams to MCP sessions (`:core:bridge`).
+- `single<AuditListener> { ... }` — `SessionActivityAuditListener` wrapping the Room-backed `RoomAuditListener`; consumed by `:core:mcp`.
+- `single<TlsCertProvider> { CertStoreTlsCertProvider(...) }`, `single<McpSessionFactory> { SharedMcpSessionFactory(...) }`, and `single<SessionHandler> { SessionHandler(certProvider, mcpSessionFactory) }` — the `:core:bridge` trio the foreground service consumes. `SessionHandler` is the whole bridge wiring; there is **no** `TunnelSessionManager` binding, here or anywhere else (see the Architecture Overview and #638).
+- `single { IdleTimeoutManager(...) }`, `single { WakelockManager(...) }`, `single<SpuriousWakeRecorder> { ... }` — the `:work` collaborators the service injects.
 
 ### Integration state machine
 
@@ -299,7 +351,7 @@ Active    ──[tokens revoked]▶ Pending
 
 ### Battery optimization
 
-On launch, `PowerManager.isIgnoringBatteryOptimizations()` is checked. If false, a card on Home deep-links to the system dialog. Dismissal is remembered in `AppStatePreferences`. OEM-specific guidance (Samsung/Xiaomi/Huawei) lives in the same flow.
+`BatteryOptimization.isExempt()` wraps `PowerManager.isIgnoringBatteryOptimizations()`. When the device is not exempt *and* the active delivery transport needs wake-ups, `MainDashboardViewModel` surfaces a `BatteryOptimizationBanner` card on Home that deep-links to the system dialog; Settings carries the same action as a row. The banner is derived from live state on every emission — it has no dismissed flag persisted anywhere, and there is no OEM-specific (Samsung/Xiaomi/Huawei) guidance in the app.
 
 ### Security monitoring (Settings → Trust Status)
 
@@ -314,14 +366,30 @@ Persistence: `SecurityCheckPreferences` in `:work` (DataStore-backed).
 
 ### Settings (DataStore)
 
+Keys as they appear in the `*PreferencesKey` declarations, grouped by owning store.
+
+`AppStatePreferences` (`:app`):
+
 - `idle_timeout_minutes: Int` (default 5)
 - `idle_timeout_disabled: Boolean` (battery-opt-exempt only)
-- `post_session_notifications: String` (`summary` | `each_usage` | `suppress`)
-- `battery_optimization_dismissed: Boolean`
-- `notification_permission_denied: Boolean`
-- `last_self_check_time: Long` / `last_self_check_result: String`
-- `last_ct_check_time: Long` / `last_ct_check_result: String`
+- `quick_disconnect_seconds: Int` (default 30 — the non-substantive wake timeout)
+- `ignore_daily_time_limit: Boolean`
+- `security_check_interval_hours: Int`
+- `has_launched_before: Boolean`
+
+`DataStoreNotificationSettingsProvider` (`:app`):
+
+- `post_session_mode: String` (`summary` | `each_usage` | `suppress`)
+- `show_all_mcp_messages: Boolean`
+
+`SecurityCheckPreferences` (`:work`):
+
+- `last_check_time: Long`
+- `self_cert_result: String` / `ct_log_result: String`
 - `cert_fingerprint: String`
+- per-source `warning_streak_*`, `notified_for_streak_*`, `last_streak_increment_*`
+
+Also `ThemePreference` (`theme_mode`), `CertRenewalPreferences` (`last_attempt_time`, `last_outcome`), `SpuriousWakePreferences` (`total_wake_count`, `spurious_wake_count_total`, `spurious_wake_timestamps`), and per-integration keys under `IntegrationSettingsStore` / `DataStoreIntegrationStateStore`.
 
 ### Subdomain rotation
 
