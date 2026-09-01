@@ -82,10 +82,18 @@ import kotlinx.coroutines.withContext
  * about yet, which is the defect #618 existed to eliminate. `read` used to carry
  * the other policy -- an inline `when` **statement** over `result.status` with a
  * runtime `else` -- so the file taught both, and anyone extending it copied
- * whichever they happened to read first. #649 made it four out of four. Do not
- * add an `else` back: an inline `when` over `result.status` cannot be exhaustive
- * because the JDK hands it back as a platform type, so extract a classifier
- * taking a declared non-null `SSLEngineResult.Status`, as all four now do.
+ * whichever they happened to read first. #649 made it four out of four.
+ *
+ * What does the work is the **expression form**, not the extraction. A `when`
+ * statement is never required to be exhaustive, so `read`'s old `else` made a
+ * missing branch unreportable; a `when` expression is checked whatever its
+ * subject, `result.status` included -- the JDK's platform type is no obstacle,
+ * measured, not assumed. So if you inline one of these again, keep it an
+ * expression and keep the `else` off and it stays just as safe. The four named
+ * classifiers exist because four sites doing one thing under one naming pattern
+ * is easier to audit than four shapes, which is a legibility argument and not a
+ * safety one. Do not add an `else` back; that is the part that would cost
+ * something.
  */
 class TlsAcceptor(private val sslContext: SSLContext) {
     /**
@@ -720,13 +728,19 @@ private class SuspendTlsSession(
      *    and never [TunnelError.UnhandledTlsState].
      *
      * Extracted from an inline `when` **statement** in [read] that carried a
-     * runtime `else` throwing [TunnelError.UnhandledTlsState]. That `else`
-     * existed because `result.status` arrives as a platform type, so an inline
-     * `when` over it cannot be exhaustive -- a classifier whose parameter is
-     * declared non-null can be, which is how the other three sites already did
-     * it. Nothing could reach the `else` (all four members were handled above
-     * it), so no behaviour changed; what changed is that a fifth enum member is
-     * now a compile error here too instead of a runtime branch. See #618, #649.
+     * runtime `else` throwing [TunnelError.UnhandledTlsState]. Nothing could
+     * reach that `else` (all four members were handled above it), so no
+     * behaviour changed; what changed is that a fifth enum member is now a
+     * compile error here instead of a runtime branch.
+     *
+     * The compile error comes from using the `when` as an **expression** with no
+     * `else` -- a `when` statement, which is what [read] had, is never required
+     * to be exhaustive. It does **not** come from the extraction: an inline
+     * `when` expression over `result.status` with these same four branches and
+     * no `else` compiles and is checked identically, platform type
+     * notwithstanding. Verified by building it both ways rather than reasoned
+     * about. The classifier earns its place by matching the other three sites,
+     * not by buying safety they would otherwise lack. See #618, #649.
      *
      * This is row 3 of the `CLOSED` table on [TlsAcceptor].
      */
