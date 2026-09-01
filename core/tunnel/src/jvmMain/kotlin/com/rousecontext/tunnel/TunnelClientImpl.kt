@@ -399,6 +399,13 @@ class TunnelClientImpl(
             if (muxDemux !== demux) return
             val alive = try {
                 demux.sendPingAwaitPong(timeoutMillis = keepaliveTimeoutMillis)
+            } catch (e: CancellationException) {
+                // MUST stay above the broad catch (issue #646). Counting a
+                // cancelled Ping as a miss lets an ordinary teardown accumulate
+                // into a synthesised ConnectionFailed("Keepalive Pings missed
+                // N times"). Only reachable because MuxDemux.sendPingAwaitPong
+                // now propagates instead of returning false.
+                throw e
             } catch (_: Exception) {
                 false
             }
@@ -426,10 +433,22 @@ class TunnelClientImpl(
         }
     }
 
+    /**
+     * A cancelled health check propagates rather than reporting a dead tunnel
+     * (issue #646). `WakeReconnectDecider` reacts to `false` by calling
+     * `disconnect()` and `connect()` -- work performed after cancellation --
+     * and the cancellation rethrow #650 added there could not fire while this
+     * frame (and `MuxDemux.sendPingAwaitPong` below it) swallowed cancellation
+     * into `false` first.
+     */
     override suspend fun healthCheck(timeout: Duration): Boolean {
         val demux = muxDemux ?: return false
         return try {
             demux.sendPingAwaitPong(timeoutMillis = timeout.inWholeMilliseconds)
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch: CancellationException is an
+            // Exception on the JVM.
+            throw e
         } catch (_: Exception) {
             false
         }

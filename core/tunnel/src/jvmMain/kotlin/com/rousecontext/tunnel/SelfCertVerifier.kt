@@ -1,6 +1,7 @@
 package com.rousecontext.tunnel
 
 import java.security.MessageDigest
+import kotlinx.coroutines.CancellationException
 
 /**
  * Verifies that a presented certificate matches the fingerprints
@@ -30,6 +31,15 @@ import java.security.MessageDigest
  * and we MUST Alert rather than silently re-trusting whatever cert is
  * presented. The backfill is therefore a strictly one-time-per-install
  * migration, not a permanent self-heal.
+ *
+ * Cancellation (issue #646): every store call below is `suspend`, and each of
+ * the three broad catches rethrows cancellation ahead of itself. A cancelled
+ * verify is a check that never ran, not a degraded one, so it must not surface
+ * a [SecurityCheckResult.Warning]. The backfill catch matters most: the
+ * fingerprint write and the marker write are deliberately ordered so a failed
+ * fingerprint write cannot claim bootstrap completed, and swallowing a
+ * cancellation between them would report exactly the half-written state that
+ * ordering exists to prevent.
  */
 class SelfCertVerifier(private val certificateStore: CertificateStore) {
 
@@ -45,6 +55,10 @@ class SelfCertVerifier(private val certificateStore: CertificateStore) {
         val knownFingerprints: Set<String>
         try {
             knownFingerprints = certificateStore.getKnownFingerprints()
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch: CancellationException is an
+            // Exception on the JVM.
+            throw e
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
                 "Could not retrieve known fingerprints: ${e.message}"
@@ -70,6 +84,8 @@ class SelfCertVerifier(private val certificateStore: CertificateStore) {
     private suspend fun handleEmptyFingerprints(leafFingerprint: String): SecurityCheckResult {
         val markerPresent = try {
             certificateStore.hasFingerprintBootstrapMarker()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
                 "Could not check fingerprint bootstrap marker: ${e.message}"
@@ -95,6 +111,8 @@ class SelfCertVerifier(private val certificateStore: CertificateStore) {
         // surface the corruption path (empty set + marker present) incorrectly.
         certificateStore.writeFingerprintBootstrapMarker()
         SecurityCheckResult.Verified
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         SecurityCheckResult.Warning(
             "Could not backfill missing fingerprint: ${e.message}"

@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -22,6 +23,12 @@ interface CtLogFetcher {
  *
  * Network errors or malformed responses produce [SecurityCheckResult.Warning]
  * since the check cannot be completed.
+ *
+ * A **cancelled** check is not a degraded one and must not produce a Warning:
+ * the check was never run, so there is nothing to report. Both suspend calls
+ * below rethrow cancellation ahead of their broad catch (issue #646). The layer
+ * directly beneath already does this -- see [CompositeCtLogFetcher] -- and
+ * swallowing it one frame up would defeat that entirely.
  */
 class CtLogMonitor(
     private val certificateStore: CertificateStore,
@@ -39,6 +46,11 @@ class CtLogMonitor(
     suspend fun check(): SecurityCheckResult {
         val subdomain = try {
             certificateStore.getSubdomain()
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch: CancellationException is an
+            // Exception on the JVM, so catching Exception alone would refile a
+            // scope teardown as a user-facing security warning.
+            throw e
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
                 "Could not retrieve subdomain: ${e.message}"
@@ -56,6 +68,10 @@ class CtLogMonitor(
         val responseBody: String
         try {
             responseBody = ctLogFetcher.fetch(domain)
+        } catch (e: CancellationException) {
+            // As above. CompositeCtLogFetcher rethrows cancellation from both
+            // of its own catches; this is the frame that used to swallow it.
+            throw e
         } catch (e: Exception) {
             return SecurityCheckResult.Warning(
                 "Could not reach CT log service: ${e.message}"
@@ -66,6 +82,9 @@ class CtLogMonitor(
         try {
             entries = json.decodeFromString<List<CtLogEntry>>(responseBody)
         } catch (e: Exception) {
+            // No cancellation rethrow here on purpose: `decodeFromString` is not
+            // a suspend function, so no coroutine cancellation can reach this
+            // clause. A guard here would be dead code (issue #646).
             return SecurityCheckResult.Warning(
                 "Malformed CT log response: ${e.message}"
             )

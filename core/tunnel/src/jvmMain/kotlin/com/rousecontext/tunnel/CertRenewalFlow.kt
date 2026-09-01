@@ -100,6 +100,8 @@ class CertRenewalFlow(
         if (certInspector.inspect(currentCert).isExpired) return RenewalResult.CertExpired
 
         val csrResult = try {
+            // No cancellation rethrow (issue #646): both calls are declared
+            // non-suspend on their interfaces, so no cancellation can reach here.
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
             csrGenerator.generate("*.$subdomain.$baseDomain", keyPair)
         } catch (e: Exception) {
@@ -154,6 +156,8 @@ class CertRenewalFlow(
         val currentCert = certificateStore.getCertificate()
 
         val csrResult = try {
+            // No cancellation rethrow (issue #646): both calls are declared
+            // non-suspend on their interfaces, so no cancellation can reach here.
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
             csrGenerator.generate("*.$subdomain.$baseDomain", keyPair)
         } catch (e: Exception) {
@@ -195,6 +199,8 @@ class CertRenewalFlow(
         val currentCert = certificateStore.getCertificate()
 
         val csrResult = try {
+            // No cancellation rethrow (issue #646): both calls are declared
+            // non-suspend on their interfaces, so no cancellation can reach here.
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
             csrGenerator.generate("*.$subdomain.$baseDomain", keyPair)
         } catch (e: Exception) {

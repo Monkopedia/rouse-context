@@ -10,6 +10,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -279,6 +280,13 @@ class RelayApiClient(
                 val body = try {
                     response.bodyAsText()
                 } catch (_: Exception) {
+                    // No cancellation rethrow (issue #646): Ktor's SaveBody
+                    // plugin drains the response inside `block()` above, so by
+                    // the time this runs it reads an in-memory buffer with no
+                    // cancellable suspension point, and a body that genuinely
+                    // fails mid-read surfaces from `block()` instead. Measured
+                    // by RelayApiClientCancellationTest; a guard here would be
+                    // dead code.
                     ""
                 }
                 RelayApiResult.Error(
@@ -287,6 +295,13 @@ class RelayApiClient(
                 )
             }
         }
+    } catch (e: CancellationException) {
+        // MUST stay above the broad catch (issue #646): CancellationException
+        // is an Exception on the JVM, and a returned NetworkError reaches
+        // OnboardingFlow, which folds it into a terminal OnboardingResult with
+        // no suspension point in between -- so a cancelled onboarding would
+        // hand the UI a "registration failed" outcome instead of unwinding.
+        throw e
     } catch (e: Exception) {
         RelayApiResult.NetworkError(cause = e)
     }
