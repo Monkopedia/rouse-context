@@ -75,6 +75,11 @@
 # removing that install step fail loudly instead of silently handing the gate
 # back to whatever the runner image happens to ship.
 #
+# Not a theoretical gap: measured on the runner at the time this landed, the
+# `ubuntu-latest` image ships shellcheck 0.9.0 -- two feature releases behind
+# the 0.11.0 every finding count above was measured with. "The runner has
+# shellcheck" is true and not sufficient.
+#
 # Usage: check-shell-lint.sh [repo-root]
 
 set -euo pipefail
