@@ -11,6 +11,7 @@ import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLEngineResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -25,6 +26,66 @@ import kotlinx.coroutines.withContext
  * After the handshake completes, plaintext bytes flow through the returned [TlsSession]
  * via suspend-native read/write calls -- no Java [java.io.InputStream]/[java.io.OutputStream]
  * is exposed, so no `runBlocking` bridge is required.
+ *
+ * ## How `CLOSED` is classified, in all four places
+ *
+ * `SSLEngineResult.Status.CLOSED` is reported to this file from four sites, and
+ * they do not all mean the same thing. Two of the distinctions are load-bearing
+ * and are kept; the third was an accident of two PRs classifying the same event
+ * a day apart, and #649 collapsed it.
+ *
+ * | phase     | direction | outcome                                       |
+ * |-----------|-----------|-----------------------------------------------|
+ * | handshake | unwrap    | [TunnelError.TlsHandshakeFailed]              |
+ * | handshake | wrap      | [TunnelError.TlsHandshakeFailed]              |
+ * | data      | unwrap    | end of stream -- [TlsSession.read] returns -1 |
+ * | data      | wrap      | end of stream -- throws [TlsStreamClosed]     |
+ *
+ * **Handshake versus data phase is load-bearing** (#618, #643). A `close_notify`
+ * before the handshake finishes means no session was ever established, so
+ * `accept` must fail rather than return one: a session over an already-closed
+ * engine degrades to a clean EOF on its first `read` and is indistinguishable
+ * from a good one, which is how #558 survived four filings. After the handshake
+ * the very same record is the ordinary end of a working session. Do not flatten
+ * these two rows together.
+ *
+ * **Peer behaviour versus our own defect is load-bearing** (#616, #630).
+ * `CLOSED` is never [TunnelError.UnhandledTlsState] at any of the four sites.
+ * That type exists so `SessionHandler` can stay quiet about disconnects while
+ * still surfacing defects in this layer, and filing routine peer behaviour
+ * under it trains whoever reads those reports to ignore the type.
+ *
+ * **Read versus write inside the data phase is NOT load-bearing.** It is one
+ * event -- the connection is closed, so the session ends, quietly -- and the two
+ * rows differ only because `read` returns an `Int` and can say "-1" while
+ * `write` returns `Unit` and has nothing to say it with except a throw. They are
+ * two spellings of one decision; see [TlsStreamClosed]. Until #649 they were two
+ * independent decisions that happened to agree, and only because
+ * `SessionHandler`'s broad `catch (_: Exception)` swallowed the throw into the
+ * same silence as the `-1` -- so the type at the throw site was effectively
+ * chosen by what the consumer did with it, and nothing tested the coupling.
+ * `DataPhaseCloseNotifyTest` pins it now, in both directions at once.
+ *
+ * ## Residual policy: one, and it is compile-time
+ *
+ * Every `SSLEngineResult.Status` in this file is classified by a `when` used as
+ * an **expression**, over a parameter declared non-null, with **no `else`**:
+ *
+ *  - [classifyHandshakeUnwrapStatus]
+ *  - [classifyHandshakeWrapStatus]
+ *  - `SuspendTlsSession.classifyDataUnwrapStatus`
+ *  - `SuspendTlsSession.classifyWrapStatus`
+ *
+ * Should a future JDK add a fifth member, each of these stops compiling. That is
+ * #618's acceptance criterion, and the reason there is no runtime `else`
+ * anywhere: a runtime `else` silently no-ops on a member nobody has thought
+ * about yet, which is the defect #618 existed to eliminate. `read` used to carry
+ * the other policy -- an inline `when` **statement** over `result.status` with a
+ * runtime `else` -- so the file taught both, and anyone extending it copied
+ * whichever they happened to read first. #649 made it four out of four. Do not
+ * add an `else` back: an inline `when` over `result.status` cannot be exhaustive
+ * because the JDK hands it back as a platform type, so extract a classifier
+ * taking a declared non-null `SSLEngineResult.Status`, as all four now do.
  */
 class TlsAcceptor(private val sslContext: SSLContext) {
     /**
@@ -37,13 +98,20 @@ class TlsAcceptor(private val sslContext: SSLContext) {
         /**
          * Reads plaintext bytes into [buf] starting at [off] for up to [len] bytes.
          *
-         * @return number of bytes read, or -1 on EOF
-         * @throws TunnelError.UnhandledTlsState if the engine reports a status this
-         *   layer does not know how to handle. That is a defect, not end-of-stream,
-         *   and reporting it as EOF is how such defects stayed invisible (#565).
-         *   It carries its own type precisely so callers can let it through while
-         *   still swallowing the `IOException`s an ordinary peer disconnect
-         *   produces (#616).
+         * @return number of bytes read, or -1 on EOF -- including the ordinary
+         *   `close_notify` that ends a working session, which is deliberately
+         *   quiet. [write] spells that same event [TlsStreamClosed]; see the
+         *   `CLOSED` table on [TlsAcceptor] for why the two differ in form only.
+         * @throws TunnelError.UnhandledTlsState if an implementation reaches a
+         *   state it does not know how to handle. That is a defect, not
+         *   end-of-stream, and reporting it as EOF is how such defects stayed
+         *   invisible (#565). It carries its own type precisely so callers can
+         *   let it through while still swallowing the `IOException`s an ordinary
+         *   peer disconnect produces (#616). The shipped implementation
+         *   classifies every `unwrap` status through an exhaustive `when`
+         *   expression, so its residual is empty at compile time rather than
+         *   guarded at run time (#649); the contract stays, because it is what
+         *   `SessionHandler.copyTlsToStream` honours.
          */
         suspend fun read(buf: ByteArray, off: Int = 0, len: Int = buf.size - off): Int
 
@@ -57,12 +125,18 @@ class TlsAcceptor(private val sslContext: SSLContext) {
          *   loops swallow, so a defect needs its own type or it ends the session
          *   as a clean EOF and is never heard (#630).
          * @throws java.io.IOException if the peer went away -- routine, and
-         *   deliberately quiet.
+         *   deliberately quiet. [TlsStreamClosed] is the subtype used when the
+         *   engine itself reports `CLOSED`: the write-side spelling of [read]'s
+         *   `-1`, and quiet for the same reason. See the `CLOSED` table on
+         *   [TlsAcceptor].
          */
         suspend fun write(buf: ByteArray, off: Int = 0, len: Int = buf.size - off)
 
         /**
          * Closes the TLS session and the underlying mux stream.
+         *
+         * Cleanup: it runs to completion even when the caller is already being
+         * cancelled, and it does not consume that cancellation. See #649.
          */
         suspend fun close()
     }
@@ -238,7 +312,10 @@ class TlsAcceptor(private val sslContext: SSLContext) {
      *
      * There is deliberately no `else`: the `when` is used as an expression, so
      * it must stay exhaustive. Should a future JDK add a fifth member, this
-     * stops compiling instead of silently doing nothing with it.
+     * stops compiling instead of silently doing nothing with it. That is the
+     * file-wide policy -- see "Residual policy" on [TlsAcceptor].
+     *
+     * This is row 1 of the `CLOSED` table on [TlsAcceptor].
      */
     private fun classifyHandshakeUnwrapStatus(
         status: SSLEngineResult.Status
@@ -281,7 +358,10 @@ class TlsAcceptor(private val sslContext: SSLContext) {
      * mid-handshake -- the same "not our defect, but still not a completed
      * handshake" case as on the unwrap side, and classified identically.
      *
-     * No `else`, for the same reason as above: the `when` is an expression.
+     * No `else`, for the same reason as above: the `when` is an expression. See
+     * "Residual policy" on [TlsAcceptor].
+     *
+     * This is row 2 of the `CLOSED` table on [TlsAcceptor].
      */
     private fun classifyHandshakeWrapStatus(status: SSLEngineResult.Status) {
         val defect = when (status) {
@@ -429,6 +509,49 @@ private enum class HandshakeUnwrapAction {
     GROW_APP_BUFFER
 }
 
+/**
+ * What [SuspendTlsSession.read] must do next after an `unwrap`, once its
+ * `SSLEngineResult.Status` has been classified.
+ *
+ * Unlike [HandshakeUnwrapAction] this enum has a member for every status: no
+ * data-phase unwrap status is fatal. `CLOSED` in particular is the ordinary end
+ * of a working session rather than a failure -- see the `CLOSED` table on
+ * [TlsAcceptor].
+ */
+private enum class DataUnwrapAction {
+    /** A record was consumed: hand back whatever plaintext it produced. */
+    TAKE_PLAINTEXT,
+
+    /** The peer sent `close_notify`: end of stream, quietly. */
+    END_OF_STREAM,
+
+    /** `netIn` holds a partial record: pull one more mux DATA frame. */
+    PULL_MORE_NET_DATA,
+
+    /** `appIn` was too small for the record's plaintext: grow it and retry. */
+    GROW_APP_BUFFER
+}
+
+/**
+ * The data phase ended because the TLS connection is closed.
+ *
+ * This is [TlsAcceptor.TlsSession.write]'s spelling of the `-1` that
+ * [TlsAcceptor.TlsSession.read] returns for the same event: `read` returns an
+ * `Int` and can say "end of stream" in the return value, `write` returns `Unit`
+ * and has to throw. One decision, two forms -- see the `CLOSED` table on
+ * [TlsAcceptor].
+ *
+ * A [java.io.IOException] on purpose, and not [TunnelError.UnhandledTlsState]:
+ * a peer hanging up is routine on a bridge, and the copy loops in
+ * `SessionHandler` swallow ordinary `IOException`s precisely so that routine
+ * disconnects stay quiet (#616, #630). The subtype exists so the intent is
+ * legible at the throw site rather than inferred from what the consumer happens
+ * to do with it -- which is how the read and write sides drifted apart in the
+ * first place (#649). Callers are expected to keep catching `IOException`;
+ * nothing needs to catch this type by name.
+ */
+internal class TlsStreamClosed(message: String) : java.io.IOException(message)
+
 private fun ensureCapacity(buffer: java.nio.ByteBuffer, additionalBytes: Int): java.nio.ByteBuffer {
     if (buffer.remaining() >= additionalBytes) return buffer
     val newBuffer = java.nio.ByteBuffer.allocate(buffer.position() + additionalBytes)
@@ -538,47 +661,82 @@ private class SuspendTlsSession(
             netIn.compact()
             runTasksIfRequested(result)
 
-            when (result.status) {
-                SSLEngineResult.Status.OK -> {
+            // Both `when`s here are expressions with no `else`, matching the
+            // other three classifiers: the residual is empty by construction
+            // rather than guarded at run time. See "Residual policy" on
+            // TlsAcceptor. A null means "no plaintext yet, go round again".
+            val plaintext: Int? = when (classifyDataUnwrapStatus(result.status)) {
+                DataUnwrapAction.TAKE_PLAINTEXT -> {
                     appIn.flip()
                     if (appIn.hasRemaining()) {
-                        return@withLock takeFromAppIn(buf, off, len)
+                        takeFromAppIn(buf, off, len)
+                    } else {
+                        appIn.clear()
+                        null // a record that decoded to nothing; may need more data
                     }
-                    appIn.clear()
-                    // May need more data, loop
                 }
-                SSLEngineResult.Status.CLOSED -> {
+                DataUnwrapAction.END_OF_STREAM -> {
                     eof = true
-                    return@withLock -1
+                    -1
                 }
-                SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+                DataUnwrapAction.PULL_MORE_NET_DATA -> {
                     // netIn holds only a partial record: force a stream read on
                     // the next iteration instead of re-unwrapping the same bytes.
                     needMoreNetData = true
                     appIn.clear()
+                    null
                 }
-                SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+                DataUnwrapAction.GROW_APP_BUFFER -> {
                     // Grow the app buffer and retry unwrap immediately
-                    // (netIn still has the data that caused overflow)
+                    // (netIn still has the data that caused overflow).
                     appIn = growBuffer(appIn)
-                    continue
-                }
-                // An unknown unwrap status is a bug, not end-of-stream. Returning
-                // -1 reported a clean EOF for it and hid the defect. See #565.
-                // The type is TunnelError.UnhandledTlsState rather than a plain
-                // IOException because the only caller has to swallow ordinary
-                // disconnect IOExceptions and must still let THIS one out. See #616.
-                else -> {
-                    eof = true
-                    throw TunnelError.UnhandledTlsState(
-                        "Unhandled TLS unwrap status: ${result.status}"
-                    )
+                    null
                 }
             }
+            if (plaintext != null) return@withLock plaintext
         }
         @Suppress("UNREACHABLE_CODE")
         -1
     }
+
+    /**
+     * Decide what an `unwrap` status means *during the data phase*.
+     *
+     * Its handshake-phase twin is [TlsAcceptor.classifyHandshakeUnwrapStatus],
+     * and the two agree on the two buffer statuses (both ordinary, both
+     * recoverable -- see #558 and #565) and disagree on `CLOSED`, which is the
+     * load-bearing handshake/data-phase split: see the `CLOSED` table on
+     * [TlsAcceptor].
+     *
+     *  - `OK` -- a record was consumed; hand back whatever plaintext came out.
+     *  - `BUFFER_UNDERFLOW` -- `netIn` holds only part of a TLS record; pull one
+     *    more mux DATA frame rather than re-unwrapping the same bytes, which is
+     *    #558's 100%-CPU spin.
+     *  - `BUFFER_OVERFLOW` -- `appIn` could not hold the record's plaintext. Its
+     *    size comes from `applicationBufferSize`, a hint rather than a bound, so
+     *    growing and retrying is real recovery.
+     *  - `CLOSED` -- the peer sent `close_notify` on an established session.
+     *    That is the ordinary end of a working session: end of stream, quiet,
+     *    and never [TunnelError.UnhandledTlsState].
+     *
+     * Extracted from an inline `when` **statement** in [read] that carried a
+     * runtime `else` throwing [TunnelError.UnhandledTlsState]. That `else`
+     * existed because `result.status` arrives as a platform type, so an inline
+     * `when` over it cannot be exhaustive -- a classifier whose parameter is
+     * declared non-null can be, which is how the other three sites already did
+     * it. Nothing could reach the `else` (all four members were handled above
+     * it), so no behaviour changed; what changed is that a fifth enum member is
+     * now a compile error here too instead of a runtime branch. See #618, #649.
+     *
+     * This is row 3 of the `CLOSED` table on [TlsAcceptor].
+     */
+    private fun classifyDataUnwrapStatus(status: SSLEngineResult.Status): DataUnwrapAction =
+        when (status) {
+            SSLEngineResult.Status.OK -> DataUnwrapAction.TAKE_PLAINTEXT
+            SSLEngineResult.Status.CLOSED -> DataUnwrapAction.END_OF_STREAM
+            SSLEngineResult.Status.BUFFER_UNDERFLOW -> DataUnwrapAction.PULL_MORE_NET_DATA
+            SSLEngineResult.Status.BUFFER_OVERFLOW -> DataUnwrapAction.GROW_APP_BUFFER
+        }
 
     /**
      * Make sure [netIn] holds bytes worth unwrapping, pulling one more mux DATA
@@ -654,10 +812,14 @@ private class SuspendTlsSession(
      * kinds of non-OK outcome must NOT share an exception type:
      *
      *  - `CLOSED` is the peer hanging up mid-response. Routine on a bridge. It
-     *    ends the copy loop quietly, as a plain [java.io.IOException] -- the same
-     *    thing a dead transport a few lines above reports, and the same thing
-     *    `SessionHandler.copyStreamToTls` deliberately swallows. Making routine
-     *    disconnects noisy trains whoever reads the log to ignore it.
+     *    ends the copy loop quietly, as a [TlsStreamClosed] -- an
+     *    [java.io.IOException], like the dead transport a few lines above
+     *    reports, and so swallowed by the same broad catch in
+     *    `SessionHandler.copyStreamToTls`. Making routine disconnects noisy
+     *    trains whoever reads the log to ignore it. It is the write-side
+     *    spelling of the `-1` [read] returns for exactly this event, and #649
+     *    made that a single decision rather than two that happened to agree;
+     *    see the `CLOSED` table on [TlsAcceptor].
      *  - `BUFFER_OVERFLOW` and `BUFFER_UNDERFLOW` are defects in THIS layer, and
      *    a plain `IOException` cannot say so: the loop that catches it has to
      *    keep swallowing disconnect `IOException`s, so a defect wearing that type
@@ -679,13 +841,16 @@ private class SuspendTlsSession(
      *
      * There is deliberately no `else`: the `when` is used as an expression, so it
      * must stay exhaustive. Should a future JDK add a fifth member, this stops
-     * compiling instead of silently classifying it as success.
+     * compiling instead of silently classifying it as success. See "Residual
+     * policy" on [TlsAcceptor].
+     *
+     * This is row 4 of the `CLOSED` table on [TlsAcceptor].
      */
     private fun classifyWrapStatus(status: SSLEngineResult.Status) {
         val defect = when (status) {
             SSLEngineResult.Status.OK -> return
             SSLEngineResult.Status.CLOSED ->
-                throw java.io.IOException("TLS wrap failed: connection closed")
+                throw TlsStreamClosed("TLS write ended: connection closed (wrap status CLOSED)")
             SSLEngineResult.Status.BUFFER_OVERFLOW,
             SSLEngineResult.Status.BUFFER_UNDERFLOW -> status
         }
@@ -694,10 +859,24 @@ private class SuspendTlsSession(
 
     override suspend fun close() {
         eof = true
-        try {
-            stream.close()
-        } catch (_: Exception) {
-            // Best effort
+        // Cleanup that must complete regardless of cancellation -- the same
+        // intent, and now the same idiom, as `SessionHandler.bridgeToMcpServer`'s
+        // socket close, which is what .claude/rules/coroutines.md prescribes.
+        //
+        // A bare `try { stream.close() } catch (_: Exception)` was not
+        // equivalent: `MuxStream.close` is a suspend function that sends a CLOSE
+        // frame, so on a cancelled caller it threw CancellationException at its
+        // first suspension point, the broad catch ate it, and the close never
+        // happened AND the cancellation was lost. NonCancellable finishes the
+        // close and leaves the cancellation intact for the caller. #647 removed
+        // the same swallow from `accept`; leaving it here was the inconsistency
+        // most likely to get copied. See #649.
+        withContext(NonCancellable) {
+            try {
+                stream.close()
+            } catch (_: Exception) {
+                // Best effort: a transport already gone is nothing to report.
+            }
         }
     }
 }
