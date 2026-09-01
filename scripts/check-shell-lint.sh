@@ -77,8 +77,11 @@
 #
 # Not a theoretical gap: measured on the runner at the time this landed, the
 # `ubuntu-latest` image ships shellcheck 0.9.0 -- two feature releases behind
-# the 0.11.0 every finding count above was measured with. "The runner has
-# shellcheck" is true and not sufficient.
+# the 0.11.0 every finding count above was measured with. "The runner already
+# has it" is true and not sufficient. (And note the line break: a comment line
+# that STARTS with the word after `# ` being `shellcheck` is parsed as a
+# directive and fails the file with SC1072/SC1073. This header tripped that
+# twice while being written; the gate caught it both times.)
 #
 # Usage: check-shell-lint.sh [repo-root]
 
