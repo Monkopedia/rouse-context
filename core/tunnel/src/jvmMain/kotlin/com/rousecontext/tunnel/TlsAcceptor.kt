@@ -84,16 +84,34 @@ import kotlinx.coroutines.withContext
  * runtime `else` -- so the file taught both, and anyone extending it copied
  * whichever they happened to read first. #649 made it four out of four.
  *
- * What does the work is the **expression form**, not the extraction. A `when`
- * statement is never required to be exhaustive, so `read`'s old `else` made a
- * missing branch unreportable; a `when` expression is checked whatever its
- * subject, `result.status` included -- the JDK's platform type is no obstacle,
- * measured, not assumed. So if you inline one of these again, keep it an
- * expression and keep the `else` off and it stays just as safe. The four named
- * classifiers exist because four sites doing one thing under one naming pattern
- * is easier to audit than four shapes, which is a legibility argument and not a
- * safety one. Do not add an `else` back; that is the part that would cost
- * something.
+ * **The mechanism is the `else`, and nothing else is load-bearing.** On the
+ * Kotlin this module pins (2.2.21) a `when` over an enum is checked for
+ * exhaustiveness as a **statement** exactly as it is as an **expression**, and
+ * over `result.status`'s platform type exactly as over a declared non-null
+ * `SSLEngineResult.Status`. Vary any of those and the check still fires; add an
+ * `else` and it stops firing, silently -- not even a warning. So `read`'s dead
+ * `else` is the whole reason its missing residual went unreported for five PRs,
+ * and removing it is the whole fix.
+ *
+ * Measured, holding everything else constant and varying only the `else`:
+ *
+ * ```
+ * statement,  platform subject, 3 of 4 branches, no else -> ERROR, names CLOSED
+ * statement,  platform subject, 3 of 4 branches, + else  -> compiles, silent
+ * expression, platform subject, 3 of 4 branches, no else -> ERROR, names CLOSED
+ * expression, platform subject, 3 of 4 branches, + else  -> compiles, silent
+ * expression, declared non-null, 3 of 4 branches, + else -> compiles, silent
+ * ```
+ *
+ * Two earlier attempts at this paragraph named the wrong mechanism -- first the
+ * platform type, then statement-versus-expression -- each printed beside real
+ * compiler output that only ever confirmed the *outcome*. If you edit this,
+ * build the counterfactual for the reason, not just for the result.
+ *
+ * So: **do not add an `else` back.** That is the only precaution here; form and
+ * subject type are free. The four named classifiers exist because four sites in
+ * one shape under one naming pattern are easier to audit than four shapes --
+ * legibility, not safety.
  */
 class TlsAcceptor(private val sslContext: SSLContext) {
     /**
@@ -733,14 +751,15 @@ private class SuspendTlsSession(
      * behaviour changed; what changed is that a fifth enum member is now a
      * compile error here instead of a runtime branch.
      *
-     * The compile error comes from using the `when` as an **expression** with no
-     * `else` -- a `when` statement, which is what [read] had, is never required
-     * to be exhaustive. It does **not** come from the extraction: an inline
-     * `when` expression over `result.status` with these same four branches and
-     * no `else` compiles and is checked identically, platform type
-     * notwithstanding. Verified by building it both ways rather than reasoned
-     * about. The classifier earns its place by matching the other three sites,
-     * not by buying safety they would otherwise lack. See #618, #649.
+     * The compile error comes from **dropping the `else`**, and from nothing
+     * else. It does not come from the extraction, and it does not come from the
+     * expression form: an inline `when` over `result.status` -- statement or
+     * expression -- is checked identically, and an `else` suppresses the check
+     * in every one of those shapes without a warning. Verified by building the
+     * variants, not reasoned about; the matrix is on [TlsAcceptor] under
+     * "Residual policy". The classifier earns its place by matching the other
+     * three sites, not by buying safety they would otherwise lack.
+     * See #618, #649.
      *
      * This is row 3 of the `CLOSED` table on [TlsAcceptor].
      */
