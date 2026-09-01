@@ -1,7 +1,10 @@
 package com.rousecontext.tunnel
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -155,6 +158,19 @@ class MuxDemux(private val log: (LogLevel, String) -> Unit = { _, _ -> }) {
      *
      * The optional [nonce] exists for tests; production code should leave it
      * unset so a fresh random nonce is generated.
+     *
+     * The **caller's** cancellation propagates rather than reading as a missed
+     * Pong (issue #646). This is the lowest frame in the keepalive stack, so it
+     * is the one that has to get this right: the guards above it in
+     * `TunnelClientImpl.runKeepaliveLoop` / `healthCheck`, and the one #650
+     * added in `WakeReconnectDecider`, are all unreachable while this frame
+     * converts cancellation into `false`.
+     *
+     * Not every `CancellationException` here is the caller's, which is why the
+     * catch below tests the job rather than the exception type. [closeAllQuietly]
+     * *cancels* each pending ping waiter when the transport dies (issue #230),
+     * and that must still surface as a failed health check -- a dead relay is
+     * not a cancelled caller. `ensureActive` is what separates the two.
      */
     suspend fun sendPingAwaitPong(timeoutMillis: Long, nonce: ULong = randomNonce()): Boolean {
         val send = onOutgoingFrame ?: return false
@@ -163,6 +179,16 @@ class MuxDemux(private val log: (LogLevel, String) -> Unit = { _, _ -> }) {
         return try {
             send(MuxFrame.Ping(nonce))
             withTimeoutOrNull(timeoutMillis) { waiter.await() } != null
+        } catch (_: CancellationException) {
+            // MUST stay above the broad catch: CancellationException is an
+            // Exception on the JVM, so catching Exception alone turned a scope
+            // teardown into a missed Pong (#646). But `closeAllQuietly` cancels
+            // the waiter on a dead transport (#230), which must still read as a
+            // missed Pong -- so propagate only when it is *this* coroutine that
+            // was cancelled. `withTimeoutOrNull` handles its own timeout by
+            // returning null, so it never lands here.
+            currentCoroutineContext().ensureActive()
+            false
         } catch (_: Exception) {
             false
         } finally {

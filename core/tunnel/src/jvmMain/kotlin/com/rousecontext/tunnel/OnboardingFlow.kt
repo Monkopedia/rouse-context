@@ -1,5 +1,7 @@
 package com.rousecontext.tunnel
 
+import kotlinx.coroutines.CancellationException
+
 /**
  * Orchestrates first-run device onboarding: registers the device with the relay
  * to get a subdomain assignment, then provisions the ACME server + relay CA
@@ -114,6 +116,13 @@ class OnboardingFlow(
                 certificateStore.storeIntegrationSecrets(registerData.secrets)
             }
             RegisterOutcome.Success(registerData.subdomain)
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch (issue #646). A cancelled write is
+            // not a failed write, and the rollback below is real destructive
+            // work performed after cancellation: `clear()` drops the subdomain
+            // the relay has already assigned, leaving the device registered
+            // upstream and blank locally.
+            throw e
         } catch (e: Exception) {
             certificateStore.clear()
             RegisterOutcome.Failure(OnboardingResult.StorageFailed(e))

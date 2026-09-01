@@ -1,5 +1,6 @@
 package com.rousecontext.tunnel
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -71,6 +72,11 @@ class CertProvisioningFlow(
         // Obtain (or generate) the hardware-backed device keypair and build the CSR.
         val fqdn = "*.$subdomain.$baseDomain"
         val csrResult = try {
+            // No cancellation rethrow here on purpose (issue #646):
+            // `DeviceKeyManager.getOrCreateKeyPair` and `CsrGenerator.generate`
+            // are both declared non-suspend on their interfaces, so no
+            // implementation can suspend and no coroutine cancellation can
+            // reach this clause. A guard here would be dead code.
             val keyPair = deviceKeyManager.getOrCreateKeyPair()
             csrGenerator.generate(fqdn, keyPair)
         } catch (e: Exception) {
@@ -94,6 +100,11 @@ class CertProvisioningFlow(
                     certificateStore.storeClientCertificate(certResponse.data.clientCert)
                     certificateStore.storeRelayCaCert(certResponse.data.relayCaCert)
                     CertProvisioningResult.Success
+                } catch (e: CancellationException) {
+                    // MUST stay above the broad catch (issue #646): a cancelled
+                    // write is not a failed write, and the rollback below is
+                    // destructive work performed after cancellation.
+                    throw e
                 } catch (e: Exception) {
                     // Narrow rollback: only clear cert-related state. The onboarding
                     // state (subdomain, integration secrets) is set earlier by
