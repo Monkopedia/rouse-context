@@ -18,6 +18,35 @@ jobs:
       - name: Debounce
         run: sleep 60
       - uses: actions/checkout@v4
+      # shellcheck is INSTALLED at a pinned version rather than taken from the
+      # runner image. The runner does ship one (this step prints which, so the
+      # claim stays checkable), but `ubuntu-latest` is a moving alias that rolls
+      # to a new image on GitHub's schedule, not ours -- and a shellcheck
+      # release that DROPS or relaxes a check would weaken the gate below with
+      # no signal at all. The checksum makes it a pin and not just a download.
+      #
+      # Bump in lockstep with EXPECTED_SHELLCHECK_VERSION in
+      # scripts/check-shell-lint.sh, which asserts the two agree; that assertion
+      # is what makes deleting this step fail loudly instead of quietly handing
+      # the gate back to whatever the image happens to carry.
+      - name: Install shellcheck (pinned)
+        env:
+          SHELLCHECK_VERSION: v0.11.0
+          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        run: |
+          set -euo pipefail
+          echo "runner image ships: $(shellcheck --version 2>/dev/null | sed -n 's/^version: /shellcheck /p' || echo 'no shellcheck')"
+          url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          curl -fsSL --retry 3 --retry-delay 5 -o /tmp/shellcheck.tar.xz "$url"
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
+          shellcheck --version
+      # The gates below ARE shell scripts, and so are their self-tests, so this
+      # runs first: if one of them is malformed, the reason lands here instead
+      # of as a confusing failure inside the gate itself (#592).
+      - name: "Shell scripts pass shellcheck (issue #592)"
+        run: bash scripts/check-shell-lint.sh
       # Grep gates run before the JDK/Gradle setup: they need nothing but the
       # checkout and finish in under a second, so a violation reports in seconds
       # instead of after a multi-minute ktlint/detekt pass.
@@ -40,6 +69,13 @@ jobs:
         run: bash scripts/tests/check-no-sensitive-logging-test.sh
       - name: "runBlocking gate self-test (issue #590)"
         run: bash scripts/tests/check-no-production-runblocking-test.sh
+      # A linter wrapper is the easiest gate of all to make vacuous: hand
+      # `shellcheck` an empty file list and it reads stdin, prints nothing and
+      # exits 0 -- identical output to a clean tree. This asserts the discovery
+      # goes RED on an empty set and that real violations are named by file and
+      # rule code.
+      - name: "shellcheck gate self-test (issue #592)"
+        run: bash scripts/tests/check-shell-lint-test.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

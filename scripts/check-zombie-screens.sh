@@ -11,7 +11,8 @@ set -euo pipefail
 
 SCREENS_DIR="app/src/main/java/com/rousecontext/app/ui/screens"
 PROD_ROOT="app/src/main"
-EXIT=0
+# Dead `EXIT` accumulator removed (#592): the script has always exited on the
+# ZOMBIES array below, so it was assigned and never read -- shellcheck SC2034.
 ZOMBIES=()
 
 # Tracked-but-known zombies. Remove entries here once the corresponding issue
@@ -60,7 +61,6 @@ for file in "$SCREENS_DIR"/*.kt; do
 
   if [[ "$found" == "no" ]]; then
     ZOMBIES+=("$file  (functions: ${funcs[*]})")
-    EXIT=1
   fi
 done
 
