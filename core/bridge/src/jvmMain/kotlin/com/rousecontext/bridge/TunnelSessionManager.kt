@@ -1,6 +1,7 @@
 package com.rousecontext.bridge
 
 import com.rousecontext.tunnel.TunnelClient
+import com.rousecontext.tunnel.TunnelError
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,9 +49,38 @@ class TunnelSessionManager(
                 launch(Dispatchers.IO) {
                     try {
                         sessionHandler.handleStream(stream)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        // On the JVM this is a java.util.concurrent.Cancellation-
+                        // Exception, which extends IllegalStateException, so the
+                        // broad clause below would otherwise eat it: order here is
+                        // load-bearing, not decoration. Today nothing observable
+                        // changes if this clause goes -- the handler call is the
+                        // last thing in the coroutine, so an already-cancelled job
+                        // ends up cancelled either way, and the test suite cannot
+                        // tell the difference (it was ablated to check). It stays
+                        // because it matches SessionHandler's guard and because it
+                        // becomes load-bearing the moment anything is added after
+                        // the try.
+                        throw e
+                    } catch (e: TunnelError.UnhandledTlsState) {
+                        // NOT a peer going away: our own TLS layer reached a state
+                        // it has no handling for. The same discriminator the copy
+                        // loops in SessionHandler apply (#616, #626, #630).
+                        //
+                        // This used to fall into the broad clause below, whose
+                        // comment claimed "errors are logged at the session
+                        // level". That was never true of this one: SessionHandler
+                        // deliberately rethrows it precisely because :core:bridge
+                        // is a KMP jvm target with no Android Log or CrashReporter
+                        // on its classpath. Letting it leave this coroutine IS the
+                        // report -- swallowing it here reproduced the clean EOF
+                        // #615/#616/#626/#630 spent four issues eliminating (#638).
+                        throw e
                     } catch (_: Exception) {
-                        // Individual session failure should not crash the manager.
-                        // Errors are logged at the session level.
+                        // A peer hanging up mid-session: normal, frequent, and not
+                        // worth a word. Swallowed so one bad session cannot take
+                        // the collector down -- which is all this clause was ever
+                        // meant to do.
                     }
                 }
             }
