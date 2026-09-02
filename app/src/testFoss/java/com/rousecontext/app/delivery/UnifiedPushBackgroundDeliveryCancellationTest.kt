@@ -94,11 +94,19 @@ class UnifiedPushBackgroundDeliveryCancellationTest {
         )
     }
 
+    /**
+     * Doubles as the ordering pin. `CancellationException` extends
+     * `IllegalStateException` on the JVM, so a guard written as
+     * `catch (e: IllegalStateException) { throw e }` looks right, passes the
+     * cancellation test above, and rethrows every genuine ISE. Using ISE (not a
+     * plain RuntimeException) for the non-fatal direction is what closes that:
+     * on the mis-shaped guard this goes red with `expected:<1> but was:<0>`.
+     */
     @Test
-    fun `ordinary send failure still logs and stays non-fatal`() {
+    fun `ordinary IllegalStateException still logs and stays non-fatal`() {
         coEvery {
             tunnelClient.sendPushEndpoint(any(), any())
-        } throws RuntimeException("relay refused")
+        } throws IllegalStateException("relay refused")
         val scope = CoroutineScope(Job() + UnconfinedTestDispatcher())
 
         // Must not escape onEndpoint's launch and take the scope down.
