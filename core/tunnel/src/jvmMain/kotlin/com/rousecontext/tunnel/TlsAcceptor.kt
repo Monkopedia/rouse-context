@@ -890,11 +890,56 @@ private class SuspendTlsSession(
      *    exceeded. A peer that *does* gate on the response parks us in
      *    `pullNetData()`, which is the stall the issue describes.
      *
-     *    The issue named a second trigger, the responding `close_notify`, and
-     *    that one does not reproduce: on JDK 21 a server `unwrap` of the peer's
-     *    `close_notify` reports `CLOSED` with `handshakeStatus =
-     *    NOT_HANDSHAKING`, never `NEED_WRAP`. Row 3 of the `CLOSED` table
-     *    already owns that event. Do not re-derive it from the issue text.
+     *    The issue named a second trigger, the responding `close_notify`.
+     *    Whether that reproduces depends on the **protocol version**, and the
+     *    protocol version is the variable an earlier draft of this paragraph
+     *    held fixed at 1.3 while reporting the result as a property of JDK 21.
+     *    Measured on JDK 21.0.12.1, two SunJSSE engines over an in-memory
+     *    transport, full handshake plus one application record each way,
+     *    varying **only** `setEnabledProtocols` and asserting `session.protocol`
+     *    afterwards rather than trusting that the call took:
+     *
+     *    ```
+     *    TLSv1.3  unwrap(close_notify) -> CLOSED / NOT_HANDSHAKING, holds nothing
+     *             wrap after that      -> OK,     produced 0
+     *    TLSv1.2  unwrap(close_notify) -> CLOSED / NEED_WRAP,       holds a record
+     *             wrap after that      -> CLOSED, produced 31  <- the response
+     *    ```
+     *
+     *    On **TLS 1.3** row 3 of the `CLOSED` table owns the event outright and
+     *    this branch never sees it. On **TLS 1.2** it is a live `NEED_WRAP` that
+     *    this branch services: RFC 5246 7.2.1 obliges us to answer a
+     *    `close_notify` with our own, SunJSSE hands that answer to the
+     *    application to `wrap`, and [serviceEngineRequest] runs
+     *    [pumpEngineOutput] for it *before* [classifyDataUnwrapStatus] turns the
+     *    same result's `CLOSED` into [read]'s `-1`. So `NEED_WRAP` is not a
+     *    `key_update`-only concern: it is on the ordinary close path too,
+     *    whenever the session is 1.2.
+     *
+     *    TLS 1.2 is in scope because nothing pins this acceptor to 1.3.
+     *    `fromCertAndKey` and `fromPem` build `SSLContext.getInstance("TLS")`
+     *    and `createServerEngine` sets only `useClientMode` and
+     *    `applicationProtocols`, so the enabled set is the platform default --
+     *    measured as `[TLSv1.3, TLSv1.2]` on this JDK. A TLS-1.2-only peer
+     *    reaches the second row above against the acceptor exactly as it ships.
+     *
+     *    Two corrections follow. **#664 under-claims itself**: on TLS 1.2 the
+     *    second trigger reproduces just as #617 described, so before #664 the
+     *    responding `close_notify` was dropped, and #664 repairs that as well.
+     *    And **[classifyEmitStatus]'s answer is not what stops the pump here**,
+     *    which is the tempting thing to write and is wrong. The branch is
+     *    reached -- make it throw and `TlsAcceptorTls12CloseNotifyTest` goes red
+     *    -- but returning `RECORD_EMITTED` from it instead changes nothing,
+     *    because the engine has already dropped to `NOT_HANDSHAKING` and
+     *    [pumpEngineOutput]'s own loop guard ends the loop regardless. Both
+     *    mutations were run; only the `NEED_WRAP` branch above is load-bearing
+     *    on this path. See #668.
+     *
+     *    `TlsAcceptorTls12CloseNotifyTest` runs both rows of that table and
+     *    drives the shipped acceptor against a TLS-1.2-only client, so the
+     *    claim fails when it stops being true instead of sitting here as prose.
+     *    If you revisit this, **vary the protocol**: holding it fixed is the
+     *    specific mistake that produced the sentence this replaces.
      *  - `NEED_UNWRAP` -- the loop's next iteration is that unwrap.
      *  - `NEED_UNWRAP_AGAIN` -- DTLS-oriented; SunJSSE's TLS path does not emit
      *    it, and it never asks for a record.
@@ -985,6 +1030,15 @@ private class SuspendTlsSession(
      *    [TlsStreamClosed] here -- [classifyWrapStatus]'s answer -- would turn
      *    that quiet EOF into an exception out of `read`, which is exactly the
      *    coupling #649 pinned in `DataPhaseCloseNotifyTest`.
+     *
+     *    On TLS 1.2 that "very next `unwrap`" is not next at all. The peer's
+     *    `close_notify` arrives as `CLOSED` **and** `NEED_WRAP` on one result,
+     *    so this classifier is reached from inside the same [read] iteration,
+     *    via [pumpEngineOutput], and the wrap it judges reports `CLOSED` while
+     *    having produced the 31-byte response (measured, #668). The `-1` still
+     *    comes from [classifyDataUnwrapStatus] on that same result, a step
+     *    later. Nothing changes here; the sequencing is just not the one the
+     *    sentence above describes.
      *  - `BUFFER_OVERFLOW` / `BUFFER_UNDERFLOW` -- defects in this layer, for the
      *    reasons argued on [classifyWrapStatus]: `netOut` is `clear()`ed to
      *    `packetBufferSize` before every wrap, and `wrap` has no minimum input.
