@@ -1,0 +1,31 @@
+# Pinned Rust toolchain for the relay.
+#
+# Why this file exists (issue #683): Relay CI used `dtolnay/rust-toolchain@stable`
+# with no pin anywhere in the repo, so a new stable release could turn the build
+# red with zero repo changes -- which is exactly what happened. Two Clippy lints
+# (`result_large_err`, `result_unit_err`) began firing on unchanged code when
+# stable moved to 1.98.0, and it surfaced on an unrelated PR whose author had no
+# context for it.
+#
+# Pinning here rather than on the CI step is deliberate: rustup honours this file
+# for local `cargo` invocations too, so a contributor's Clippy and CI's Clippy are
+# the same version. The failure mode this replaces was "green on my machine, red
+# in CI" with neither side able to see the other's lint set.
+#
+# Bumping is a reviewable one-line change. Bump it deliberately, and fix whatever
+# new lints the new toolchain surfaces in the same PR -- do not `#[allow]` them.
+[toolchain]
+channel = "1.98.0"
+# clippy/rustfmt back the Clippy and Format check steps; llvm-tools-preview backs
+# `cargo llvm-cov`. Listed here so `rustup toolchain install` (no argument) in CI
+# installs everything the job needs.
+components = ["clippy", "rustfmt", "llvm-tools-preview"]
+# musl is how the relay ships: .github/workflows/relay-deploy.yml builds
+# `--target x86_64-unknown-linux-musl` for a statically linked binary on the VPS.
+# It MUST be listed here. rustup scopes targets per toolchain, and pinning moved
+# the relay off `stable` onto `1.98.0` -- a different toolchain by name, with its
+# own target set -- so the musl std the deploy workflow's `dtolnay` step installs
+# for `stable` is not visible to the pinned one. Verified: without this line
+# `cargo check --target x86_64-unknown-linux-musl` fails with "can't find crate
+# for `std`"; with it, it succeeds.
+targets = ["x86_64-unknown-linux-musl"]

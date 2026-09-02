@@ -70,6 +70,24 @@ pub struct OpenStreamRequest {
     pub reply: oneshot::Sender<Option<(MuxHandle, StreamHandle)>>,
 }
 
+/// Why [`SessionRegistry::emit_frame`] could not enqueue a frame on a session
+/// that exists.
+///
+/// This was `Result<bool, ()>`. A unit error says only "something went wrong",
+/// which here is actively misleading: `Ok(false)` and `Err` are BOTH "the frame
+/// was not sent", and nothing in the type distinguishes the routine case (no
+/// device is registered on this subdomain) from the racy one (a session is
+/// registered but its writer has already gone away). That is the same confusion
+/// `TunnelError` exists to prevent on the device side, and callers act on the
+/// difference -- 404 versus 409.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum EmitFrameError {
+    /// A session is registered for the subdomain, but its outbound frame
+    /// channel is closed -- the session is being torn down concurrently.
+    #[error("session outbound channel closed")]
+    ChannelClosed,
+}
+
 /// Entry in the session registry for a device.
 /// Contains a channel sender for requesting stream opens from the session owner.
 pub struct SessionEntry {
@@ -181,16 +199,20 @@ impl SessionRegistry {
     /// inject synthetic frames (ERROR for an existing stream, OPEN for a new
     /// one) onto a registered session. Returns `Ok(true)` if the frame was
     /// enqueued, `Ok(false)` if no session is registered for the subdomain,
-    /// and `Err(())` if the session exists but its outbound channel was
-    /// already closed (a racing teardown). See issue #266.
-    pub async fn emit_frame(&self, subdomain: &str, frame: Frame) -> Result<bool, ()> {
+    /// and [`EmitFrameError::ChannelClosed`] if the session exists but its
+    /// outbound channel was already closed (a racing teardown). See issue #266.
+    pub async fn emit_frame(&self, subdomain: &str, frame: Frame) -> Result<bool, EmitFrameError> {
         let frame_tx = match self.sessions.get(subdomain) {
             Some(entry) => entry.frame_tx.clone(),
             None => return Ok(false),
         };
         // Drop the DashMap ref before the await to avoid holding it across
         // suspension, matching the pattern in `try_open_stream`.
-        frame_tx.send(frame).await.map(|_| true).map_err(|_| ())
+        frame_tx
+            .send(frame)
+            .await
+            .map(|_| true)
+            .map_err(|_| EmitFrameError::ChannelClosed)
     }
 
     /// Signal the mux session for `subdomain` to abort without sending a close

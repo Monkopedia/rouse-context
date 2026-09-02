@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use crate::api::{ApiError, AppState};
+use crate::api::{ApiError, ApiErrorResponse, AppState};
 use crate::firestore::{DeviceRecord, PushKind};
 use crate::unifiedpush::validate_push_endpoint;
 use crate::words::adjectives;
@@ -201,20 +201,24 @@ fn now_unix_secs() -> i64 {
 }
 
 /// Resolve and verify the caller's identity from the request. Returns the
-/// verified [`RegisterIdentity`] or a ready-to-return error response.
+/// verified [`RegisterIdentity`], or the `(status, body)` pair of the error the
+/// caller should return.
+///
+/// The error type is [`ApiErrorResponse`] rather than a built [`Response`] so
+/// that this `Result` stays narrow (`clippy::result_large_err`); the caller
+/// renders it with the same `IntoResponse` impl the constructors' output has
+/// always used, so status codes and bodies are unchanged.
 async fn resolve_register_identity(
     state: &Arc<AppState>,
     req: &RegisterRequest,
-) -> Result<RegisterIdentity, Response> {
+) -> Result<RegisterIdentity, ApiErrorResponse> {
     // Firebase path takes precedence when a token is present.
     if let Some(token) = req.firebase_token.as_deref().filter(|t| !t.is_empty()) {
         let claims = state
             .firebase_auth
             .verify_id_token(token)
             .await
-            .map_err(|e| {
-                ApiError::unauthorized(format!("Invalid Firebase ID token: {e}")).into_response()
-            })?;
+            .map_err(|e| ApiError::unauthorized(format!("Invalid Firebase ID token: {e}")))?;
         return Ok(RegisterIdentity::Firebase {
             uid: claims.uid,
             token: token.to_string(),
@@ -230,20 +234,21 @@ async fn resolve_register_identity(
             ApiError::bad_request(
                 "Missing auth: provide firebase_token, or public_key + auth proof",
             )
-            .into_response()
         })?;
     let public_key_der = BASE64
         .decode(public_key_b64)
-        .map_err(|_| ApiError::bad_request("Invalid Base64 in public_key field").into_response())?;
-    let timestamp = req.auth_timestamp.ok_or_else(|| {
-        ApiError::bad_request("Missing required field: auth_timestamp").into_response()
-    })?;
-    let nonce = req.auth_nonce.as_deref().ok_or_else(|| {
-        ApiError::bad_request("Missing required field: auth_nonce").into_response()
-    })?;
-    let signature = req.auth_signature.as_deref().ok_or_else(|| {
-        ApiError::bad_request("Missing required field: auth_signature").into_response()
-    })?;
+        .map_err(|_| ApiError::bad_request("Invalid Base64 in public_key field"))?;
+    let timestamp = req
+        .auth_timestamp
+        .ok_or_else(|| ApiError::bad_request("Missing required field: auth_timestamp"))?;
+    let nonce = req
+        .auth_nonce
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request("Missing required field: auth_nonce"))?;
+    let signature = req
+        .auth_signature
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request("Missing required field: auth_signature"))?;
 
     let thumbprint = crate::keypair_auth::verify_proof(
         &public_key_der,
@@ -253,7 +258,7 @@ async fn resolve_register_identity(
         signature,
         now_unix_secs(),
     )
-    .map_err(|e| ApiError::forbidden(format!("Keypair proof rejected: {e}")).into_response())?;
+    .map_err(|e| ApiError::forbidden(format!("Keypair proof rejected: {e}")))?;
 
     Ok(RegisterIdentity::Keypair { thumbprint })
 }
@@ -279,7 +284,7 @@ pub async fn handle_register(
     // 2. Resolve + verify the caller's identity (Firebase token or keypair proof).
     let identity = match resolve_register_identity(&state, &req).await {
         Ok(id) => id,
-        Err(resp) => return resp,
+        Err(err) => return err.into_response(),
     };
 
     // 3. Check if this identity already has a subdomain.
