@@ -75,6 +75,7 @@ import kotlinx.coroutines.withContext
  *  - [classifyHandshakeWrapStatus]
  *  - `SuspendTlsSession.classifyDataUnwrapStatus`
  *  - `SuspendTlsSession.classifyWrapStatus`
+ *  - `SuspendTlsSession.classifyEmitStatus`
  *
  * Should a future JDK add a fifth member, each of these stops compiling. That is
  * #618's acceptance criterion, and the reason there is no runtime `else`
@@ -83,6 +84,16 @@ import kotlinx.coroutines.withContext
  * the other policy -- an inline `when` **statement** over `result.status` with a
  * runtime `else` -- so the file taught both, and anyone extending it copied
  * whichever they happened to read first. #649 made it four out of four.
+ *
+ * `SSLEngineResult.HandshakeStatus` is classified the same way, at one site:
+ *
+ *  - `SuspendTlsSession.classifyEngineRequest`
+ *
+ * It arrived last (#617) and by the other route into a silent residual: not an
+ * `else`, but a one-branch `if` on `NEED_TASK`, which leaves five members
+ * unhandled without ever writing a `when`. An audit that greps for `else` does
+ * not see it. Four of the five were harmless; `NEED_WRAP` dropped a record the
+ * engine was holding for the peer.
  *
  * **The mechanism is the `else`, and nothing else is load-bearing.** On the
  * Kotlin this module pins (2.2.21) a `when` over an enum is checked for
@@ -102,6 +113,19 @@ import kotlinx.coroutines.withContext
  * expression, platform subject, 3 of 4 branches, + else  -> compiles, silent
  * expression, declared non-null, 3 of 4 branches, + else -> compiles, silent
  * ```
+ *
+ * #617 re-ran the same counterfactual on the other enum, because a matrix
+ * measured over a four-member `Status` does not vouch for a six-member
+ * `HandshakeStatus`, and `classifyEngineRequest` groups four members into one
+ * branch rather than listing each:
+ *
+ * ```
+ * expression, declared non-null, 5 of 6 branches, no else -> ERROR, names FINISHED
+ * expression, declared non-null, 5 of 6 branches, + else  -> compiles, silent
+ * ```
+ *
+ * Same mechanism, same direction, on a subject the earlier matrix never
+ * touched.
  *
  * Two earlier attempts at this paragraph named the wrong mechanism -- first the
  * platform type, then statement-versus-expression -- each printed beside real
@@ -559,6 +583,37 @@ private enum class DataUnwrapAction {
 }
 
 /**
+ * What [SuspendTlsSession.read] must do for the engine after an `unwrap`, once
+ * its `SSLEngineResult.HandshakeStatus` has been classified.
+ *
+ * Every member of `HandshakeStatus` maps here -- the point of #617 is that the
+ * five this enum used to leave out were left out by an `if`, not by an argument.
+ */
+private enum class EngineRequest {
+    /** `NEED_TASK`: run the blocking work the engine deferred (#565). */
+    RUN_DELEGATED_TASKS,
+
+    /** `NEED_WRAP`: the engine holds a record that must go out first (#617). */
+    EMIT_PENDING_RECORD,
+
+    /** The engine is asking for nothing the read loop does not already do. */
+    NOTHING_TO_DO
+}
+
+/**
+ * What [SuspendTlsSession.pumpEngineOutput] must do after a `wrap`, once its
+ * `SSLEngineResult.Status` has been classified. The two statuses that are
+ * defects do not appear here -- the classifier throws for them.
+ */
+private enum class EmitAction {
+    /** A record came out; send it and see whether the engine holds more. */
+    RECORD_EMITTED,
+
+    /** The engine is shutting down: stop pumping, and stay quiet about it. */
+    ENGINE_CLOSED
+}
+
+/**
  * The data phase ended because the TLS connection is closed.
  *
  * This is [TlsAcceptor.TlsSession.write]'s spelling of the `-1` that
@@ -655,6 +710,11 @@ private class SuspendTlsSession(
     private val netOut: java.nio.ByteBuffer =
         java.nio.ByteBuffer.allocate(engine.session.packetBufferSize)
 
+    // Zero-capacity source for [pumpEngineOutput]'s wraps: the records it emits
+    // come from engine state, never from application data. Guarded by
+    // [writeMutex] like [netOut]; nothing consumes it, so it never needs reset.
+    private val emptyAppOut: java.nio.ByteBuffer = java.nio.ByteBuffer.allocate(0)
+
     @Volatile
     private var eof: Boolean = false
 
@@ -685,7 +745,7 @@ private class SuspendTlsSession(
 
             val result = engine.unwrap(netIn, appIn)
             netIn.compact()
-            runTasksIfRequested(result)
+            serviceEngineRequest(result)
 
             // Both `when`s here are expressions with no `else`, matching the
             // other three classifiers: the residual is empty by construction
@@ -787,14 +847,181 @@ private class SuspendTlsSession(
     }
 
     /**
-     * Run whatever the engine deferred. The engine can ask for a delegated task
-     * after the handshake too; the handshake pump has always run these, and
-     * without the same branch here `read` re-unwraps the same bytes forever
-     * because nothing else can advance the engine. See #565.
+     * Do whatever the engine asked for on the way out of an `unwrap`.
+     *
+     * This was an `if` on `NEED_TASK` alone, which made the other five members
+     * of `SSLEngineResult.HandshakeStatus` a silent residual -- the shape
+     * "Residual policy" on [TlsAcceptor] exists to forbid, arrived at here by a
+     * one-branch `if` rather than by an `else`. Four of those five were no-ops
+     * by luck; `NEED_WRAP` was not. See #617.
      */
-    private suspend fun runTasksIfRequested(result: SSLEngineResult) {
-        if (result.handshakeStatus == SSLEngineResult.HandshakeStatus.NEED_TASK) {
-            runDelegatedTasks(engine)
+    private suspend fun serviceEngineRequest(result: SSLEngineResult) {
+        when (classifyEngineRequest(result.handshakeStatus)) {
+            EngineRequest.RUN_DELEGATED_TASKS -> runDelegatedTasks(engine)
+            EngineRequest.EMIT_PENDING_RECORD -> pumpEngineOutput()
+            EngineRequest.NOTHING_TO_DO -> Unit
+        }
+    }
+
+    /**
+     * Decide what a *post-handshake* `handshakeStatus` asks the read loop to do.
+     *
+     *  - `NEED_TASK` -- the engine deferred blocking work. The handshake pump has
+     *    always run these, and a read path that does not makes no progress at
+     *    all: it re-unwraps the same bytes forever. See #565.
+     *  - `NEED_WRAP` -- the engine holds a record that must go out before it will
+     *    go on. Reached on a *healthy* TLS 1.3 connection, which is what sets it
+     *    apart from the states #565 catalogued: a peer
+     *    `key_update{update_requested}` obliges us to send a `key_update` back
+     *    (RFC 8446 4.6.3), and SunJSSE hands that answer to the application to
+     *    `wrap`. Measured, not inferred -- two JDK 21 engines over an in-memory
+     *    transport with `jdk.tls.keyLimits` lowered report
+     *    `Status.OK` + `handshakeStatus = NEED_WRAP` from a post-handshake
+     *    server `unwrap`, and the pending record is the responding
+     *    `KeyUpdate{update_not_requested}`. Nothing in `read` wrapped, so that
+     *    answer stayed inside the engine for the life of the session. See #617.
+     *
+     *    What that costs is worth stating exactly, because the issue over-stated
+     *    it. Against a SunJSSE peer it does not hang: 2 MB was pushed through
+     *    with every response dropped and no error, because the peer does not
+     *    gate on the answer. What is actually lost is protocol conformance --
+     *    a mandatory response never sent, and our own write key never rotated,
+     *    so the record limit `jdk.tls.keyLimits` exists to enforce is silently
+     *    exceeded. A peer that *does* gate on the response parks us in
+     *    `pullNetData()`, which is the stall the issue describes.
+     *
+     *    The issue named a second trigger, the responding `close_notify`, and
+     *    that one does not reproduce: on JDK 21 a server `unwrap` of the peer's
+     *    `close_notify` reports `CLOSED` with `handshakeStatus =
+     *    NOT_HANDSHAKING`, never `NEED_WRAP`. Row 3 of the `CLOSED` table
+     *    already owns that event. Do not re-derive it from the issue text.
+     *  - `NEED_UNWRAP` -- the loop's next iteration is that unwrap.
+     *  - `NEED_UNWRAP_AGAIN` -- DTLS-oriented; SunJSSE's TLS path does not emit
+     *    it, and it never asks for a record.
+     *  - `NOT_HANDSHAKING` / `FINISHED` -- ordinary post-handshake data.
+     *
+     * The last four are no-ops on purpose, and the purpose is not "nothing to do
+     * here yet": emitting for any of them puts a record on the wire the peer
+     * never asked for. `TlsAcceptorNeedWrapTest` pins both directions.
+     *
+     * No `else`, per "Residual policy" on [TlsAcceptor]. This is the file's
+     * first classifier over `HandshakeStatus` rather than `Status`, and the
+     * mechanism carries over unchanged: dropping a branch is a hard
+     * `FAILURE: Compilation error` naming the member, and adding an `else` makes
+     * that error vanish with no warning. Measured on both subjects, not assumed
+     * -- the same counterfactual the `Status` matrix records, re-run for the
+     * six-member enum.
+     */
+    private fun classifyEngineRequest(status: SSLEngineResult.HandshakeStatus): EngineRequest =
+        when (status) {
+            SSLEngineResult.HandshakeStatus.NEED_TASK -> EngineRequest.RUN_DELEGATED_TASKS
+            SSLEngineResult.HandshakeStatus.NEED_WRAP -> EngineRequest.EMIT_PENDING_RECORD
+            SSLEngineResult.HandshakeStatus.NEED_UNWRAP,
+            SSLEngineResult.HandshakeStatus.NEED_UNWRAP_AGAIN,
+            SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING,
+            SSLEngineResult.HandshakeStatus.FINISHED -> EngineRequest.NOTHING_TO_DO
+        }
+
+    /**
+     * Emit the record(s) the engine is holding, under [writeMutex].
+     *
+     * ## Why the write lock, and why that is safe
+     *
+     * [readMutex] and [writeMutex] are acquired at exactly two sites in the
+     * program -- [read] and [write] -- and both are `private val`s of a
+     * `private class`, so no other file can reach them. Before #617 nothing took
+     * both, so there was no ordering to contradict; this call establishes
+     * read-then-write as the only ordering, and nothing takes [readMutex] while
+     * holding [writeMutex]: [write]'s body touches the engine, `netOut` and
+     * `stream` and never the read side, and `MuxStream.send` reaches the
+     * websocket's outgoing channel, which no reader gates. [close] takes
+     * neither.
+     *
+     * The lock is not merely a convention here, it is required: `SSLEngine`
+     * permits one concurrent `wrap` and one concurrent `unwrap`, so a second
+     * wrapper would break the engine's own contract -- and `netOut` is
+     * [writeMutex]'s buffer. "Drain without the write lock" is therefore not an
+     * available shape, whatever the lock ordering said. See #617.
+     *
+     * ## Why nothing needs this on the write side
+     *
+     * A pending record does not need pumping from [write]: measured against
+     * SunJSSE, `wrap` emits the pending post-handshake record first, consuming
+     * zero application bytes, and [write]'s `while (appOut.hasRemaining())` then
+     * wraps again for the data. [write] already drains it, so widening this to
+     * "both directions" would add a second wrap site for nothing.
+     */
+    private suspend fun pumpEngineOutput() = writeMutex.withLock {
+        while (classifyEngineRequest(engine.handshakeStatus) == EngineRequest.EMIT_PENDING_RECORD) {
+            // A wrap that produces nothing would otherwise re-run forever; the
+            // `produced` guard below ends the loop, and this keeps it
+            // cancellable meanwhile. Same lesson as #558/#563.
+            currentCoroutineContext().ensureActive()
+            netOut.clear()
+            val result = engine.wrap(emptyAppOut, netOut)
+            netOut.flip()
+            val produced = netOut.hasRemaining()
+            if (produced && !sendNetOut()) return@withLock
+            val more = when (classifyEmitStatus(result.status)) {
+                EmitAction.RECORD_EMITTED -> produced
+                EmitAction.ENGINE_CLOSED -> false
+            }
+            if (!more) return@withLock
+        }
+    }
+
+    /**
+     * Decide what a `wrap` status means *on the read path's emit*.
+     *
+     * Its twin is [classifyWrapStatus], and the two agree on the two buffer
+     * statuses and disagree on `CLOSED` -- the same read/write spelling split as
+     * row 3 versus row 4 of the `CLOSED` table on [TlsAcceptor], reached from
+     * inside [read]:
+     *
+     *  - `OK` -- a record came out; send it and see whether more is pending.
+     *  - `CLOSED` -- the engine is shutting down and has nothing further to emit.
+     *    Stop pumping and let the loop carry on: the very next `unwrap` reports
+     *    the close and [read] answers it with `-1`, quietly. Throwing
+     *    [TlsStreamClosed] here -- [classifyWrapStatus]'s answer -- would turn
+     *    that quiet EOF into an exception out of `read`, which is exactly the
+     *    coupling #649 pinned in `DataPhaseCloseNotifyTest`.
+     *  - `BUFFER_OVERFLOW` / `BUFFER_UNDERFLOW` -- defects in this layer, for the
+     *    reasons argued on [classifyWrapStatus]: `netOut` is `clear()`ed to
+     *    `packetBufferSize` before every wrap, and `wrap` has no minimum input.
+     *    They must not wear a plain [java.io.IOException], which the copy loops
+     *    swallow along with routine disconnects (#616, #630).
+     *
+     * No `else`, per "Residual policy" on [TlsAcceptor].
+     */
+    private fun classifyEmitStatus(status: SSLEngineResult.Status): EmitAction {
+        val defect = when (status) {
+            SSLEngineResult.Status.OK -> return EmitAction.RECORD_EMITTED
+            SSLEngineResult.Status.CLOSED -> return EmitAction.ENGINE_CLOSED
+            SSLEngineResult.Status.BUFFER_OVERFLOW,
+            SSLEngineResult.Status.BUFFER_UNDERFLOW -> status
+        }
+        throw TunnelError.UnhandledTlsState("Unhandled TLS wrap status while emitting: $defect")
+    }
+
+    /**
+     * Send what [netOut] holds. Returns false if the transport is gone.
+     *
+     * Quiet on failure, and not by omission: a dead transport is reported one
+     * iteration later by [pullNetData], which returns false and makes [read]
+     * answer `-1`. That is this file's spelling for "this session is over" on
+     * the read side, and raising an [java.io.IOException] from the middle of a
+     * `read` instead would contradict it. A half-open transport -- writes
+     * failing, reads still delivering -- keeps working, which is correct.
+     */
+    private suspend fun sendNetOut(): Boolean {
+        val data = drain(netOut)
+        return try {
+            stream.write(data)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
     }
 
