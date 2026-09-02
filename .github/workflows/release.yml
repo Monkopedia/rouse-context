@@ -80,7 +80,11 @@ jobs:
           F="fastlane/metadata/android/en-US/changelogs/${CODE}.txt"
           if [ ! -f "$F" ]; then
             echo "::error::missing $F — every release needs a changelog entry for its versionCode."
-            echo "Present: $(ls fastlane/metadata/android/en-US/changelogs/ | tr '\n' ' ')"
+            # `find ... -printf '%f' | sort` rather than `ls` (SC2012): same
+            # sorted basenames on this tree, but it does not break on a name
+            # containing a newline or a glob character.
+            echo "Present: $(find fastlane/metadata/android/en-US/changelogs/ \
+              -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ')"
             exit 1
           fi
           if [ ! -s "$F" ]; then

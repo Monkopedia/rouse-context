@@ -17,14 +17,14 @@ jobs:
           RELAY_TLS_CERT: ${{ secrets.RELAY_TLS_CERT }}
         run: |
           if [ -z "$RELAY_TLS_CERT" ]; then
-            echo "needs_renewal=true" >> $GITHUB_OUTPUT
+            echo "needs_renewal=true" >> "$GITHUB_OUTPUT"
             echo "No cert in secrets — need initial issuance"
             exit 0
           fi
           echo "$RELAY_TLS_CERT" > /tmp/cert.pem
           expiry=$(openssl x509 -enddate -noout -in /tmp/cert.pem 2>/dev/null | cut -d= -f2)
           if [ -z "$expiry" ]; then
-            echo "needs_renewal=true" >> $GITHUB_OUTPUT
+            echo "needs_renewal=true" >> "$GITHUB_OUTPUT"
             echo "Cert is invalid — need renewal"
             exit 0
           fi
@@ -33,9 +33,9 @@ jobs:
           days_left=$(( (expiry_epoch - now_epoch) / 86400 ))
           echo "Cert expires in $days_left days"
           if [ "$days_left" -lt 30 ]; then
-            echo "needs_renewal=true" >> $GITHUB_OUTPUT
+            echo "needs_renewal=true" >> "$GITHUB_OUTPUT"
           else
-            echo "needs_renewal=false" >> $GITHUB_OUTPUT
+            echo "needs_renewal=false" >> "$GITHUB_OUTPUT"
             echo "Cert still valid, skipping renewal"
           fi
 
