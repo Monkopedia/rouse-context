@@ -12,6 +12,7 @@ import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -206,6 +207,21 @@ class UnifiedPushBackgroundDelivery(
     }
 
     private suspend fun registerWithEndpoint(endpoint: String) {
+        // No CancellationException rethrow below, unlike `refreshEndpoint`, and
+        // the difference is deliberate (issue #666). Both run in the same
+        // `appScope.launch` — they are the two branches of one `if/else` — so
+        // scope is not the discriminator. Suspension is: nothing in this `try`
+        // can suspend, so no cancellation can ever be delivered into it.
+        //
+        // INVARIANT, enforced nowhere near here: this is a `src/foss` file, so
+        // `credentialProvider` is always `KeypairDeviceCredentialProvider`
+        // (bound in the foss `DistributionModule`), whose `forRegistration()` is
+        // `= buildCredential()` — a NON-suspend function over a non-suspend
+        // `DeviceKeyManager.getOrCreateKeyPair()` and `DeviceKeystoreSigner.sign()`.
+        // The interface declares `forRegistration()` as `suspend`, so an
+        // implementation that actually suspends (or a `withContext` added to
+        // this one) makes this catch start swallowing cancellation with nothing
+        // here to say so. If that changes, add the rethrow.
         val credential = try {
             credentialProvider.forRegistration()
         } catch (e: Exception) {
@@ -249,6 +265,20 @@ class UnifiedPushBackgroundDelivery(
         try {
             tunnelClient.sendPushEndpoint(kind = PUSH_KIND, value = endpoint)
             Log.i(TAG, "Refreshed UnifiedPush endpoint over tunnel")
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch (issue #666): CancellationException
+            // is an Exception on the JVM.
+            //
+            // Defence in depth, not a live bug: this runs on `appScope`, which
+            // is application-lifetime and never cancelled. But the guard is here
+            // and `registerWithEndpoint`'s is not, and the two are the branches
+            // of one `if/else` in a single `appScope.launch` — so scope cannot
+            // be what separates them. Suspension is. `sendPushEndpoint` reaches
+            // `WebSocketHandle.sendText`, which awaits the Ktor session deferred
+            // and then sends a frame: a real suspension point, so the only thing
+            // keeping this unreachable is `appScope`'s immortality. Give
+            // `appScope` a lifecycle and this becomes live immediately.
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to refresh endpoint; relay retains the registered value", e)
         }
