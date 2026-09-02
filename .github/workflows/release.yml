@@ -83,6 +83,14 @@ jobs:
             # `find ... -printf '%f' | sort` rather than `ls` (SC2012): same
             # sorted basenames on this tree, but it does not break on a name
             # containing a newline or a glob character.
+            #
+            # The statuses inside the substitution are deliberately discarded:
+            # this is the diagnostic half of a failure that has already been
+            # decided, and the `exit 1` below is the verdict. Hoisting `find`
+            # into an assignment would let a missing changelogs/ directory kill
+            # the step here -- after the ::error:: line and before the exit,
+            # with the listing that explains it missing (#628's shape).
+            # shellcheck disable=SC2312
             echo "Present: $(find fastlane/metadata/android/en-US/changelogs/ \
               -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ')"
             exit 1
@@ -91,7 +99,12 @@ jobs:
             echo "::error::$F exists but is empty."
             exit 1
           fi
-          echo "OK: $F ($(wc -c < "$F") bytes) for versionCode $CODE"
+          # Assigned, then printed: `-s "$F"` above says the file is non-empty,
+          # so a `wc` that cannot read it means something changed underneath
+          # this step, and that is worth stopping a RELEASE build over rather
+          # than printing "( bytes)" and shipping.
+          BYTES=$(wc -c < "$F")
+          echo "OK: $F ($BYTES bytes) for versionCode $CODE"
 
       - name: Stage FOSS APK
         run: |

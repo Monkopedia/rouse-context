@@ -17,7 +17,13 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
-echo "=== Binary size: $(du -h "$BINARY" | cut -f1) ==="
+# Assigned, then printed: inside the `echo` the status of `du` (and of `cut`)
+# was discarded, so a binary that had gone unreadable between the check above
+# and here would print "Binary size:  " and deploy anyway. As an assignment the
+# status is `set -e`-visible, and a deploy that cannot measure its own artifact
+# stops before it copies it.
+binary_size=$(du -h "$BINARY" | cut -f1)
+echo "=== Binary size: $binary_size ==="
 
 echo "=== Deploying to $REMOTE ==="
 scp "$BINARY" "$REMOTE":/opt/rouse-relay/rouse-relay.new

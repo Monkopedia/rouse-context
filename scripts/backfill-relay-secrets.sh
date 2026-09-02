@@ -141,7 +141,11 @@ python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$WORK/firebase-sa.js
 
 base64 -w0 "$WORK/firebase-sa.json" > "$WORK/firebase_sa_b64"
 chmod 600 "$WORK/firebase_sa_b64"
-echo "  $(wc -c < "$WORK/firebase_sa_b64") bytes (base64)"
+# Assigned, then printed, so `wc` failing on the file base64 just wrote is a
+# hard stop rather than a blank in a progress line -- this script uploads what
+# it measures, and "0 bytes" going to `gh secret set` is worse than a red run.
+b64_bytes=$(wc -c < "$WORK/firebase_sa_b64")
+echo "  $b64_bytes bytes (base64)"
 
 # --- 3. Push to GH secrets ----------------------------------------------------
 push_secret() {
@@ -151,7 +155,11 @@ push_secret() {
     echo "  [skip] $name (no value captured)"
     return 0
   fi
-  echo "  [set]  $name ($(wc -c < "$file") bytes)"
+  # Same reasoning as the base64 size above, and the `-f` test two lines up is
+  # not a substitute: it says the file existed, not that it could be read.
+  local bytes
+  bytes=$(wc -c < "$file")
+  echo "  [set]  $name ($bytes bytes)"
   gh secret set "$name" --repo "$REPO" < "$file"
 }
 

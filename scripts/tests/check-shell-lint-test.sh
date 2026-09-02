@@ -159,6 +159,79 @@ done
 EOF
 expect 1 "an unquoted expansion is caught" "scripts/bad.sh" "SC2086"
 
+# --- the two OPTIONAL checks this gate turns on (#657) ------------------------
+#
+# `-o check-extra-masked-returns` (SC2312) and `-o check-set-e-suppressed`
+# (SC2310/SC2311) are the only optional checks enabled, and they are the ones
+# that matter for THIS repo: every gate here is a `grep` pipeline under
+# `set -euo pipefail`, where a masked or unmasked status decides whether the
+# gate prints its finding or dies before it. All 21 sites on the tree were
+# triaged in #657; these cases are what stops them coming back.
+#
+# The three below are a matched set, and the set is the point. Both bad inputs
+# are CLEAN at the default severity this gate used before #657 -- measured, 0
+# findings each -- so a red here is evidence the FLAG is on, not merely that the
+# linter ran. And the green case carries the same two shapes written the way
+# the rules ask for, so a red on it would mean the checks match everything,
+# which a positive control on its own cannot distinguish.
+
+# SC2312: a command whose exit status is discarded inside a command
+# substitution. This is the #628 mechanism seen from the other side -- `grep`
+# exits 1 on no match, and whether that status escapes is the whole question.
+reset_sandbox
+write_script scripts/bad.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "matches: $(grep -c . /dev/null)"
+EOF
+# A clean workflow too, so the ONLY thing that can make this go red is the
+# finding above: without it the run reaches phase 2 and passes, which is what
+# the exit-status half of this assertion then measures.
+write_clean_workflow
+expect 1 "a masked return inside a command substitution is caught (SC2312)" \
+  "scripts/bad.sh" "SC2312"
+
+# SC2310: a function invoked in a condition, which turns `set -e` OFF inside it
+# for the whole call. check-apk-distribution.sh and check-zombie-screens.sh both
+# do this deliberately and say so; anything that does it by accident goes red.
+reset_sandbox
+write_script scripts/bad.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+has_marker() {
+  grep -q marker /dev/null
+}
+if has_marker; then
+  echo found
+fi
+EOF
+# A clean workflow too, so the ONLY thing that can make this go red is the
+# finding above: without it the run reaches phase 2 and passes, which is what
+# the exit-status half of this assertion then measures.
+write_clean_workflow
+expect 1 "a function invoked in a condition is caught (SC2310)" \
+  "scripts/bad.sh" "SC2310"
+
+# THE green half. Same two shapes, written so the status is not thrown away: the
+# substitution's status is handled with an explicit `|| true` and its value
+# assigned, and the function is invoked as a statement rather than as a
+# condition. This must stay silent -- without it, a gate that reported every
+# command substitution in the repo would pass both cases above and look tested.
+reset_sandbox
+write_script scripts/ok.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+report_markers() {
+  grep -c marker /dev/null || true
+}
+n=$(grep -c . /dev/null || true)
+echo "matches: $n"
+report_markers
+EOF
+write_clean_workflow
+expect 0 "the same shapes with their statuses handled stay green" \
+  "OK: shellcheck clean" "scripts/ok.sh"
+
 # --- coverage is recursive, not just scripts/ --------------------------------
 # The self-tests under scripts/tests/ are the things that caught #577, #590 and
 # both #628 bugs, and they are shell too. A `scripts/*.sh` glob would miss them
@@ -453,10 +526,17 @@ PATH=$saved_path
 # finds nothing.
 mkdir -p "$sandbox/minbin"
 for tool in bash git sed grep; do
-  ln -sf "$(command -v "$tool")" "$sandbox/minbin/$tool"
+  # Status checked, not substituted straight into `ln`: every tool in this list
+  # is one the gate or this harness needs, so a missing one must say so rather
+  # than link an empty path and produce a confusing failure two cases later.
+  if ! tool_path=$(command -v "$tool"); then
+    echo "FAIL: this harness needs '$tool' on PATH and cannot find it." >&2
+    exit 1
+  fi
+  ln -sf "$tool_path" "$sandbox/minbin/$tool"
 done
 saved_path=$PATH
-# The only suppression in the tree, and it is the point of the case: SC2123
+# Suppressed, and the suppression is the point of the case: SC2123
 # warns when PATH is REPLACED by a single directory rather than extended,
 # because that is normally a typo. Here it is exactly what is being tested --
 # a PATH deliberately narrowed until `command -v shellcheck` finds nothing.

@@ -30,6 +30,12 @@ is_exempt() {
 for file in "$SCREENS_DIR"/*.kt; do
   [[ -f "$file" ]] || continue
   base="$(basename "$file")"
+  # A pure predicate: its return value IS the answer, so it belongs in a
+  # condition and the SC2310 that follows is accepted rather than worked
+  # around. Nothing inside `is_exempt` needs `set -e` -- the body is a `[[ ]]`
+  # comparison over a literal array and two `return`s, with no command whose
+  # failure could go unnoticed.
+  # shellcheck disable=SC2310
   is_exempt "$base" && continue
   # Skip files that hold no composables (enums, sealed classes, SetupMode, etc.)
   grep -q '^fun [A-Z]' "$file" || continue
@@ -37,7 +43,12 @@ for file in "$SCREENS_DIR"/*.kt; do
   # Public top-level @Composable functions: anything starting with `fun CapName`
   # at column 0, excluding private (prefixed with `private `) — those appear
   # on the same line but detect via context line.
-  mapfile -t funcs < <(
+  # Captured with its status checked, not read through `< <(...)`. Process
+  # substitution discards the exit status, so an `awk` that failed to read the
+  # file produced an EMPTY list -- indistinguishable from "this file declares no
+  # composables", and the `continue` below would then skip the file silently.
+  # A gate that skips what it cannot read is the #547/#579 shape; this fails.
+  if ! func_names=$(
     awk '
       /@Preview/ { next }
       /^private fun [A-Z]/ { next }
@@ -45,9 +56,18 @@ for file in "$SCREENS_DIR"/*.kt; do
         sub(/^fun /, "", $0); sub(/[^A-Za-z0-9_].*$/, "", $0); print
       }
     ' "$file" | sort -u
-  )
+  ); then
+    echo "ERROR: could not extract composable names from $file." >&2
+    echo "       The file was not scanned, so this is a failure and not a pass." >&2
+    exit 1
+  fi
 
+  # `mapfile` over an empty string yields a one-element array holding "", so the
+  # emptiness test has to happen before the split, not after it.
+  [[ -n "$func_names" ]] || continue
+  mapfile -t funcs <<<"$func_names"
   [[ "${#funcs[@]}" -gt 0 ]] || continue
+
 
   # At least ONE function must be referenced in a non-self production file.
   found=no

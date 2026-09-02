@@ -39,8 +39,17 @@ fi
 job_count=$(grep -cE '^  [A-Za-z0-9_-]+:$' "$workflow" | tr -d ' ')
 jobs_line=$(grep -n '^jobs:' "$workflow" | cut -d: -f1)
 job_names=$(awk -v start="$jobs_line" 'NR > start && /^  [A-Za-z0-9_-]+:$/ { gsub(/[ :]/, ""); print }' "$workflow")
-if [[ "$(printf '%s\n' "$job_names" | grep -c .)" -ne 1 ]]; then
-  echo "FAIL: $workflow no longer has exactly one job (found: $(echo "$job_names" | tr '\n' ' '))"
+# `grep -c` PRINTS 0 and EXITS 1 when it counts nothing, so the swallow is
+# what keeps a zero-job file reaching the FAIL below instead of killing this
+# script mid-condition -- exit 1 with no output, the #628 shape, on the exact
+# input this check exists to catch. Deliberate; the printed count, not the
+# status, is the answer here, and a count that is not 1 -- including a value
+# that is not a number at all -- takes the FAIL branch below.
+job_name_count=$(printf '%s\n' "$job_names" | grep -c . || true)
+if [[ "$job_name_count" -ne 1 ]]; then
+  # Joined with bash parameter expansion rather than `| tr`: a failure message
+  # must not depend on a subprocess whose own status is then thrown away.
+  echo "FAIL: $workflow no longer has exactly one job (found: ${job_names//$'\n'/ })"
   echo "      This check scans steps flat, which is only valid for a single job."
   exit 1
 fi

@@ -29,7 +29,13 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+# Assigned, then used. Inside `cd "$(git rev-parse --show-toplevel)"` the
+# status of `git rev-parse` was discarded and only `cd` decided what happened
+# next -- and `cd ""` is a bash error whose message ("null directory") says
+# nothing about the real cause. As an assignment the failure stops the script
+# with git's own explanation, which is what a human reading a red CI log needs.
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
 
 # Extended regexes matched against a full `<module>/src/<sourceSet>` path. Each
 # entry MUST match at least one real source set; a pattern matching nothing is a

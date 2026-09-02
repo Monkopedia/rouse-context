@@ -188,10 +188,15 @@ dex_count=$(find "$EXTRACT" -maxdepth 1 -name 'classes*.dex' -type f | wc -l)
 [ "$dex_count" -gt 0 ] ||
   fail "no classes*.dex in $APK -- the code is not where this gate looks, so its verdict would be meaningless."
 
+# Assigned rather than substituted into the `echo` below: this line is what
+# identifies WHICH artifact the verdict is about, and a hash that silently came
+# back empty would leave a report naming no artifact at all. As an assignment a
+# failing `sha256sum` stops the run instead.
+apk_sha256=$(sha256sum "$APK" | cut -d' ' -f1)
 echo "Checking $(basename "$APK")"
 echo "  path        : $APK"
 echo "  size        : ${apk_bytes} bytes"
-echo "  sha256      : $(sha256sum "$APK" | cut -d' ' -f1)"
+echo "  sha256      : $apk_sha256"
 echo "  entries     : ${entry_count} files, ${dex_count} dex"
 echo "  expecting   : ${EXPECT} distribution"
 echo
@@ -264,6 +269,16 @@ if [ "$EXPECT" = "foss" ]; then
     done
     echo >&2
     echo "  Google/Firebase packages linked in:" >&2
+    # `|| true` is load-bearing and the SC2310 that comes with it is accepted
+    # deliberately. This listing is decoration on a failure that has ALREADY
+    # been decided: `total` is non-zero, and the `fail` on the next line is the
+    # message the build needs to show. `grep` exits 1 when it matches nothing,
+    # which happens whenever the markers were resources rather than class
+    # references -- and without the swallow that status would kill the script
+    # here, after the "packages linked in:" header and before the `fail`,
+    # i.e. exit 1 with a truncated report and no verdict. That is the #628
+    # shape exactly, and it is what the swallow exists to prevent.
+    # shellcheck disable=SC2310
     grep_scoped -o all 'com[./]google[./](firebase|android[./]gms)[./][a-zA-Z]+' "$EXTRACT" |
       sed 's/^.*://' | sort -u | sed 's/^/    /' >&2 || true
     fail "$total Google/Firebase marker occurrence(s) in $APK. A bare build must produce ZERO. Something set the \`google\` property (a -P flag, a gradle.properties line, or an ORG_GRADLE_PROJECT_google env var), or the wrong artifact was staged."

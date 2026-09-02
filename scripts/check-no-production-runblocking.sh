@@ -17,7 +17,13 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+# Assigned, then used. Inside `cd "$(git rev-parse --show-toplevel)"` the
+# status of `git rev-parse` was discarded and only `cd` decided what happened
+# next -- and `cd ""` is a bash error whose message ("null directory") says
+# nothing about the real cause. As an assignment the failure stops the script
+# with git's own explanation, which is what a human reading a red CI log needs.
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
 
 # Via a variable, not `mapfile < <(...)`: process substitution does not
 # propagate its exit status, so a failing preflight would leave DIRS empty and

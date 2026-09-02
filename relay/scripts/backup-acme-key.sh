@@ -35,7 +35,13 @@ if [[ ! -f "${SRC}" ]]; then
 fi
 
 if [[ ! -r "${SRC}" ]]; then
-    echo "error: source ACME key at ${SRC} is not readable by $(id -un)" >&2
+    # `|| true` deliberately: this is the error path, and the only thing that
+    # matters here is that the message reaches stderr before the `exit 1` below.
+    # Hoisting `id -un` into an assignment would let a failing `id` kill the
+    # script BEFORE it says why it is unhappy -- exit 1 with no output, which
+    # reads as a crash rather than as the finding. The username is a courtesy;
+    # its absence is not worth losing the diagnosis over.
+    echo "error: source ACME key at ${SRC} is not readable by $(id -un || true)" >&2
     exit 1
 fi
 
