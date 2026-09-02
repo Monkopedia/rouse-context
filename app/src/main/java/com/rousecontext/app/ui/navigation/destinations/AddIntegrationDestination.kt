@@ -16,6 +16,7 @@ import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.screens.AddIntegrationPickerContent
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.tunnel.CertProvisioningFlow
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -56,18 +57,39 @@ fun NavGraphBuilder.addIntegrationDestination(navController: NavController) {
                     // user configures the integration. Survives navigation
                     // since it uses the app-scoped coroutine scope.
                     appScope.launch {
-                        try {
-                            val credential = credentialProvider.forProvisioning()
-                            if (credential != null) {
-                                certProvisioningFlow.execute(credential)
-                            }
-                        } catch (_: Exception) {
-                            // Best-effort; integrationSetup will retry
-                        }
+                        provisionCertsInBackground(credentialProvider, certProvisioningFlow)
                     }
                     navController.navigate(setupRouteForIntegration(id))
                 }
             }
         )
+    }
+}
+
+/**
+ * Best-effort background cert provisioning kicked off when the user picks an
+ * integration. Extracted from the destination so the cancellation/failure
+ * contract is unit-testable.
+ */
+internal suspend fun provisionCertsInBackground(
+    credentialProvider: DeviceCredentialProvider,
+    certProvisioningFlow: CertProvisioningFlow
+) {
+    try {
+        val credential = credentialProvider.forProvisioning()
+        if (credential != null) {
+            certProvisioningFlow.execute(credential)
+        }
+    } catch (e: CancellationException) {
+        // MUST stay above the broad catch (issue #662). #660 made
+        // CertProvisioningFlow.execute propagate cancellation instead of
+        // reporting StorageFailed; a bare `catch (Exception)` here converts it
+        // straight back one frame above the fix. "integrationSetup will retry"
+        // is an argument about a provisioning FAILURE -- it is not an argument
+        // about cancellation, because a cancelled screen is gone and will not
+        // retry.
+        throw e
+    } catch (_: Exception) {
+        // Best-effort; integrationSetup will retry
     }
 }

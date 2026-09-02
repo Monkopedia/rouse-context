@@ -111,6 +111,34 @@ class OnboardingFlow(
         val registerData = (registerResult as RelayApiResult.Success).data
 
         return try {
+            // Cancellation-safety of this two-write pair is a property of a
+            // DIFFERENT file, and nothing but this note connects them (#662).
+            //
+            // `storeSubdomain` and `storeIntegrationSecrets` are declared
+            // `suspend` on [CertificateStore], but the production
+            // implementation (`FileCertificateStore`, in `:app`) delegates both
+            // to a NON-suspend `atomicWrite` and contains no `withContext`
+            // anywhere. Cancellation is only delivered at a real suspension
+            // point, so none can land between the two writes: either both land
+            // or neither does. Production callers reinforce that -- both
+            // (`OnboardingViewModel.startOnboarding` and, on foss,
+            // `UnifiedPushBackgroundDelivery.onEndpoint`) run on the
+            // application `SupervisorJob`, which is never cancelled -- and
+            // `clear()` is itself `suspend`, so the rollback below was never a
+            // guarantee on a cancelled job to begin with.
+            //
+            // Why that matters here specifically: OnboardingFlow does NOT
+            // self-heal. Its onboarded gate is `getSubdomain() != null`
+            // (`OnboardingViewModel.init`, `UnifiedPushBackgroundDelivery`),
+            // and nothing repairs "subdomain present, secrets absent" -- unlike
+            // CertProvisioningFlow, whose re-entry guard requires BOTH certs
+            // and so re-runs itself. The day `atomicWrite` (or either store
+            // method) becomes genuinely suspending -- an ordinary move to
+            // `Dispatchers.IO` would do it -- this window goes live and a
+            // half-onboarded device persists. If you make that change, wrap the
+            // pair in `withContext(NonCancellable)` or add a repair path for
+            // the half-written state. `OnboardingHalfWriteWindowTest` (:app)
+            // fails when the window opens.
             certificateStore.storeSubdomain(registerData.subdomain)
             if (registerData.secrets.isNotEmpty()) {
                 certificateStore.storeIntegrationSecrets(registerData.secrets)
