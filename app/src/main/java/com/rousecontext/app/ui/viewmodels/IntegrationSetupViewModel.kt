@@ -16,6 +16,7 @@ import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.DeviceCredential
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -162,19 +163,44 @@ class IntegrationSetupViewModel(
         viewModelScope.launch { beginProvisioningAsync() }
     }
 
+    /**
+     * Resolves the device credential used to authorize cert provisioning.
+     *
+     * Returns `null` after publishing [IntegrationSetupState.Failed] when no
+     * credential is available or the fetch fails, so the caller can simply bail.
+     */
+    private suspend fun fetchCredential(): DeviceCredential? = try {
+        credentialProvider() ?: run {
+            setFailed("Failed to obtain device credential.")
+            null
+        }
+    } catch (e: CancellationException) {
+        // MUST stay above the broad catch (issue #667). CancellationException is an
+        // Exception on the JVM and extends IllegalStateException, so either spelling
+        // below swallows it, and Kotlin does not flag a cancellation clause placed
+        // under a broader one as dead code.
+        //
+        // Defence in depth rather than a live-bug fix. This runs on viewModelScope, so
+        // the only thing that delivers cancellation here is `onCleared()` — at which
+        // point the setup screen has left composition and the
+        // `IntegrationSetupState.Failed` that `setFailed` publishes renders to nobody.
+        // (`credentialProvider` cannot manufacture one on a live job either: the
+        // `google` binding bottoms out in `Task.await()`, which only throws when
+        // `Task.isCanceled`, and neither firebase-auth nor firebase-messaging ever
+        // cancels a Task; the `foss` binding catches internally and returns null.) The
+        // guard still earns its place — "the ViewModel is being torn down" is a claim
+        // about today's callers, and it expires with nothing going red.
+        throw e
+    } catch (e: Exception) {
+        setFailed("Authentication error: ${e.message}")
+        null
+    }
+
     @Suppress("LongMethod")
     private suspend fun beginProvisioningAsync() {
         awaitRegistrationIfNeeded()
 
-        val credential = try {
-            credentialProvider() ?: run {
-                setFailed("Failed to obtain device credential.")
-                return
-            }
-        } catch (e: Exception) {
-            setFailed("Authentication error: ${e.message}")
-            return
-        }
+        val credential = fetchCredential() ?: return
 
         when (val result = certProvisioningFlow.execute(credential)) {
             is CertProvisioningResult.Success -> {
@@ -250,6 +276,23 @@ class IntegrationSetupViewModel(
             when (val result = relayApiClient.updateSecrets(subdomain, integrationIds)) {
                 is RelayApiResult.Success -> {
                     val newSecrets = result.data.secrets
+                    // Deliberately NOT preceded by a `catch (e: CancellationException)`
+                    // guard, unlike the credential fetch above (issue #667). This catch is
+                    // safe for a *structural* reason rather than a caller-dependent one:
+                    // the try wraps a single call whose sole production implementation
+                    // (`FileCertificateStore`, bound in `AppModule`) delegates to a
+                    // non-suspend `atomicWrite`, and `withContext` occurs zero times in all
+                    // of `app/src/main`. A suspend function whose try contains no suspension
+                    // point never takes delivery of cooperative cancellation. The
+                    // genuinely cancellable call in this loop, `relayApiClient.updateSecrets`,
+                    // sits outside the try and already propagates.
+                    //
+                    // That invariant is pinned by `IntegrationSecretsPersistCancellationTest`
+                    // — make `atomicWrite` suspending and it fails naming this site. Read its
+                    // diagnostic before wrapping anything here in NonCancellable: if
+                    // cancellation ever does reach this catch, `logCaughtException` dispatches
+                    // on an application-lifetime scope (#542), so the bogus crash record
+                    // outlives the cancelled ViewModel.
                     try {
                         certStore.storeIntegrationSecrets(newSecrets)
                     } catch (e: Exception) {
