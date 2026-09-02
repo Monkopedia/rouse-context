@@ -152,6 +152,17 @@ impl ApiError {
 /// Type alias for API handler results.
 pub type ApiResult = Result<Response, Response>;
 
+/// The `(status, body)` pair every [`ApiError`] constructor returns.
+///
+/// Prefer this over a fully-built [`Response`] as a `Result`'s `Err` type. An
+/// `axum` `Response` is at least 128 bytes, and because every `Result` is as
+/// wide as its largest variant, one in an error position widens every frame in
+/// the call chain that carries it -- `clippy::result_large_err`. This pair is
+/// ~72 bytes and, being exactly what the constructors already produce, converts
+/// to the identical `Response` via the same `IntoResponse` impl. Build the
+/// `Response` once, at the handler boundary.
+pub type ApiErrorResponse = (StatusCode, Json<ApiError>);
+
 /// Convert (StatusCode, Json<ApiError>) into a Response for use in Result::Err.
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {

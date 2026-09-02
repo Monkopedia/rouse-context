@@ -48,7 +48,7 @@ use tokio::net::TcpListener;
 use tracing::{info, warn};
 
 use crate::mux::frame::{ErrorCode, Frame, FrameType};
-use crate::passthrough::SessionRegistry;
+use crate::passthrough::{EmitFrameError, SessionRegistry};
 
 /// Per-endpoint request counters and captured synthetic wake events.
 ///
@@ -335,7 +335,7 @@ pub async fn handle_open_stream(
             }),
         )
             .into_response(),
-        Err(()) => (
+        Err(EmitFrameError::ChannelClosed) => (
             StatusCode::CONFLICT,
             Json(OpenStreamResponse {
                 opened: false,
@@ -425,7 +425,7 @@ pub async fn handle_emit_stream_error(
             }),
         )
             .into_response(),
-        Err(()) => (
+        Err(EmitFrameError::ChannelClosed) => (
             StatusCode::CONFLICT,
             Json(EmitStreamErrorResponse {
                 emitted: false,
@@ -573,6 +573,37 @@ mod tests {
         )
         .await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn emit_stream_error_on_torn_down_session_is_conflict_not_not_found() {
+        // The session is registered but its reader is gone -- a teardown racing
+        // the emit. This is the `EmitFrameError::ChannelClosed` arm, and it must
+        // stay distinguishable from "no such subdomain": 409 says the device was
+        // there and went away, 404 says it was never there. Before this was a
+        // named error it was `Err(())`, which said neither.
+        let (state, registry) = admin_state();
+        let frame_rx = register_fake_session(&registry, "dev-gone");
+        drop(frame_rx);
+
+        let router = build_admin_router(state);
+        let resp = post(
+            router,
+            "/test/emit-stream-error?subdomain=dev-gone&stream_id=1&code=2",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn open_stream_on_torn_down_session_is_conflict_not_not_found() {
+        let (state, registry) = admin_state();
+        let frame_rx = register_fake_session(&registry, "dev-gone-2");
+        drop(frame_rx);
+
+        let router = build_admin_router(state);
+        let resp = post(router, "/test/open-stream?subdomain=dev-gone-2&stream_id=1").await;
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]
