@@ -36,7 +36,7 @@ import org.junit.rules.Timeout
  * Verifies the full client -> relay -> device passthrough path at the protocol level.
  *
  * Uses a [FakeTunnelClient] to simulate the relay/tunnel layer, wired to
- * [TunnelSessionManager] + [SessionHandler] for device-side handling.
+ * [SessionHandler] for device-side handling via [collectSessionsInto].
  * The client side performs TLS handshake over channel-backed [MuxStream]s
  * and sends HTTP/JSON-RPC requests to the MCP server.
  *
@@ -74,8 +74,7 @@ class ClientPassthroughTest {
             certProvider = certStore,
             mcpSessionFactory = KtorMcpSessionFactory(registry, tokenStore)
         )
-        val manager = TunnelSessionManager(fakeTunnel, handler, this)
-        manager.start()
+        val sessionCollector = collectSessionsInto(fakeTunnel, handler)
 
         // Wait for manager to subscribe before emitting sessions
         withTimeout(5_000) {
@@ -139,7 +138,7 @@ class ClientPassthroughTest {
             "Tool call response should pass through the full tunnel path"
         )
 
-        manager.stop()
+        sessionCollector.cancel()
         coroutineContext.cancelChildren()
     }
 
@@ -161,8 +160,7 @@ class ClientPassthroughTest {
             certProvider = certStore,
             mcpSessionFactory = KtorMcpSessionFactory(registry, tokenStore)
         )
-        val manager = TunnelSessionManager(fakeTunnel, handler, this)
-        manager.start()
+        val sessionCollector = collectSessionsInto(fakeTunnel, handler)
 
         withTimeout(5_000) {
             fakeTunnel.subscriberCount.first { it > 0 }
@@ -210,7 +208,7 @@ class ClientPassthroughTest {
             )
         }
 
-        manager.stop()
+        sessionCollector.cancel()
         coroutineContext.cancelChildren()
     }
 
@@ -232,8 +230,7 @@ class ClientPassthroughTest {
             certProvider = certStore,
             mcpSessionFactory = KtorMcpSessionFactory(registry, tokenStore)
         )
-        val manager = TunnelSessionManager(fakeTunnel, handler, this)
-        manager.start()
+        val sessionCollector = collectSessionsInto(fakeTunnel, handler)
 
         withTimeout(5_000) {
             fakeTunnel.subscriberCount.first { it > 0 }
@@ -270,6 +267,19 @@ class ClientPassthroughTest {
         val initResult2 = withTimeout(10_000) {
             httpPostFull(clientIn2, clientOut2, "/mcp", initRequest, token)
         }
+        // Carried over from TunnelSessionManagerTest when that near-duplicate
+        // file was deleted (#671): assert both handshakes actually succeeded
+        // before reading session ids off them, so a failed initialize surfaces
+        // here instead of as a confusing null session id further down.
+        assertTrue(
+            mcpJson.parseToJsonElement(initResult1.body).jsonObject["result"] != null,
+            "Stream 1 initialize should succeed"
+        )
+        assertTrue(
+            mcpJson.parseToJsonElement(initResult2.body).jsonObject["result"] != null,
+            "Stream 2 initialize should succeed"
+        )
+
         val sessionId1 = initResult1.sessionId
         val sessionId2 = initResult2.sessionId
 
@@ -302,7 +312,7 @@ class ClientPassthroughTest {
         assertEquals("client-one", text1, "Client 1 should get its own response")
         assertEquals("client-two", text2, "Client 2 should get its own response")
 
-        manager.stop()
+        sessionCollector.cancel()
         coroutineContext.cancelChildren()
     }
 

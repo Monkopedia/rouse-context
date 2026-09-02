@@ -194,6 +194,57 @@ class TunnelBoundaryFailureReportingTest {
         )
     }
 
+    // ------------------------------------------------ collector survival
+
+    @Test
+    fun `an ordinary session failure does not stop the collector`() {
+        // Migrated from `:core:bridge`'s TunnelSessionManagerDefectVisibilityTest
+        // when that class was deleted (#671). It was pinned there against
+        // TunnelSessionManager -- a collector nothing ever constructed -- so
+        // the property read as covered while the collector that actually runs
+        // had no test for it at all. This is that test, on the shipped path.
+        //
+        // The tests above all deliver exactly one stream, so every one of them
+        // stays green on a boundary that handles its first failure and then
+        // stops collecting forever. Only a second stream can tell the
+        // difference, which is why this one emits two.
+        val handled = mutableListOf<UInt>()
+        coEvery { sessionHandler.handleStream(any()) } coAnswers {
+            val stream = firstArg<MuxStream>()
+            handled += stream.id
+            if (stream.id == FIRST_STREAM_ID) {
+                throw IOException("Connection reset by peer")
+            }
+        }
+
+        val controller = Robolectric.buildService(TunnelForegroundService::class.java)
+        controller.create()
+        drainMain()
+
+        tunnelClient.incoming.tryEmit(StubMuxStream(FIRST_STREAM_ID))
+        drainMain()
+        drainMain()
+
+        tunnelClient.incoming.tryEmit(StubMuxStream(SECOND_STREAM_ID))
+        drainMain()
+        drainMain()
+
+        assertEquals(
+            "The collector stopped after one ordinary session failure. A peer " +
+                "hanging up is normal and frequent; if it ends collection then " +
+                "every later stream is dropped in silence with the service " +
+                "still sitting in the foreground looking connected.",
+            listOf(FIRST_STREAM_ID, SECOND_STREAM_ID),
+            handled
+        )
+        assertEquals(
+            "Surviving the failure must not mean reporting it: a routine " +
+                "disconnect stays out of the crash channel (#642).",
+            emptyList<Throwable>(),
+            crashReporter.reported
+        )
+    }
+
     // ------------------------------------------------------- cancellation
 
     @Test
@@ -261,8 +312,7 @@ class TunnelBoundaryFailureReportingTest {
         override fun setCollectionEnabled(enabled: Boolean) = Unit
     }
 
-    private class StubMuxStream : MuxStream {
-        override val id: UInt = 7u
+    private class StubMuxStream(override val id: UInt = 7u) : MuxStream {
         override val incoming: Flow<ByteArray> = emptyFlow()
         override val isClosed: Boolean = false
         override suspend fun send(data: ByteArray) = Unit
@@ -295,5 +345,10 @@ class TunnelBoundaryFailureReportingTest {
         override fun release() {
             isHeld = false
         }
+    }
+
+    private companion object {
+        const val FIRST_STREAM_ID: UInt = 1u
+        const val SECOND_STREAM_ID: UInt = 2u
     }
 }
