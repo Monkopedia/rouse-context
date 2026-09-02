@@ -10,7 +10,6 @@
     <ID>CyclomaticComplexMethod:SessionHandlerTest.kt$SessionHandlerTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, host: String = "test.rousecontext.com", sessionId: String? = null ): HttpResult</ID>
     <ID>CyclomaticComplexMethod:TestCommandProvider.kt$TestCommandProvider$override fun call(method: String, arg: String?, extras: Bundle?): Bundle?</ID>
     <ID>CyclomaticComplexMethod:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, sessionId: String? = null ): HttpResult</ID>
-    <ID>CyclomaticComplexMethod:TunnelSessionManagerTest.kt$TunnelSessionManagerTest$@Suppress("LongParameterList") private fun httpPostFull( input: InputStream, output: OutputStream, path: String, body: String, bearerToken: String? = null, sessionId: String? = null ): HttpResult</ID>
     <ID>EmptyFunctionBlock:SelfCertVerifierTest.kt$FailingCertificateStore${}</ID>
     <ID>EmptyFunctionBlock:SelfCertVerifierTest.kt$SecurityCertificateStore${}</ID>
     <ID>LargeClass:ScreenScreenshotTest.kt$ScreenScreenshotTest</ID>
@@ -33,7 +32,6 @@
     <ID>LongMethod:TlsAcceptorTest.kt$TlsAcceptorTest$@Test fun `TLS handshake completes when multiple TLS records arrive in single DATA frame`()</ID>
     <ID>LongMethod:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$@Test fun `concurrent streams serve independent MCP sessions through tunnel`()</ID>
     <ID>LongMethod:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$@Test fun `full tool call flow through TLS tunnel`()</ID>
-    <ID>LongMethod:TunnelSessionManagerTest.kt$TunnelSessionManagerTest$@Test fun `concurrent streams handled independently`()</ID>
     <ID>LongMethod:WebSocketMuxTest.kt$WebSocketMuxTest$@Test fun `multiple streams multiplex over single WebSocket`()</ID>
     <ID>LoopWithTooManyJumpStatements:ClaudeFullFlowEndToEndTest.kt$ClaudeFullFlowEndToEndTest$while</ID>
     <ID>LoopWithTooManyJumpStatements:ClientPassthroughTest.kt$ClientPassthroughTest$while</ID>
@@ -42,7 +40,6 @@
     <ID>LoopWithTooManyJumpStatements:SessionHandlerTest.kt$SessionHandlerTest$while</ID>
     <ID>LoopWithTooManyJumpStatements:TestCertHelper.kt$while</ID>
     <ID>LoopWithTooManyJumpStatements:TunnelMcpIntegrationTest.kt$TunnelMcpIntegrationTest$while</ID>
-    <ID>LoopWithTooManyJumpStatements:TunnelSessionManagerTest.kt$TunnelSessionManagerTest$while</ID>
     <ID>NestedBlockDepth:ColdStartEndToEndTest.kt$ColdStartEndToEndTest$private fun performOAuthFlow(): String</ID>
     <ID>NestedBlockDepth:IntegrationOrthogonalityTest.kt$IntegrationOrthogonalityTest$@Test fun `no integration package imports from a sibling integration package`()</ID>
     <ID>NestedBlockDepth:IntegrationToolsTest.kt$IntegrationToolsTest$private fun performOAuthFlow( client: OkHttpClient, baseUrl: String, integrationId: String ): String</ID>

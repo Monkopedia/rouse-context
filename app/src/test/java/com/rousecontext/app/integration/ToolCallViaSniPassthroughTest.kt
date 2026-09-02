@@ -4,7 +4,6 @@ import com.rousecontext.app.integration.TunnelTestSupport.awaitState
 import com.rousecontext.app.integration.harness.AppIntegrationTestHarness
 import com.rousecontext.app.integration.harness.TestEchoMcpIntegration
 import com.rousecontext.bridge.SessionHandler
-import com.rousecontext.bridge.TunnelSessionManager
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.TunnelClientImpl
 import com.rousecontext.tunnel.TunnelState
@@ -17,8 +16,10 @@ import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.After
@@ -45,10 +46,24 @@ import org.robolectric.RobolectricTestRunner
  *    the device's mux session. The test-mode hook in
  *    `relay/src/main.rs::handle_connection` records the routed SNI into
  *    [com.rousecontext.tunnel.integration.TestRelayManager.routedPassthroughSnis].
- * 3. The real device-side [TunnelClientImpl] + [TunnelSessionManager] +
- *    [SessionHandler] from the production Koin graph are wired up and
- *    receive the inbound mux stream (the stream handshakes the inner
- *    TLS session before hitting MCP routing).
+ * 3. The device-side [SessionHandler] -- the real one, resolved from the
+ *    production Koin graph -- receives the inbound mux stream (the stream
+ *    handshakes the inner TLS session before hitting MCP routing).
+ *
+ * Precisely which pieces are production and which are test scaffolding, since
+ * this comment claimed more than it delivered until #671:
+ *
+ *  - [SessionHandler] and [CertificateStore] come from the app's real Koin
+ *    graph via `harness.koin.get()`.
+ *  - [TunnelClientImpl] is the production class but is constructed here by
+ *    [TunnelTestSupport.buildTunnel] with a *fixture* websocket factory, so
+ *    it can speak mTLS to the harness relay.
+ *  - The collector feeding the handler is written out inline below, in the
+ *    same shape as `TunnelForegroundService.collectIncomingSessions` -- the
+ *    collector that actually ships. It used to be a `TunnelSessionManager`
+ *    built by hand here while this comment called it part of the Koin graph;
+ *    it never was, and nothing in production ever built one. #671 deleted
+ *    that class.
  *
  * ## What this test does NOT exercise
  *
@@ -74,7 +89,7 @@ class ToolCallViaSniPassthroughTest {
     )
     private lateinit var tunnelScope: CoroutineScope
     private var tunnel: TunnelClientImpl? = null
-    private var sessionManager: TunnelSessionManager? = null
+    private var sessionCollector: Job? = null
 
     @Before
     fun setUp() {
@@ -84,8 +99,8 @@ class ToolCallViaSniPassthroughTest {
 
     @After
     fun tearDown() {
-        sessionManager?.stop()
-        sessionManager = null
+        sessionCollector?.cancel()
+        sessionCollector = null
         runBlocking { tunnel?.disconnect() }
         tunnel = null
         // Join, not just cancel: a leftover tunnel coroutine that outlives
@@ -114,11 +129,20 @@ class ToolCallViaSniPassthroughTest {
             )
 
             val sessionHandler: SessionHandler = harness.koin.get()
-            sessionManager = TunnelSessionManager(
-                tunnelClient = connectedTunnel,
-                sessionHandler = sessionHandler,
-                scope = tunnelScope
-            ).also { it.start() }
+            sessionCollector = tunnelScope.launch {
+                connectedTunnel.incomingSessions.collect { stream ->
+                    launch {
+                        try {
+                            sessionHandler.handleStream(stream)
+                        } catch (_: Exception) {
+                            // Expected here: the harness relay's stub ACME hands
+                            // back a non-parseable "stub-cert", so the inner TLS
+                            // handshake cannot complete (see the class kdoc).
+                            // The routed-SNI assertion is what this test is for.
+                        }
+                    }
+                }
+            }
 
             // Per-integration secret is the prefix the relay uses to match the
             // SNI label to a specific integration on this device.

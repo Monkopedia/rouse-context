@@ -71,12 +71,11 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 ### 3. Core Bridge (JVM tests: `core/bridge/src/jvmTest/`)
 
-**Files:** 2 test classes
+**Files:** 1 test class
 
 | Test Class | Coverage | Status |
 |---|---|---|
 | `SessionHandlerTest` | Session routing and cleanup | ✓ Good |
-| `TunnelSessionManagerTest` | Tunnel state management | ✓ Good |
 
 **Gaps:**
 - No tests for **concurrent session operations**

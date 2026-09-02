@@ -17,7 +17,7 @@ AI client ──TLS──▶ relay (SNI passthrough) ──mux/WebSocket──�
 
 `TunnelForegroundService` collects `TunnelClient.incomingSessions` itself and calls `sessionHandler.handleStream(stream)` directly, one child coroutine per stream (`work/src/main/kotlin/com/rousecontext/work/TunnelForegroundService.kt:254-279`).
 
-`:core:bridge` also contains a `TunnelSessionManager` that collects `incomingSessions` and dispatches to the same `SessionHandler`. **It is not on this path.** No `main` source set constructs it and there is no Koin binding for it; the only callers are tests (`core/bridge/src/jvmTest/.../TunnelSessionManagerTest.kt`, `ClientPassthroughTest.kt`, and `app/src/test/.../ToolCallViaSniPassthroughTest.kt`). Its broad `catch (_: Exception)` around `handleStream` therefore describes nothing that ships — a reader chasing "where do session errors surface?" wants the three-way policy under [Session handling and failure discrimination](#session-handling-and-failure-discrimination) instead. Whether that class should be deleted or fixed to match the shipped policy is tracked in issue #638.
+That service collector is the **only** one. `:core:bridge` used to also hold a `TunnelSessionManager` that collected `incomingSessions` and dispatched to the same `SessionHandler`, in `jvmMain` — but no `main` source set ever constructed it and it never had a Koin binding, so it read as a second, competing production collector that was one wiring change away from being used, and its `catch (_: Exception)` documented a policy that ran nowhere. It was test scaffolding in a production source set; #671 deleted it and moved the collect-into-handler helper its tests needed to `core/bridge/src/jvmTest/.../SessionCollection.kt`. For where session errors actually surface, see [Session handling and failure discrimination](#session-handling-and-failure-discrimination).
 
 Per-integration audit, notification, and permission state surfaces in the app UI; the integration itself only supplies metadata, an MCP `provider`, and an availability check.
 
@@ -30,7 +30,7 @@ Canonical list from `settings.gradle.kts:25-35`. Eleven modules; eight ship in t
 | `:app` | `app/` | Single Activity, Koin graph, navigation, integration registry, all setup/manage screens. Only module that knows about every other module. | `:core:tunnel`, `:core:mcp`, `:core:bridge`, `:api`, `:integrations`, `:notifications`, `:work` |
 | `:core:tunnel` | `core/tunnel/` | KMP. Mux protocol, WebSocket client, `CertificateStore`, `OnboardingFlow`, `CertProvisioningFlow`, `RelayApiClient`. No MCP knowledge. | (none) |
 | `:core:mcp` | `core/mcp/` | KMP. `McpSession`, `McpServerProvider`, OAuth device-code flow, token store, HTTP routing, `AuditListener`. | (none) |
-| `:core:bridge` | `core/bridge/` | KMP. Wires `:core:tunnel` mux streams to `:core:mcp` sessions: `SessionHandler`, `McpSessionFactory`, `HttpHeaderInjector`, `TlsCertProvider`. Also holds `TunnelSessionManager`, which nothing in a `main` source set constructs (#638). | `:core:tunnel`, `:core:mcp` |
+| `:core:bridge` | `core/bridge/` | KMP. Wires `:core:tunnel` mux streams to `:core:mcp` sessions: `SessionHandler`, `McpSessionFactory`, `HttpHeaderInjector`, `TlsCertProvider`. | `:core:tunnel`, `:core:mcp` |
 | `:api` | `api/` | The `McpIntegration` interface plus the supporting `IntegrationStateStore` / `NotificationSettingsProvider` contracts. | `:core:mcp` |
 | `:integrations` | `integrations/` | Hosts every shipped MCP server: `health`, `notifications`, `outreach`, `usage`. Each subpackage exports an `McpServerProvider` plus its own data layer. | `:core:mcp`, `:api`, `:notifications` |
 | `:notifications` | `notifications/` | Notification channels, foreground notification builder, audit Room database, post-session decisioning. | `:core:tunnel`, `:core:mcp`, `:api` |
@@ -318,7 +318,7 @@ Other key bindings:
 - `single<IntegrationStateStore> { DataStoreIntegrationStateStore(...) }`.
 - `single<NotificationSettingsProvider> { DataStoreNotificationSettingsProvider(...) }`.
 - `single<AuditListener> { ... }` — `SessionActivityAuditListener` wrapping the Room-backed `RoomAuditListener`; consumed by `:core:mcp`.
-- `single<TlsCertProvider> { CertStoreTlsCertProvider(...) }`, `single<McpSessionFactory> { SharedMcpSessionFactory(...) }`, and `single<SessionHandler> { SessionHandler(certProvider, mcpSessionFactory) }` — the `:core:bridge` trio the foreground service consumes. `SessionHandler` is the whole bridge wiring; there is **no** `TunnelSessionManager` binding, here or anywhere else (see the Architecture Overview and #638).
+- `single<TlsCertProvider> { CertStoreTlsCertProvider(...) }`, `single<McpSessionFactory> { SharedMcpSessionFactory(...) }`, and `single<SessionHandler> { SessionHandler(certProvider, mcpSessionFactory) }` — the `:core:bridge` trio the foreground service consumes. `SessionHandler` is the whole bridge wiring: `:core:bridge` exposes no collector to bind, because the only collector lives in `TunnelForegroundService` (see the Architecture Overview and #671).
 - `single { IdleTimeoutManager(...) }`, `single { WakelockManager(...) }`, `single<SpuriousWakeRecorder> { ... }` — the `:work` collaborators the service injects.
 
 ### Integration state machine
