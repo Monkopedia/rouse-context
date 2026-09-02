@@ -16,9 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: llvm-tools-preview
+      # No toolchain version here on purpose: `relay/rust-toolchain.toml` is the
+      # single source of truth, and `rustup toolchain install` with no argument
+      # installs the toolchain (and the components) that file selects. Naming a
+      # version here as well would let the two drift apart, and a floating
+      # `dtolnay/rust-toolchain@stable` is what broke this job with no repo
+      # change at all (issue #683).
+      - name: Install pinned Rust toolchain
+        working-directory: relay
+        run: |
+          rustup toolchain install
+          # Positive control: the log records which toolchain actually ran, so a
+          # future "CI went red overnight" can be checked against it directly.
+          rustup show active-toolchain
+          cargo --version
+          cargo clippy --version
       - name: Cache
         uses: actions/cache@v4
         with:
@@ -26,7 +38,10 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             relay/target
-          key: relay-ci-${{ hashFiles('relay/Cargo.lock') }}
+          # The toolchain file is part of the key: a toolchain bump changes the
+          # compiler fingerprint, so a `relay/target` built by the old one is not
+          # reusable and keeping it only invites confusing partial rebuilds.
+          key: relay-ci-${{ hashFiles('relay/Cargo.lock', 'relay/rust-toolchain.toml') }}
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Test with coverage
