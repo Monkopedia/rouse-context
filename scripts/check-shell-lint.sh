@@ -268,9 +268,9 @@ if [[ ${#workflows[@]} -eq 0 ]]; then
 fi
 
 # A REPORTED count, not the discovery predicate -- actionlint does the real YAML
-# parsing. It exists because `exit 0` prints identically for 70 linted blocks
+# parsing. It exists because `exit 0` prints identically for 71 linted blocks
 # and for zero, so a green run has to say how much it looked at. Cross-checked
-# against a proper YAML parse on the tree this landed against: both say 70.
+# against a proper YAML parse on the tree this landed against: both say 71.
 run_blocks=0
 for wf in "${workflows[@]}"; do
   # `grep -c` exits 1 when the count is zero, and under `set -e` that would kill
