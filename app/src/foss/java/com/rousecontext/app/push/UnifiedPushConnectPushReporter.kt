@@ -4,6 +4,7 @@ import android.util.Log
 import com.rousecontext.app.delivery.UnifiedPushBackgroundDelivery
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.work.ConnectPushReporter
+import kotlinx.coroutines.CancellationException
 
 /**
  * `foss`-flavor [ConnectPushReporter]: re-reports the persisted UnifiedPush
@@ -39,6 +40,14 @@ class UnifiedPushConnectPushReporter(
                 value = endpoint
             )
             Log.i(TAG, "Reported UnifiedPush endpoint to relay on connect")
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch (issue #666): CancellationException
+            // is an Exception on the JVM. This runs on the foreground service's
+            // lifecycleScope, which IS cancelled at session teardown, so an
+            // ordinary disconnect would otherwise be logged as a failure to
+            // report the endpoint and the coroutine would continue past the
+            // point where it should have unwound.
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to report UnifiedPush endpoint on connect", e)
         }

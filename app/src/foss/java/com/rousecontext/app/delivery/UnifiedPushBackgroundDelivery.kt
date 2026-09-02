@@ -12,6 +12,7 @@ import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
 import com.rousecontext.tunnel.TunnelClient
 import com.rousecontext.tunnel.TunnelState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -249,6 +250,15 @@ class UnifiedPushBackgroundDelivery(
         try {
             tunnelClient.sendPushEndpoint(kind = PUSH_KIND, value = endpoint)
             Log.i(TAG, "Refreshed UnifiedPush endpoint over tunnel")
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch (issue #666): CancellationException
+            // is an Exception on the JVM. `appScope` is application-lifetime and
+            // never cancelled today, so unlike the two connect-time reporters
+            // this guard is defence in depth rather than a live bug — but a
+            // cancelled send is not a failed send whatever scope it runs on, and
+            // leaving the swallow here would make the class inconsistent with
+            // the reporter that re-sends the very same endpoint.
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to refresh endpoint; relay retains the registered value", e)
         }
