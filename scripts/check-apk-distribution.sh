@@ -191,7 +191,15 @@ dex_count=$(find "$EXTRACT" -maxdepth 1 -name 'classes*.dex' -type f | wc -l)
 echo "Checking $(basename "$APK")"
 echo "  path        : $APK"
 echo "  size        : ${apk_bytes} bytes"
-echo "  sha256      : $(sha256sum "$APK" | cut -d' ' -f1)"
+# Assigned, then printed. Substituted into the `echo`, the statuses of both
+# `sha256sum` and `cut` are discarded, so an APK that could not be hashed would
+# print "sha256      : " and this gate would go on to render a verdict about it
+# anyway -- and this line is the identity of the artifact every finding below is
+# attributed to. `set -o pipefail` makes the assignment cover both commands, and
+# `sha256sum` writes its own reason to stderr, so an unhashable APK stops the
+# gate WITH an explanation instead of silently losing its identity.
+apk_sha=$(sha256sum "$APK" | cut -d' ' -f1)
+echo "  sha256      : $apk_sha"
 echo "  entries     : ${entry_count} files, ${dex_count} dex"
 echo "  expecting   : ${EXPECT} distribution"
 echo
@@ -264,8 +272,21 @@ if [ "$EXPECT" = "foss" ]; then
     done
     echo >&2
     echo "  Google/Firebase packages linked in:" >&2
+    # `set +e` around it rather than `|| true` after it -- the same shape
+    # `count_occurrences` and `files_matching` above already use, and the reason
+    # to prefer it here is that `|| true` puts `grep_scoped` in a condition,
+    # where `set -e` is silently disabled for everything INSIDE the function too
+    # (SC2310), including the `fail` in its unknown-scope arm.
+    #
+    # The status stays ignored either way, and deliberately: `grep` exits 1 on
+    # no match, this is the diagnostic listing for a failure the `$total` test
+    # above has ALREADY decided, and the `fail` on the next line is the verdict.
+    # Letting the status escape would kill the gate between its header and its
+    # verdict -- exit 1 with a half-written explanation, the #628 shape.
+    set +e
     grep_scoped -o all 'com[./]google[./](firebase|android[./]gms)[./][a-zA-Z]+' "$EXTRACT" |
-      sed 's/^.*://' | sort -u | sed 's/^/    /' >&2 || true
+      sed 's/^.*://' | sort -u | sed 's/^/    /' >&2
+    set -e
     fail "$total Google/Firebase marker occurrence(s) in $APK. A bare build must produce ZERO. Something set the \`google\` property (a -P flag, a gradle.properties line, or an ORG_GRADLE_PROJECT_google env var), or the wrong artifact was staged."
   fi
   echo "OK: no Google/Firebase markers in $(basename "$APK") -- FOSS distribution confirmed."

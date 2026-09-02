@@ -104,7 +104,14 @@ probe_line() {
 # alternation must not drop or typo one of the originals.
 for name in token bearer verifier fcmToken firebaseToken pkceVerifier \
   accessToken refreshToken clientSecret privateKey; do
-  expect 1 "pre-existing \$$name is caught" "$(probe_line "$name")"
+  # Assigned, then passed. Substituted straight into the argument list,
+  # `probe_line`'s status is discarded AND `set -e` is disabled inside it
+  # (SC2312/SC2311), so a `printf` that failed would hand `expect` an EMPTY
+  # source line -- which the gate does not match, which `expect 1` then reports
+  # as "the pattern stopped catching $name". A harness that manufactures its own
+  # red is worse than one that stops.
+  line=$(probe_line "$name")
+  expect 1 "pre-existing \$$name is caught" "$line"
 done
 
 # The names #579 added: the camelCase gaps plus a snake_case spelling of every
@@ -113,7 +120,9 @@ for name in apiKey sessionToken integrationSecret secretPrefix \
   fcm_token firebase_token pkce_verifier access_token refresh_token \
   client_secret private_key api_key session_token integration_secret \
   secret_prefix; do
-  expect 1 "newly covered \$$name is caught" "$(probe_line "$name")"
+  # Assigned, then passed -- see the loop above.
+  line=$(probe_line "$name")
+  expect 1 "newly covered \$$name is caught" "$line"
 done
 
 # Values docs/internal/logging.md explicitly says are SAFE to log. These are the

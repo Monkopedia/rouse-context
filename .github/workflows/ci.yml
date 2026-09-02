@@ -35,7 +35,17 @@ jobs:
           SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
           set -euo pipefail
-          echo "runner image ships: $(shellcheck --version 2>/dev/null | sed -n 's/^version: /shellcheck /p' || echo 'no shellcheck')"
+          # Assigned with an explicit failure branch rather than substituted
+          # into the echo. This line is a DIAGNOSTIC printed before the pinned
+          # install, so that the "the runner already ships one" claim above
+          # stays checkable -- which means a runner with no shellcheck at all
+          # must reach the install below, not die here. The `|| runner_sc=''`
+          # is what guarantees that, and unlike an in-substitution `|| echo` it
+          # also satisfies SC2312, which accepts only the literal `|| true` /
+          # `||:` forms (measured).
+          runner_sc=$(shellcheck --version 2>/dev/null |
+            sed -n 's/^version: /shellcheck /p') || runner_sc=""
+          echo "runner image ships: ${runner_sc:-no shellcheck}"
           url="https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
           curl -fsSL --retry 3 --retry-delay 5 -o /tmp/shellcheck.tar.xz "$url"
           echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -

@@ -35,7 +35,19 @@ if [[ ! -f "${SRC}" ]]; then
 fi
 
 if [[ ! -r "${SRC}" ]]; then
-    echo "error: source ACME key at ${SRC} is not readable by $(id -un)" >&2
+    # The `|| true` is deliberate, and it is not a way to reach green. This is
+    # the diagnostic half of a failure that has ALREADY been decided -- the
+    # `exit 1` below is the verdict -- and the only thing that matters here is
+    # that the reason reaches stderr first. Hoisting `id -un` into an assignment
+    # would let a failing `id` kill this script BEFORE it says why it is
+    # unhappy: exit 1 with no output, which reads as a crash rather than as the
+    # finding it is (#628). The username is a courtesy; losing the diagnosis to
+    # protect it would be the wrong trade on a script that guards ACME key
+    # material. (`|| true` and not `|| echo unknown`: measured, only the
+    # literal `|| true` / `||:` forms satisfy SC2312 -- so on a failing `id`
+    # the name comes out empty, which the quotes above make readable.)
+    echo "error: source ACME key at ${SRC} is not readable by user" \
+        "'$(id -un || true)'" >&2
     exit 1
 fi
 

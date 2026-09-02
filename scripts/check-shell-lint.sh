@@ -126,13 +126,39 @@
 # the same change). The strictest level lands clean, so there is no reason to
 # accept a weaker one, and no `-S` flag is passed.
 #
-# The OPTIONAL checks (`-o all`) are NOT enabled: 501 findings, 485 of them
-# SC2250 (`${var}` bracing) and SC2292 (`[[` over `[`) -- pure style, a
-# whole-tree rewrite for no defect-detection gain. The remaining 15 are
-# SC2310/SC2312 masked-return notes; those are on-topic for gates whose `grep`
-# exit status is load-bearing, but each needs its own judgement call (some of
-# the masking is deliberate), so they are tracked as follow-up rather than
-# either blocking this gate or being silenced wholesale.
+# TWO of the OPTIONAL checks are enabled on top of that, and only two:
+# `check-extra-masked-returns` (SC2312, a command whose status is thrown away
+# inside a command substitution) and `check-set-e-suppressed` (SC2310/SC2311, a
+# function invoked in a condition, which turns `set -e` off inside it). Neither
+# is style here. Every gate in this repo is a `grep` pipeline under
+# `set -euo pipefail` where `grep` exiting 1 on no match is the NORMAL case, and
+# whether that status is masked decides whether the gate reports its finding or
+# dies before printing it. Both #628 gates shipped the unmasked half of that.
+#
+# Turning them on was not a matter of setting the flag. Every site live on the
+# tree this landed against was triaged one at a time (#657) -- 21 in the tracked
+# `*.sh` (19 SC2312 + 2 SC2310, over 12 files, this one included) and 6 more in
+# the inline `run:` shell of two workflow files, which phase 2 reaches because
+# it hands these same options through. 19 were RESTRUCTURED so the status is
+# checked (assign-then-test, or the subprocess removed outright); 5 kept the
+# mask behind an explicit `|| true` and 3 behind a targeted `disable=`, each
+# with a comment saying why the discarded status is genuinely uninteresting --
+# in every case because the masked command is the diagnostic half of a failure
+# that has ALREADY been decided, and letting its status escape would kill the
+# script between the header and the verdict. THREE of the restructures were not
+# cosmetic, each measured against the old code rather than argued:
+# check-zombie-screens.sh with a broken `awk` printed "OK: no zombie screens"
+# and exited 0 over a tree containing one; deploy/deploy.sh with an unreadable
+# artifact printed "Binary size:  " and went on to `scp` it to production and
+# restart the service, exiting 0; and backfill-relay-secrets.sh printed
+# "[set] NAME ( bytes)" for a secret it could not open and let the failed push
+# pass for a successful one. A `# shellcheck disable=` in this tree is a claim
+# with a reason attached, not a route to green.
+#
+# The REST of `-o all` stays off: measured on the tree this landed as, 637
+# findings and -- after the two above are enabled and their sites resolved --
+# 100% of them pure style: 591 SC2250 (`${var}` bracing) and 46 SC2292 (`[[`
+# over `[`). A whole-tree rewrite for no defect-detection gain.
 #
 # VERSION
 # -------
@@ -161,6 +187,13 @@ EXPECTED_SHELLCHECK_VERSION=0.11.0
 # Same reasoning, same lockstep, for the workflow phase. See the pinned install
 # in .github/workflows/ci.yml.
 EXPECTED_ACTIONLINT_VERSION=1.7.12
+
+# The two optional checks this gate turns on, in ONE place because both phases
+# use them: phase 1 passes them to shellcheck directly, phase 2 passes them
+# through actionlint to the same binary. Split, the inline `run:` shell would be
+# free to drift to a weaker standard than the `*.sh` next to it. See SEVERITY
+# above for why these two and not `-o all`.
+SHELLCHECK_OPTIONAL_CHECKS=check-extra-masked-returns,check-set-e-suppressed
 
 root=${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
 
@@ -217,11 +250,25 @@ fi
 # is provably the one phase 1 just version-asserted rather than whatever a
 # later PATH lookup happens to find.
 shellcheck_bin=$(command -v shellcheck)
+# What actionlint runs on each `run:` block: the binary phase 1 just
+# version-asserted, plus the SAME optional checks phase 1 uses. actionlint
+# splits this string on spaces and execs it, so the two phases are one linter
+# with one configuration rather than two that happen to agree today.
+shellcheck_cmd="$shellcheck_bin -o $SHELLCHECK_OPTIONAL_CHECKS"
 
 # `git ls-files -z` + `mapfile -d ''` rather than a glob: NUL-delimited so a
 # path with a space cannot split, and recursive so scripts/tests/ and any future
 # directory are covered without this list being edited.
+# The `git ls-files` status is discarded by the process substitution, and that
+# is ACCEPTED here rather than restructured (#657). It is not a preference: the
+# `-z`/`mapfile -d ''` pairing is what makes a path containing a space safe, a
+# command substitution cannot carry NUL bytes at all, and so there is no
+# assign-then-test form that keeps the property this relies on. What stands in
+# for the status check is the assertion immediately below -- a git that failed
+# wrote nothing, which yields an EMPTY array, which is a RED gate. The one
+# outcome that must never happen, an empty list read as a clean tree, cannot.
 files=()
+# shellcheck disable=SC2312
 mapfile -d '' -t files < <(git ls-files -z -- '*.sh')
 
 # A gate that finds nothing to check must go RED. `shellcheck` over an empty
@@ -231,18 +278,21 @@ mapfile -d '' -t files < <(git ls-files -z -- '*.sh')
 if [[ ${#files[@]} -eq 0 ]]; then
   echo "FAIL: no tracked *.sh files found under $root." >&2
   echo "      This gate has nothing to check, which is a broken gate, not a" >&2
-  echo "      clean tree. Either the scripts moved or discovery is wrong." >&2
+  echo "      clean tree. Either the scripts moved, discovery is wrong, or the" >&2
+  echo "      'git ls-files' above failed -- this assertion is what stands in" >&2
+  echo "      for its deliberately discarded exit status." >&2
   exit 1
 fi
 
 echo "=== phase 1: tracked *.sh ==="
-echo "shellcheck $actual_version over ${#files[@]} tracked shell script(s):"
+echo "shellcheck $actual_version (-o $SHELLCHECK_OPTIONAL_CHECKS)" \
+  "over ${#files[@]} tracked shell script(s):"
 printf '  %s\n' "${files[@]}"
 echo
 
 # No `-S`: the default severity is the strictest, and `-f gcc` puts the file,
 # line and rule code on one grep-able line so a CI log names what to fix.
-shellcheck -f gcc -- "${files[@]}"
+shellcheck -o "$SHELLCHECK_OPTIONAL_CHECKS" -f gcc -- "${files[@]}"
 
 echo "OK: shellcheck clean across ${#files[@]} shell script(s)"
 
@@ -253,7 +303,13 @@ echo "OK: shellcheck clean across ${#files[@]} shell script(s)"
 echo
 echo "=== phase 2: inline run: shell in .github/workflows/ ==="
 
+# Same NUL-delimited discovery as the `*.sh` mapfile above, and the masking is
+# accepted for the same reason: a command substitution cannot carry NUL bytes,
+# so there is no assign-then-test form here, and the empty-array assertion below
+# is what stands in for the discarded status -- a `git ls-files` that failed
+# wrote nothing, which yields an empty array, which is a RED gate.
 workflows=()
+# shellcheck disable=SC2312
 mapfile -d '' -t workflows < <(
   git ls-files -z -- '.github/workflows/*.yml' '.github/workflows/*.yaml'
 )
@@ -263,7 +319,8 @@ mapfile -d '' -t workflows < <(
 if [[ ${#workflows[@]} -eq 0 ]]; then
   echo "FAIL: no tracked workflow files under $root/.github/workflows/." >&2
   echo "      This phase has nothing to lint, which is a broken gate rather" >&2
-  echo "      than a clean tree." >&2
+  echo "      than a clean tree -- and, as above, this is also what catches a" >&2
+  echo "      'git ls-files' that failed instead of finding nothing." >&2
   exit 1
 fi
 
@@ -316,7 +373,7 @@ CONTROL
 
 control_out=$(
   cd "$control_root" &&
-    actionlint -oneline -shellcheck "$shellcheck_bin" \
+    actionlint -oneline -shellcheck "$shellcheck_cmd" \
       .github/workflows/control.yml 2>&1 || true
 )
 if ! printf '%s\n' "$control_out" | grep -q 'SC2086'; then
@@ -366,7 +423,7 @@ echo
 # Captured, not piped: gating on the status of a pipeline gates on its LAST
 # command, and the annotation loop below is exactly such a pipeline.
 set +e
-workflow_out=$(actionlint -oneline -shellcheck "$shellcheck_bin" -- "${workflows[@]}" 2>&1)
+workflow_out=$(actionlint -oneline -shellcheck "$shellcheck_cmd" -- "${workflows[@]}" 2>&1)
 workflow_status=$?
 set -e
 

@@ -29,7 +29,17 @@
 
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+# Assigned, then cd'd, rather than `cd "$(git rev-parse ...)"`. Measured, so the
+# reason is the real one and not the obvious guess: the masked form does NOT
+# silently pass. `cd ""` is an error in bash, not a no-op, so a failing
+# `git rev-parse` did already stop the script. What it stopped with was
+# "<script>: line NN: cd: null directory" and exit 1 -- an error attributed to
+# the wrong command, on a line whose real problem is that this is not a git work
+# tree. As an assignment the failure is attributed to `git`, which has written
+# its own "fatal: not a git repository" to stderr, and the script exits with
+# git's status (128) instead of a `cd` diagnostic nobody can act on.
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
 
 # Extended regexes matched against a full `<module>/src/<sourceSet>` path. Each
 # entry MUST match at least one real source set; a pattern matching nothing is a

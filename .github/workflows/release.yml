@@ -83,15 +83,28 @@ jobs:
             # `find ... -printf '%f' | sort` rather than `ls` (SC2012): same
             # sorted basenames on this tree, but it does not break on a name
             # containing a newline or a glob character.
+            # The trailing `|| true` is deliberate and is not a route to
+            # green: this is the diagnostic half of a failure the `::error::`
+            # line above has ALREADY declared, and the `exit 1` below is the
+            # verdict. Hoisting the pipeline into an assignment would let a
+            # missing or unreadable changelogs/ directory kill the step here --
+            # after the error line, before the exit, with the listing that
+            # explains WHICH versionCodes do exist missing (#628's shape).
             echo "Present: $(find fastlane/metadata/android/en-US/changelogs/ \
-              -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ')"
+              -maxdepth 1 -type f -printf '%f\n' | sort | tr '\n' ' ' || true)"
             exit 1
           fi
           if [ ! -s "$F" ]; then
             echo "::error::$F exists but is empty."
             exit 1
           fi
-          echo "OK: $F ($(wc -c < "$F") bytes) for versionCode $CODE"
+          # Assigned, then printed. `-s "$F"` two lines up already established
+          # the file is non-empty, so a `wc` that cannot read it means the tree
+          # changed underneath this step -- worth stopping a signed RELEASE
+          # build over rather than printing "( bytes)" and shipping. `wc` writes
+          # its own reason to stderr first, so the step fails WITH one.
+          BYTES=$(wc -c < "$F")
+          echo "OK: $F ($BYTES bytes) for versionCode $CODE"
 
       - name: Stage FOSS APK
         run: |

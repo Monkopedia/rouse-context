@@ -159,6 +159,120 @@ done
 EOF
 expect 1 "an unquoted expansion is caught" "scripts/bad.sh" "SC2086"
 
+# --- the two OPTIONAL checks the gate turns on (#657) ------------------------
+#
+# `-o check-extra-masked-returns` (SC2312) and `-o check-set-e-suppressed`
+# (SC2310/SC2311) are the ONLY optional checks enabled, and they are the two
+# that matter for this repo: every gate here is a `grep` pipeline under
+# `set -euo pipefail`, where `grep` exiting 1 on no match is the normal case and
+# whether that status is masked decides whether the gate prints its finding or
+# dies before it. All 27 live sites were triaged one at a time in #657; these
+# cases are what stops the next one arriving unexamined.
+#
+# The cases below are a MATCHED SET and the set is the point. Both bad inputs
+# are clean at the default severity the gate used before #657 -- measured, 0
+# findings each -- so a red here is evidence the FLAG is on and not merely that
+# the linter ran. The green case carries the same two shapes written the way the
+# rules ask for; a red on IT would mean the checks match everything, which a
+# positive control on its own cannot distinguish (#629 shipped an empty-regex
+# probe that matched everything and read as confirmation).
+
+# SC2312, phase 1: a command whose exit status is discarded inside a command
+# substitution. This is the #628 mechanism seen from the other side.
+reset_sandbox
+write_script scripts/bad.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo "matches: $(grep -c . /dev/null)"
+EOF
+# A clean workflow too, so the only thing that can turn this red is the finding
+# above rather than an empty-workflow-set failure from the phase after it.
+write_clean_workflow
+expect 1 "a masked return inside a command substitution is caught (SC2312)" \
+  "scripts/bad.sh" "SC2312"
+
+# SC2310, phase 1: a function invoked in a condition, which turns `set -e` OFF
+# inside it for that call. check-zombie-screens.sh does this deliberately and
+# says so; anything that does it by accident now goes red.
+reset_sandbox
+write_script scripts/bad.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+has_marker() {
+  grep -q marker /dev/null
+}
+if has_marker; then
+  echo found
+fi
+EOF
+write_clean_workflow
+expect 1 "a function invoked in a condition is caught (SC2310)" \
+  "scripts/bad.sh" "SC2310"
+
+# The GREEN half of the pair. The same two shapes with their statuses handled:
+# an explicit `|| true` on the substitution, and the function invoked as a
+# statement rather than as a condition. This must stay SILENT -- without it, a
+# gate that reported every command substitution in the repo would pass both
+# cases above and look tested.
+reset_sandbox
+write_script scripts/ok.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+report_markers() {
+  grep -c marker /dev/null || true
+}
+n=$(grep -c . /dev/null || true)
+echo "matches: $n"
+report_markers
+EOF
+write_clean_workflow
+expect 0 "the same shapes with their statuses handled stay green" \
+  "OK: shellcheck clean" "scripts/ok.sh"
+
+# SC2312, phase 2: the SAME options must reach the inline `run:` shell. This is
+# the half most exposed to a silent regression -- the options travel to
+# actionlint as a `-shellcheck "<binary> -o ..."` STRING, so dropping them there
+# would leave phase 1 catching every `*.sh` while the workflow shell quietly
+# drifted to a weaker standard, with the gate still green. Measured: this
+# workflow is clean through actionlint at the default severity and red only with
+# the options attached.
+reset_sandbox
+write_clean_script
+write_workflow bad.yml <<'EOF'
+name: masked return in inline shell
+on: [workflow_dispatch]
+jobs:
+  bad:
+    runs-on: ubuntu-latest
+    steps:
+      - name: a command substitution that throws away grep's status
+        run: |
+          set -euo pipefail
+          echo "count: $(grep -c . /dev/null)"
+EOF
+expect 1 "the optional checks reach the inline run: shell too (SC2312)" \
+  "bad.yml" "SC2312"
+
+# ...and its green twin, so the phase-2 assertion above cannot be satisfied by a
+# linter that reports on every `run:` block it sees.
+reset_sandbox
+write_clean_script
+write_workflow ok.yml <<'EOF'
+name: handled status in inline shell
+on: [workflow_dispatch]
+jobs:
+  fine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: the same shape with the status handled
+        run: |
+          set -euo pipefail
+          n=$(grep -c . /dev/null || true)
+          echo "count: $n"
+EOF
+expect 0 "the same inline shape with its status handled stays green" \
+  "OK: actionlint clean"
+
 # --- coverage is recursive, not just scripts/ --------------------------------
 # The self-tests under scripts/tests/ are the things that caught #577, #590 and
 # both #628 bugs, and they are shell too. A `scripts/*.sh` glob would miss them
@@ -453,10 +567,17 @@ PATH=$saved_path
 # finds nothing.
 mkdir -p "$sandbox/minbin"
 for tool in bash git sed grep; do
-  ln -sf "$(command -v "$tool")" "$sandbox/minbin/$tool"
+  # Status checked, not substituted into `ln`. Masked, a tool this harness
+  # cannot find becomes `ln -sf "" ...` -- a dangling symlink -- and the case
+  # below then fails for the wrong reason, two screens away from the cause.
+  if ! tool_path=$(command -v "$tool"); then
+    echo "FAIL: this harness needs '$tool' on PATH and cannot find it." >&2
+    exit 1
+  fi
+  ln -sf "$tool_path" "$sandbox/minbin/$tool"
 done
 saved_path=$PATH
-# The only suppression in the tree, and it is the point of the case: SC2123
+# Suppressed, and the suppression IS the case: SC2123
 # warns when PATH is REPLACED by a single directory rather than extended,
 # because that is normally a typo. Here it is exactly what is being tested --
 # a PATH deliberately narrowed until `command -v shellcheck` finds nothing.
