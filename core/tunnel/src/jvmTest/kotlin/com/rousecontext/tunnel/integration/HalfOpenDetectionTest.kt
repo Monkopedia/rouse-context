@@ -39,6 +39,13 @@ import org.junit.jupiter.api.Timeout
  * production ~120s.
  */
 @Tag("integration")
+// Ceiling deliberately stays in the default SAME_THREAD mode. Named reason:
+// the test body `println`s its measured half-open detection time, so a
+// SEPARATE_THREAD ceiling could abandon the thread with that write still to come
+// and race Gradle's per-test output store (#501, #504). Blocked reads stay
+// bounded by `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+// `SEPARATE_THREAD` is not a module-wide hazard; see `IntegrationHttpSupport`
+// for the predicate and the per-class measurements (#600).
 @Timeout(value = 240, unit = TimeUnit.SECONDS)
 class HalfOpenDetectionTest {
 

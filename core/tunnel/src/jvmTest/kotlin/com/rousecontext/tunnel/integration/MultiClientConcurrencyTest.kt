@@ -34,7 +34,6 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -70,12 +69,21 @@ import org.junit.jupiter.api.Timeout
 @Suppress("LargeClass")
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-// Class ceiling stays in the default SAME_THREAD mode (a class-level
-// SEPARATE_THREAD timeout makes background-coroutine logging race Gradle's
-// per-test output store and corrupt it). The single test method below carries
-// its own method-level SEPARATE_THREAD ceiling (#504); generous socket read
-// timeouts (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`) bound every read.
-@Timeout(value = 180, unit = TimeUnit.SECONDS)
+// Ceiling in SEPARATE_THREAD mode so it can bound a CPU spin: the default
+// SAME_THREAD mode is only checked AFTER the test method returns, so it turns
+// a non-yielding loop into an unbounded hang rather than a red (#600, #563).
+// Safe here, and already true in practice: the class's single test method has
+// carried its own method-level SEPARATE_THREAD ceiling since #504, so the class
+// ceiling's mode was never what governed a run. A full green integrationTest run
+// measured 0 bytes of system-out/system-err for it, and it has no print
+// statement. See `IntegrationHttpSupport` for the
+// predicate and the per-class measurements. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+@Timeout(
+    value = 180,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class MultiClientConcurrencyTest {
 
     companion object {
@@ -109,7 +117,7 @@ class MultiClientConcurrencyTest {
     private lateinit var tokenStore: InMemoryTokenStore
     private lateinit var tunnelClient: TunnelClientImpl
 
-    private val backgroundScope = CoroutineScope(Dispatchers.IO)
+    private val backgroundScope = integrationScope(Dispatchers.IO)
 
     /**
      * Deterministic readiness signals between the device-side session collector
@@ -209,13 +217,14 @@ class MultiClientConcurrencyTest {
 
     @Test
     @Suppress("LongMethod")
-    // Preemptive hard ceiling: a method-level `SEPARATE_THREAD` timeout
-    // *interrupts and abandons* a wedged run, unlike the class-level default
-    // (`SAME_THREAD`), which only checks elapsed time AFTER the test returns
-    // and so never unsticks a thread blocked in a socket `read()`. This is the
-    // fail-fast guard that turns the #501 35-minute CI hang into a ~2-minute
-    // failure. With the deterministic waits below the test runs in well under
-    // a minute; this ceiling only fires if something genuinely wedges.
+    // Preemptive hard ceiling: a `SEPARATE_THREAD` timeout *interrupts and
+    // abandons* a wedged run, where `SAME_THREAD` only checks elapsed time
+    // AFTER the test returns and so never unsticks a thread blocked in a socket
+    // `read()` -- nor one spinning on the CPU (#600). This is the fail-fast
+    // guard that turns the #501 35-minute CI hang into a ~2-minute failure.
+    // Kept at the method level, tighter than the class ceiling above (which is
+    // now also `SEPARATE_THREAD`), because the deterministic waits below finish
+    // in well under a minute; it fires only if something genuinely wedges.
     @Timeout(value = 120, unit = TimeUnit.SECONDS, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
     fun `two concurrent clients with independent disconnect and third client`() = runBlocking {
         // --- Phase 1: open two concurrent AI clients ---
@@ -611,7 +620,7 @@ class MultiClientConcurrencyTest {
         val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val wsFactory = MtlsWebSocketFactory(sslContext)
         return TunnelClientImpl(
-            scope = CoroutineScope(Dispatchers.IO),
+            scope = integrationScope(Dispatchers.IO),
             webSocketFactory = wsFactory
         )
     }

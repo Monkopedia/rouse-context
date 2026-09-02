@@ -57,7 +57,20 @@ import org.junit.jupiter.api.Timeout
  *     stream's ERROR MUST NOT propagate up into a tunnel disconnect.
  */
 @Tag("integration")
-@Timeout(value = 120, unit = TimeUnit.SECONDS)
+// Ceiling in SEPARATE_THREAD mode so it can bound a CPU spin: the default
+// SAME_THREAD mode is only checked AFTER the test method returns, so it turns
+// a non-yielding loop into an unbounded hang rather than a red (#600, #563).
+// Safe here: no print statement in the class, and a full green integrationTest
+// run measured 0 bytes of system-out/system-err for it, so the #501/#504
+// output-store race has nothing to write into it.
+// See `IntegrationHttpSupport` for the
+// predicate and the per-class measurements. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+@Timeout(
+    value = 120,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class StreamFailureDoesNotKillTunnelTest {
 
     companion object {
@@ -134,10 +147,18 @@ class StreamFailureDoesNotKillTunnelTest {
     }
 
     @Test
-    @Timeout(value = 60, unit = TimeUnit.SECONDS)
+    // Tighter than the class ceiling, and in the same SEPARATE_THREAD mode:
+    // a method-level `@Timeout` REPLACES the class one, so leaving this in the
+    // default SAME_THREAD mode would quietly exempt this method from the
+    // spin-bounding the class ceiling provides (#600).
+    @Timeout(
+        value = 60,
+        unit = TimeUnit.SECONDS,
+        threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+    )
     fun `stream ERROR frame does not disconnect tunnel and subsequent stream is accepted`() =
         runBlocking {
-            val tunnelScope = CoroutineScope(Dispatchers.IO)
+            val tunnelScope = integrationScope(Dispatchers.IO)
             val tunnelClient = connectTunnelClient(tunnelScope)
             try {
                 assertEquals(

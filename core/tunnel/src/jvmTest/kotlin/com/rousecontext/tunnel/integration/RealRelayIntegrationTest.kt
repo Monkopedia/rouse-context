@@ -29,7 +29,20 @@ import org.junit.jupiter.api.Timeout
  * Build it with: cd relay && cargo build
  */
 @Tag("integration")
-@Timeout(value = 180, unit = TimeUnit.SECONDS)
+// Ceiling in SEPARATE_THREAD mode so it can bound a CPU spin: the default
+// SAME_THREAD mode is only checked AFTER the test method returns, so it turns
+// a non-yielding loop into an unbounded hang rather than a red (#600, #563).
+// Safe here: no print statement in the class, no coroutine launched from it at
+// all, and a full green integrationTest run measured 0 bytes of
+// system-out/system-err across its 4 tests (#501, #504).
+// See `IntegrationHttpSupport` for the
+// predicate and the per-class measurements. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+@Timeout(
+    value = 180,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class RealRelayIntegrationTest {
 
     companion object {

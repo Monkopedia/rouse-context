@@ -63,15 +63,21 @@ import org.junit.jupiter.api.Timeout
  */
 @Suppress("LargeClass")
 @Tag("integration")
-// Fail-fast is provided by the GENEROUS socket read timeout
-// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`): every blocking read is
-// bounded, so a stuck round trip raises `SocketTimeoutException` in ~60s instead
-// of hanging the CI job, while a slow-but-progressing run never trips it. The
-// default SAME_THREAD timeout mode is kept deliberately -- a SEPARATE_THREAD
-// per-method timeout makes the test's long-lived background-coroutine logging
-// race Gradle's per-test output store and corrupt it ("Could not write XML test
-// results ... EOFException"). See `IntegrationHttpSupport` (#501, #504).
-@Timeout(value = 180, unit = TimeUnit.SECONDS)
+// Ceiling in SEPARATE_THREAD mode so it can bound a CPU spin: the default
+// SAME_THREAD mode is only checked AFTER the test method returns, so it turns
+// a non-yielding loop into an unbounded hang rather than a red (#600, #563).
+// Safe here: no print statement in the class, and a full green integrationTest
+// run measured 0 bytes of system-out/system-err for it. The "long-lived
+// background-coroutine logging" the previous note cited does not exist -- no
+// production code on this path logs and slf4j has no binding (#501, #504).
+// See `IntegrationHttpSupport` for the
+// predicate and the per-class measurements. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+@Timeout(
+    value = 180,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class OAuthEndToEndTest {
 
     companion object {
@@ -520,7 +526,7 @@ class OAuthEndToEndTest {
         val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val wsFactory = MtlsWebSocketFactory(sslContext)
         val client = TunnelClientImpl(
-            scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO),
+            scope = integrationScope(Dispatchers.IO),
             webSocketFactory = wsFactory
         )
         client.connect("wss://$RELAY_HOSTNAME:$relayPort/ws")

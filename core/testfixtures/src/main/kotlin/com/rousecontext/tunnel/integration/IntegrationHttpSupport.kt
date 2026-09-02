@@ -31,16 +31,71 @@ import java.util.IdentityHashMap
  *    than wedging the job for the full class timeout (cf. the #499 ~35-minute
  *    hang, which a default `SAME_THREAD` class `@Timeout` could not interrupt).
  *
- * Note we deliberately do NOT lean on a class-level
- * `@Timeout(threadMode = SEPARATE_THREAD)` as the hard ceiling here: these
- * tests run long-lived background coroutines (device-session collectors) whose
- * logging spans the whole class, and a per-method separate-thread timeout makes
- * that background output race Gradle's per-test output store and corrupt it
- * ("Could not write XML test results ... EOFException / Kryo buffer underflow").
- * The bounded read timeout gives the same fail-fast guarantee without that
- * Gradle interaction. (`MultiClientConcurrencyTest` keeps a method-level
- * separate-thread ceiling on its single test, where the interaction does not
- * arise -- see #504.)
+ * ## Choosing a `@Timeout` thread mode (#600)
+ *
+ * A bounded read timeout only bounds a *blocked* read. It does nothing for a
+ * loop that is busy rather than waiting, and the failure this module has
+ * actually produced is a CPU spin -- the #563 `BUFFER_UNDERFLOW` spin in
+ * `TlsAcceptor`. A default `SAME_THREAD` `@Timeout` is checked only AFTER the
+ * test method returns, so against a spin it yields an unbounded hang, not a
+ * red. Only `threadMode = SEPARATE_THREAD` reports the failure and writes XML
+ * while the spinning thread is still running.
+ *
+ * The #501/#504 output-store hazard is real but **per-test, not module-wide**.
+ * It requires output reaching Gradle's per-test output store from a code path
+ * that is still running after the ceiling has abandoned the test. So the
+ * question to ask of any given ceiling is *"can this test still emit output
+ * after its ceiling fires?"* -- not *"is `SEPARATE_THREAD` dangerous?"*.
+ *
+ * Measured on a full green `:core:tunnel:integrationTest` run, per class, from
+ * the `system-out`/`system-err` in the JUnit XML: seven of the twelve classes
+ * emit **zero bytes** and contain no print statement at all. Those seven take
+ * `SEPARATE_THREAD`.
+ *
+ * A measurement, though, is evidence about the runs that were *observed*, not a
+ * property of the code. The seven rest on three different kinds of guarantee,
+ * and the difference is the whole reason this note is longer than one line:
+ *
+ *  1. **Closed by construction.** Framework logging cannot appear behind their
+ *     back on any branch, taken or not: no production code on this path logs or
+ *     uses kotlin-logging, and `slf4j-api` sits on `jvmTestRuntimeClasspath`
+ *     with **no provider**, so Ktor's internal logging is a no-op. This one
+ *     needs no run to believe.
+ *
+ *  2. **Closed by `IntegrationScope`** (in `:core:tunnel`'s `jvmTest`, beside
+ *     the classes that use it). A bare `CoroutineScope(Dispatchers.IO)` is a
+ *     ROOT scope, so an uncaught throw out of one of `TunnelClientImpl`'s
+ *     unguarded `scope.launch` sites has nowhere to propagate and ends at the
+ *     default handler -- which writes a stack trace to `System.err` **from a
+ *     background thread**, on the failure path, which is exactly when a ceiling
+ *     fires. No `println` grep finds it. The seven converted classes build that
+ *     scope through `integrationScope(...)`, which routes such throws to a
+ *     recorded list. That is what turns "this class emits nothing" from an
+ *     observation into a property.
+ *
+ *  3. **Still coverage-dependent, and deliberately left so.** One path remains.
+ *     `TestRelayFixture.stop()` prints ~100 bytes to `System.err` if the relay
+ *     subprocess survives `destroyForcibly()` plus a 3 s wait, and
+ *     `EndToEndSessionTest` calls `stop()` from inside a test body rather than
+ *     only from teardown -- so an abandoned thread can reach it. That needs a
+ *     kernel-level stall AND the ceiling to fire in the same window, for ~100
+ *     bytes; and the behaviour it replaces is the unbounded hang, which loses
+ *     the entire run rather than one file. Recorded rather than guarded,
+ *     because a guard here would cost more clarity than the compound-rare case
+ *     is worth.
+ *
+ * The classes that DO emit keep the default `SAME_THREAD`, each for a named
+ * emitter: `CertRotationIntegrationTest` (~15 KB) and
+ * `RelayApiClientIntegrationTest` (~76 KB) dump the relay subprocess's captured
+ * output to stderr in teardown, which is exactly the path an abandoned test
+ * thread runs into; `AbruptDisconnectTest` and `HalfOpenDetectionTest` `println`
+ * timings from the test body; and `ClaudeFullFlowEndToEndTest` shares
+ * `@BeforeAll` collectors across eight `@TestMethodOrder`-ordered tests, so
+ * abandoning one method leaks class-scoped state into the rest -- a structural
+ * hazard independent of logging.
+ *
+ * The bounded read timeout below remains the first line of defence for blocked
+ * I/O in every class, whichever thread mode it uses.
  *
  * ## Byte-exact HTTP framing (#523)
  *
