@@ -34,7 +34,15 @@ class RouseApplication :
     Application(),
     Configuration.Provider {
 
-    /** Application-scoped coroutine scope, cancelled in [onTerminate]. */
+    /**
+     * Application-scoped coroutine scope for work that must outlive any single
+     * ViewModel or composable (onboarding, cert-renewal scheduling, state reads).
+     *
+     * Nothing cancels it. This class overrides only [attachBaseContext] and
+     * [onCreate] — there is no `onTerminate` (which Android does not call on real
+     * devices anyway) and no `appScope.cancel()` anywhere in `main`. Process death
+     * is the only teardown. Test sources inject their own scope and cancel that.
+     */
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /**

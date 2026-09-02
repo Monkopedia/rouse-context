@@ -184,12 +184,25 @@ class IntegrationSetupViewModel(
         // the only thing that delivers cancellation here is `onCleared()` — at which
         // point the setup screen has left composition and the
         // `IntegrationSetupState.Failed` that `setFailed` publishes renders to nobody.
-        // (`credentialProvider` cannot manufacture one on a live job either: the
-        // `google` binding bottoms out in `Task.await()`, which only throws when
-        // `Task.isCanceled`, and neither firebase-auth nor firebase-messaging ever
-        // cancels a Task; the `foss` binding catches internally and returns null.) The
-        // guard still earns its place — "the ViewModel is being torn down" is a claim
-        // about today's callers, and it expires with nothing going red.
+        //
+        // `credentialProvider` cannot manufacture one on a live job either, but NOT
+        // for the reason it is tempting to write down. The `google` binding bottoms
+        // out in `FirebaseUser.getIdToken(false).await()`, and `awaitImpl` rethrows
+        // `Task.getException()` UNWRAPPED before it ever consults `Task.isCanceled` —
+        // so `setException(CancellationException)` is a second, live route and "no
+        // cancelled Task" clears nothing. What actually clears it is reachability:
+        // the two producers of that shape on the classpath — recaptcha's
+        // `RecaptchaTasksClient` bridge (firebase-auth gates it on
+        // EMAIL_PASSWORD_PROVIDER / PHONE_PROVIDER, never a token refresh) and
+        // play-services-base's Activity-bound `zacc` — are both unreachable from a
+        // no-Activity `getIdToken(false)`. The derivation, the positive-control scan
+        // and the resolved artifact versions it expires with are in
+        // [com.rousecontext.app.ui.viewmodels.OnboardingViewModel]'s KDoc and pinned
+        // by `FirebaseCancellationClearanceTest`. The `foss` binding catches
+        // internally and returns null.
+        //
+        // The guard still earns its place — "the ViewModel is being torn down" is a
+        // claim about today's callers, and it expires with nothing going red.
         throw e
     } catch (e: Exception) {
         setFailed("Authentication error: ${e.message}")

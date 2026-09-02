@@ -62,23 +62,82 @@ enum class OnboardingStep {
  *  - [performRegistration] only ever runs inside [appScope], which is
  *    `CoroutineScope(SupervisorJob() + Dispatchers.Main)` in `RouseApplication`.
  *    Nothing in production cancels it — there is no `appScope.cancel()` outside
- *    test sources and `RouseApplication` declares no `onTerminate` override
- *    (the KDoc on the field claiming one is stale).
+ *    test sources and `RouseApplication` overrides only `attachBaseContext` and
+ *    `onCreate`.
  *  - The guarded calls cannot manufacture a `CancellationException` on a live
- *    job either. Both bottom out in `Task.await()`, whose
- *    `kotlinx-coroutines-play-services` `awaitImpl` throws a bare
- *    `CancellationException` only when `Task.isCanceled` — and
- *    `firebase-messaging` / `firebase-auth` reference neither
- *    `CancellationTokenSource` nor `Tasks.forCanceled`, so they never produce a
- *    cancelled Task. The `foss` bindings cannot throw at all
- *    (`KeypairDeviceCredentialProvider` catches internally; `NoOpFcmTokenProvider`
- *    returns `""`).
+ *    job either — but NOT because nothing here produces a *cancelled* `Task`.
+ *    That is the tempting argument and it does not hold; the one that does is
+ *    reachability. See the block below, and do not shorten it back.
+ *
+ * INVARIANT, measured against artifacts and expiring with them.
+ *
+ * Both guarded calls bottom out in `Task.await()`. In
+ * `kotlinx-coroutines-play-services` `TasksKt.awaitImpl`, `Task.getException()`
+ * is read and rethrown UNWRAPPED *before* `Task.isCanceled` is ever consulted —
+ * on the already-complete fast path (`getException` at offset 7, `ifnonnull 62`
+ * at 12, `athrow` at 62-63, with the `isCanceled` branch stranded at 16) and
+ * again on the `OnCompleteListener` slow path that a real async Task takes
+ * (`TasksKt$awaitImpl$2$1.onComplete`: `getException` at 0, `ifnonnull 56`,
+ * `resumeWith(Result.failure(e))` at 56-77). So
+ * `TaskCompletionSource.setException(CancellationException)` delivers a bare
+ * `CancellationException` into a fully live job with `isCanceled == false`.
+ * "Nothing produces a cancelled Task" does not clear these calls.
+ *
+ * Two producers of exactly that shape sit on the `-Pgoogle` runtime classpath.
+ * The clearance is that neither is REACHABLE from here:
+ *
+ *  - `recaptcha` `internal/zzar.invoke` does
+ *    `if (t is CancellationException) tcs.setException(t)`. Its only caller is
+ *    the `Deferred`→`Task` bridge `internal/zzas.zza`, whose only callers are
+ *    `RecaptchaTasksClient` / `Recaptcha.getTasksClient` — the reCAPTCHA
+ *    Enterprise surface. firebase-auth reaches that solely through
+ *    `internal/zzbx.zza(provider, …, RecaptchaAction)`, and every call site
+ *    passes `EMAIL_PASSWORD_PROVIDER` or `PHONE_PROVIDER` with one of six
+ *    actions (`getOobCode`, `signInWithPassword`, `signUpPassword`,
+ *    `sendVerificationCode`, `mfaSmsEnrollment`, `mfaSmsSignIn`). By contrast
+ *    `FirebaseAuth.signInAnonymously()` jumps straight to
+ *    `firebase-auth-api/zzacq.zza(FirebaseApp, zzl, String)`, and none of the
+ *    1194 `firebase-auth-api` classes backing it — or `getIdToken(false)` —
+ *    reference recaptcha at all.
+ *  - `play-services-base` `common/api/internal/zacc.onDestroy()` does
+ *    `trySetException(CancellationException("Host activity was destroyed …"))`.
+ *    `zacc` is Activity-bound (`zacc.zaa(Activity)`) and its only caller is
+ *    `GoogleApiAvailability.makeGooglePlayServicesAvailable(Activity)`, which
+ *    this app never calls. `signInAnonymously()`, `user.getIdToken(false)` and
+ *    `FirebaseMessaging.getToken()` take no Activity.
+ *
+ * The `isCanceled` route is separately empty: firebase-auth and
+ * firebase-messaging contain no reference to `CancellationException`,
+ * `CancellationToken(Source)` or `Tasks.forCanceled` in any class file. That
+ * empty result is a real absence rather than a broken scan — the same scan
+ * finds `TaskCompletionSource` in 69/1402 and 6/75 class files respectively.
+ * Note that `TaskCompletionSource` has NO `setCancelled`/`trySetCancelled` in
+ * any version (only `setResult`/`trySetResult`/`setException`/`trySetException`),
+ * so grepping for those two names can never hit; the real `isCanceled`-producing
+ * surface is `Tasks.forCanceled()`, `TaskCompletionSource(CancellationToken)` +
+ * `CancellationTokenSource.cancel()`, a custom `Task` overriding `isCanceled()`,
+ * or package-private `zzw.zze()`.
+ *
+ * Resolved artifacts this was measured against, and expires with: firebase-bom
+ * 34.12.0 (firebase-auth 24.0.1, firebase-messaging 25.0.1), recaptcha 18.6.1,
+ * play-services-base 18.1.0, play-services-tasks 18.4.0,
+ * kotlinx-coroutines-play-services 1.10.2.
+ * `FirebaseCancellationClearanceTest` (src/testGoogle) pins those versions and
+ * re-runs the scan, so a `firebase-bom` bump reddens instead of silently arming
+ * a user-visible surface: the `fail(…)` calls below publish
+ * `OnboardingState.Failed`, which renders as "Authentication error: … / Retry"
+ * (`OnboardingDestination.kt`). If cancellation ever became deliverable here the
+ * rethrow would replace that with a spinner whose cancel is a no-op.
+ *
+ * The `foss` bindings cannot throw at all (`KeypairDeviceCredentialProvider`
+ * catches internally; `NoOpFcmTokenProvider` returns `""`).
  *
  * So no reachable path delivers cancellation to these catches today, and adding
  * the guards changes no error surface. They still earn their place: the safety
- * above is a claim about *callers*, and it expires silently the first time
- * somebody cancels [appScope] or swaps in a credential source that can be
- * cancelled. The guard is cheaper than re-deriving that argument.
+ * above is a claim about *callers*, and the version pin does not cover callers.
+ * It expires silently the first time somebody cancels [appScope] or swaps in a
+ * credential source that can be cancelled. The guard is cheaper than re-deriving
+ * the argument above every time either changes.
  */
 class OnboardingViewModel(
     private val certificateStore: CertificateStore,
