@@ -6,6 +6,7 @@ import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.integrations.health.HEALTH_DATA_HISTORY_PERMISSION
 import com.rousecontext.integrations.health.HealthConnectRepository
 import com.rousecontext.integrations.health.RecordTypeRegistry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,16 +59,37 @@ class HealthConnectSetupViewModel(
      * Safe to call from lifecycle callbacks (e.g. `ON_RESUME`) so that
      * revocations performed in the Health Connect system UI are reflected
      * when the user returns to the app (#99).
+     *
+     * Both fallbacks below are preceded by a `catch (e: CancellationException)`
+     * guard (issue #667). Unlike the other sites that issue covers, these two
+     * calls genuinely suspend — `HealthConnectRepository` bottoms out in
+     * `permissionController.getGrantedPermissions()`, a real IPC hop — so a
+     * cancelled `viewModelScope` was taking delivery right here and being
+     * converted into a "no permissions granted" answer. Nothing observable
+     * resulted, because the only thing that cancels `viewModelScope` is
+     * `onCleared()` and the two `StateFlow`s written afterwards die with the
+     * ViewModel. Without the guards, a cancellation caught at the first
+     * fallback also fell through into the second suspend call, which rethrew
+     * immediately and was swallowed a second time.
      */
     fun refreshPermissions() {
         viewModelScope.launch {
             val historical = try {
                 healthRepository.isHistoricalReadGranted()
+            } catch (e: CancellationException) {
+                // MUST stay above the broad catch (issue #667). CancellationException is
+                // an Exception on the JVM and extends IllegalStateException, so either
+                // spelling below swallows it, and Kotlin does not diagnose a cancellation
+                // clause placed under a broader one as dead code.
+                throw e
             } catch (_: Exception) {
                 false
             }
             val granted = try {
                 healthRepository.getGrantedPermissions()
+            } catch (e: CancellationException) {
+                // MUST stay above the broad catch (issue #667). Same reasoning as above.
+                throw e
             } catch (_: Exception) {
                 emptySet()
             }

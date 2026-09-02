@@ -11,6 +11,7 @@ import com.rousecontext.app.ui.format.DisplayDateFormat
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.OnboardingFlow
 import com.rousecontext.tunnel.OnboardingResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,6 +53,32 @@ enum class OnboardingStep {
  * so navigation goes to Home. Failures land in [OnboardingState.Failed] or
  * [OnboardingState.RateLimited] with a retry entry point rather than silently
  * dropping the user onto a half-configured dashboard.
+ *
+ * Both broad catches in [performRegistration] are preceded by a
+ * `catch (e: CancellationException) { throw e }` (issue #667). Those guards are
+ * defence in depth, not live-bug fixes, and the reason is worth writing down
+ * because it is not visible from the catch clause:
+ *
+ *  - [performRegistration] only ever runs inside [appScope], which is
+ *    `CoroutineScope(SupervisorJob() + Dispatchers.Main)` in `RouseApplication`.
+ *    Nothing in production cancels it — there is no `appScope.cancel()` outside
+ *    test sources and `RouseApplication` declares no `onTerminate` override
+ *    (the KDoc on the field claiming one is stale).
+ *  - The guarded calls cannot manufacture a `CancellationException` on a live
+ *    job either. Both bottom out in `Task.await()`, whose
+ *    `kotlinx-coroutines-play-services` `awaitImpl` throws a bare
+ *    `CancellationException` only when `Task.isCanceled` — and
+ *    `firebase-messaging` / `firebase-auth` reference neither
+ *    `CancellationTokenSource` nor `Tasks.forCanceled`, so they never produce a
+ *    cancelled Task. The `foss` bindings cannot throw at all
+ *    (`KeypairDeviceCredentialProvider` catches internally; `NoOpFcmTokenProvider`
+ *    returns `""`).
+ *
+ * So no reachable path delivers cancellation to these catches today, and adding
+ * the guards changes no error surface. They still earn their place: the safety
+ * above is a claim about *callers*, and it expires silently the first time
+ * somebody cancels [appScope] or swaps in a credential source that can be
+ * cancelled. The guard is cheaper than re-deriving that argument.
  */
 class OnboardingViewModel(
     private val certificateStore: CertificateStore,
@@ -144,6 +171,13 @@ class OnboardingViewModel(
         val credential = try {
             credentialProvider.forRegistration()
                 ?: return fail("Couldn't sign in. Check your connection and try again.")
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch (issue #667). CancellationException is an
+            // Exception on the JVM and extends IllegalStateException, so either spelling
+            // below would swallow it — and Kotlin does not diagnose a cancellation clause
+            // placed under a broader one as dead code. See the class KDoc for why this
+            // site cannot take delivery of cancellation today, and why the guard stays.
+            throw e
         } catch (e: Exception) {
             return fail("Authentication error: ${e.message ?: "unknown"}")
         }
@@ -151,6 +185,10 @@ class OnboardingViewModel(
         // Get FCM registration token
         val fcmToken = try {
             fcmTokenProvider.currentToken()
+        } catch (e: CancellationException) {
+            // MUST stay above the broad catch (issue #667). Same reasoning as the
+            // credential fetch above; see the class KDoc.
+            throw e
         } catch (e: Exception) {
             return fail("Couldn't reach Firebase Cloud Messaging: ${e.message ?: "unknown"}")
         }
