@@ -82,13 +82,22 @@ import org.junit.jupiter.api.Timeout
 // (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`): every blocking read is
 // bounded, so a stuck relay round trip raises `SocketTimeoutException` in ~60s
 // rather than hanging the CI job, while a slow-but-progressing CI run never
-// trips it. This class deliberately keeps the default SAME_THREAD timeout mode:
-// its `@BeforeAll` launches a long-lived background coroutine (the device-
-// session collector) whose logging spans all eight ordered tests, and a
-// SEPARATE_THREAD per-method timeout makes that background output race Gradle's
-// per-test output store, corrupting it intermittently ("Could not write XML
-// test results ... EOFException / Kryo buffer underflow"). See
-// `IntegrationHttpSupport` (#501, #504).
+// trips it.
+//
+// The ceiling deliberately stays in the default SAME_THREAD mode, but NOT for
+// the reason this note used to give. Measured on a green run, the class emits
+// 74 bytes of system-out and all of it is kotlin-logging's one-time init banner
+// from whichever class loads Ktor first -- not "collector logging spanning all
+// eight ordered tests". The collectors log nothing: no production code on this
+// path logs, and `slf4j-api` is on the test classpath with no binding.
+//
+// The real reason is structural rather than about output. `@BeforeAll` shares
+// long-lived collectors and class-scoped state across eight
+// `@TestMethodOrder`-ordered tests, so a SEPARATE_THREAD ceiling that abandons
+// one method leaks a still-running collector into the tests that follow and
+// corrupts their premises. That hazard is independent of #501/#504.
+// `SEPARATE_THREAD` is not a module-wide hazard; see `IntegrationHttpSupport`
+// for the predicate and the per-class measurements (#600).
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class ClaudeFullFlowEndToEndTest {
 

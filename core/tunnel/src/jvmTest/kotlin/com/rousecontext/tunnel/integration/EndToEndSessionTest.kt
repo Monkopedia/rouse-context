@@ -59,15 +59,21 @@ import org.junit.jupiter.api.Timeout
  */
 @Suppress("LargeClass")
 @Tag("integration")
-// Fail-fast is provided by the GENEROUS socket read timeout
-// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`) on the relay-routed handshake
-// helpers, plus the per-scenario connection-drop probes which keep their own
-// short, deliberately tight soTimeouts (paired with an outer `withTimeout`). The
-// default SAME_THREAD timeout mode is kept deliberately -- a SEPARATE_THREAD
-// per-method timeout makes background-coroutine logging race Gradle's per-test
-// output store and corrupt it ("Could not write XML test results ...
-// EOFException"). See `IntegrationHttpSupport` (#501, #504).
-@Timeout(value = 180, unit = TimeUnit.SECONDS)
+// Ceiling in SEPARATE_THREAD mode so it can bound a CPU spin: the default
+// SAME_THREAD mode is only checked AFTER the test method returns, so it turns
+// a non-yielding loop into an unbounded hang rather than a red (#600, #563).
+// Safe here: this class has no print statement, and a full green
+// integrationTest run measured 0 bytes of system-out/system-err across all 15
+// of its tests, so there is no output to race the store (#501, #504). It also
+// has no @BeforeAll, so no class-scoped collector outlives a method.
+// See `IntegrationHttpSupport` for the
+// predicate and the per-class measurements. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+@Timeout(
+    value = 180,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class EndToEndSessionTest {
 
     companion object {
@@ -996,7 +1002,7 @@ class EndToEndSessionTest {
         val sslContext = TestSslContexts.buildMtls(deviceKeyStore, caCert)
         val wsFactory = MtlsWebSocketFactory(sslContext)
         return TunnelClientImpl(
-            scope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO),
+            scope = integrationScope(Dispatchers.IO),
             webSocketFactory = wsFactory
         )
     }

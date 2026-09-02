@@ -53,6 +53,14 @@ import org.junit.jupiter.api.Timeout
  *   cd relay && cargo build
  */
 @Tag("integration")
+// Ceiling deliberately stays in the default SAME_THREAD mode. Named reason:
+// this class's teardown dumps the relay subprocess's captured output to stderr
+// (~76 KB measured on a green run, the largest in the tier), which an abandoned
+// test thread would write into Gradle's per-test output store after the ceiling
+// had moved on -- the #501/#504 race. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+// `SEPARATE_THREAD` is not a module-wide hazard; see `IntegrationHttpSupport`
+// for the predicate and the per-class measurements (#600).
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class RelayApiClientIntegrationTest {
 

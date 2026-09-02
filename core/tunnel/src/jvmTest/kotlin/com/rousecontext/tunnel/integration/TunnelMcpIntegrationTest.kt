@@ -52,15 +52,20 @@ import org.junit.jupiter.api.Timeout
  * Tests IDs 97-99 from overall.md.
  */
 @Tag("integration")
-// Fail-fast is provided by the GENEROUS socket read timeout
-// (`IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`): every blocking read is
-// bounded, so a stuck round trip surfaces in ~60s instead of hanging the CI job,
-// while a slow-but-progressing run never trips it. The default SAME_THREAD
-// timeout mode is kept deliberately -- a SEPARATE_THREAD per-method timeout
-// makes the test's background-coroutine logging race Gradle's per-test output
-// store and corrupt it ("Could not write XML test results ... EOFException").
-// See `IntegrationHttpSupport` (#501, #504).
-@Timeout(value = 180, unit = TimeUnit.SECONDS)
+// Ceiling in SEPARATE_THREAD mode so it can bound a CPU spin: the default
+// SAME_THREAD mode is only checked AFTER the test method returns, so it turns
+// a non-yielding loop into an unbounded hang rather than a red (#600, #563).
+// Safe here: no print statement in the class, and a full green integrationTest
+// run measured 0 bytes of system-out/system-err across its 3 tests, so the
+// #501/#504 output-store race has nothing to write into it. No @BeforeAll.
+// See `IntegrationHttpSupport` for the
+// predicate and the per-class measurements. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+@Timeout(
+    value = 180,
+    unit = TimeUnit.SECONDS,
+    threadMode = Timeout.ThreadMode.SEPARATE_THREAD
+)
 class TunnelMcpIntegrationTest {
 
     private val mcpJson = Json { ignoreUnknownKeys = true }

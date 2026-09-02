@@ -61,6 +61,14 @@ import org.junit.jupiter.api.Timeout
  *   cd relay && cargo build --features test-mode
  */
 @Tag("integration")
+// Ceiling deliberately stays in the default SAME_THREAD mode. Named reason:
+// this class's teardown dumps the relay subprocess's captured output to stderr
+// (~15 KB measured on a green run), and that teardown is exactly the path an
+// abandoned test thread would run into after a SEPARATE_THREAD ceiling fired --
+// the #501/#504 output-store race. Blocked reads stay bounded by
+// `IntegrationHttpSupport.SOCKET_READ_TIMEOUT_MS`.
+// `SEPARATE_THREAD` is not a module-wide hazard; see `IntegrationHttpSupport`
+// for the predicate and the per-class measurements (#600).
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class CertRotationIntegrationTest {
 
