@@ -34,7 +34,7 @@ The mux client manages the WebSocket connection to the relay and demultiplexes i
 ### Responsibilities
 - Open and maintain WebSocket connection to relay (with mTLS using device cert)
 - Parse incoming binary frames (5-byte header: type u8, stream_id u32 BE, payload)
-- On OPEN frame: create raw stream pair, wrap in TLS server accept (using device cert + private key from `CertificateStore`), emit plaintext stream to app layer
+- On OPEN frame: create a `MuxStreamImpl` and emit it on `incomingSessions`. The bytes stay **raw** — this module does not terminate TLS on the OPEN path; `:core:bridge`'s `SessionHandler` does that later, using the device cert + private key this module's `CertificateStore` holds
 - On DATA frame: route payload bytes to the correct stream
 - On CLOSE frame: close the corresponding stream pair
 - On ERROR frame: tear down the affected stream, propagate error
@@ -42,7 +42,7 @@ The mux client manages the WebSocket connection to the relay and demultiplexes i
 - WebSocket ping interval: ~30s (configurable, for NAT/mobile idle timeout survival)
 
 ### Stream Demux
-Each stream ID maps to a bidirectional byte channel. On the device side, each `MuxStream` exposes an `incoming: Flow<ByteArray>` and a `suspend fun send(data: ByteArray)`. TLS termination and HTTP routing sit on top via `TlsAcceptor` + `MuxStreamImpl`; `McpSession` never sees a mux frame.
+Each stream ID maps to a bidirectional byte channel. On the device side, each `MuxStream` exposes an `incoming: Flow<ByteArray>` and a `suspend fun send(data: ByteArray)`. TLS termination and HTTP routing sit on top, in `:core:bridge` and `:core:mcp` respectively; `McpSession` never sees a mux frame.
 
 ### Connection State Machine
 ```
@@ -275,11 +275,31 @@ interface MuxStream {
 }
 ```
 
-The TLS termination and SNI-based per-integration routing are handled
-by `TlsAcceptor` + `MuxStreamImpl` on top of the raw mux stream. `:app`
-collects `incomingSessions`, wraps each through `TlsAcceptor`, and
-hands the plaintext stream to `McpSession` to drive the integration
-HTTP server.
+`MuxStream` carries raw, still-encrypted bytes; this module does not
+terminate TLS on its own. `TlsAcceptor` lives here, but its only
+production caller is elsewhere — it has no reference in `app/src/main`
+at all. The session path runs:
+
+1. **`:work`** — `TunnelForegroundService.collectIncomingSessions`
+   collects `incomingSessions` and launches one child coroutine per
+   stream. This is the only production collector.
+2. **`:core:bridge`** — `SessionHandler.handleStream` calls
+   `TlsAcceptor.create(sslContext).accept(stream)` to terminate the inner
+   TLS (the device is the TLS server).
+3. **`:core:bridge`** — `SessionHandler.bridgeToMcpServer` opens a
+   loopback TCP socket to the already-running MCP server and pumps
+   plaintext both ways, injecting an `X-Internal-Token` header on each
+   forwarded request so the local server can tell bridge traffic from a
+   same-device app dialing the port (#177).
+
+Nothing hands a stream to `McpSession`: it is one long-lived Ktor server
+started at app boot, and it receives ordinary HTTP over that loopback
+socket. Per-integration routing is resolved from the HTTP `Host` header,
+not from SNI — by the time the request reaches `:core:mcp` the inner TLS
+is already terminated. See
+[`overall.md § :core:mcp HTTP Server`](overall.md#coremcp-http-server)
+and
+[`android-app.md § Session handling and failure discrimination`](android-app.md#session-handling-and-failure-discrimination).
 
 See `docs/design/relay.md § Mux Framing Protocol` for the wire format
 (message types, error codes, byte layout) and `docs/design/relay-api.md`
