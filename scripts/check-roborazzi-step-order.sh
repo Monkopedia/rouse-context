@@ -39,8 +39,23 @@ fi
 job_count=$(grep -cE '^  [A-Za-z0-9_-]+:$' "$workflow" | tr -d ' ')
 jobs_line=$(grep -n '^jobs:' "$workflow" | cut -d: -f1)
 job_names=$(awk -v start="$jobs_line" 'NR > start && /^  [A-Za-z0-9_-]+:$/ { gsub(/[ :]/, ""); print }' "$workflow")
-if [[ "$(printf '%s\n' "$job_names" | grep -c .)" -ne 1 ]]; then
-  echo "FAIL: $workflow no longer has exactly one job (found: $(echo "$job_names" | tr '\n' ' '))"
+# Hoisted out of the `[[ ]]`, and the `|| true` on it is load-bearing rather
+# than a route to green: `grep -c` PRINTS 0 and EXITS 1 when it counts nothing,
+# and "nothing" is precisely the case this branch exists to report. Without the
+# swallow the assignment would kill the script here, on the exact input the
+# check is for -- exit 1 with no output, the #628 shape. The printed count, not
+# the status, is the answer; a value that is not 1, including one that is not a
+# number, takes the FAIL branch.
+#
+# (The two `grep`s two lines up still have that shape and are deliberately left
+# alone: that is #678's, measured and filed separately, and fixing it here would
+# bury it.)
+job_name_count=$(printf '%s\n' "$job_names" | grep -c . || true)
+if [[ "$job_name_count" -ne 1 ]]; then
+  # Joined with bash parameter expansion rather than `| tr`: a failure message
+  # should not depend on a subprocess whose own status is then discarded, and
+  # there is no status left to discard once the subprocess is gone.
+  echo "FAIL: $workflow no longer has exactly one job (found: ${job_names//$'\n'/ })"
   echo "      This check scans steps flat, which is only valid for a single job."
   exit 1
 fi

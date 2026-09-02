@@ -141,17 +141,36 @@ python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$WORK/firebase-sa.js
 
 base64 -w0 "$WORK/firebase-sa.json" > "$WORK/firebase_sa_b64"
 chmod 600 "$WORK/firebase_sa_b64"
-echo "  $(wc -c < "$WORK/firebase_sa_b64") bytes (base64)"
+# Assigned and CHECKED, not substituted into the `echo`. This script runs
+# without `set -e` (see line 31), so a masked `wc` failure here would print
+# "   bytes (base64)" and carry straight on to upload, as a repository secret, a
+# blob nothing has been able to so much as size. Same family as the JSON
+# validation above, so the same exit code.
+if ! b64_bytes=$(wc -c < "$WORK/firebase_sa_b64"); then
+  echo "ERROR: cannot read $WORK/firebase_sa_b64 immediately after writing it" >&2
+  exit 6
+fi
+echo "  $b64_bytes bytes (base64)"
 
 # --- 3. Push to GH secrets ----------------------------------------------------
 push_secret() {
   local name="$1"
   local file="$2"
+  local bytes
   if [[ ! -f "$file" ]]; then
     echo "  [skip] $name (no value captured)"
     return 0
   fi
-  echo "  [set]  $name ($(wc -c < "$file") bytes)"
+  # Assigned and CHECKED, for the reason above and one sharper: the next line
+  # feeds this same file to `gh secret set`, and its status is not checked
+  # either. Masked, an unreadable file printed "[set] NAME ( bytes)" and then
+  # let a failed push pass for a successful one. A file that cannot be sized is
+  # not pushed.
+  if ! bytes=$(wc -c < "$file"); then
+    echo "  [fail] $name -- cannot read $file; NOT pushed" >&2
+    return 1
+  fi
+  echo "  [set]  $name ($bytes bytes)"
   gh secret set "$name" --repo "$REPO" < "$file"
 }
 

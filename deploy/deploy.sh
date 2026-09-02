@@ -17,7 +17,17 @@ if [ ! -f "$BINARY" ]; then
     exit 1
 fi
 
-echo "=== Binary size: $(du -h "$BINARY" | cut -f1) ==="
+# Assigned, then printed: substituted straight into the `echo`, the status of
+# `du` (and of `cut`) is thrown away, so a binary that became unreadable between
+# the existence check above and here would print "Binary size:  " and this
+# script would go on to `scp` it to production anyway -- measured against this
+# script with a `du` stubbed to fail: it printed "Binary size:  ", copied the
+# binary, restarted the unit and exited 0. As an assignment the
+# pipeline's status is `set -e`-visible -- and `du` has already written its own
+# reason to stderr, so the deploy stops WITH a diagnosis rather than the
+# exit-1-in-silence shape (#628).
+binary_size=$(du -h "$BINARY" | cut -f1)
+echo "=== Binary size: $binary_size ==="
 
 echo "=== Deploying to $REMOTE ==="
 scp "$BINARY" "$REMOTE":/opt/rouse-relay/rouse-relay.new
