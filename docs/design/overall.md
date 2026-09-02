@@ -203,11 +203,11 @@ OAuth 2.1 device authorization grant (RFC 8628). **Per-integration auth** — ea
 
 ### Flow
 
-Each integration ships at its own per-integration hostname `{adjective}-{integrationId}.{subdomain}.rousecontext.com`. The integration is identified by the SNI label, not by a URL path segment, so OAuth + MCP endpoints all live at the *root* of that host.
+Each integration ships at its own per-integration hostname `{adjective}-{integrationId}.{subdomain}.rousecontext.com`. The integration is identified by the hostname's first label, not by a URL path segment, so OAuth + MCP endpoints all live at the *root* of that host. That label reaches the relay as SNI and `:core:mcp` as the `Host` header — see [Routing inside `:core:mcp`](#routing-inside-coremcp).
 
 1. MCP client connects to `brave-health.abc123.rousecontext.com` (triggers FCM wakeup on cold start).
 2. Client requests `GET /.well-known/oauth-authorization-server`.
-3. Device returns metadata for the Health Connect integration (the SNI tells `:core:mcp` which provider to dispatch to).
+3. Device returns metadata for the Health Connect integration (the request's `Host` header tells `:core:mcp` which provider to dispatch to).
 4. Client calls `POST /device/authorize`.
 5. Device generates device_code (opaque, 32 bytes base64url) + user_code (8 chars alphanumeric uppercase, no 0/O/1/I/L, displayed as `XXXX-XXXX`), returns both + polling interval (5s).
 6. Device shows notification: "Claude wants to access **Health Connect**".
@@ -228,7 +228,7 @@ Polling responses: `authorization_pending` (keep polling), `slow_down` (increase
 - Each token: integration_id, client_id, access_token_hash, created_at, last_used_at, label
 - Tokens scoped to integration — a token issued on the Health host can't access the Notifications host
 - User can view and revoke tokens per-integration in app UI
-- Token verification: device checks Bearer header on every request, scoped to the SNI-derived integration id
+- Token verification: device checks Bearer header on every request, scoped to the integration id derived from the request's `Host` header
 - All tokens revoked on subdomain rotation
 
 ### Where This Lives
@@ -428,7 +428,7 @@ Each integration has its own issuer and endpoints, all rooted at its per-integra
 
 ## Integration Model
 
-Each `McpServerProvider` is exposed as a separate MCP server at its own per-integration hostname under the device subdomain (`{adjective}-{integrationId}.{subdomain}.rousecontext.com`). The integration is identified by the SNI label, not by a URL path segment.
+Each `McpServerProvider` is exposed as a separate MCP server at its own per-integration hostname under the device subdomain (`{adjective}-{integrationId}.{subdomain}.rousecontext.com`). The integration is identified by the hostname's first label, not by a URL path segment: SNI carries that label to the relay, the `Host` header carries it to `:core:mcp`.
 
 ```
 https://brave-health.abc123.rousecontext.com         → Health Connect
@@ -442,7 +442,7 @@ The `{adjective}` portion of the first label is rotated independently of the `{i
 
 - One subdomain hosts many per-integration hostnames; each gets its own SAN entry on the device's relay-CA-issued client cert (via `valid_secrets`), but a single mux connection serves them all.
 - Relay routes by SNI: it looks up the device by the second label (`abc123`), checks the first label against `valid_secrets`, then forwards.
-- Inside the TLS tunnel the device's HTTP server (`:core:mcp`) reads the SNI hostname from the OPEN frame, resolves the integration, then routes by URL path within that integration.
+- Inside the TLS tunnel the SNI is gone. The relay does put the hostname in the OPEN frame's payload, but the device-side codec drops it: `MuxCodec.decode` maps `OPEN` to `MuxFrame.Open(streamId)`, which has no hostname field. So the device's HTTP server (`:core:mcp`) resolves the integration from the request's `Host` header instead, then routes by URL path within that integration.
 - Each per-integration host is an independent MCP session from the client's perspective.
 - Max 8 concurrent streams per device (configurable on relay).
 
