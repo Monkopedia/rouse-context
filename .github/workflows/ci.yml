@@ -42,10 +42,44 @@ jobs:
           tar -xJf /tmp/shellcheck.tar.xz -C /tmp
           sudo install -m 0755 "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version
+      # actionlint is what reaches the OTHER half of this repo's shell: the
+      # shell living inline in `run:` blocks across these seven workflow files
+      # -- 71 blocks, 383 lines as this landed, 70/372 of them before this very
+      # step was added -- which the *.sh gate below cannot see (#659). It
+      # shells out to the
+      # shellcheck installed above rather than carrying its own, so the two pins
+      # describe one linter, not two.
+      #
+      # Pinned by checksum for the reason above AND a sharper one: actionlint's
+      # shellcheck integration is silent when it is missing -- no warning, no
+      # non-zero exit, just a clean report. `scripts/check-shell-lint.sh` runs a
+      # known-bad control workflow on every invocation to catch exactly that,
+      # but a pinned, verified binary is what stops the situation arising.
+      #
+      # Bump in lockstep with EXPECTED_ACTIONLINT_VERSION in
+      # scripts/check-shell-lint.sh, which asserts the two agree.
+      - name: Install actionlint (pinned)
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 --retry-delay 5 -o /tmp/actionlint.tar.gz "$url"
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          sudo install -m 0755 /tmp/actionlint /usr/local/bin/actionlint
+          actionlint --version
       # The gates below ARE shell scripts, and so are their self-tests, so this
       # runs first: if one of them is malformed, the reason lands here instead
       # of as a confusing failure inside the gate itself (#592).
-      - name: "Shell scripts pass shellcheck (issue #592)"
+      #
+      # Two phases in one step: the tracked *.sh files (#592) and the inline
+      # `run:` shell in these workflow files (#659). One step because they are
+      # one question -- "is the shell this repo owns linted" -- and splitting
+      # them would make it possible to drop one and still see a green tick next
+      # to the other.
+      - name: "Shell passes shellcheck, in scripts and in workflows (#592, #659)"
         run: bash scripts/check-shell-lint.sh
       # Grep gates run before the JDK/Gradle setup: they need nothing but the
       # checkout and finish in under a second, so a violation reports in seconds
@@ -71,10 +105,13 @@ jobs:
         run: bash scripts/tests/check-no-production-runblocking-test.sh
       # A linter wrapper is the easiest gate of all to make vacuous: hand
       # `shellcheck` an empty file list and it reads stdin, prints nothing and
-      # exits 0 -- identical output to a clean tree. This asserts the discovery
-      # goes RED on an empty set and that real violations are named by file and
-      # rule code.
-      - name: "shellcheck gate self-test (issue #592)"
+      # exits 0 -- identical output to a clean tree. actionlint is worse, and
+      # measurably so: with no shellcheck on PATH it lints every workflow,
+      # reports nothing and exits 0. This asserts both discoveries go RED on an
+      # empty set, that real violations are named by file/workflow, job and rule
+      # code, and that a dead shellcheck integration is noticed rather than
+      # reported as clean.
+      - name: "shell-lint gate self-test (#592, #659)"
         run: bash scripts/tests/check-shell-lint-test.sh
       - uses: actions/setup-java@v4
         with:
