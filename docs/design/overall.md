@@ -203,11 +203,11 @@ OAuth 2.1 device authorization grant (RFC 8628). **Per-integration auth** — ea
 
 ### Flow
 
-Each integration ships at its own per-integration hostname `{adjective}-{integrationId}.{subdomain}.rousecontext.com`. The integration is identified by the SNI label, not by a URL path segment, so OAuth + MCP endpoints all live at the *root* of that host.
+Each integration ships at its own per-integration hostname `{adjective}-{integrationId}.{subdomain}.rousecontext.com`. The integration is identified by the hostname's first label, not by a URL path segment, so OAuth + MCP endpoints all live at the *root* of that host. That label reaches the relay as SNI and `:core:mcp` as the `Host` header — see [Routing inside `:core:mcp`](#routing-inside-coremcp).
 
 1. MCP client connects to `brave-health.abc123.rousecontext.com` (triggers FCM wakeup on cold start).
 2. Client requests `GET /.well-known/oauth-authorization-server`.
-3. Device returns metadata for the Health Connect integration (the SNI tells `:core:mcp` which provider to dispatch to).
+3. Device returns metadata for the Health Connect integration (the request's `Host` header tells `:core:mcp` which provider to dispatch to).
 4. Client calls `POST /device/authorize`.
 5. Device generates device_code (opaque, 32 bytes base64url) + user_code (8 chars alphanumeric uppercase, no 0/O/1/I/L, displayed as `XXXX-XXXX`), returns both + polling interval (5s).
 6. Device shows notification: "Claude wants to access **Health Connect**".
@@ -228,16 +228,32 @@ Polling responses: `authorization_pending` (keep polling), `slow_down` (increase
 - Each token: integration_id, client_id, access_token_hash, created_at, last_used_at, label
 - Tokens scoped to integration — a token issued on the Health host can't access the Notifications host
 - User can view and revoke tokens per-integration in app UI
-- Token verification: device checks Bearer header on every request, scoped to the SNI-derived integration id
+- Token verification: device checks Bearer header on every request, scoped to the integration id derived from the request's `Host` header
 - All tokens revoked on subdomain rotation
 
 ### Where This Lives
 
-`:core:mcp` — HTTP routing, per-integration OAuth endpoints, token management, auth verification. The tunnel provides the byte stream (plaintext after TLS termination) along with the SNI hostname, and `:core:mcp` handles everything on top of it.
+`:core:mcp` — HTTP routing, per-integration OAuth endpoints, token management, auth verification. `:core:bridge` terminates the inner TLS and feeds `:core:mcp` plaintext HTTP over loopback; `:core:mcp` handles everything on top of that.
 
 ## :core:mcp HTTP Server
 
-The tunnel hands `MuxStream` (plaintext `InputStream`/`OutputStream` after inner TLS termination, plus the SNI hostname from the OPEN frame) to the app. The app passes it to `:core:mcp`, which runs a Ktor HTTP server over the stream.
+The relay opens a mux stream per inbound connection. `MuxStream` carries **raw**
+bytes — the inner TLS record stream, not plaintext. The relay does put the SNI
+hostname in the OPEN frame's payload (`relay/src/main.rs`), but the device-side
+codec drops it: `MuxCodec.decode` maps `OPEN` to `MuxFrame.Open(streamId)`, and
+`MuxStream` exposes no hostname. So no hostname rides along with the stream, and
+the integration is resolved further up, from the HTTP `Host` header. Three
+modules split the work:
+
+- `:work` — `TunnelForegroundService.collectIncomingSessions` collects
+  `tunnelClient.incomingSessions` and launches one child coroutine per stream.
+- `:core:bridge` — `SessionHandler.handleStream` terminates TLS (the device is the
+  TLS server) and bridges the plaintext HTTP to a local TCP port.
+- `:core:mcp` — a single long-lived Ktor CIO server, bound to loopback, does the
+  routing.
+
+The app itself does none of these hops; `:app` only builds the Koin graph that
+wires them together.
 
 ### Protocol
 
@@ -246,23 +262,36 @@ The tunnel hands `MuxStream` (plaintext `InputStream`/`OutputStream` after inner
 ### Stack on device
 
 ```
-MuxStream (raw bytes from relay) + SNI hostname
-  → TLS server accept (tunnel, using device server cert)
-  → plaintext InputStream/OutputStream
-  → Ktor embedded HTTP server (:core:mcp)
-  → resolve integration id from SNI first label ({adjective}-{integrationId})
+MuxStream (raw, still-encrypted bytes from relay)
+  → :work — TunnelForegroundService.collectIncomingSessions
+      collects incomingSessions, one child coroutine per stream,
+      each wrapped in its own try (one bad session cannot take the tunnel down)
+  → :core:bridge — SessionHandler.handleStream
+      TlsAcceptor.create(sslContext).accept(stream)   (device is the TLS server)
+  → plaintext HTTP/1.1 bytes
+  → :core:bridge — SessionHandler.bridgeToMcpServer
+      Socket("127.0.0.1", mcpPort) into the already-running MCP server,
+      HttpHeaderInjector rewrites each request's header block to add
+      `X-Internal-Token: <per-start secret>`
+  → :core:mcp — the one long-lived Ktor CIO server, bound to loopback
+      InternalTokenGuard rejects anything without a matching header
+  → resolve integration id from the HTTP Host header's first label
+      ({adjective}-{integrationId}) — SNI is gone by this point, terminated
+      one layer down, so the Host header is what survives the loopback hop
   → route within that integration:
       /.well-known/oauth-authorization-server → that integration's OAuth metadata
+      /register → Dynamic Client Registration
       /device/authorize → that integration's device code flow
+      /authorize, /authorize/status → browser authorization-code flow
       /token → that integration's token exchange
-      /mcp/* → that integration's MCP Streamable HTTP (auth required)
+      /mcp (POST, DELETE) → that integration's MCP Streamable HTTP (auth required)
       unknown path → 404
   → unknown integration / disabled → 404 (also triggers an audit notification)
 ```
 
 ### Auth per integration
 
-Each per-integration host is a self-contained MCP server with its own OAuth. The SNI label resolves the integration; each integration handler checks its own Bearer token. Returns 401 with `WWW-Authenticate` pointing to that host's `/.well-known/oauth-authorization-server` if the token is missing or invalid.
+Each per-integration host is a self-contained MCP server with its own OAuth. The `Host` header's first label resolves the integration; each integration handler checks its own Bearer token. A missing or invalid token gets a 401 whose `WWW-Authenticate` is `Bearer resource_metadata="https://<host>/.well-known/oauth-protected-resource"` (`McpRoutes.respondUnauthorized`).
 
 ### `:core:mcp` Interfaces
 
@@ -276,27 +305,110 @@ interface ProviderRegistry {
 /** Token verification/management, scoped per integration. App implements backed by Room. */
 interface TokenStore {
     fun validateToken(integrationId: String, token: String): Boolean
-    fun createToken(integrationId: String, clientId: String): String
+    fun resolveClientName(integrationId: String, token: String): String?
+    fun resolveClientId(integrationId: String, token: String): String?
+    fun resolveClientLabel(integrationId: String, token: String): String?
+    fun upgradeClientLabel(integrationId: String, clientId: String, newLabel: String)
+    fun createTokenPair(
+        integrationId: String,
+        clientId: String,
+        clientName: String? = null
+    ): TokenPair
     fun revokeToken(integrationId: String, token: String)
+    fun revokeByClientId(integrationId: String, clientId: String)
+    fun refreshToken(integrationId: String, refreshToken: String): TokenPair?
     fun listTokens(integrationId: String): List<TokenInfo>
+    fun tokensFlow(integrationId: String): Flow<List<TokenInfo>>  // live UI updates
     fun hasTokens(integrationId: String): Boolean  // for Pending vs Active state
 }
 
+/** The MCP HTTP server. One instance, started once at app boot. */
 class McpSession(
-    private val providers: ProviderRegistry,
+    private val registry: ProviderRegistry,
     private val tokenStore: TokenStore,
     private val auditListener: AuditListener? = null,
+    private val serverVersion: String,  // no default; see #603
+    // ...
 ) {
-    /** Runs Ktor HTTP server over the stream. Suspends until stream closes. */
-    suspend fun run(input: InputStream, output: OutputStream)
+    /** Starts the embedded Ktor CIO server on loopback. Port 0 = OS-assigned. */
+    fun start(port: Int = 0)
+
+    /** The actual listening port, once bound. */
+    suspend fun resolvePort(): Int
+
+    /** Secret the bridge must inject as `X-Internal-Token`. Rotates per start(). */
+    val internalToken: String
+
+    suspend fun awaitClose()
+    suspend fun shutdown()
+    fun stop()
 }
 ```
 
-`McpSession` is long-lived and shared across streams. The app calls `session.run(stream.input, stream.output)` for each incoming `MuxStream`. Provider changes (enable/disable) are reflected immediately via `ProviderRegistry` — no session reconstruction needed.
+There is no `McpSession.run`, and nothing hands a stream to `McpSession`. Its I/O
+arrives the ordinary way — as HTTP over a TCP socket.
 
-### Per-stream HTTP server
+### One shared HTTP server, reached over loopback
 
-Each `run()` call creates a lightweight Ktor server instance over the provided I/O. When the stream closes, the server instance is disposed. Shared state across streams: `ProviderRegistry`, `TokenStore`, `AuditListener`.
+`McpSession` is long-lived and shared across streams: `:app`'s Koin graph
+constructs exactly one and calls `start(port = 0)` at boot, and
+`SharedMcpSessionFactory` hands out that already-running server's port to every
+stream. Its `McpSessionHandle.stop` is deliberately a no-op — stopping the shared
+server per-stream would tear down every other in-flight connection. Provider
+changes (enable/disable) take effect immediately via `ProviderRegistry`, with no
+session reconstruction.
+
+So each stream is not a new server; it is a new **TCP connection** to the one
+server. `SessionHandler.bridgeToMcpServer` dials `127.0.0.1:<mcpPort>` and pumps
+bytes both ways until either direction finishes. Per-stream state lives in the
+bridge (the socket, the header injector, the TLS session); `ProviderRegistry`,
+`TokenStore` and `AuditListener` are shared, as they always were.
+
+#### Why `X-Internal-Token` exists (#177)
+
+Binding the MCP server to loopback keeps it off the network, but loopback is not
+a trust boundary on Android: **any other app on the device can dial
+`127.0.0.1:<port>`**, and to that server such a request is indistinguishable from
+one the bridge forwarded. Every OAuth endpoint and every MCP tool call would be
+reachable by a local app that simply guessed the port.
+
+So the bridge proves provenance. `McpSession.start` generates a 256-bit random
+secret, exposed as `McpSession.internalToken` and never persisted;
+`HttpHeaderInjector` rewrites each forwarded request's header block to carry it
+as `X-Internal-Token`; and `InternalTokenGuard`, a Ktor plugin installed on
+`onCall` so it fires ahead of content negotiation, the rate limiter and every
+route handler, rejects any request whose header does not match. The compare is
+constant-time (`MessageDigest.isEqual`) so the secret cannot be recovered by
+timing. The token rotates on every `start()`, which neutralises replay by
+anything that cached a leaked value across a restart.
+
+This header is the *only* thing separating bridge-forwarded traffic from a
+same-device app dialing loopback directly. It is a property of the shared-server
+design: a genuinely per-stream, in-memory server would never have had a loopback
+port to defend.
+
+### When a session fails
+
+A throwable escaping `SessionHandler.handleStream` is caught per stream inside
+`collectIncomingSessions` — one bad session cannot take the tunnel down — and
+then classified by `:work`'s `classifyTunnelFailure` into `Cancellation`,
+`PeerOrTransport`, or `Defect`. Cancellation is rethrown, peer/transport noise is
+logged at INFO so the *rate* stays visible without spending a crash report, and a
+defect gets `Log.e` plus `CrashReporter.logCaughtException`.
+
+The one thing worth knowing here is the direction of the default. The quiet set
+is a **closed allowlist** — `TlsHandshakeFailed`, `WebSocketClosed`,
+`StreamRefused`, `StreamReset`, plain `IOException`, and a `ConnectionFailed`
+whose cause is null or an `IOException` — and the `else` arm is `Defect`. An
+exception nobody anticipated at this boundary is, by definition, something the
+layer did not plan for, so it defaults to **loud**. Inverting that default is the
+whole failure mode the policy exists to prevent: a quiet default silently undoes
+the six PRs (#616, #626, #630, #639, #643, #647) the TLS layer spent learning to
+tell its own defects from ordinary peer behaviour, and it does so invisibly,
+because "no crash reports" looks identical to "no crashes".
+
+The full classification table lives in
+[`android-app.md § Session handling and failure discrimination`](android-app.md#session-handling-and-failure-discrimination).
 
 ### OAuth metadata response (RFC 8414) — per integration
 
@@ -316,7 +428,7 @@ Each integration has its own issuer and endpoints, all rooted at its per-integra
 
 ## Integration Model
 
-Each `McpServerProvider` is exposed as a separate MCP server at its own per-integration hostname under the device subdomain (`{adjective}-{integrationId}.{subdomain}.rousecontext.com`). The integration is identified by the SNI label, not by a URL path segment.
+Each `McpServerProvider` is exposed as a separate MCP server at its own per-integration hostname under the device subdomain (`{adjective}-{integrationId}.{subdomain}.rousecontext.com`). The integration is identified by the hostname's first label, not by a URL path segment: SNI carries that label to the relay, the `Host` header carries it to `:core:mcp`.
 
 ```
 https://brave-health.abc123.rousecontext.com         → Health Connect
@@ -330,7 +442,7 @@ The `{adjective}` portion of the first label is rotated independently of the `{i
 
 - One subdomain hosts many per-integration hostnames; each gets its own SAN entry on the device's relay-CA-issued client cert (via `valid_secrets`), but a single mux connection serves them all.
 - Relay routes by SNI: it looks up the device by the second label (`abc123`), checks the first label against `valid_secrets`, then forwards.
-- Inside the TLS tunnel the device's HTTP server (`:core:mcp`) reads the SNI hostname from the OPEN frame, resolves the integration, then routes by URL path within that integration.
+- Inside the TLS tunnel the SNI is gone. The relay does put the hostname in the OPEN frame's payload, but the device-side codec drops it: `MuxCodec.decode` maps `OPEN` to `MuxFrame.Open(streamId)`, which has no hostname field. So the device's HTTP server (`:core:mcp`) resolves the integration from the request's `Host` header instead, then routes by URL path within that integration.
 - Each per-integration host is an independent MCP session from the client's perspective.
 - Max 8 concurrent streams per device (configurable on relay).
 
@@ -345,14 +457,21 @@ User controls exposure by:
 
 ### Routing inside `:core:mcp`
 
-After the SNI label resolves the integration, paths under that hostname route to:
+The integration is resolved from the first label of the request's `Host` header,
+not from SNI — the inner TLS was terminated a layer down in `:core:bridge`, so
+`:core:mcp` never sees a ClientHello. `McpRoutes.resolveIntegration` splits that
+label on the first `-` and takes the second half. Paths under that hostname route
+to:
 
 - `/.well-known/oauth-authorization-server` → that integration's OAuth metadata
+- `/.well-known/oauth-protected-resource/{path...}` → protected-resource metadata (RFC 9728)
+- `/register` → Dynamic Client Registration
 - `/device/authorize` → that integration's device code flow
+- `/authorize`, `/authorize/status` → browser authorization-code flow
 - `/token` → that integration's token exchange
-- `/mcp/*` → that integration's MCP Streamable HTTP (auth required)
+- `/mcp` (POST, DELETE) → that integration's MCP Streamable HTTP (auth required)
 - Unknown path on a known integration → 404
-- Unknown SNI label or disabled integration → 404, also triggers app notification (audit trail)
+- Unknown host label or disabled integration → 404, also triggers app notification (audit trail)
 
 ### User Experience
 
@@ -389,7 +508,7 @@ Let's Encrypt remains a supported option for self-hosters (see `docs/self-hostin
 - `:app` — Compose UI, foreground service host, navigation, Koin wiring, integration management screens. The only module that depends on all others.
 - `:core:mcp` — MCP SDK, OAuth server (device code flow), token management, HTTP routing, `McpSession`, `McpServerProvider`. Pure JVM.
 - `:core:tunnel` — mux WebSocket client, mux protocol framing, TLS server accept, `CertificateStore` interface, `OnboardingFlow`, `CertProvisioningFlow`. Pure JVM. Must not know about MCP.
-- `:core:bridge` — wiring layer that connects tunnel streams to `:core:mcp` sessions.
+- `:core:bridge` — wiring layer that connects tunnel streams to `:core:mcp` sessions: `SessionHandler` (TLS accept + loopback bridge), `McpSessionFactory`, `HttpHeaderInjector`, `TlsCertProvider`. Pure JVM.
 - `:core:testfixtures` — shared fakes used by tests in other modules.
 - `:api` — `McpIntegration` interface, `IntegrationStateStore`. Contract for integration modules.
 - `:integrations` — Health Connect and other on-device data sources, depends on `:api` and `:core:mcp`.
