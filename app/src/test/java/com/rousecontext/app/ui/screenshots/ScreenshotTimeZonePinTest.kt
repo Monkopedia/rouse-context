@@ -27,11 +27,32 @@ import org.junit.Test
  * hosts, so `recordRoborazziDebug` on a non-UTC machine looks clean locally and
  * fails `verifyRoborazziDebug` on a UTC CI runner — the failure mode that took
  * three investigations to identify. Only the audit-detail timestamp reaches a
- * golden today (`43_audit_detail_populated_{dark,light}`); the rest are latent
- * and would surface the same way the moment a fixture or a screen starts
- * rendering them. Asserting the JVM default zone covers all of them at once,
- * and turns "somebody deleted the pin" into an immediate local failure instead
- * of a mystery red board later.
+ * golden today — but it reaches three of them:
+ *
+ *  - `app/screenshots/43_audit_detail_populated_dark.png`
+ *  - `app/screenshots/43_audit_detail_populated_light.png`
+ *    (both from `ScreenScreenshotTest.auditDetailPopulated{Dark,Light}`)
+ *  - `fastlane/metadata/android/en-US/images/phoneScreenshots/6_audit_detail.png`
+ *    (from `ListingScreenshotTest.auditDetail`, which renders its own copy of
+ *    the fixture into the fastlane store-listing metadata)
+ *
+ * The rest are latent and would surface the same way the moment a fixture or a
+ * screen starts rendering them. Asserting the JVM default zone covers all of
+ * them at once, and turns "somebody deleted the pin" into an immediate local
+ * failure instead of a mystery red board later.
+ *
+ * That list is measured, not inferred. To re-measure it, comment out
+ * `systemProperty("user.timezone", "UTC")` in the root `build.gradle.kts` and
+ * run `TZ=America/New_York ./gradlew :app:verifyRoborazziDebug --rerun-tasks`.
+ * `--rerun-tasks` is load bearing: `TZ` is not a Gradle task input, so without
+ * it the task goes `UP-TO-DATE` and reports a green that measured nothing.
+ * Count the failing *tests*, not the exit code, and ignore `_compare.png` files
+ * in `app/build/outputs/roborazzi/` — those are diff artifacts, not goldens.
+ * Every earlier version of this list was derived by reasoning about which
+ * screens plausibly render a timestamp; each one enumerated two goldens and
+ * missed `6_audit_detail`, and the error was inherited unchecked across three
+ * investigations before anyone removed the pin and read what actually failed
+ * (#719).
  */
 class ScreenshotTimeZonePinTest {
 
