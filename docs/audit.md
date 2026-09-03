@@ -70,15 +70,30 @@ Removed from active audit on 2026-04-25 (deleted from repo):
 
 
 ### docs/test-coverage-audit.md
-- **Length**: 1012 lines
-- **Audience**: engineering (historical audit)
-- **Accuracy**: stale. Dated 2026-04-06, cross-references the same 12
-  production bugs from `device-test-report.md`. Inventory of test classes
-  has drifted (new tests since then). Gap lists are partially addressed.
+- **Length**: ~1230 lines
+- **Audience**: engineering
+- **Accuracy**: split, deliberately. Repaired under #654 on 2026-09-02.
+  The inventory half was rebuilt and verified against `61c84b93` — every
+  count is reproducible from a printed command and every named test class
+  was confirmed to exist. Everything from "Gap Analysis" onward is now
+  explicitly fenced as the 2026-04-06 snapshot, with inline annotations
+  where a gap has since been closed.
 - **User-facing content?**: No.
-- **Recommendation**: delete. Redo as a fresh audit later if useful. A
-  point-in-time audit with bug counts that rebase out of date quickly
-  is not a doc to keep evergreen.
+- **Recommendation**: keep, in its current split shape. The earlier
+  recommendation was to delete, on the grounds that a hand-maintained
+  inventory drifts. That is still true of an exhaustive one, which is why
+  the repair replaced the per-class enumeration with per-module counts plus
+  the command that reproduces them, and names only the classes the document
+  itself cites. #654 also added a **Subject ships?** column: a `✓` used to
+  mean only that a test existed and passed, which credited production with
+  coverage of a class that never runs. Note that most of the bad rows were
+  ordinary staleness of exactly the kind this entry already described: the
+  April 2026 cleanup wave (#124, #125, #303, and the removal of the orphaned
+  `:integration-tests` module) deleted the code they named, and nobody
+  updated the audit. Only the `TokenStore` row failed the other way, staying
+  accurate while supporting a false inference. That one is what #654 is
+  actually about, and it is the one a reader could not have caught from the
+  date on the file.
 
 ### docs/security.md
 - **Length**: 237 lines
@@ -280,8 +295,9 @@ Removed from active audit on 2026-04-25 (deleted from repo):
 
 ## Summary punch list
 
-- [ ] **Delete**: `BLOCKERS.md`, `docs/workflow.md`,
-      `docs/test-coverage-audit.md`.
+- [ ] **Delete**: `BLOCKERS.md`, `docs/workflow.md`.
+      _`docs/test-coverage-audit.md` was struck from this list on
+      2026-09-02: repaired and re-verified under #654 rather than deleted._
       _Done 2026-04-25: `docs/overnight-plan-2.md`, `docs/e2e-status.md`,
       `docs/device-test-report.md`, and the four `docs/screenshot_*.png`
       files paired with that report._

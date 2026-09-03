@@ -1,211 +1,364 @@
 # Rouse Context Test Coverage Audit
 
-**Date:** 2026-04-06  
-**Scope:** Android app + Rust relay test suite  
-**Goal:** Identify why production bugs slip through despite hundreds of tests
+**Original audit:** 2026-04-06
+**Inventory re-verified:** 2026-09-02, against `61c84b93`
+**Scope:** Android app + Rust relay test suite
 
-## Executive Summary
+## How to read this document
 
-The Rouse Context project has **~70 test files** covering unit, integration, and end-to-end scenarios across Android and Rust components. However, the test suite has critical gaps in three areas:
+This document has two halves and they carry different warranties.
 
-1. **Integration test fidelity** — Tests use heavy mocks or manual frame pumping, missing real code paths
-2. **End-to-end UI and configuration validation** — No tests for design system compliance, hardcoded URLs, notification icons, or status bar colors
-3. **Negative and edge-case scenarios** — Missing tests for multi-record TLS frames, expired tokens, partial data, rapid reconnects, and FCM throttle behavior
+**[Test Inventory by Module](#test-inventory-by-module) is current.** Every count was
+produced by the command printed next to it, and every test class it names was confirmed
+to exist at `61c84b93`. Re-run the commands to re-verify.
 
-**Result:** 12+ production bugs have leaked through despite extensive testing (connection status not updating, spurious WebSocket disconnects, TLS handshake failures on closed streams, FCM token send failures, invalid state transitions, etc.)
+**Everything from [Gap Analysis](#gap-analysis-production-bugs-vs-test-coverage-2026-04-06-snapshot)
+onward is the 2026-04-06 snapshot, kept as history.** It records which of thirteen
+then-current production bugs the suite could have caught *at that time*. Many of those
+gaps have since been closed; where that is so the entry says so inline. Do not read that
+half as a statement of what is untested today.
+
+**Why the rows went bad, since the two causes want different fixes.** Most of them went
+*stale*: a cleanup wave in April 2026 deleted the code they described —
+`NotificationAdapter` and its test as dead code (#125), the `:integration-tests` module,
+the `:health` module folded into `:integrations`, the wake endpoint (#303) — and the
+document was never updated. That is ordinary drift, and the counts-plus-command shape
+below is the fix for it. One row failed differently and is the reason for #654:
+`TokenStoreTest` was *accurate*, stayed accurate, and still supported a false inference
+about what ships. Staleness a reader can suspect from a date; that one they cannot.
+
+**A `✓` in the inventory means the named test class exists and is green. It does not mean
+its subject ships.** Those are different questions, and a coverage audit that runs them
+together credits production with coverage it does not have — that defect is
+[#654](https://github.com/Monkopedia/rouse-context/issues/654), and it is what this
+revision repairs. The **Subject ships?** column is the second axis: it answers whether the
+class under test is reachable from a `main` source set, and it is the column a reader
+should look at before concluding that a shipped behaviour is covered.
+
+**The inventory is deliberately not a full enumeration.** The tree holds 288 Kotlin test
+classes and 21 Rust integration test files. Listing all of them by hand is precisely what
+drifted this document out of date the first time, so each module section gives a verified
+count plus the command that reproduces it, and names only the classes the rest of this
+document cites or that pin a load-bearing property.
 
 ---
 
 ## Test Inventory by Module
 
-### 1. Core Tunnel (JVM tests: `core/tunnel/src/jvmTest/`)
+Counts at `61c84b93`:
 
-**Files:** 10 test classes, ~3100 lines
+```bash
+for m in core/tunnel core/mcp core/bridge core/testfixtures api app \
+         notifications work integrations device-tests e2e; do
+  printf '%s: %s\n' "$m" "$(find "$m" -path '*/src/*' -name '*Test.kt' | wc -l)"
+done
+ls relay/tests/*.rs | grep -v test_helpers | wc -l
+```
 
-| Test Class | Coverage | Status |
+| Module | Kotlin test classes |
+|---|---|
+| `core/tunnel` | 54 |
+| `core/mcp` | 35 |
+| `core/bridge` | 4 |
+| `core/testfixtures` | 1 |
+| `api` | 3 |
+| `app` | 123 |
+| `notifications` | 15 |
+| `work` | 20 |
+| `integrations` | 29 |
+| `device-tests` | 1 |
+| `e2e` | 3 |
+| **Total** | **288** |
+
+`relay/tests/` holds **21** integration test files, excluding the shared `test_helpers.rs`.
+
+### 1. Core Tunnel (`core/tunnel/src/jvmTest/`) — 54 test classes
+
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `TunnelClientImplTest` | State transitions, FCM token, session handling | Yes — `TunnelClientImpl` is bound in `app/src/main/java/com/rousecontext/app/di/AppModule.kt` | ✓ |
+| `ConnectionStateMachineTest` | Legal and illegal transitions; same-state transition returns `false` rather than throwing; concurrent transitions are atomic | Yes — `core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/ConnectionStateMachine.kt` | ✓ |
+| `TlsAcceptTest` | TLS handshake over `MuxStream` | Yes | ✓ |
+| `TlsAcceptorSplitRecordTest` | A TLS record split across two DATA frames, in both the handshake and the application-data direction | Yes | ✓ |
+| `WebSocketMuxTest` | WebSocket → mux frame conversion | Yes | ✓ |
+| `MuxFrameTest` | Frame encoding/decoding | Yes | ✓ |
+| `MuxDemuxTest` | Demux logic | Yes | ✓ |
+| `OnboardingFlowTest` | Onboarding workflow | Yes — `OnboardingFlow` is bound in `AppModule.kt` | ✓ |
+| `EndToEndSessionTest` | Real relay binary, real TLS handshake | Yes | ✓ |
+| `OAuthEndToEndTest` | OAuth flow through the tunnel | Yes | ✓ |
+| `RealRelayIntegrationTest` | Raw WebSocket integration against a running relay | Yes | ✓ |
+
+Corrections made in this revision:
+
+- A row for `TunnelConnectionStateMachineTest` was removed: no such path exists at
+  `61c84b93`, and `git log --all -- '*TunnelConnectionStateMachine*'` is empty, so it has
+  never been a file. Its only occurrence in the whole history is `6e1c3cfe`, the commit
+  that added this document. The real class is `ConnectionStateMachineTest`, listed above.
+- `MuxFrameTest` and `MuxDemuxTest` were tagged "(common)". Both live in `jvmTest`. There
+  is no `commonMain` or `commonTest` anywhere in the tree — `docs/design/overall.md:506`
+  states this outright for `:core:mcp` and `:core:tunnel`.
+
+**Still open:**
+- `TunnelClientImplTest` drives `MuxCodec` frames by hand rather than a real TLS handshake.
+  The real-handshake coverage lives in `EndToEndSessionTest` and `TlsAcceptorSplitRecordTest`.
+
+**Closed since the 2026-04-06 audit:**
+- Multi-record TLS data frames → `TlsAcceptorSplitRecordTest`.
+- State-machine idempotency and concurrent transitions → `ConnectionStateMachineTest`
+  (`transitionToSameStateReturnsFalse`, `concurrentTransitionsAreAtomic`).
+- Disconnect/reconnect cycles → `core/tunnel`'s `AbruptDisconnectTest` and
+  `HalfOpenDetectionTest`; `app`'s `HalfOpenReconnectTest` and `RapidFcmWakesTest`.
+- FCM token send around reconnect → `work`'s `FcmTokenRegistrarTest`, which pins that a
+  token send is skipped while `DISCONNECTED`/`CONNECTING` and forwarded once
+  `CONNECTED`/`ACTIVE`, and that cancellation propagates rather than being swallowed.
+
+### 2. Core MCP (`core/mcp/src/jvmTest/`) — 35 test classes
+
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `McpProtocolTest` | `tools/call`, `resources/list`, concurrent requests, audit logging | Yes — `McpSession` is bound in `AppModule.kt` | ✓ |
+| `HttpRoutingTest` | OAuth metadata, path routing | Yes | ✓ |
+| `McpSessionTest` | HTTP POST, token auth, tool execution | Yes | ✓ |
+| `McpResponseFormatTest` | No explicit `null` in `tools/call`, `tools/list`, `initialize` responses | Yes | ✓ |
+| `AuthorizationCodeFlowTest` | Authorization-code PKCE flow | Yes | ✓ |
+| `DeviceCodeFlowTest` | Device-code flow | Yes | ✓ |
+| `AuthMiddlewareTest` | Bearer token validation | Yes | ✓ |
+| `RateLimiterTest` | Rate-limit enforcement | Yes | ✓ |
+| `ErrorResponseTest` | Error handling | Yes | ✓ |
+| `AuthPageCspTest` | CSP header permitting inline styles, `X-Frame-Options: DENY`, HSTS, HTML body | Yes | ✓ |
+| `ConcurrentToolCallTest` | Many rapid calls to one tool, interleaved calls across tools, independence across clients | Yes | ✓ |
+| `AuthPageGalleryTest` | Emits static HTML variants for eyeballing | Yes, but the test asserts nothing about rendering | ⚠ Limited |
+| `TokenStoreTest` | The `TokenStore` **contract** — issue, validate, expire, revoke — exercised against `InMemoryTokenStore` only | **No.** Production binds `RoomTokenStore` (`AppModule.kt:282`, `singleOf(::RoomTokenStore) bind TokenStore::class`). `InMemoryTokenStore` reaches a `main` source set only as an unused default argument in `DeviceCodeManager.kt:50` and `AuthorizationCodeManager.kt:77`, and `McpSession.kt:36-38` always passes its own injected store instead. **The shipped store is covered by `RoomTokenStoreTest` (§4), not by this class.** | ✓ as a contract test |
+
+The `TokenStoreTest` row is the reason this document needed a **Subject ships?** column. As
+originally written — "`TokenStoreTest` | Token storage and expiry | ✓ Good" — every word was
+true and the inference a reader drew from it was false: it read as coverage of the storage
+path the app actually runs, which is Room-backed and which that class never touches.
+
+**Still open:**
+- No browser-rendered test of the auth page. `AuthPageCspTest` pins the headers that the
+  original bug was about; nothing renders the page in a real engine.
+- No test for a malformed MCP request — the protocol tests all send valid JSON-RPC.
+- No test for token-expiry races: revocation concurrent with refresh, double refresh.
+- No test for an unreachable OAuth metadata endpoint.
+
+**Closed since the 2026-04-06 audit:**
+- Explicit nulls in responses → `McpResponseFormatTest`.
+- CSP headers on the auth page → `AuthPageCspTest`.
+
+### 3. Core Bridge (`core/bridge/src/jvmTest/`) — 4 test classes
+
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `SessionHandlerTest` | Session routing and cleanup | Yes — `SessionHandler` is bound in `AppModule.kt` | ✓ |
+| `SessionHandlerDefectVisibilityTest` | An unhandled TLS state is surfaced rather than ending quietly, in both directions; an ordinary peer disconnect and a plain `IOException` stay quiet EOFs; cancellation propagates | Yes | ✓ |
+| `ClientPassthroughTest` | Client-to-device passthrough with a tool call; sequential requests on one session; **concurrent passthrough sessions are independent** | Yes | ✓ |
+| `HttpHeaderInjectorTest` | Header injection across chunked reads, keep-alive requests, and bodies; byte-count conservation | Yes — `HttpHeaderInjector` is called from `core/bridge/src/jvmMain/.../SessionHandler.kt` | ✓ |
+
+The count in this section has been wrong twice in opposite directions. It read "2 test
+classes" while there were five; #684 then deleted `TunnelSessionManagerTest` and
+`TunnelSessionManagerDefectVisibilityTest` along with their subject and corrected the
+figure to "1 test class", which under-counted the remaining four. It is four.
+
+The old "no tests for **concurrent session operations**" gap no longer holds:
+`ClientPassthroughTest` has `concurrent passthrough sessions are independent`. Removed.
+
+**Still open:**
+- No test for cleanup after an unexpected mid-session disconnect.
+
+### 4. App (`app/src/test/`, plus `testFoss/` and `testGoogle/`) — 123 test classes
+
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `MainDashboardViewModelTest` | State flow, integration visibility, audit entries | Yes | ✓ |
+| `DashboardStateFlowTest` | The dashboard reacts to enable/disable and to audit inserts without a manual refresh | Yes | ✓ |
+| `SettingsViewModelTest` | Settings state | Yes | ✓ |
+| `AuditHistoryViewModelTest` | Audit list and filtering | Yes | ✓ |
+| `AuthorizationApprovalViewModelTest` | Auth-approval UI state | Yes | ✓ |
+| `AuthApprovalReceiverTest` | The approval `BroadcastReceiver` | Yes — instantiated by the manifest | ✓ |
+| `RoomTokenStoreTest` | **The token store the app actually binds**: refresh-token family rotation and reuse revocation, against a real Room database | Yes — `AppModule.kt:282` | ✓ |
+| `OAuthDeviceFlowIntegrationTest` | The full authorization-code flow end to end through the real `RoomTokenStore` and `AuthorizationCodeManager` | Yes | ✓ |
+| `ToolCallViaSniPassthroughTest` | A tool call arriving over SNI passthrough | Partly — `SessionHandler` and `CertificateStore` are production; the `TunnelClientImpl` is built with a fixture WebSocket factory. Its kdoc enumerates which is which. | ✓ |
+| `ScreenScreenshotTest` | Renders every screen to PNG | Yes, but the test asserts nothing about what it renders | ⚠ Limited |
+
+`RoomTokenStoreTest` had never been listed here — `git log -S'RoomTokenStoreTest' --
+docs/test-coverage-audit.md` returns only the commit that added this paragraph — while
+`TokenStoreTest` — which does not touch the shipped store — was listed as good coverage of
+"token storage and expiry". The document under-reported the real coverage and over-reported
+the notional coverage of the same behaviour.
+
+**Still open (the 2026-04-06 HIGH-PRIORITY list, re-checked):**
+- No assertion that design-system colours, typography, or spacing follow Material 3.
+- No test for status-bar icon colour — Robolectric cannot observe it.
+- No test counting `TopAppBar` instances per screen (the double-app-bar bug).
+- `ScreenScreenshotTest` and the other screenshot tests capture but do not assert, in
+  either theme.
+
+**Closed since the 2026-04-06 audit:**
+- Connection status not reaching the dashboard → `DashboardStateFlowTest`.
+- Navigation state → `BackStackFlowTest`, `NavigationBarVisibilityTest`,
+  `IntegrationEnabledAutoNavTest`.
+- Hard-coded integration URLs → `IntegrationUrlTest`, `UrlBuilderTest`,
+  `OAuthHostnameProviderTest`, `IntegrationIdConsistencyTest`.
+
+### 5. Notifications (`notifications/src/test/`) — 15 test classes
+
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `NotificationChannelsTest` | Channel creation and importance | Yes — `NotificationChannels` is an object used from `main` | ✓ |
+| `NotificationIconTest` | Every notifier posts with the `ic_stat_rouse` small icon: foreground, FGS-limit, security alert and info, auth request | Yes | ✓ |
+| `AuthRequestNotifierTest` | Auth-request notification | Yes | ✓ |
+| `SecurityCheckNotifierTest` | Security-check alert and info notifications | Yes | ✓ |
+| `SessionSummaryNotifierTest` | End-of-session summary | Yes | ✓ |
+| `PerToolCallNotifierTest` | Per-tool-call notifications | Yes | ✓ |
+| `AuditDaoTest` | Audit database persistence | Yes | ✓ |
+| `AuditMigrationTest` | Room schema migration for the audit database | Yes | ✓ |
+| `NotificationScreenshotTest` | Renders notification previews | Yes, but asserts nothing | ⚠ Limited |
+
+A row for `NotificationAdapterTest` was removed: neither it nor its subject exists at
+`61c84b93`. Both were real. `notifications/src/main/java/.../NotificationAdapter.kt` landed
+in `52276b1e` (2026-04-05) as production code and its test in `2325e064` (2026-04-07); both
+were deleted on 2026-04-14 by `7a54bdce`, "Delete NotificationAdapter and NotificationAction
+dead code (#125)", when the notifier pattern replaced them. So this row was not fictional
+when written — it went stale, along with the code it described. `docs/workflow.md:317`
+still lists `NotificationAdapter.kt` in the "Files to create" list of task plan T-7; that
+is a record of a plan that was carried out and later reversed, not a claim about today's
+architecture, and it is left alone here — it belongs to
+[#687](https://github.com/Monkopedia/rouse-context/issues/687).
+
+A `NotificationDaoTest` row also sat in this section. That class is real but lives in
+`integrations/src/test/java/com/rousecontext/integrations/notifications/`, not in this
+module; it is listed under §8 instead.
+
+**Still open:**
+- No verification of notification rendering on a real device — Robolectric shadows do not
+  reproduce system rendering.
+- No test across Android API levels.
+- No test of notification accessibility attributes.
+
+**Closed since the 2026-04-06 audit:**
+- Small-icon resource id → `NotificationIconTest`, which pins `ic_stat_rouse` at five
+  posting sites.
+
+### 6. Work (`work/src/test/`) — 20 test classes
+
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `FcmDispatchTest` | FCM message routing | Yes — `FcmDispatch` is an object called from `main` | ✓ |
+| `FcmTokenRegistrarTest` | Token forwarded only in `CONNECTED`/`ACTIVE`; suppressed in `DISCONNECTED`/`CONNECTING`; cancellation propagates | Yes | ✓ |
+| `WakeReconnectDeciderTest` | The wake decision per tunnel state, including a stale `ACTIVE` socket and a throwing health check | Yes | ✓ |
+| `CertRenewalWorkerTest` | Cert renewal task | Yes — constructed in `work/src/main/kotlin/com/rousecontext/work/KoinWorkerFactory.kt:41` | ✓ |
+| `SecurityCheckWorkerTest` | Security checks | Yes — constructed in `KoinWorkerFactory.kt:32` | ✓ |
+| `CertRenewalSchedulerTest` / `SecurityCheckSchedulerTest` | WorkManager enqueue and constraints | Yes | ✓ |
+| `TunnelForegroundServiceLifecycleTest` | Foreground-service start/stop lifecycle | Yes | ✓ |
+| `TunnelBoundaryFailureReportingTest` | A session failure becomes a crash report, and **one bad session does not stop the collector**, driven through the real Koin graph | Yes — this is the collector that ships | ✓ |
+| `GracefulTunnelShutdownTest` | Ordered shutdown | Yes | ✓ |
+| `IdleTimeoutTest` | Idle-timeout behaviour | Yes — `IdleTimeoutManager` is bound in `AppModule.kt` | ⚠ Partial |
+| `WakelockManagerTest` | Wakelock acquire/release | Yes — bound in `AppModule.kt` | ⚠ Partial |
+| `DataStoreSpuriousWakeRecorderTest` | Spurious-wake accounting | Yes | ✓ |
+
+**Closed since the 2026-04-06 audit:**
+- Work scheduling was listed as untested → `CertRenewalSchedulerTest`,
+  `SecurityCheckSchedulerTest`, `WorkManagerFactoryIntegrationTest`, and
+  `app`'s `CertRenewalWorkerSchedulingTest`.
+- Rapid successive wakes → `app`'s `RapidFcmWakesTest` plus `WakeReconnectDeciderTest`.
+- FCM token failure handling → `FcmTokenRegistrarTest`.
+
+### 7. Relay (`relay/tests/`) — 21 integration test files
+
+| Test File | Covers | Status |
 |---|---|---|
-| `TunnelClientImplTest` | State transitions, FCM token, session handling | ✓ Good |
-| `TlsAcceptTest` | TLS handshake over MuxStream | ✓ Good |
-| `WebSocketMuxTest` | WebSocket -> mux frame conversion | ✓ Good |
-| `MuxFrameTest` (common) | Frame encoding/decoding | ✓ Good |
-| `MuxDemuxTest` (common) | Demux logic | ✓ Good |
-| `TunnelConnectionStateMachineTest` | State machine transitions | ✓ Good |
-| `OnboardingFlowTest` | Full onboarding workflow | ✓ Partial |
-| `EndToEndSessionTest` | Real relay binary + TLS | ✓ Excellent |
-| `OAuthEndToEndTest` | OAuth flow through tunnel | ✓ Good |
-| `RealRelayIntegrationTest` | Raw WebSocket integration | ✓ Good |
-
-**Gaps:**
-- No test for **multi-record TLS data frames** (root cause of TLS handshake bugs)
-- No test for **rapid disconnect/reconnect cycles** (actual bug: spurious disconnects seen)
-- No test for **idempotent disconnection** (actual bug: `IllegalStateException: Invalid transition from DISCONNECTED to DISCONNECTED`)
-- No test for **FCM token send after reconnect** (actual bug: JobCancellationException after reconnect)
-- No test for **state machine idempotency** or **concurrent state changes**
-- TunnelClientImplTest uses manual `MuxCodec` frame pumping, not real TLS handshake variants
-
-### 2. Core MCP (JVM tests: `core/mcp/src/jvmTest/`)
-
-**Files:** 10 test classes
-
-| Test Class | Coverage | Status |
-|---|---|---|
-| `McpProtocolTest` | tools/call, resources/list, concurrent requests, audit logging | ✓ Excellent |
-| `HttpRoutingTest` | OAuth metadata, path routing | ✓ Good |
-| `McpSessionTest` | HTTP POST, token auth, tool execution | ✓ Good |
-| `AuthorizationCodeFlowTest` | Authorization code PKCE flow | ✓ Good |
-| `AuthPageGalleryTest` | Generates static HTML variants | ⚠ Limited |
-| `DeviceCodeFlowTest` | Device code flow | ✓ Good |
-| `TokenStoreTest` | Token storage and expiry | ✓ Good |
-| `AuthMiddlewareTest` | Bearer token validation | ✓ Good |
-| `RateLimiterTest` | Rate limit enforcement | ✓ Good |
-| `ErrorResponseTest` | Error handling | ✓ Good |
-
-**Gaps:**
-- **No test for explicit nulls in JSON responses** — HttpTransport serializes with `explicitNulls = false` but no test verifies Claude can parse responses correctly
-- **No test for CSP headers on auth page** — AuthPageGalleryTest generates static HTML but doesn't verify CSP prevents inline styles from being blocked
-- **No browser-like test for auth page** — Screenshots don't verify the page renders with styles in actual browser
-- **No test for malformed MCP requests** — All tests use valid JSON-RPC
-- **No test for token expiry edge cases** — Token revocation, concurrent refresh, race conditions
-- **No test for subdomain validation** — URLs hardcoded to test domains, not production subdomains
-- **No test for missing OAuth endpoints** — What happens if metadata endpoint is unreachable?
-
-### 3. Core Bridge (JVM tests: `core/bridge/src/jvmTest/`)
-
-**Files:** 1 test class
-
-| Test Class | Coverage | Status |
-|---|---|---|
-| `SessionHandlerTest` | Session routing and cleanup | ✓ Good |
-
-**Gaps:**
-- No tests for **concurrent session operations**
-- No tests for **cleanup on unexpected disconnects**
-- No tests for **edge cases in session lifecycle**
-
-### 4. App (Unit tests: `app/src/test/`)
-
-**Files:** 5 test classes
-
-| Test Class | Coverage | Status |
-|---|---|---|
-| `MainDashboardViewModelTest` | State flow, integration visibility, audit entries | ✓ Good |
-| `SettingsViewModelTest` | Settings state | ✓ Good |
-| `AuditHistoryViewModelTest` | Audit list and filtering | ✓ Good |
-| `AuthorizationApprovalViewModelTest` | Auth approval UI state | ✓ Good |
-| `AuthApprovalReceiverTest` | BroadcastReceiver for approval | ✓ Good |
-| `ScreenScreenshotTest` | Screenshot generation for all screens | ⚠ Limited |
-
-**Gaps (HIGH PRIORITY):**
-- **No test for connection status indicator** — Screenshots show "Disconnected" even when connected (actual bug: not tested at all)
-- **No test for design system application** — No tests verify colors, typography, spacing follow Material Design 3
-- **No test for status bar icon color** — Actual bug: icon colors incorrect (never tested)
-- **No test for notification icon color** — Actual bug: icon doesn't render correctly (not tested)
-- **No test for double app bar on detail screens** — Screenshots show structure but no assertion tests for it
-- **No test for navigation state** — What happens on back press? Navigation cycles?
-- **No test for screen composition in dark mode** — ScreenScreenshotTest captures but doesn't assert
-- **No test for hardcoded URLs in settings or onboarding** — Integration URLs could be wrong (not tested)
-
-### 5. Notifications (Unit tests: `notifications/src/test/`)
-
-**Files:** 6 test classes
-
-| Test Class | Coverage | Status |
-|---|---|---|
-| `NotificationChannelsTest` | Channel creation and importance | ✓ Good |
-| `NotificationAdapterTest` | Action -> notification posting | ✓ Good |
-| `AuthRequestNotifierTest` | Auth request notification | ✓ Good |
-| `AuditDaoTest` | Audit database persistence | ✓ Good |
-| `NotificationDaoTest` | Capture database persistence | ✓ Good |
-| `NotificationScreenshotTest` | Screenshot previews | ⚠ Limited |
-
-**Gaps (HIGH PRIORITY):**
-- **No test for small icon resource ID** — Actual bug: icon not rendering correctly (never verified)
-- **No test for color field** — Notification color field may not match theme
-- **No test for icon rendering on actual device** — Screenshot tests don't verify on real Android
-- **No test for notification compatibility on different Android versions**
-- **No test for accessibility attributes** (content descriptions, etc.)
-
-### 6. Work (Unit tests: `work/src/test/`)
-
-**Files:** 5 test classes
-
-| Test Class | Coverage | Status |
-|---|---|---|
-| `FcmDispatchTest` | FCM message routing | ✓ Good |
-| `CertRenewalWorkerTest` | Cert renewal task | ✓ Good |
-| `SecurityCheckWorkerTest` | Security checks | ✓ Good |
-| `IdleTimeoutTest` | Idle timeout behavior | ⚠ Partial |
-| `WakelockManagerTest` | Wakelock acquisition/release | ⚠ Partial |
-
-**Gaps (HIGH PRIORITY):**
-- **No test for FCM wake throttle** — Actual bug: wake throttle too aggressive (never tested with real timing)
-- **No test for concurrent FCM messages** — What if multiple wakes arrive in rapid succession?
-- **No test for FCM token failure handling** — Actual bug: `Failed to send FCM token to relay` after reconnect (not tested)
-- **No test for actual work scheduling** — Tests don't verify WorkManager enqueue behavior
-
-### 7. Relay (Rust tests: `relay/tests/`)
-
-**Files:** 13 test files
-
-| Test File | Coverage | Status |
-|---|---|---|
-| `integration_test.rs` | Full WebSocket connection, mux frames | ✓ Good |
-| `passthrough_test.rs` | Stream passthrough logic | ✓ Good |
-| `mux_lifecycle_test.rs` | Stream open/close lifecycle | ✓ Good |
-| `mux_frame_test.rs` | Frame encoding/decoding | ✓ Good |
-| `config_test.rs` | Config file parsing and env overrides | ✓ Good |
-| `api_register_test.rs` | Client registration endpoint | ✓ Good |
-| `api_wake_test.rs` | Wake endpoint behavior | ⚠ Limited |
-| `api_status_test.rs` | Status endpoint | ✓ Good |
+| `integration_test.rs` | Full WebSocket connection, mux frames | ✓ |
+| `passthrough_test.rs` | Stream passthrough | ✓ |
+| `mux_lifecycle_test.rs` | Stream open/close lifecycle | ✓ |
+| `mux_frame_test.rs` | Frame encoding/decoding | ✓ |
+| `config_test.rs` | Config parsing and env overrides | ✓ |
+| `api_register_test.rs` | Client registration endpoint | ✓ |
+| `api_register_identity_error_shape_test.rs` | Registration error response shape | ✓ |
+| `api_status_test.rs` | Status endpoint | ✓ |
 | `api_renew_test.rs` | Cert renewal endpoint | ⚠ Limited |
-| `sni_test.rs` | SNI extraction from client certs | ✓ Good |
-| `subdomain_test.rs` | Subdomain validation | ✓ Good |
-| `maintenance_test.rs` | Device maintenance loop | ⚠ Limited |
-| `shutdown_test.rs` | Clean shutdown | ✓ Good |
+| `api_rotate_secret_test.rs` | Per-integration secret rotation | ✓ |
+| `acme_eab_integration_test.rs` | ACME external account binding | ✓ |
+| `sni_test.rs` | SNI extraction | ✓ |
+| `subdomain_test.rs` / `request_subdomain_test.rs` | Subdomain validation and per-request resolution | ✓ |
+| `router_auth_split_test.rs` | Authenticated vs unauthenticated route split | ✓ |
+| `rate_limit_test.rs` | Rate limiting | ✓ |
+| `valid_secrets_cache_test.rs` | Secret cache invalidation | ✓ |
+| `maintenance_test.rs` / `maintenance_loop_test.rs` | Device maintenance loop | ✓ |
+| `crash_test.rs` | Crash-report intake | ✓ |
+| `shutdown_test.rs` | Clean shutdown | ✓ |
 
-**Gaps:**
-- **No test for multi-record TLS frames** — Actual bug: TLS handshake fails on multi-record data (never tested)
-- **No test for WebSocket frame boundaries** — What if TLS record spans multiple WebSocket frames?
-- **No test for corrupted or incomplete frames** — Negative test coverage is weak
-- **No test for stream cleanup on error** — Error frames don't properly close streams (not verified)
-- **No test for concurrent stream limits** — max_streams_per_device not enforced in tests
-- **No test for FCM wake race conditions** — What if device disconnects while wake is in flight?
+A row for `api_wake_test.rs` was removed: there is no such file in `relay/tests/` at
+`61c84b93`. There was. It landed in `0cf23dc2` (2026-04-05) and was deleted on 2026-04-19
+by `1993b794`, "Fix #303: Remove dead wake endpoint module (#310)", together with the
+endpoint it tested. `docs/workflow.md:207,227` still lists it. Wake-related behaviour that
+survives is exercised inside `integration_test.rs`, `api_status_test.rs` and
+`rate_limit_test.rs`.
 
-### 8. Health Connect (Unit tests: `health/src/test/`)
+**Still open:**
+- No relay-side test for a TLS record spanning multiple WebSocket frames. The client side
+  is covered by `TlsAcceptorSplitRecordTest`; the relay splices bytes without parsing them,
+  so this is a lower-value gap than it looked in April, but it is not pinned.
+- No negative test for corrupted or truncated frames.
+- No test that `max_streams_per_device` is enforced.
 
-**Files:** 2 test classes
+### 8. Integrations (`integrations/src/test/`) — 29 test classes
 
-| Test Class | Coverage | Status |
-|---|---|---|
-| `HealthConnectMcpServerTest` | Tool registration and basic calls | ✓ Good |
-| `RecordTypeRegistryTest` | Health record type mapping | ✓ Good |
+The 2026-04-06 revision split this across sections headed "Health Connect
+(`health/src/test/`)" and "Outreach, Usage". `settings.gradle.kts` declares no `:health`
+module at `61c84b93` — it declares `:integrations`, which holds all three providers. It
+once did: `include(":health")` was added in `65d71fba` (2026-04-05) and dropped on
+2026-04-14 by `f198df6b`, "Fix #124: Wire `:integrations`, drop old modules", which moved
+`health/` to `integrations/health/`. The old headings describe where those tests used to
+live.
 
-**Gaps:**
-- No tests for **permission denial scenarios**
-- No tests for **missing data handling**
+| Test Class | Covers | Subject ships? | Status |
+|---|---|---|---|
+| `HealthConnectMcpServerTest` | Tool registration and calls | Yes — constructed in `app/src/main/java/com/rousecontext/app/registry/HealthConnectIntegration.kt:24` | ✓ |
+| `RecordTypeRegistryTest` | Health record-type mapping | Yes — `RecordTypeRegistry` is an object used from `main` | ✓ |
+| `RealHealthConnectRepositoryTest` | The repository against the Health Connect client | Yes | ✓ |
+| Query suites (`ActivityQueriesTest`, `BodyQueriesTest`, `SleepQueriesTest`, `VitalsQueriesTest`, `NutritionQueriesTest`, `MindfulnessQueriesTest`, `ReproductiveQueriesTest`, `BucketAggregationTest`) | Per-domain Health Connect queries and bucketing | Yes | ✓ |
+| `NotificationDaoTest` | Notification capture persistence | Yes | ✓ |
+| `NotificationCaptureServiceTest` | The capture `NotificationListenerService` | Yes | ✓ |
+| `NotificationMcpProviderToolsTest` / `NotificationMcpToolExecutionTest` | Notification provider tool surface and execution | Yes | ✓ |
+| `OutreachMcpProviderTest`, `OutreachChannelIdResolutionTest`, `OutreachQueryInstalledAppsTest`, `OutreachJsonShapeTest` | Outreach provider | Yes | ✓ |
+| `UsageMcpProviderTest`, `UsageJsonShapeTest`, `ParsePeriodTest` | Usage provider | Yes | ✓ |
+| `IntegrationOrthogonalityTest`, `ToolsListSizeTest`, `AllToolsHumanizerValidationTest` | Cross-provider invariants: providers do not collide, the tool list size is pinned, every tool name humanises | Yes | ✓ |
 
-### 9. Outreach, Usage (Unit tests)
+**Still open:**
+- No test for a Health Connect permission denial part-way through a query.
 
-**Files:** 2 test classes, basic coverage
+### 9. API, device, end-to-end, and fixtures
 
-**Gaps:**
-- Minimal test coverage
-- No integration tests
+| Module | Test Class | Covers | Status |
+|---|---|---|---|
+| `api` | `IntegrationStateStoreTest` | Enable/disable persists; `observe` emits | ✓ |
+| `api` | `IntegrationStateTest` | Available/Disabled/Pending/Active/Unavailable derivation | ✓ |
+| `api` | `CrashReporterTest` | Crash-reporter contract | ✓ |
+| `device-tests` | `DeviceIntegrationTest` | End-to-end device flow against a real relay | ✓ |
+| `e2e` | `ColdStartEndToEndTest`, `McpEndToEndTest`, `IntegrationToolsTest` | Cold start through push, MCP round trip, tool surface | ✓ |
+| `core/testfixtures` | `IntegrationHttpSupportTest` | The shared HTTP fixture itself | ✓ |
 
-### 10. API, Device Tests
-
-**Files:** 6 test classes
-
-| Test Class | Coverage | Status |
-|---|---|---|
-| `IntegrationStateStoreTest` | State persistence | ✓ Good |
-| `IntegrationStateTest` | State model | ✓ Good |
-| `DeviceIntegrationTest` | End-to-end device flow | ✓ Good |
-| `TunnelRelayIntegrationTest` | Tunnel + relay integration | ⚠ Limited |
+A row for `TunnelRelayIntegrationTest` was removed from this section: no such class exists
+at `61c84b93`. It did exist — 360 lines at
+`integration-tests/src/test/kotlin/com/rousecontext/tunnel/integration/TunnelRelayIntegrationTest.kt`,
+added in `51f99bdf` (2026-04-05) and deleted on 2026-04-14 by `0f35f265`, "Remove orphaned
+`:integration-tests` module", along with the module that held it. Tunnel-plus-relay
+integration is now covered by `core/tunnel`'s `RealRelayIntegrationTest` and
+`EndToEndSessionTest`, and by `device-tests`' `DeviceIntegrationTest`.
 
 ---
 
-## Gap Analysis: Production Bugs vs. Test Coverage
+## Gap Analysis: Production Bugs vs. Test Coverage (2026-04-06 snapshot)
+
+> **Everything from here to the end of the document is the 2026-04-06 snapshot.** It is
+> kept as a record of what the suite looked like when thirteen production bugs slipped
+> through, and of what was proposed in response. It is *not* a current statement of
+> coverage. Entries whose gap has since been closed are annotated inline with the test
+> that closed them; the annotations were verified against `61c84b93`, the surrounding
+> prose was not rewritten. For current coverage read
+> [Test Inventory by Module](#test-inventory-by-module) instead.
+
 
 ### Bug 1: TLS Handshake Fails on Multi-Record Data Frames
 
@@ -219,6 +372,12 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 **Test Location:** `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/TlsAcceptTest.kt` (add test)  
 **Test Location:** `relay/tests/mux_frame_test.rs` (add test)
 
+> **Closed on the client side.** `TlsAcceptorSplitRecordTest` pins a TLS record split
+> across two DATA frames in both the handshake and the application-data direction. The
+> relay-side frame-boundary test does not exist at `61c84b93` — no file in `relay/tests/`
+> mentions record splitting. The relay splices bytes without parsing TLS, so it is a
+> lower-value gap than it looked here.
+
 ### Bug 2: OAuth Auth Page Renders with Broken Styles
 
 **Symptom:** Styles not applied on auth page (CSP blocking inline <style> in some clients)  
@@ -230,16 +389,27 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 **Test Location:** `core/mcp/src/jvmTest/kotlin/com/rousecontext/mcp/core/AuthPageGalleryTest.kt` (expand)
 
+> **Partly closed.** `AuthPageCspTest` pins the CSP header that permits inline styles,
+> plus `X-Frame-Options: DENY` and HSTS. No browser-rendered test exists.
+
 ### Bug 3: Notification Icons Not Rendering Correctly
 
 **Symptom:** Notification icon shows as blank or wrong color  
 **Root Cause:** Small icon resource ID incorrect or missing; color field not set  
 **Should be tested by:**
-- ✗ NotificationAdapterTest doesn't verify small icon ID
-- ✗ No test verifies icon is a valid drawable resource
-- ✗ No test on actual device (Robolectric shadows don't fully simulate system rendering)
+- ✗ No test verified the small icon id on any notifier
+- ✗ No test verified the icon is a valid drawable resource
+- ✗ No test on an actual device (Robolectric shadows don't fully simulate system rendering)
 
-**Test Location:** `notifications/src/test/java/com/rousecontext/notifications/NotificationAdapterTest.kt` (add test)
+> **Closed.** `notifications/src/test/java/com/rousecontext/notifications/NotificationIconTest.kt`
+> pins `ic_stat_rouse` as the small icon at five posting sites: the foreground notifier,
+> the FGS-limit notifier, the security-check alert and info notifiers, and the
+> auth-request notifier. The device-rendering gap remains open.
+>
+> The `NotificationAdapterTest` this entry originally named was real when it was written
+> and is gone now: `7a54bdce` deleted it and its subject as dead code on 2026-04-14
+> (#125). The bullets above are reworded to name the property rather than the vanished
+> class.
 
 ### Bug 4: Hardcoded URLs Not Caught
 
@@ -252,6 +422,12 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 **Test Location:** `core/mcp/src/jvmTest/kotlin/com/rousecontext/mcp/core/HttpRoutingTest.kt` (expand)  
 **Test Location:** `core/mcp/src/jvmTest/kotlin/com/rousecontext/mcp/core/McpSessionTest.kt` (add test)
+
+> **Closed on the app side.** `UrlBuilderTest` and `IntegrationUrlTest` pin that the MCP
+> URL is built from the real subdomain and the per-integration secret and is empty when
+> registration is incomplete; `OAuthHostnameProviderTest` pins the hostname the OAuth
+> metadata is served under; `IntegrationIdConsistencyTest` pins that every canonical
+> integration id resolves and that unknown ids do not.
 
 ### Bug 5: Design System Not Applied to Screens
 
@@ -275,6 +451,9 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 **Test Location:** `core/mcp/src/jvmTest/kotlin/com/rousecontext/mcp/core/McpProtocolTest.kt` (add assertion)
 
+> **Closed.** `McpResponseFormatTest` asserts no explicit `null` appears in the
+> `tools/call`, `tools/list`, or `initialize` responses.
+
 ### Bug 7: FCM Wake Throttle Too Aggressive
 
 **Symptom:** Device won't wake again within ~5 minutes of last wake  
@@ -285,6 +464,10 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 - ✗ No test for rapid successive wake broadcasts
 
 **Test Location:** `work/src/test/kotlin/com/rousecontext/work/FcmDispatchTest.kt` (expand)
+
+> **Closed.** `WakeReconnectDeciderTest` pins the wake decision per tunnel state,
+> including a stale `ACTIVE` socket and a throwing health check; `app`'s
+> `RapidFcmWakesTest` drives five rapid wakes and asserts the tunnel stays stable.
 
 ### Bug 8: Double App Bars on Detail Screens
 
@@ -318,6 +501,10 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 **Test Location:** `app/src/test/java/com/rousecontext/app/ui/viewmodels/MainDashboardViewModelTest.kt` (expand)
 
+> **Closed.** `DashboardStateFlowTest` drives `MainDashboardViewModel` through real
+> enable/disable and audit-insert events and asserts the dashboard updates without a
+> manual refresh.
+
 ### Bug 11: Spurious Disconnect/Reconnect Cycles
 
 **Symptom:** WebSocket disconnects and reconnects repeatedly within seconds of connection  
@@ -328,6 +515,12 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 - ✗ No test for state race conditions
 
 **Test Location:** `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/TunnelClientImplTest.kt` (add test)
+
+> **Closed.** `core/tunnel`'s `AbruptDisconnectTest` and `HalfOpenDetectionTest` cover the
+> transport side; `app`'s `HalfOpenReconnectTest` drives a half-open socket to
+> `DISCONNECTED` through keepalive, and `RapidFcmWakesTest` asserts five rapid wakes leave
+> the tunnel stable. Concurrent state transitions are pinned by
+> `ConnectionStateMachineTest.concurrentTransitionsAreAtomic`.
 
 ### Bug 12: FCM Token Send Fails After Reconnect
 
@@ -340,6 +533,10 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 **Test Location:** `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/TunnelClientImplTest.kt` (add test)
 
+> **Closed.** `work`'s `FcmTokenRegistrarTest` pins that a token send is suppressed while
+> `DISCONNECTED`/`CONNECTING`, forwarded once `CONNECTED`/`ACTIVE`, and that cancellation
+> propagates instead of being swallowed.
+
 ### Bug 13: Invalid State Transition (DISCONNECTED -> DISCONNECTED)
 
 **Symptom:** `IllegalStateException: Invalid transition from DISCONNECTED to DISCONNECTED`  
@@ -350,9 +547,13 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 **Test Location:** `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/ConnectionStateMachineTest.kt` (verify or add)
 
+> **Closed.** `ConnectionStateMachineTest.transitionToSameStateReturnsFalse` pins that a
+> same-state transition returns `false` rather than throwing, and
+> `concurrentTransitionsAreAtomic` covers the concurrent case.
+
 ---
 
-## Missing Test Categories
+## Missing Test Categories (2026-04-06 snapshot)
 
 ### 1. Negative Tests (Malformed Input)
 
@@ -448,7 +649,7 @@ The Rouse Context project has **~70 test files** covering unit, integration, and
 
 ---
 
-## Test Quality Issues
+## Test Quality Issues (2026-04-06 snapshot)
 
 ### Issue 1: Mocks Hide Real Code Paths
 
@@ -537,7 +738,7 @@ val productionHostname = System.getenv("RELAY_HOSTNAME") ?: "relay.rousecontext.
 
 ---
 
-## Recommended New Tests
+## Recommended New Tests (2026-04-06 snapshot)
 
 ### HIGH PRIORITY (Caused Production Bugs)
 
@@ -656,7 +857,14 @@ fun `dashboard updates connection status when tunnel connects`() = runTest {
 
 #### 6. Notification Icon Verification
 
-**File:** `notifications/src/test/java/com/rousecontext/notifications/NotificationAdapterTest.kt`
+> **Since implemented**, as
+> `notifications/src/test/java/com/rousecontext/notifications/NotificationIconTest.kt`.
+> The sketch below targets a `NotificationAdapterTest` against a `NotificationAdapter`.
+> Both existed when it was written and were deleted as dead code on 2026-04-14 by
+> `7a54bdce` (#125), so the sketch cannot be applied as drafted. The shipped test asserts
+> the small icon is `ic_stat_rouse` at each notifier rather than probing the resource id.
+
+**File as proposed (since deleted):** `notifications/src/test/java/com/rousecontext/notifications/NotificationAdapterTest.kt`
 
 **Test:**
 ```kotlin
@@ -911,7 +1119,7 @@ fun `all screens use material design 3 colors from theme`() {
 
 ---
 
-## Implementation Roadmap
+## Implementation Roadmap (2026-04-06 snapshot)
 
 ### Phase 1: Critical Production Bug Prevention (Week 1)
 
@@ -985,26 +1193,37 @@ cd relay && cargo tarpaulin --out Html
 
 ---
 
-## Summary Table: Test Coverage by Bug Category
+## Summary Table: the 2026-04-06 bug categories, re-checked
 
-| Bug Category | # Bugs | Tests Exist | Root Cause | Recommendation |
-|---|---|---|---|---|
-| TLS/Transport | 3 | Partial | Manual frame pumping, no multi-record tests | Add real handshake tests |
-| State Machine | 2 | Partial | No idempotency tests | Add idempotent disconnect test |
-| Connection State | 1 | No | ViewModel uses mocks | Add integration test with real stores |
-| Notifications | 1 | Partial | No icon resource verification | Add resource validation test |
-| OAuth/Auth | 1 | Partial | No CSP/browser tests | Add browser automation test |
-| Design System | 1 | No | Screenshots don't assert | Add composition assertions |
-| UI Layout | 1 | No | No app bar count test | Add Compose hierarchy test |
-| FCM/Work | 2 | Weak | No throttle or reconnect tests | Add timing and concurrency tests |
+Each row states what covers the category **now**, verified against `61c84b93`. The
+"April 2026" column is what the original audit said, kept so the delta is visible.
 
-**Overall:** 12 bugs, ~40% detectable by existing tests with minor fixes, ~60% require new tests
+| Bug Category | # Bugs | April 2026 | Covering test at `61c84b93` |
+|---|---|---|---|
+| TLS/Transport | 3 | Partial — manual frame pumping, no multi-record tests | `TlsAcceptorSplitRecordTest` (record split across DATA frames, both directions); `EndToEndSessionTest` (real relay binary, real handshake). **Still open:** no relay-side frame-boundary test. |
+| State Machine | 2 | Partial — no idempotency tests | `ConnectionStateMachineTest` — `transitionToSameStateReturnsFalse`, `concurrentTransitionsAreAtomic` |
+| Connection State | 1 | No — ViewModel uses mocks | `DashboardStateFlowTest` |
+| Notifications | 1 | Partial — no icon resource verification | `NotificationIconTest` (five posting sites). **Still open:** nothing verifies rendering on a real device. |
+| OAuth/Auth | 1 | Partial — no CSP/browser tests | `AuthPageCspTest` (CSP, `X-Frame-Options`, HSTS). **Still open:** no browser-rendered test. |
+| Design System | 1 | No — screenshots don't assert | **Still open.** The screenshot tests capture; none asserts on colours, typography, or spacing. |
+| UI Layout | 1 | No — no app bar count test | **Still open.** Nothing counts `TopAppBar` instances per screen. |
+| FCM/Work | 2 | Weak — no throttle or reconnect tests | `WakeReconnectDeciderTest`, `FcmTokenRegistrarTest`, `RapidFcmWakesTest`, `HalfOpenReconnectTest` |
+
+**Where that leaves it:** of the eight categories, five are now pinned by a named test, two
+(design system, UI layout) are untouched, and one (TLS/transport) is covered on the client
+and open on the relay. This table is a per-category pointer, not a coverage percentage —
+the original "~40% detectable / ~60% require new tests" figure was never derived from a
+measurement and has been dropped rather than restated.
 
 ---
 
 ## References
 
-- Test file locations: See inventory section above
+- Test file locations: see [Test Inventory by Module](#test-inventory-by-module), which is
+  the current half of this document
+- `docs/audit.md` — the standing recommendation for this file's fate
+- Issue [#654](https://github.com/Monkopedia/rouse-context/issues/654) — why the inventory
+  grew a **Subject ships?** column
 - Ktor testing guide: https://ktor.io/docs/testing.html
 - Rust testing guide: https://doc.rust-lang.org/book/ch11-00-testing.html
 - Material Design 3 for Compose: https://developer.android.com/design/material3/m3-foundation
