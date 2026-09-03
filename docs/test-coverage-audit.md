@@ -293,9 +293,12 @@ module; it is listed under §8 instead.
 A row for `api_wake_test.rs` was removed: there is no such file in `relay/tests/` at
 `61c84b93`. There was. It landed in `0cf23dc2` (2026-04-05) and was deleted on 2026-04-19
 by `1993b794`, "Fix #303: Remove dead wake endpoint module (#310)", together with the
-endpoint it tested. `docs/workflow.md:207,227` still lists it. Wake-related behaviour that
-survives is exercised inside `integration_test.rs`, `api_status_test.rs` and
-`rate_limit_test.rs`.
+endpoint it tested. `docs/workflow.md`'s task plan T-4 still lists it twice: under "Tests
+first" on the line reading `api_wake_test.rs — online device returns 200 immediately`, and
+under "Files to create" as `relay/tests/api_wake_test.rs` (grep those rather than line
+numbers — the numbers this sentence used to carry have already gone stale once).
+Wake-related behaviour that survives is exercised inside `integration_test.rs`,
+`api_status_test.rs` and `rate_limit_test.rs`.
 
 **Still open:**
 - No relay-side test for a TLS record spanning multiple WebSocket frames. The client side
