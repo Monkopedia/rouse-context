@@ -149,6 +149,8 @@ Rebuild McpSession around Ktor embedded HTTP server with path-based routing, per
 - Token validation is per-integration (token for `/health` cannot access `/notifications`)
 - All tests pass via `./gradlew :core:mcp:jvmTest`
 
+**Historical note (2026-09-03):** The criterion "McpSession runs a Ktor HTTP server over raw InputStream/OutputStream" is left verbatim as the record of what T-2 planned and was accepted against. It is not a description of the architecture as shipped, which differs: `McpSession` exposes `start(port)` / `resolvePort()` / `awaitClose()` / `shutdown()` / `stop()`, its Ktor server is one long-lived instance shared across every stream (handed out by `SharedMcpSessionFactory`), and `:core:bridge`'s `SessionHandler.bridgeToMcpServer` copies bytes into it over a loopback TCP socket rather than handing it raw streams. For the session path as built, see `docs/design/overall.md` under "One shared HTTP server, reached over loopback", corrected by #653 / PR #685.
+
 ---
 
 #### Task T-3: Relay — Rust Project Scaffold + Config + SNI Router
@@ -323,6 +325,8 @@ Implement the pure-function NotificationModel state machine and Room-based audit
 - `notifications/src/main/kotlin/com/rousecontext/notifications/audit/RoomAuditListener.kt` — implements AuditListener
 - `notifications/src/test/kotlin/com/rousecontext/notifications/NotificationModelTest.kt`
 - `notifications/src/androidTest/kotlin/com/rousecontext/notifications/audit/AuditDaoTest.kt`
+
+**Historical note (2026-09-03):** The entry for `NotificationAdapter.kt` is left verbatim as the record of what T-7 planned to deliver, which it did deliver. It is not a claim that the file exists today, and it is not a plan that went unbuilt: the adapter shipped as production code at `notifications/src/main/java/com/rousecontext/notifications/NotificationAdapter.kt` (added in `52276b1e`), and was deleted as dead code by `7a54bdce`, "Delete NotificationAdapter and NotificationAction dead code (#125)", once the notifier pattern replaced it. `NotificationAction.kt`, listed above it, went in the same commit. For notification authoring as it stands, see `docs/design/android-app.md` under "Audit & Notifications (`:notifications`)".
 
 **Acceptance criteria:**
 - NotificationModel is a pure function: `onEvent(event) -> List<NotificationAction>`. No Android dependencies in the model itself.
