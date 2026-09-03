@@ -158,8 +158,13 @@ class NotificationCaptureServiceTest {
         val sbn = mockSbn(pkg = "com.rousecontext.audit")
 
         service.onNotificationPosted(sbn)
-        // Give any launched coroutine a chance to run
-        Thread.sleep(50)
+        // Happens-after, not a wait: `launch` registers its child job before
+        // onNotificationPosted returns, so joining the service scope here runs
+        // any coroutine the call started to completion. If the own-package
+        // guard regressed, the insert has landed by the time this returns and
+        // the assertion below fails — an unfinished write can no longer pass
+        // as an empty table.
+        service.joinCaptureWork()
 
         assertEquals(0, dao.countInRange(0L, Long.MAX_VALUE))
     }
@@ -184,7 +189,7 @@ class NotificationCaptureServiceTest {
         val sbn = mockSbn(pkg = "com.rousecontext.foo", postTime = 1_000L)
         service.onNotificationRemoved(sbn)
 
-        Thread.sleep(50)
+        service.joinCaptureWork()
         // No dao interaction, nothing to assert beyond no crash + empty table.
         assertEquals(0, dao.countInRange(0L, Long.MAX_VALUE))
     }
@@ -194,7 +199,10 @@ class NotificationCaptureServiceTest {
         val sbn = mockSbn(pkg = "com.unknown.pkg", postTime = 99_999L)
 
         service.onNotificationRemoved(sbn)
-        Thread.sleep(50)
+        // This path *does* launch: the lookup runs and finds nothing. Joining
+        // the scope waits for that coroutine to finish, so the empty table is
+        // an outcome rather than a race the assertion won by being early.
+        service.joinCaptureWork()
 
         // No prior insert -> nothing to mark; table stays empty.
         assertEquals(0, dao.countInRange(0L, Long.MAX_VALUE))
@@ -264,7 +272,7 @@ class NotificationCaptureServiceTest {
         val sbn = mockSbn(pkg = "com.slack.android")
         // Must not throw.
         failService.onNotificationPosted(sbn)
-        Thread.sleep(50)
+        runBlocking { failService.joinCaptureWork() }
         coVerify { failingDao.insert(any()) }
 
         failController.destroy()
@@ -291,7 +299,7 @@ class NotificationCaptureServiceTest {
 
         val sbn = mockSbn(pkg = "com.slack.android")
         failService.onNotificationRemoved(sbn)
-        Thread.sleep(50)
+        runBlocking { failService.joinCaptureWork() }
         coVerify { failingDao.findByPackageAndTime(any(), any()) }
 
         failController.destroy()
