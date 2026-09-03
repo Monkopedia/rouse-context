@@ -100,6 +100,14 @@ probe_line() {
   printf 'fun go(v: String) = android.util.Log.d("T", "v=$%s")\n' "$1"
 }
 
+# The same log site written with the braced spelling, `${<name>}`. Kept as its
+# own function rather than a flag on `probe_line`: the two are compared against
+# each other all through this file, and a caller reading `braced_probe_line`
+# does not have to remember which way the flag pointed (#692).
+braced_probe_line() {
+  printf 'fun go(v: String) = android.util.Log.d("T", "v=${%s}")\n' "$1"
+}
+
 # The names the gate carried before #579. Enumerated, not sampled: widening the
 # alternation must not drop or typo one of the originals.
 for name in token bearer verifier fcmToken firebaseToken pkceVerifier \
@@ -137,6 +145,67 @@ for name in authCode auth_code authorizationCode authorization_code; do
   expect 1 "newly covered \$$name is caught" "$line"
 done
 
+# The braced spelling, `${<name>}` (#692). Not a stylistic variant: in Kotlin
+# `${...}` is mandatory for anything that is not a bare identifier, so it is the
+# spelling a developer reaches for the moment a covered name stops being a local
+# and starts being a property or a call. The gate matched `$token` and let
+# `${token}` through for its whole life -- uniformly, across all 29 names --
+# because the interpolation prefix was a bare `\$` with no room for the brace.
+#
+# Enumerated rather than sampled, for the same reason the bare loops above are.
+# The fix is a single `\{?` in one shared prefix, so in principle one case would
+# prove it; but the alternation has already drifted twice (#564/#574), and a
+# per-name asymmetry reintroduced by a later edit is exactly what an enumerated
+# harness catches and a sampled one does not.
+for name in token bearer verifier fcmToken firebaseToken pkceVerifier \
+  accessToken refreshToken clientSecret privateKey apiKey sessionToken \
+  integrationSecret secretPrefix authCode authorizationCode \
+  fcm_token firebase_token pkce_verifier access_token refresh_token \
+  client_secret private_key api_key session_token integration_secret \
+  secret_prefix auth_code authorization_code; do
+  # Assigned, then passed -- see the first loop above for why.
+  line=$(braced_probe_line "$name")
+  expect 1 "braced \${$name} is caught" "$line"
+done
+
+# The braced form of the #577 case, so the post-filter interaction is measured
+# on the widened prefix too and not assumed to carry over.
+expect 1 'braced violation containing ": *" is caught' \
+  'fun go(token: String) = android.util.Log.d("T", "mask: *${token}")'
+
+# The braced form of the block-comment exemption. A pattern list written in a
+# Kotlin comment must still not fail the build now that the braced spelling
+# matches -- and a doc comment is precisely where someone writes `${token}` as
+# an example of what not to do.
+expect 0 'braced example in a block-comment continuation is skipped' \
+  '/**
+ * Log.d(TAG, "auth ${token}") is what the gate flags.
+ */
+fun go(id: String) = android.util.Log.d("T", "id $id")'
+
+# The two things the optional brace deliberately does NOT buy, pinned here so
+# the "does not catch" list in docs/internal/logging.md is describing a measured
+# behaviour rather than an assumption. #690's symmetric-difference check polices
+# the gloss's NAMES; nothing polices these bullets, so they are asserted instead.
+#
+# 1. Property chains. The covered name has to sit immediately after `$` or `${`,
+#    so a chain ending in a secret still passes. Reaching into the braces means
+#    either a brace-wrapped second copy of the alternation (the #564/#574 drift)
+#    or a `[^}]*` that gives up the `\b` the safe cases below depend on.
+expect 0 'residue: braced property chain ${user.token} is NOT caught' \
+  'fun go(user: U) = android.util.Log.d("T", "v=${user.token}")'
+expect 0 'residue: braced property chain ${creds.apiKey} is NOT caught' \
+  'fun go(creds: C) = android.util.Log.d("T", "v=${creds.apiKey}")'
+
+# 2. The flip side of the same shared prefix: an accessor ON a covered name is
+#    flagged, even `.length`, which the policy calls safe. A line-level ERE
+#    cannot tell `.length` from `.take(4)`, and a prefix of a secret is
+#    never-log, so this errs toward flagging. Asserted rather than tolerated:
+#    if someone later narrows the prefix to silence it, that trade should be a
+#    decision with a failing test in front of it, not a quiet edit.
+expect 1 'over-approximation: braced ${token.length} trips the gate' \
+  'fun go(token: String) = android.util.Log.d("T", "len=${token.length}")'
+
 # Values docs/internal/logging.md explicitly says are SAFE to log. These are the
 # false positives that option 2 (a `\$[A-Za-z_]*(secret|token|key)` substring
 # rule) would introduce, so they are asserted green: if a later "simplification"
@@ -149,6 +218,24 @@ expect 0 'safe: TokenEntity.label does not match' \
 expect 0 'safe: Firebase key id does not match' \
   'fun go(kid: String, keyId: String) = android.util.Log.d("T", "jwks kid=$kid id=$keyId")'
 
+# The braced forms of the same safe values (#692). This pair is the whole test
+# of whether the widening is precise or blunt: `${token}` must be caught by the
+# loop above while `${tokenEntity}` stays green here. Both run through the same
+# `\$\{?` prefix, so what separates them is the trailing `\b` -- which is why the
+# widening had to leave that boundary alone rather than reach for a substring
+# rule. `TokenEntity.label` is already asserted braced above: the existing case
+# logs `${e.label}`.
+expect 0 'safe: braced ${tokenEntity} does not match' \
+  'fun go(tokenEntity: TokenEntity) = android.util.Log.d("T", "client=${tokenEntity}")'
+expect 0 'safe: braced ${kid} does not match' \
+  'fun go(kid: String, keyId: String) = android.util.Log.d("T", "jwks kid=${kid} id=${keyId}")'
+
+# A name that merely CONTAINS a covered name, braced. `${bearerish}` and
+# `${secretPrefixes}` are the shapes a substring rule would swallow; the `\b`
+# keeps them green on the braced side exactly as it does on the bare side.
+expect 0 'safe: braced ${secretPrefixes} does not match' \
+  'fun go(secretPrefixes: List<String>) = android.util.Log.d("T", "n=${secretPrefixes}")'
+
 # docs/internal/logging.md describes this gate in three parts: the `PATTERN`
 # quoted verbatim in a fenced block, a prose gloss naming each covered variable,
 # and an explicit "does not catch" list. #564/#574 were that doc drifting away
@@ -157,7 +244,7 @@ expect 0 'safe: Firebase key id does not match' \
 # doc cannot silently fall behind the next name someone adds.
 doc=$repo_root/docs/internal/logging.md
 # The literal prefix of the fenced PATTERN block, shared by the two greps below.
-doc_pattern_prefix='Log\.[dievw].*\$('
+doc_pattern_prefix='Log\.[dievw].*\$\{?('
 
 # The alternation's names, one per line. Parameter expansion rather than sed:
 # the pattern is itself a regex full of backslashes, and a sed program to strip
@@ -165,7 +252,7 @@ doc_pattern_prefix='Log\.[dievw].*\$('
 gate_pattern_line=$(grep -m1 '^PATTERN=' "$repo_root/$gate")
 gate_pattern=${gate_pattern_line#PATTERN=\'}
 gate_pattern=${gate_pattern%\'}
-alternation=${gate_pattern#*'\$('}
+alternation=${gate_pattern#*'\$\{?('}
 alternation=${alternation%%')\b'*}
 gate_names=$(printf '%s\n' "$alternation" | tr '|' '\n' | sort)
 

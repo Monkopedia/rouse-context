@@ -33,6 +33,14 @@
 # snake_case, so that is how someone transcribing a value into a log line tends
 # to spell it (#579).
 #
+# Each name matches in both the bare and the braced spelling -- `$token` and
+# `${token}` -- via the single optional brace in the shared `\$\{?` prefix (#692).
+# Not by listing brace-wrapped duplicates: that doubles the alternation and gives
+# it two places to drift, which is the drift #564/#574 already had to repair. In
+# Kotlin `${...}` is not a stylistic variant, it is mandatory for anything that
+# is not a bare identifier, so it is the spelling a covered name takes the moment
+# it becomes a property rather than a local.
+#
 # Bare `code` is deliberately NOT in the list (#596). Status codes, error codes
 # and response codes appear throughout this tree, so that one token would flood
 # the gate with false positives, and a gate that flags safe lines gets loosened
@@ -43,6 +51,21 @@
 # docs/internal/logging.md says are safe to log -- `$tokenEntity`,
 # `TokenEntity.label`, Firebase `$kid` -- and a gate that flags safe lines gets
 # worked around instead of heeded. Adding a name here is cheap; keep it that way.
+#
+# The trailing `\b` is load-bearing and the optional brace does not weaken it:
+# `${tokenEntity}` still passes, because `token` is not followed by a word
+# boundary there, while `${token}` is caught, because `}` is one. That pair is
+# the test of whether a widening here is precise or blunt, and it is asserted
+# both ways in the tests.
+#
+# Two things the brace does NOT buy, both listed in the doc's "does not catch"
+# section rather than left for a reader to discover:
+#   - `${obj.name}` property chains. The name has to sit immediately after the
+#     `$`/`${`, so `${user.token}` and `${creds.apiKey}` still pass.
+#   - The flip side: `${token.length}` IS flagged, though the policy calls a
+#     length safe to log. A line-level ERE cannot tell `.length` from
+#     `.take(4)`, and a prefix of a secret is never-log, so the shared prefix
+#     errs toward flagging. Bind the length to a local and log that.
 #
 # The grep is line-level; multi-line log calls may slip through. The gate is a
 # cheap first line of defence; code review is what we rely on for anything it
@@ -70,7 +93,7 @@ mapfile -t DIRS <<<"$dirs"
 [ "${#DIRS[@]}" -gt 0 ] || { echo "ERROR: no production source dirs to scan" >&2; exit 1; }
 
 # shellcheck disable=SC2016  # literal regex; `$` must not expand
-PATTERN='Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix|authCode|auth_code|authorizationCode|authorization_code)\b|Log\.[dievw].*args:[[:space:]]*\$'
+PATTERN='Log\.[dievw].*\$\{?(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix|authCode|auth_code|authorizationCode|authorization_code)\b|Log\.[dievw].*args:[[:space:]]*\$'
 
 # No `2>/dev/null` and no blanket `|| true`: see the note in
 # check-no-production-runblocking.sh. grep exits 1 for "no matches" and >1 for a
