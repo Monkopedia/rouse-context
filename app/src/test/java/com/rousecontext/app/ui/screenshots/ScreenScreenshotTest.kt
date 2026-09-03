@@ -1302,7 +1302,23 @@ class ScreenScreenshotTest {
     private fun auditDetailPopulatedState() = AuditDetailState(
         toolName = "health/get_steps",
         provider = "health",
-        // Fixed timestamp for reproducible screenshots
+        // Pins the *instant*, which is necessary but NOT sufficient for a
+        // reproducible screenshot. `AuditDetailScreen` renders this through
+        // `DisplayDateFormat.auditTimestamp`, which resolves
+        // `ZoneId.systemDefault()` per call because device-local time is the
+        // correct product behaviour. So the rendered text is a function of the
+        // instant AND the test JVM's default zone; this constant fixes only the
+        // first. The second is fixed by the repo-wide `user.timezone=UTC` pin in
+        // the root `build.gradle.kts` (#633), guarded by `ScreenshotTimeZonePinTest`.
+        //
+        // Drop that pin and this state's goldens move by the UTC offset:
+        // `43_audit_detail_populated_{dark,light}` here, plus `6_audit_detail`
+        // from `ListingScreenshotTest`'s equivalent fixture. Measured, not
+        // assumed -- see #712.
+        //
+        // The earlier wording here ("Fixed timestamp for reproducible
+        // screenshots") named the goal as if it were achieved, which is why the
+        // zone dependency went unexamined through three investigations.
         timestampMillis = 1_712_400_000_000L,
         durationMs = 142,
         argumentsJson = """{"days":7,"metric":"steps"}""",
