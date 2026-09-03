@@ -2,11 +2,13 @@ package com.rousecontext.integrations.notifications
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import androidx.annotation.VisibleForTesting
 import com.rousecontext.notifications.FieldEncryptor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 
@@ -110,6 +112,25 @@ class NotificationCaptureService : NotificationListenerService() {
                 // Best-effort persistence
             }
         }
+    }
+
+    /**
+     * Joins every coroutine currently alive in [serviceScope].
+     *
+     * [kotlinx.coroutines.launch] registers its child job with the scope
+     * *synchronously*, before the launching call returns. So a caller on the
+     * thread that just invoked [onNotificationPosted], [onNotificationRemoved]
+     * or [onListenerConnected] sees any coroutine those callbacks started, and
+     * joining it establishes a happens-after point: when this returns, that
+     * work has run to completion — or was never started at all.
+     *
+     * Tests that assert *nothing* was persisted need exactly that. There is no
+     * signal to await on a write that by design never happens, and a fixed
+     * sleep would let an unfinished write pass as an empty table.
+     */
+    @VisibleForTesting
+    internal suspend fun joinCaptureWork() {
+        serviceScope.coroutineContext.job.children.toList().forEach { it.join() }
     }
 
     override fun onDestroy() {
