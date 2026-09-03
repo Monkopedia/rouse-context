@@ -20,4 +20,4 @@
 # The count is an EXACT match against the tree, in both directions: fixing a
 # site fails the gate until this file is updated. Keyed on the function rather
 # than the line so that ordinary edits above it do not churn the file.
-app/src/main/java/com/rousecontext/app/ui/viewmodels/IntegrationSetupViewModel.kt	pushIntegrationSecrets	1	No suspension point in the try: the sole production CertificateStore impl delegates to a non-suspend atomicWrite. Pinned by IntegrationSecretsPersistCancellationTest; see the comment at the site and #667.
+app/src/main/java/com/rousecontext/app/ui/viewmodels/IntegrationSetupViewModel.kt	pushIntegrationSecrets	1	No suspension point in the try: the sole production CertificateStore impl delegates to a non-suspend atomicWrite. Pinned by IntegrationSecretsPersistCancellationTest, which fails naming this site if atomicWrite becomes suspending. Reasoning is written out in full at the site.

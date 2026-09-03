@@ -26,6 +26,8 @@
 # #638/#672, #667) each found what the previous one had not looked at. The
 # property is SOURCE ORDER within one chain, and Kotlin diagnoses neither an
 # unreachable nor a mis-ordered catch clause, so nothing but a gate enforces it.
+# Those six are history, all closed and each scoped to the tree it looked at;
+# the debt this gate found is tracked by #722.
 #
 # HOW IT DECIDES
 # --------------
@@ -67,6 +69,28 @@
 # edit here, which is what stops either file becoming the place things go to be
 # forgotten, and adding a site to either file is a deliberate act with a reason
 # attached rather than a number quietly going up.
+#
+# WHAT THE LEDGER CHECKS DO NOT DO -- stated, not implied
+# -------------------------------------------------------
+# The backlog citation is checked for SHAPE only: `#[0-9]+` somewhere in the
+# reason. Nothing here asks whether that number resolves to an issue, whether
+# the issue is open, or whether it has anything to do with this list. `#999999`
+# passes, and so does a citation to an issue that closed yesterday -- which is
+# exactly how the first version of cancellation-catch-backlog.tsv shipped every
+# row pointing at #667, closed the day before.
+#
+# It is left that way DELIBERATELY. Resolving an issue number means a network
+# call to the GitHub API, and this gate has three properties that are worth more
+# than the check: it runs from a plain checkout with no token, it runs offline on
+# a developer machine, and it runs inside the throwaway repo its self-test builds
+# -- which has no remote at all. A network check would have to either fail closed
+# in all three (a gate nobody can run) or skip silently (a gate that reports
+# clean without having looked, which is the precise failure mode this file exists
+# to prevent). Neither trade is worth it, so the check is not made and the gap is
+# written down instead. The reviewer of the citation is a human.
+#
+# The related ceiling problem -- one appended ledger line silences a new
+# violation, and the allowlist route needs no citation at all -- is #721.
 #
 # Usage: bash scripts/check-cancellation-catch-order.sh
 
@@ -292,7 +316,7 @@ compiler diagnoses neither an unreachable nor a mis-ordered clause.
 
 If the `try` genuinely contains no suspension point, cancellation cannot be
 delivered there: add the site to scripts/cancellation-catch-allowlist.tsv with
-the reason. See .claude/rules/coroutines.md and issues #660, #667, #674.
+the reason. See .claude/rules/coroutines.md and issues #660 and #674.
 EOF
   status=1
 fi

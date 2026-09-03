@@ -445,7 +445,7 @@ ledger_case 0 'an allowlist entry silences the site' \
   "$violating_probe"
 
 ledger_case 0 'a backlog entry silences the site' \
-  '' "$(printf 'app/src/main/Probe.kt\tgo\t1\tPre-existing, unaudited. Tracked by #667.\n')" \
+  '' "$(printf 'app/src/main/Probe.kt\tgo\t1\tPre-existing, unaudited. Tracked by #722.\n')" \
   "$violating_probe"
 
 # The ratchet, upwards: an entry for 1 does not cover 2.
@@ -498,7 +498,7 @@ ledger_case 1 'a backlog entry that cites no issue is rejected' \
 # against it by inspection.
 ledger_case 1 'the same key on both ledgers is rejected' \
   "$(printf 'app/src/main/Probe.kt\tgo\t1\t%s\n' "$good_reason")" \
-  "$(printf 'app/src/main/Probe.kt\tgo\t1\tPre-existing, unaudited. Tracked by #667.\n')" \
+  "$(printf 'app/src/main/Probe.kt\tgo\t1\tPre-existing, unaudited. Tracked by #722.\n')" \
   "$violating_probe"
 
 # A ledger entry keys on <path, function>, so it must not silence the same
