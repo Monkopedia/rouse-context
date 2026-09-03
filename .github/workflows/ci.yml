@@ -113,6 +113,13 @@ jobs:
         run: bash scripts/tests/check-no-sensitive-logging-test.sh
       - name: "runBlocking gate self-test (issue #590)"
         run: bash scripts/tests/check-no-production-runblocking-test.sh
+      # The anchors those two post-filters share now live in one library (#597),
+      # which makes a mistake in them three gates' worth of expensive. Asserts
+      # both directions for both filters -- the line that must be dropped AND
+      # the line that must survive -- since a filter that drops everything and
+      # one that drops nothing are both green if only one side is tested.
+      - name: "Gate post-filter library tests (issue #597)"
+        run: bash scripts/tests/gate-filters-test.sh
       # A linter wrapper is the easiest gate of all to make vacuous: hand
       # `shellcheck` an empty file list and it reads stdin, prints nothing and
       # exits 0 -- identical output to a clean tree. actionlint is worse, and

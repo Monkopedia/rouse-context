@@ -33,8 +33,13 @@ setup_sandbox() {
   git init -q .
   git config user.email t@example.com
   git config user.name test
-  mkdir -p scripts app/src/main
+  mkdir -p scripts/lib app/src/main
+  # The gate resolves scripts/lib/gate-filters.sh relative to its own location
+  # (#597), so the sandbox mirrors that layout. Copied, not symlinked, so the
+  # test still runs the REAL library rather than reaching back into the source
+  # tree by accident.
   cp "$repo_root/$gate" scripts/
+  cp "$repo_root/scripts/lib/gate-filters.sh" scripts/lib/
   echo 'package p' > app/src/main/Main.kt
   git add -A
 }
