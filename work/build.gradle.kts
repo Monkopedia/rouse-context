@@ -15,6 +15,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -25,6 +26,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(project(":api"))
     implementation(project(":core:tunnel"))
     // Crash reporting contract (issue #233). Prod impl lives in :app; :work
