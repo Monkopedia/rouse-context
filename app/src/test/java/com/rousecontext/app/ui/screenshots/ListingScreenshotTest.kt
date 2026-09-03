@@ -209,6 +209,11 @@ class ListingScreenshotTest {
     private fun auditDetailState() = AuditDetailState(
         toolName = "health/get_steps",
         provider = "health",
+        // Fixes the instant only. This fixture's golden (`6_audit_detail`) is
+        // rendered through `DisplayDateFormat`, which resolves the zone per
+        // call, so it also depends on the `user.timezone=UTC` pin in the root
+        // `build.gradle.kts` (#633). See the fuller note on the equivalent
+        // fixture in `ScreenScreenshotTest` (#712).
         timestampMillis = 1_712_400_000_000L,
         durationMs = 142,
         argumentsJson = """{"days":7,"metric":"steps"}""",
