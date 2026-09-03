@@ -43,7 +43,10 @@ These values, in full or prefix, regardless of log level:
   SSLHandshakeException"`. The exception's class + message is fine; its
   request body or key material is not.
 - **Counts, lengths, durations as numbers**: `"Received N-byte body"`,
-  `"Token refresh took 42ms"`, `"${token.length} chars"`.
+  `"Token refresh took 42ms"`, `"$len chars"` for a `val len = token.length`.
+  The length itself is safe; bind it to a local rather than writing
+  `"${token.length}"` inline, which the gate flags (see "does not catch" below
+  for why it cannot tell that form from `"${token.take(4)}"`).
 - **User-facing identifiers** like `TokenEntity.label` / OAuth `client_name`
   ("Claude", "ChatGPT"). These are AI-client labels the user already sees
   in the UI.
@@ -64,8 +67,8 @@ Typical rewrites:
   -> `Log.d(TAG, "Token refreshed for client=$clientLabel")`
   (label OK; token not).
 - `Log.d(TAG, "FCM token: $token")`
-  -> `Log.d(TAG, "FCM token updated (len=${token.length})")`, or remove
-  the line if the length is not diagnostic.
+  -> `val len = token.length; Log.d(TAG, "FCM token updated (len=$len)")`, or
+  remove the line if the length is not diagnostic.
 - `Log.d(TAG, "PKCE verifier: $verifier")` -> delete, or replace with
   `"PKCE verifier generated"`.
 - Rust: `tracing::info!("...{integration_secret}...")` -> don't. If you
@@ -103,13 +106,16 @@ patterns. The script is the source of truth; this is its `PATTERN` verbatim, so
 that a drift between the two is visible rather than inferred:
 
 ```
-Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix|authCode|auth_code|authorizationCode|authorization_code)\b|Log\.[dievw].*args:[[:space:]]*\$
+Log\.[dievw].*\$\{?(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix|authCode|auth_code|authorizationCode|authorization_code)\b|Log\.[dievw].*args:[[:space:]]*\$
 ```
 
 In words, a line trips the gate when it contains `Log.` plus an Android level
 letter (`d` `i` `e` `v` `w` -- so `Log.wtf` too) followed by either:
 
-- a Kotlin string-template interpolation of one of these exact variable names:
+- a Kotlin string-template interpolation, written either bare or braced (the
+  optional `{` in the `\$\{?` prefix is what covers both spellings, #692), of one
+  of these exact variable names -- shown bare here, and each matching its
+  brace-wrapped form too:
   `$token`, `$bearer`, `$verifier`, `$fcmToken`, `$firebaseToken`,
   `$pkceVerifier`, `$accessToken`, `$refreshToken`, `$clientSecret`,
   `$privateKey`, `$apiKey`, `$sessionToken`, `$integrationSecret`,
@@ -130,14 +136,29 @@ does **not** catch:
   `\$[A-Za-z_]*(secret|token|key)` would fire on values listed above as safe to
   log, and a gate that flags safe lines gets worked around rather than heeded.
   The trailing `\b` is part of the same trade: `$tokenEntity` passes, which is
-  deliberate, since `TokenEntity.label` is safe to log. Adding a name to the
-  alternation is cheap -- do that instead of broadening the shape.
+  deliberate, since `TokenEntity.label` is safe to log -- and the braced
+  widening did not disturb that, so `${tokenEntity}` passes as well while
+  `${token}` is caught. Adding a name to the alternation is cheap -- do that
+  instead of broadening the shape.
 - **Bare `code`.** Authorization codes are covered, but only under their
   explicit names (`$authCode`, `$authorizationCode` and the snake_case forms
   added in #596). The unqualified token `code` is deliberately absent: status
   codes, error codes and response codes appear throughout this tree, so that
   one name would flood the gate with false positives, and the predictable
   response to a noisy gate is to loosen it back into uselessness.
+- **Braced property chains, `${obj.name}`.** The covered name has to sit
+  immediately after the `$` or the `${`, so `${token}` is caught but
+  `${user.token}`, `${creds.apiKey}` and `${response.authCode}` are not. This is
+  the residue #692 left behind deliberately: reaching into the braces means
+  either a second brace-wrapped copy of the alternation, which is the drift
+  #564/#574 had to repair, or a `[^}]*` that swallows the `\b` argument above.
+  A property chain ending in a secret is a code-review catch, not a grep one.
+- **The flip side of the same prefix: `${token.length}` IS flagged**, though
+  "counts and lengths as numbers" is listed above as safe to log. A line-level
+  ERE cannot tell `.length` from `.take(4)`, and a *prefix* of a secret is in the
+  never-log list, so the shared prefix errs toward flagging. If you want the
+  length, bind it first -- `val len = token.length` then `"$len chars"` -- which
+  is clearer at the log site anyway.
 - **Anything that is not `Log.<level>`.** `println`, `System.out`, Timber, and
   the relay's Rust `tracing::*!` are not scanned.
 - **Multi-line log calls.** The grep is line-level; a call split across lines
