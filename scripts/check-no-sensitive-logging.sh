@@ -23,12 +23,20 @@
 #   Log.<level>(... "$sessionToken"     -- session bearer credential
 #   Log.<level>(... "$integrationSecret" -- per-integration bearer secret
 #   Log.<level>(... "$secretPrefix"     -- ditto, the SNI-label prefix form
+#   Log.<level>(... "$authCode"         -- OAuth authorization code
+#   Log.<level>(... "$authorizationCode" -- ditto, spelled out
 #   Log.<level>(... "args: $..."        -- tool-call arguments
 #
 # Each multi-word name is listed in both camelCase and snake_case (`$fcm_token`,
-# `$private_key`, `$integration_secret`, ...): the Kotlin sources are camelCase,
-# but the relay and the policy doc name these values in snake_case, so that is
-# how someone transcribing a value into a log line tends to spell it (#579).
+# `$private_key`, `$integration_secret`, `$auth_code`, ...): the Kotlin sources
+# are camelCase, but the relay and the policy doc name these values in
+# snake_case, so that is how someone transcribing a value into a log line tends
+# to spell it (#579).
+#
+# Bare `code` is deliberately NOT in the list (#596). Status codes, error codes
+# and response codes appear throughout this tree, so that one token would flood
+# the gate with false positives, and a gate that flags safe lines gets loosened
+# back into uselessness rather than heeded.
 #
 # The list is deliberately explicit rather than a substring rule like
 # `\$[A-Za-z_]*(secret|token|key)`. Substring matching fires on values
@@ -62,7 +70,7 @@ mapfile -t DIRS <<<"$dirs"
 [ "${#DIRS[@]}" -gt 0 ] || { echo "ERROR: no production source dirs to scan" >&2; exit 1; }
 
 # shellcheck disable=SC2016  # literal regex; `$` must not expand
-PATTERN='Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix)\b|Log\.[dievw].*args:[[:space:]]*\$'
+PATTERN='Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix|authCode|auth_code|authorizationCode|authorization_code)\b|Log\.[dievw].*args:[[:space:]]*\$'
 
 # No `2>/dev/null` and no blanket `|| true`: see the note in
 # check-no-production-runblocking.sh. grep exits 1 for "no matches" and >1 for a

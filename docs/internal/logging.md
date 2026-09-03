@@ -103,7 +103,7 @@ patterns. The script is the source of truth; this is its `PATTERN` verbatim, so
 that a drift between the two is visible rather than inferred:
 
 ```
-Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix)\b|Log\.[dievw].*args:[[:space:]]*\$
+Log\.[dievw].*\$(token|bearer|verifier|fcmToken|fcm_token|firebaseToken|firebase_token|pkceVerifier|pkce_verifier|accessToken|access_token|refreshToken|refresh_token|clientSecret|client_secret|privateKey|private_key|apiKey|api_key|sessionToken|session_token|integrationSecret|integration_secret|secretPrefix|secret_prefix|authCode|auth_code|authorizationCode|authorization_code)\b|Log\.[dievw].*args:[[:space:]]*\$
 ```
 
 In words, a line trips the gate when it contains `Log.` plus an Android level
@@ -113,10 +113,11 @@ letter (`d` `i` `e` `v` `w` -- so `Log.wtf` too) followed by either:
   `$token`, `$bearer`, `$verifier`, `$fcmToken`, `$firebaseToken`,
   `$pkceVerifier`, `$accessToken`, `$refreshToken`, `$clientSecret`,
   `$privateKey`, `$apiKey`, `$sessionToken`, `$integrationSecret`,
-  `$secretPrefix` -- each multi-word name in snake_case as well as camelCase
-  (`$fcm_token`, `$firebase_token`, `$pkce_verifier`, `$access_token`,
-  `$refresh_token`, `$client_secret`, `$private_key`, `$api_key`,
-  `$session_token`, `$integration_secret`, `$secret_prefix`); or
+  `$secretPrefix`, `$authCode`, `$authorizationCode` -- each multi-word name in
+  snake_case as well as camelCase (`$fcm_token`, `$firebase_token`,
+  `$pkce_verifier`, `$access_token`, `$refresh_token`, `$client_secret`,
+  `$private_key`, `$api_key`, `$session_token`, `$integration_secret`,
+  `$secret_prefix`, `$auth_code`, `$authorization_code`); or
 - the literal `args:` followed by `$`.
 
 That is the whole list. Nothing else is matched, and in particular the gate
@@ -131,6 +132,12 @@ does **not** catch:
   The trailing `\b` is part of the same trade: `$tokenEntity` passes, which is
   deliberate, since `TokenEntity.label` is safe to log. Adding a name to the
   alternation is cheap -- do that instead of broadening the shape.
+- **Bare `code`.** Authorization codes are covered, but only under their
+  explicit names (`$authCode`, `$authorizationCode` and the snake_case forms
+  added in #596). The unqualified token `code` is deliberately absent: status
+  codes, error codes and response codes appear throughout this tree, so that
+  one name would flood the gate with false positives, and the predictable
+  response to a noisy gate is to loosen it back into uselessness.
 - **Anything that is not `Log.<level>`.** `println`, `System.out`, Timber, and
   the relay's Rust `tracing::*!` are not scanned.
 - **Multi-line log calls.** The grep is line-level; a call split across lines
@@ -143,7 +150,12 @@ The gate has its own tests at `scripts/tests/check-no-sensitive-logging-test.sh`
 (also run by CI), which plant a violation per name in a throwaway repo. When you
 add a name to the alternation, add its planted-violation case there too -- a
 gate whose only evidence is a green run is indistinguishable from one that
-matches nothing.
+matches nothing. Those tests also read this file: they assert the fenced block
+above is the gate's `PATTERN` byte for byte, and that the prose gloss names
+exactly the alternation's names -- in both directions, so a name added to the
+gate and not to the prose fails, and so does a name the prose claims when the
+gate does not have it. That is what keeps the drift #564/#574 fixed from coming
+back the next time someone widens the pattern.
 
 Which trees count as "production" is derived by
 `scripts/production-source-dirs.sh` rather than hand-listed, and shared with the
