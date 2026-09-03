@@ -252,7 +252,21 @@ doc_pattern_prefix='Log\.[dievw].*\$\{?('
 # The alternation's names, one per line. Parameter expansion rather than sed:
 # the pattern is itself a regex full of backslashes, and a sed program to strip
 # it is less readable than the two substring cuts it would replace.
+# `grep -m1` exits 1 if the gate stops spelling its regex as a top-level
+# `PATTERN=`, and `set -e` would kill this script right here -- before the parse
+# control below could name the problem. Same shape as the gloss read in Part 2
+# (#711); bracket it so a missing line is reported instead of fatal.
+set +e
 gate_pattern_line=$(grep -m1 '^PATTERN=' "$repo_root/$gate")
+gate_pattern_grep_status=$?
+set -e
+if [ "$gate_pattern_grep_status" -ne 0 ]; then
+  # Deliberately not counted as a failure here: an empty pattern cannot survive
+  # the parse control below, which reports it by name. This line says only WHY
+  # the parse is about to come up empty.
+  echo "note: no ^PATTERN= line in $gate (grep exited $gate_pattern_grep_status)"
+  gate_pattern_line=
+fi
 gate_pattern=${gate_pattern_line#PATTERN=\'}
 gate_pattern=${gate_pattern%\'}
 alternation=${gate_pattern#*'\$\{?('}
@@ -296,6 +310,9 @@ elif [ "$doc_pattern_count" -ne 1 ]; then
   echo "FAIL: $doc quotes the PATTERN $doc_pattern_count times, expected exactly 1"
   failures=$((failures + 1))
 else
+  # Unbracketed on purpose, unlike its siblings: this arm runs only when the
+  # count above was exactly 1, so the same fixed string over the same file
+  # cannot come up empty here.
   doc_pattern=$(grep -m1 -F "$doc_pattern_prefix" "$doc")
   if [ "$doc_pattern" != "$gate_pattern" ]; then
     echo "FAIL: the PATTERN quoted in docs/internal/logging.md is not the gate's"
@@ -314,11 +331,21 @@ fi
 # catch" list below it names `$secretValue`, `$credential` and `$tokenEntity`
 # precisely because they are NOT in the alternation.
 gloss=$(sed -n '/^- a Kotlin string-template interpolation/,/^- the literal /p' "$doc")
-# `grep -o` finding nothing leaves this empty rather than killing the script:
-# `sort` ends the pipeline and exits 0 either way. An empty prose set then fails
-# the comparison below, which is the correct outcome -- it cannot read as green.
+# `grep -o` exits 1 when the gloss names nothing, and `pipefail` hands the whole
+# pipeline that 1 no matter what `sort` returns -- so `set -e` would kill the
+# script AT this assignment, after `doc_names` has its value and before the
+# comparison below could print anything. The vacuous case is exactly the one
+# this check exists to announce, so it must not be the one that dies mutely
+# (#711, the same shape as #628 and #678). Bracketing with `set +e` keeps the
+# empty set alive to reach the comparison, where it fails loudly and by name.
+set +e
 doc_names=$(printf '%s\n' "$gloss" | grep -oE '`\$[A-Za-z_]+`' | tr -d '`$' | sort)
-if [ "$gate_names" != "$doc_names" ]; then
+doc_names_status=$?
+set -e
+if [ "$doc_names_status" -gt 1 ]; then
+  echo "FAIL: reading the prose gloss out of $doc failed with status $doc_names_status"
+  failures=$((failures + 1))
+elif [ "$gate_names" != "$doc_names" ]; then
   echo "FAIL: the prose gloss in docs/internal/logging.md does not match the alternation"
   echo "    in the gate but not the prose:"
   comm -23 <(printf '%s\n' "$gate_names") <(printf '%s\n' "$doc_names") | sed 's/^/      /'
@@ -327,6 +354,109 @@ if [ "$gate_names" != "$doc_names" ]; then
   failures=$((failures + 1))
 else
   echo "ok: the prose gloss in docs/internal/logging.md names exactly the alternation"
+fi
+
+# Part 3: demonstrated-red controls on Parts 1 and 2 themselves. Both are
+# anti-vacuity guards, and a guard nobody has watched fire is worth what an
+# unfired one is (#711): until the `set +e` brackets above, the vacuous case
+# killed this script AT the assignment and printed nothing, which from outside
+# is hard to tell from an ordinary red run. So each guard gets a run of this
+# suite against a deliberately broken repo, and each must PRINT its finding and
+# reach its own summary line -- exiting nonzero is not enough, since a mute
+# death does that too.
+#
+# `SENSITIVE_LOGGING_TEST_NESTED` is what stops those runs recursing into here.
+if [ -z "${SENSITIVE_LOGGING_TEST_NESTED:-}" ]; then
+  # Absolute: `setup_sandbox` left the working directory inside `$sandbox`, so
+  # a relative `${BASH_SOURCE[0]}` no longer resolves from here.
+  self_name=$(basename "${BASH_SOURCE[0]}")
+  self=$repo_root/scripts/tests/$self_name
+  nested=$sandbox/nested
+  nested_doc=$nested/docs/internal/logging.md
+  nested_gate=$nested/$gate
+
+  # A pristine copy of everything this suite reads: the gate, its helper and
+  # the source-dir deriver, the doc, and this file. Callers then break exactly
+  # one thing in it.
+  build_nested() {
+    rm -rf "$nested"
+    mkdir -p "$nested/scripts/lib" "$nested/scripts/tests" "$nested/docs/internal"
+    cp "$repo_root/$gate" "$repo_root/scripts/production-source-dirs.sh" "$nested/scripts/"
+    cp "$repo_root/scripts/lib/gate-filters.sh" "$nested/scripts/lib/"
+    cp "$self" "$nested/scripts/tests/"
+    cp "$doc" "$nested_doc"
+  }
+
+  # Run the broken copy and require it to say so out loud. `$2` is the finding
+  # the guard under test is supposed to print.
+  nested_expect() {
+    local label=$1 want=$2 out status ok=1
+    set +e
+    out=$(SENSITIVE_LOGGING_TEST_NESTED=1 bash "$nested/scripts/tests/$self_name" 2>&1)
+    status=$?
+    set -e
+    if [ "$status" -eq 0 ]; then
+      ok=0
+      echo "FAIL: $label -- the nested suite exited 0, expected nonzero"
+    fi
+    if ! printf '%s\n' "$out" | grep -qF -- "$want"; then
+      ok=0
+      echo "FAIL: $label -- the nested suite never printed: $want"
+    fi
+    # The suite has to survive to its own summary. Without this, a script that
+    # died at the assignment would still satisfy the nonzero-exit check.
+    if ! printf '%s\n' "$out" | grep -qE '^[0-9]+ test\(s\) failed$'; then
+      ok=0
+      echo "FAIL: $label -- the nested suite did not reach its summary line"
+    fi
+    if [ "$ok" -ne 1 ]; then
+      printf '%s\n' "$out" | sed 's/^/    /'
+      failures=$((failures + 1))
+    else
+      echo "ok: $label"
+    fi
+  }
+
+  # Control on Part 2: empty the gloss. Renaming the bullet the range opens on
+  # makes `sed` select nothing, so the `grep -o` over it matches nothing.
+  build_nested
+  sed -i 's/^- a Kotlin string-template interpolation/- a Kotlin STRING-TEMPLATE interpolation/' \
+    "$nested_doc"
+  # The break has to bite. A mutation that quietly matched nothing would leave
+  # the nested run green and this control would pass for the wrong reason --
+  # the very failure mode it is here to rule out. So count both sides.
+  gloss_names_in() {
+    sed -n '/^- a Kotlin string-template interpolation/,/^- the literal /p' "$1" |
+      grep -coE '`\$[A-Za-z_]+`'
+  }
+  set +e
+  gloss_before=$(gloss_names_in "$doc")
+  gloss_after=$(gloss_names_in "$nested_doc")
+  set -e
+  if [ "$gloss_before" -lt 1 ] || [ "$gloss_after" -ne 0 ]; then
+    echo "FAIL: emptying the gloss did not take -- names before=$gloss_before after=$gloss_after"
+    failures=$((failures + 1))
+  else
+    nested_expect 'an emptied gloss is reported, not fatal' \
+      'FAIL: the prose gloss in docs/internal/logging.md does not match the alternation'
+  fi
+
+  # Control on the PATTERN read: indent the gate's assignment. `^PATTERN=` then
+  # matches nothing while the gate itself still runs, so the nested suite's
+  # other cases stay meaningful and only the parse goes empty.
+  build_nested
+  sed -i 's/^PATTERN=/ PATTERN=/' "$nested_gate"
+  set +e
+  pattern_before=$(grep -c '^PATTERN=' "$repo_root/$gate")
+  pattern_after=$(grep -c '^PATTERN=' "$nested_gate")
+  set -e
+  if [ "$pattern_before" -ne 1 ] || [ "$pattern_after" -ne 0 ]; then
+    echo "FAIL: hiding PATTERN= did not take -- lines before=$pattern_before after=$pattern_after"
+    failures=$((failures + 1))
+  else
+    nested_expect 'an unreadable PATTERN= is reported, not fatal' \
+      "FAIL: could not parse the alternation out of the gate's PATTERN"
+  fi
 fi
 
 if [ "$failures" -gt 0 ]; then
