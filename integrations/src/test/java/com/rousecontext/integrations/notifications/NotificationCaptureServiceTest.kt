@@ -11,6 +11,9 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -209,6 +212,48 @@ class NotificationCaptureServiceTest {
     }
 
     @Test
+    fun `joinCaptureWork awaits a sibling registered after it inspected the scope`() {
+        lateinit var lateController: ServiceController<NotificationCaptureService>
+        runBlocking {
+            val lateDao = LateSiblingDao(realDao)
+            stopKoin()
+            startKoin {
+                modules(
+                    module {
+                        single<NotificationDao> { lateDao }
+                        single<FieldEncryptor> { encryptor }
+                    }
+                )
+            }
+            lateController = Robolectric.buildService(NotificationCaptureService::class.java)
+            val lateService = lateController.create().get()
+            lateDao.scope = lateService.serviceScope
+
+            // The capture coroutine parks in the DAO until `spawnGate` opens, and
+            // only then launches a *sibling* into the same scope.
+            lateService.onNotificationPosted(mockSbn(pkg = "com.slack.android"))
+
+            // Queued on runBlocking's event loop, so it cannot run until this
+            // coroutine suspends — which first happens inside joinCaptureWork,
+            // after it has looked at the scope's children. That ordering is what
+            // makes the sibling late by construction rather than by luck.
+            launch { lateDao.spawnGate.complete(Unit) }
+
+            lateService.joinCaptureWork()
+
+            // Positive outcome: only a join that kept draining can have waited for
+            // the sibling's write. A snapshot-once join returns as soon as the
+            // first coroutine ends, while the sibling is still in its delay.
+            assertTrue(
+                "joinCaptureWork returned before the late-registered sibling finished",
+                lateDao.lateInsertDone.isCompleted
+            )
+            assertEquals(2, realDao.countInRange(0L, Long.MAX_VALUE))
+        }
+        lateController.destroy()
+    }
+
+    @Test
     fun `onListenerConnected sets instance and onListenerDisconnected clears it`() {
         // The Robolectric-created service hasn't been connected to the system.
         assertNull(NotificationCaptureService.instance)
@@ -387,5 +432,47 @@ private class SignalingDao(private val delegate: NotificationDao) : Notification
 
     private companion object {
         const val AWAIT_TIMEOUT_MILLIS = 5_000L
+    }
+}
+
+/**
+ * DAO decorator that reproduces the late-registered *sibling* shape: from
+ * inside the service's own capture coroutine it launches a second coroutine
+ * into the same scope, so that coroutine is registered after any one-shot
+ * inspection of the scope's children has already happened.
+ *
+ * [spawnGate] lets the test decide *when* that launch happens, so the sibling
+ * is late by construction. The sibling then delays before its write: a join
+ * that stopped waiting differs from one that kept waiting only in when it
+ * returns, so the difference has to be made observable in time — here by
+ * making the sibling slow, never by sleeping before an assertion.
+ */
+private class LateSiblingDao(private val delegate: NotificationDao) : NotificationDao by delegate {
+
+    /** Service scope to launch the sibling into; set once the service exists. */
+    @Volatile
+    var scope: CoroutineScope? = null
+
+    val spawnGate = CompletableDeferred<Unit>()
+
+    val lateInsertDone = CompletableDeferred<Unit>()
+
+    override suspend fun insert(record: NotificationRecord): Long {
+        withTimeout(GATE_TIMEOUT_MILLIS) { spawnGate.await() }
+        val result = delegate.insert(record)
+        val siblingScope = requireNotNull(scope) { "scope must be set before the first insert" }
+        siblingScope.launch {
+            delay(SIBLING_DELAY_MILLIS)
+            // delegate, not `this@LateSiblingDao`, so the sibling does not spawn
+            // another sibling.
+            delegate.insert(record.copy(id = 0, postedAt = record.postedAt + 1))
+            lateInsertDone.complete(Unit)
+        }
+        return result
+    }
+
+    private companion object {
+        const val GATE_TIMEOUT_MILLIS = 5_000L
+        const val SIBLING_DELAY_MILLIS = 300L
     }
 }

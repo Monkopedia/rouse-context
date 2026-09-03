@@ -23,7 +23,14 @@ import org.koin.android.ext.android.inject
  */
 class NotificationCaptureService : NotificationListenerService() {
 
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /**
+     * Scope every capture coroutine runs in.
+     *
+     * Not private only so tests can launch into it directly to build coroutine
+     * arrangements the callbacks alone cannot produce — see [joinCaptureWork].
+     */
+    @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
+    internal val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val dao: NotificationDao by inject()
 
@@ -115,7 +122,7 @@ class NotificationCaptureService : NotificationListenerService() {
     }
 
     /**
-     * Joins every coroutine currently alive in [serviceScope].
+     * Drains [serviceScope]: returns once the scope holds no live coroutine.
      *
      * [kotlinx.coroutines.launch] registers its child job with the scope
      * *synchronously*, before the launching call returns. So a caller on the
@@ -127,10 +134,29 @@ class NotificationCaptureService : NotificationListenerService() {
      * Tests that assert *nothing* was persisted need exactly that. There is no
      * signal to await on a write that by design never happens, and a fixed
      * sleep would let an unfinished write pass as an empty table.
+     *
+     * The children are re-read on every pass rather than snapshotted once. A
+     * single snapshot covers nested launches (a job does not complete until its
+     * children do) but not a *sibling* launched into this same scope from
+     * inside another of its coroutines: that one registers after the snapshot
+     * and would be missed, silently returning the guarantee above to the state
+     * the fixed sleep was in.
+     *
+     * The loop is deliberately unbounded. It terminates for every coroutine
+     * this service starts — each is a finite, best-effort DAO write — but a
+     * coroutine that never completes, or one that keeps re-launching into the
+     * scope, would hang it. That is the right failure for a test-only helper:
+     * a hung test names itself in a thread dump, whereas a bounded drain would
+     * quietly return early and hand back exactly the false green this join
+     * exists to prevent.
      */
     @VisibleForTesting
     internal suspend fun joinCaptureWork() {
-        serviceScope.coroutineContext.job.children.toList().forEach { it.join() }
+        while (true) {
+            val children = serviceScope.coroutineContext.job.children.toList()
+            if (children.isEmpty()) return
+            children.forEach { it.join() }
+        }
     }
 
     override fun onDestroy() {
