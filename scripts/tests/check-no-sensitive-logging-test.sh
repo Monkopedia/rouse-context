@@ -33,9 +33,12 @@ setup_sandbox() {
   git init -q .
   git config user.email t@example.com
   git config user.name test
-  mkdir -p scripts app/src/main app/src/debug integrations/src/main \
+  mkdir -p scripts/lib app/src/main app/src/debug integrations/src/main \
     core/mcp/src/jvmMain relay/src/tls
   cp "$repo_root/$gate" "$repo_root/scripts/production-source-dirs.sh" scripts/
+  # The gate resolves scripts/lib/gate-filters.sh relative to its own location
+  # (#597), so the sandbox mirrors that layout.
+  cp "$repo_root/scripts/lib/gate-filters.sh" scripts/lib/
   echo 'package p' > app/src/main/Main.kt
   echo 'package p' > app/src/debug/Debug.kt
   echo 'package p' > integrations/src/main/Main.kt
