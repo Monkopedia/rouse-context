@@ -1,0 +1,23 @@
+# Reasoned exemptions from scripts/check-cancellation-catch-order.sh (#674).
+#
+# A site belongs here when a broad catch WITHOUT a preceding
+# `catch (e: CancellationException)` is genuinely correct -- overwhelmingly
+# because the guarded `try` contains no suspension point, and a `suspend`
+# function that never suspends never takes delivery of cooperative cancellation.
+#
+# It does NOT belong here because it has not been looked at yet. That is what
+# scripts/cancellation-catch-backlog.tsv is for, and the difference between the
+# two files is the difference between "safe" and "not fixed".
+#
+# Columns, TAB-separated:
+#   path        repo-relative path of the Kotlin file
+#   function    enclosing function, as the scanner names it (see
+#               scripts/lib/kotlin-catch-chains.awk); `<top-level>` for a catch
+#               in a property initialiser
+#   count       how many unguarded broad catches that <path, function> has
+#   reason      why, in one line, >= 20 characters
+#
+# The count is an EXACT match against the tree, in both directions: fixing a
+# site fails the gate until this file is updated. Keyed on the function rather
+# than the line so that ordinary edits above it do not churn the file.
+app/src/main/java/com/rousecontext/app/ui/viewmodels/IntegrationSetupViewModel.kt	pushIntegrationSecrets	1	No suspension point in the try: the sole production CertificateStore impl delegates to a non-suspend atomicWrite. Pinned by IntegrationSecretsPersistCancellationTest; see the comment at the site and #667.
