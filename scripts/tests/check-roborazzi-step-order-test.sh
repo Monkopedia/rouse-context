@@ -65,6 +65,18 @@ expect() {
     failures=$((failures + 1))
     return
   fi
+  # The bug's signature is the ABSENCE of output, not the status: a gate that
+  # goes red with zero bytes reads as a crash rather than as the finding it is
+  # (#628, and #678 for this script's own instance of it). Asserted separately
+  # from the substring so that even a case written without a `must_say` cannot
+  # pass against that shape. (`$(...)` strips trailing newlines, so an empty
+  # `$out` means the gate printed nothing but newlines.)
+  if [ "$want" -ne 0 ] && [ -z "$out" ]; then
+    echo "FAIL: $name -- exited $status with ZERO bytes of output"
+    echo "      A gate that fails silently reads as a crash, not as a finding."
+    failures=$((failures + 1))
+    return
+  fi
   if [ -n "$must_say" ] && ! printf '%s\n' "$out" | grep -qF "$must_say"; then
     echo "FAIL: $name -- exited $status but never said '$must_say'"
     printf '%s\n' "$out" | sed 's/^/    /'
@@ -163,6 +175,29 @@ write_workflow "$sandbox/wf.yml" "${good_order[@]}"
   echo "        run: true"
 } >> "$sandbox/wf.yml"
 expect 1 "a second job invalidates the flat scan" "no longer has exactly one job"
+
+# The same precondition seen from the other end, and the two inputs #678
+# measured. `grep` exits 1 when it matches nothing, so under `set -euo pipefail`
+# the two scans that locate the jobs: key used to kill the script here -- exit 1
+# with NO output, on precisely the inputs this check exists to notice. Both
+# cases assert the MESSAGE, not just the status: the status was already 1 while
+# the bug was live, and `expect` above independently rejects a silent red.
+{
+  echo "name: Android CI"
+  echo "on: [push]"
+} > "$sandbox/wf.yml"
+expect 1 "a workflow with no jobs: key at all" "has no top-level 'jobs:' key"
+
+# Flow-style `jobs: {}`: the jobs: key is there, but no job key is on its own
+# line for the flat scan to see. Vacuously passing over zero steps would be the
+# worst outcome -- the ordering would stop being protected with nothing said.
+{
+  echo "name: Android CI"
+  echo "on: [push]"
+  echo "jobs: {}"
+} > "$sandbox/wf.yml"
+expect 1 "jobs: written flow-style, invisible to the flat scan" \
+  "no job this scan can see"
 
 # A workflow that is not there at all.
 rm -f "$sandbox/wf.yml"

@@ -34,10 +34,32 @@ fi
 
 # `android-ci.yml` has a single job, so every top-level step in the file belongs
 # to it and document order is execution order. Asserted rather than assumed: if
-# a second job is ever added, the flat scan below stops being meaningful and
-# this must be revisited instead of quietly comparing steps across jobs.
-job_count=$(grep -cE '^  [A-Za-z0-9_-]+:$' "$workflow" | tr -d ' ')
-jobs_line=$(grep -n '^jobs:' "$workflow" | cut -d: -f1)
+# a second job is ever added, or the jobs: block is reshaped so this scan can no
+# longer read it, the flat scan below stops being meaningful and that must be
+# revisited instead of quietly comparing steps across jobs -- or, worse, passing
+# vacuously over no steps at all.
+#
+# The `|| true` is load-bearing rather than a route to green, for the same
+# reason it is on `index_of` below: `grep` exits 1 when it matches nothing, and
+# under `set -euo pipefail` that status propagates out of the assignment and
+# kills the script. A workflow with no `jobs:` line is exactly the shape this
+# block exists to report, so without the swallow the check died on its own
+# subject matter -- exit 1 with NO output, which reads as a crash rather than as
+# a finding (#678, the #628 shape). The captured value, not the status, is the
+# answer; every way it can come back unusable takes a FAIL branch below.
+jobs_line=$(grep -n '^jobs:' "$workflow" | cut -d: -f1 || true)
+if [[ -z "$jobs_line" ]]; then
+  echo "FAIL: $workflow has no top-level 'jobs:' key"
+  echo "      This check reads steps flat from the jobs: line down. With no such"
+  echo "      line there is nothing to read, and a workflow that has stopped"
+  echo "      having one is a shape change to look at, not a silent pass."
+  exit 1
+fi
+if [[ ! "$jobs_line" =~ ^[0-9]+$ ]]; then
+  echo "FAIL: could not locate a single 'jobs:' line in $workflow"
+  echo "      (matched: ${jobs_line//$'\n'/ })"
+  exit 1
+fi
 job_names=$(awk -v start="$jobs_line" 'NR > start && /^  [A-Za-z0-9_-]+:$/ { gsub(/[ :]/, ""); print }' "$workflow")
 # Hoisted out of the `[[ ]]`, and the `|| true` on it is load-bearing rather
 # than a route to green: `grep -c` PRINTS 0 and EXITS 1 when it counts nothing,
@@ -45,21 +67,24 @@ job_names=$(awk -v start="$jobs_line" 'NR > start && /^  [A-Za-z0-9_-]+:$/ { gsu
 # swallow the assignment would kill the script here, on the exact input the
 # check is for -- exit 1 with no output, the #628 shape. The printed count, not
 # the status, is the answer; a value that is not 1, including one that is not a
-# number, takes the FAIL branch.
-#
-# (The two `grep`s two lines up still have that shape and are deliberately left
-# alone: that is #678's, measured and filed separately, and fixing it here would
-# bury it.)
+# number, takes a FAIL branch.
 job_name_count=$(printf '%s\n' "$job_names" | grep -c . || true)
 if [[ "$job_name_count" -ne 1 ]]; then
-  # Joined with bash parameter expansion rather than `| tr`: a failure message
-  # should not depend on a subprocess whose own status is then discarded, and
-  # there is no status left to discard once the subprocess is gone.
-  echo "FAIL: $workflow no longer has exactly one job (found: ${job_names//$'\n'/ })"
-  echo "      This check scans steps flat, which is only valid for a single job."
+  if [[ "$job_name_count" -eq 0 ]]; then
+    echo "FAIL: $workflow has a 'jobs:' key but no job this scan can see"
+    echo "      Job keys are matched as '  <name>:' alone on a line; a flow-style"
+    echo "      'jobs: {}', a reindented block or a reusable-workflow shape is"
+    echo "      invisible to it. The scan is not valid for a shape it cannot"
+    echo "      read, so this is red rather than a vacuous pass over zero steps."
+  else
+    # Joined with bash parameter expansion rather than `| tr`: a failure message
+    # should not depend on a subprocess whose own status is then discarded, and
+    # there is no status left to discard once the subprocess is gone.
+    echo "FAIL: $workflow no longer has exactly one job (found: ${job_names//$'\n'/ })"
+    echo "      This check scans steps flat, which is only valid for a single job."
+  fi
   exit 1
 fi
-: "$job_count"
 
 # Ordered list of step names, one per line, in document = execution order.
 # Steps declared as a bare `- uses:` carry no name and are absent from this
