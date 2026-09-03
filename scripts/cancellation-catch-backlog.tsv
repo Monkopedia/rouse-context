@@ -1,0 +1,93 @@
+# Known-unfixed cancellation swallows, found by
+# scripts/check-cancellation-catch-order.sh (#674) on the tree it landed against.
+#
+# THESE ARE DEFECTS, NOT EXEMPTIONS. Each is a broad catch -- `Exception`,
+# `Throwable`, `RuntimeException` or `IllegalStateException`, all of which
+# receive a `CancellationException` -- with no cancellation clause above it in
+# its chain. They are recorded here rather than fixed in the same change that
+# added the gate, so that the gate blocks NEW ones from the day it lands instead
+# of waiting on a 61-site sweep. The gate prints the outstanding count on every
+# run; it does not report the tree as clean.
+#
+# Six human-directed sweeps (#660, #662/#665, #666/#669, #670/#673, #638/#672,
+# #667) each found what the previous one had not looked at, which is the whole
+# argument for a gate. Those six are all CLOSED and each was scoped to the tree
+# it looked at; none of them tracks this list. #722 does, and it is the issue
+# every row below cites.
+#
+# The citation is checked for SHAPE ONLY -- the gate matches `#[0-9]+` and has
+# no way to ask whether the number resolves to anything, let alone to anything
+# open. `#999999` passes. That limitation is stated here rather than papered
+# over: see the header of scripts/check-cancellation-catch-order.sh for why the
+# gate does not reach the network to close it. Whoever repoints these rows is
+# the check.
+#
+# Columns are those of scripts/cancellation-catch-allowlist.tsv, and the count
+# is an exact match against the tree in both directions -- so fixing a site
+# fails the gate until its entry is lowered or removed. That is deliberate: it
+# is what stops this file becoming the place things go to be forgotten.
+#
+# Every reason must cite the tracking issue; the gate enforces that.
+#
+# Not yet audited for deliverability, and #722 records the triage rule:
+# reachability BEFORE severity. The prior sweeps found that only a minority of
+# such sites can actually take delivery of cancellation, so whoever works this
+# list should expect to move entries into cancellation-catch-allowlist.tsv with
+# a reason rather than treat all 60 as mechanical edits.
+#
+# The ledgers have no ceiling -- one appended line silences a new violation, and
+# the allowlist route needs no citation at all. That is #721, and it is not
+# fixed here.
+app/src/foss/java/com/rousecontext/app/auth/KeypairDeviceCredentialProvider.kt	buildCredential	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/foss/java/com/rousecontext/app/delivery/UnifiedPushBackgroundDelivery.kt	registerWithEndpoint	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/foss/java/com/rousecontext/app/push/UnifiedPushPayload.kt	parse	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/foss/java/com/rousecontext/app/push/UnifiedPushReceiver.kt	onReceive	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/google/java/com/rousecontext/app/push/FcmReceiver.kt	onNewToken	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/cert/AndroidKeystoreDeviceKeyManager.kt	logKeyInfo	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/cert/FileCertificateStore.kt	getIntegrationSecrets	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/cert/FileMtlsCertSource.kt	current	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/cert/MtlsWebSocketFactory.kt	loadCertAndKey	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt	dismissNotification	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt	getActiveNotifications	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt	performAction	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+app/src/main/java/com/rousecontext/app/ui/screens/AuditDetailScreen.kt	formatJsonOrRaw	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/bridge/src/jvmMain/kotlin/com/rousecontext/bridge/SessionHandler.kt	bridgeToMcpServer	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/AuthorizationCodeManager.kt	registerClient	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/HttpTransport.kt	handleRequest	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	dispatchJsonRpc	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	dispatchNotification	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	emitAuditEvent	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	emitRequestEvent	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	emitToolCallEvent	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	handleAuthorize	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	handleMcpDelete	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	handleRegister	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	newSessionEntry	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	parseTokenRequestParams	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	readJsonRpcBody	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	shutdown	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	sweepExpiredSessions	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpSession.kt	start	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/testfixtures/src/main/kotlin/com/rousecontext/tunnel/integration/TestRelayFixture.kt	startRelay	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/testfixtures/src/main/kotlin/com/rousecontext/tunnel/integration/TestRelayFixture.kt	waitUntilReady	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/CertProvisioningFlow.kt	execute	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/CertRenewalFlow.kt	inspect	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/CertRenewalFlow.kt	renewExpired	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/CertRenewalFlow.kt	renewWithFirebase	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/CertRenewalFlow.kt	renewWithMtls	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/CtLogMonitor.kt	check	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/MuxStreamImpl.kt	close	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/RelayApiClient.kt	executeRequest	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/TlsAcceptor.kt	close	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+core/tunnel/src/jvmMain/kotlin/com/rousecontext/tunnel/TlsAcceptor.kt	parsePemPrivateKey	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/java/com/rousecontext/integrations/health/query/SleepQueries.kt	summary	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/java/com/rousecontext/integrations/notifications/NotificationCaptureService.kt	onNotificationPosted	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/java/com/rousecontext/integrations/notifications/NotificationCaptureService.kt	onNotificationRemoved	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/java/com/rousecontext/integrations/notifications/NotificationCaptureService.kt	seedActiveNotifications	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/java/com/rousecontext/integrations/notifications/NotificationMcpProvider.kt	parseIsoToMillis	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/kotlin/com/rousecontext/integrations/outreach/OutreachMcpProvider.kt	addNotificationActions	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+integrations/src/main/kotlin/com/rousecontext/integrations/outreach/OutreachMcpProvider.kt	launchActivitySafely	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+notifications/src/main/java/com/rousecontext/notifications/FieldEncryptor.kt	decrypt	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+work/src/main/kotlin/com/rousecontext/work/SecurityCheckSources.kt	check	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+work/src/main/kotlin/com/rousecontext/work/TunnelForegroundService.kt	collectIncomingSessions	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
+work/src/main/kotlin/com/rousecontext/work/TunnelForegroundService.kt	connectToRelay	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.

@@ -105,6 +105,12 @@ jobs:
         run: bash scripts/check-no-production-runblocking.sh
       - name: "Block sensitive production log sites (issue #379)"
         run: bash scripts/check-no-sensitive-logging.sh
+      # Source order is the only thing that decides whether a catch clause takes
+      # delivery of a CancellationException, and the Kotlin compiler diagnoses
+      # neither an unreachable nor a mis-ordered clause. Six human-directed
+      # sweeps in two days each found what the previous one had not looked at.
+      - name: "Broad catch must be preceded by a cancellation clause (issue #674)"
+        run: bash scripts/check-cancellation-catch-order.sh
       # A green gate is not evidence the gate works: #577 and #590 were the same
       # post-filter, in both gates, silently swallowing real violations while
       # reporting clean. These tests run each gate against a throwaway repo and
@@ -113,6 +119,14 @@ jobs:
         run: bash scripts/tests/check-no-sensitive-logging-test.sh
       - name: "runBlocking gate self-test (issue #590)"
         run: bash scripts/tests/check-no-production-runblocking-test.sh
+      # Same argument, and #674 states it as the acceptance bar: a gate that has
+      # only ever been observed passing is indistinguishable from one that
+      # cannot fail. This suite runs the real gate against a throwaway repo,
+      # asserts both directions on every rule it encodes, and then mutates the
+      # gate twice -- once so it recognises no broad type, once so it ignores
+      # the cancellation guard -- and requires itself to go red on each.
+      - name: "Cancellation-catch-order gate self-test (issue #674)"
+        run: bash scripts/tests/check-cancellation-catch-order-test.sh
       # The anchors those two post-filters share now live in one library (#597),
       # which makes a mistake in them three gates' worth of expensive. Asserts
       # both directions for both filters -- the line that must be dropped AND
