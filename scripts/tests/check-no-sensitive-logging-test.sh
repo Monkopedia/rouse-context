@@ -47,6 +47,50 @@ setup_sandbox() {
   git add -A
 }
 
+# saw <haystack> <grep-args...> -- does the haystack contain a match?
+#
+# Written the obvious way, `! printf '%s\n' "$hay" | grep -q PAT`, this cannot
+# tell "grep answered no" from "grep never answered" (#716). Under `pipefail`
+# three different outcomes reach the `if` looking identical:
+#
+#   1. grep read the whole payload and found nothing -- the finding;
+#   2. grep errored or was killed by a signal, so it answered nothing;
+#   3. `grep -q` exited early ON A MATCH and `printf` took SIGPIPE for it, which
+#      `pipefail` then reports as the pipeline's status.
+#
+# (3) is not hypothetical here: measured 1062 times in 2000 on a 32KB payload
+# whose match is in its first 200 bytes -- the shape the nested controls at the
+# foot of this file produce. A caller that folds these together prints a cause
+# it has not established, above a dump that can contain the very string it just
+# called absent.
+#
+# So the pipeline is bracketed the way the doc-parity reads below are (#711 --
+# and the bracket is load-bearing, not decoration: a bare pipeline returns 1 on
+# every "no match" call and `set -e` would take the script out), and both sides
+# of the pipe are read. Sets `saw_verdict` to match / miss / broken, plus
+# `saw_status` (grep's own exit) and `saw_feed` (the writer's) for the message.
+# Always returns 0: the point is that callers read the verdict, never a status.
+saw() {
+  local haystack=$1 pipe
+  shift
+  set +e
+  printf '%s\n' "$haystack" | grep -q "$@"
+  pipe=("${PIPESTATUS[@]}")
+  set -e
+  saw_feed=${pipe[0]}
+  saw_status=${pipe[1]}
+  if [ "$saw_status" -eq 0 ]; then
+    # A match stands whatever became of the writer: grep got the bytes it
+    # needed before it stopped reading.
+    saw_verdict=match
+  elif [ "$saw_status" -eq 1 ] && [ "$saw_feed" -eq 0 ]; then
+    # grep read all of it and found nothing.
+    saw_verdict=miss
+  else
+    saw_verdict=broken
+  fi
+}
+
 # expect <exit-status> <name> <probe-file-content>
 expect() {
   local want=$1 name=$2 content=$3
@@ -65,7 +109,18 @@ expect() {
     return
   fi
   # A red run must name the offending file and line, not just exit nonzero.
-  if [ "$want" -ne 0 ] && ! printf '%s\n' "$out" | grep -q "$probe:"; then
+  # Asked unconditionally, including on the `want -eq 0` cases: `saw` has to
+  # survive a no-match without killing the script, and the cases that exercise
+  # that are the ones that outnumber everything else here.
+  saw "$out" -e "$probe:"
+  if [ "$want" -ne 0 ] && [ "$saw_verdict" = broken ]; then
+    echo "FAIL: $name -- the probe-name check itself failed" \
+      "(grep exited $saw_status, feeding it exited $saw_feed)"
+    printf '%s\n' "$out" | sed 's/^/    /'
+    failures=$((failures + 1))
+    return
+  fi
+  if [ "$want" -ne 0 ] && [ "$saw_verdict" = miss ]; then
     echo "FAIL: $name -- exited $status but did not name $probe"
     printf '%s\n' "$out" | sed 's/^/    /'
     failures=$((failures + 1))
@@ -399,13 +454,23 @@ if [ -z "${SENSITIVE_LOGGING_TEST_NESTED:-}" ]; then
       ok=0
       echo "FAIL: $label -- the nested suite exited 0, expected nonzero"
     fi
-    if ! printf '%s\n' "$out" | grep -qF -- "$want"; then
+    saw "$out" -F -- "$want"
+    if [ "$saw_verdict" = broken ]; then
+      ok=0
+      echo "FAIL: $label -- the read for the finding could not answer" \
+        "(grep exited $saw_status, feeding it exited $saw_feed)"
+    elif [ "$saw_verdict" = miss ]; then
       ok=0
       echo "FAIL: $label -- the nested suite never printed: $want"
     fi
     # The suite has to survive to its own summary. Without this, a script that
     # died at the assignment would still satisfy the nonzero-exit check.
-    if ! printf '%s\n' "$out" | grep -qE '^[0-9]+ test\(s\) failed$'; then
+    saw "$out" -E '^[0-9]+ test\(s\) failed$'
+    if [ "$saw_verdict" = broken ]; then
+      ok=0
+      echo "FAIL: $label -- the read for the summary line could not answer" \
+        "(grep exited $saw_status, feeding it exited $saw_feed)"
+    elif [ "$saw_verdict" = miss ]; then
       ok=0
       echo "FAIL: $label -- the nested suite did not reach its summary line"
     fi
@@ -456,6 +521,60 @@ if [ -z "${SENSITIVE_LOGGING_TEST_NESTED:-}" ]; then
   else
     nested_expect 'an unreadable PATTERN= is reported, not fatal' \
       "FAIL: could not parse the alternation out of the gate's PATTERN"
+  fi
+
+  # Controls on the probe-name read inside `expect` (#716). As a bare
+  # `! ... | grep -q` it printed "did not name $probe" for a grep that had not
+  # answered at all -- a stated cause it had not established, above a dump that
+  # could contain the string it called absent. `saw` splits that into two
+  # findings, so both need a run where they fire, and neither may fire for the
+  # other's reason. What gets broken here is the nested copy of THIS file, since
+  # the read under test lives in it.
+  #
+  # The counter's regex deliberately is not the literal it looks for: written
+  # literally it would match its own source line, and the `sed` below would
+  # rewrite that line too.
+  probe_read_lines_in() {
+    grep -cE 'saw "\$out" -e "\$probe:"' "$1"
+  }
+  nested_self=$nested/scripts/tests/$self_name
+
+  # Direction 1: grep answers, and the answer is "no". Point the read at a
+  # string the gate never prints. This is the finding the line has always been
+  # for; splitting the message must not lose it.
+  build_nested
+  sed -i 's|saw "\$out" -e "\$probe:"|saw "$out" -e "no-such-name-716:"|' "$nested_self"
+  set +e
+  probe_read_before=$(probe_read_lines_in "$self")
+  probe_read_after=$(probe_read_lines_in "$nested_self")
+  set -e
+  if [ "$probe_read_before" -ne 1 ] || [ "$probe_read_after" -ne 0 ]; then
+    echo "FAIL: redirecting the probe-name read did not take --" \
+      "lines before=$probe_read_before after=$probe_read_after"
+    failures=$((failures + 1))
+  else
+    nested_expect 'a probe name that is genuinely absent is reported as a miss' \
+      'FAIL: violation without ": *" is caught -- exited 1 but did not name app/src/main/Probe.kt'
+  fi
+
+  # Direction 2: grep cannot answer -- hand it an option it does not have, so it
+  # exits 2 rather than 0 or 1. Before the split this was indistinguishable from
+  # direction 1 and was reported as it. The expected text stops after grep's own
+  # status on purpose: which side of the pipe gives out first is a race, and
+  # only grep's status discriminates.
+  build_nested
+  sed -i 's|saw "\$out" -e "\$probe:"|saw "$out" --no-such-option-716 -e "$probe:"|' "$nested_self"
+  set +e
+  probe_read_before=$(probe_read_lines_in "$self")
+  probe_read_after=$(probe_read_lines_in "$nested_self")
+  set -e
+  if [ "$probe_read_before" -ne 1 ] || [ "$probe_read_after" -ne 0 ]; then
+    echo "FAIL: breaking the probe-name read did not take --" \
+      "lines before=$probe_read_before after=$probe_read_after"
+    failures=$((failures + 1))
+  else
+    nested_expect 'a probe-name read that cannot answer is reported as its own failure' \
+      'FAIL: violation without ": *" is caught -- the probe-name check itself failed (grep exited 2'
   fi
 fi
 
