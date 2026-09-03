@@ -18,6 +18,15 @@ then-current production bugs the suite could have caught *at that time*. Many of
 gaps have since been closed; where that is so the entry says so inline. Do not read that
 half as a statement of what is untested today.
 
+**Why the rows went bad, since the two causes want different fixes.** Most of them went
+*stale*: a cleanup wave in April 2026 deleted the code they described —
+`NotificationAdapter` and its test as dead code (#125), the `:integration-tests` module,
+the `:health` module folded into `:integrations`, the wake endpoint (#303) — and the
+document was never updated. That is ordinary drift, and the counts-plus-command shape
+below is the fix for it. One row failed differently and is the reason for #654:
+`TokenStoreTest` was *accurate*, stayed accurate, and still supported a false inference
+about what ships. Staleness a reader can suspect from a date; that one they cannot.
+
 **A `✓` in the inventory means the named test class exists and is green. It does not mean
 its subject ships.** Those are different questions, and a coverage audit that runs them
 together credits production with coverage it does not have — that defect is
@@ -81,8 +90,10 @@ ls relay/tests/*.rs | grep -v test_helpers | wc -l
 
 Corrections made in this revision:
 
-- A row for `TunnelConnectionStateMachineTest` was removed. No such class has ever existed
-  in the tree; the real class is `ConnectionStateMachineTest`, now listed above.
+- A row for `TunnelConnectionStateMachineTest` was removed: no such path exists at
+  `61c84b93`, and `git log --all -- '*TunnelConnectionStateMachine*'` is empty, so it has
+  never been a file. Its only occurrence in the whole history is `6e1c3cfe`, the commit
+  that added this document. The real class is `ConnectionStateMachineTest`, listed above.
 - `MuxFrameTest` and `MuxDemuxTest` were tagged "(common)". Both live in `jvmTest`. There
   is no `commonMain` or `commonTest` anywhere in the tree — `docs/design/overall.md:506`
   states this outright for `:core:mcp` and `:core:tunnel`.
@@ -149,9 +160,8 @@ classes" while there were five; #684 then deleted `TunnelSessionManagerTest` and
 `TunnelSessionManagerDefectVisibilityTest` along with their subject and corrected the
 figure to "1 test class", which under-counted the remaining four. It is four.
 
-The old "no tests for **concurrent session operations**" gap was already false when it was
-written — `ClientPassthroughTest` has `concurrent passthrough sessions are independent` —
-and it is removed here.
+The old "no tests for **concurrent session operations**" gap no longer holds:
+`ClientPassthroughTest` has `concurrent passthrough sessions are independent`. Removed.
 
 **Still open:**
 - No test for cleanup after an unexpected mid-session disconnect.
@@ -171,7 +181,8 @@ and it is removed here.
 | `ToolCallViaSniPassthroughTest` | A tool call arriving over SNI passthrough | Partly — `SessionHandler` and `CertificateStore` are production; the `TunnelClientImpl` is built with a fixture WebSocket factory. Its kdoc enumerates which is which. | ✓ |
 | `ScreenScreenshotTest` | Renders every screen to PNG | Yes, but the test asserts nothing about what it renders | ⚠ Limited |
 
-`RoomTokenStoreTest` was missing from every earlier revision of this document, while
+`RoomTokenStoreTest` had never been listed here — `git log -S'RoomTokenStoreTest' --
+docs/test-coverage-audit.md` returns only the commit that added this paragraph — while
 `TokenStoreTest` — which does not touch the shipped store — was listed as good coverage of
 "token storage and expiry". The document under-reported the real coverage and over-reported
 the notional coverage of the same behaviour.
@@ -204,11 +215,15 @@ the notional coverage of the same behaviour.
 | `AuditMigrationTest` | Room schema migration for the audit database | Yes | ✓ |
 | `NotificationScreenshotTest` | Renders notification previews | Yes, but asserts nothing | ⚠ Limited |
 
-A row for `NotificationAdapterTest` was removed. Neither the test nor its subject
-`NotificationAdapter` exists anywhere in the tree; `NotificationAdapter` appears only in
-`docs/workflow.md:317`, in the "Files to create" list of the historical task plan T-7, as a
-file that was planned and never built. That entry is a record of a plan, not a claim about
-today's architecture, and it is left alone here — it belongs to
+A row for `NotificationAdapterTest` was removed: neither it nor its subject exists at
+`61c84b93`. Both were real. `notifications/src/main/java/.../NotificationAdapter.kt` landed
+in `52276b1e` (2026-04-05) as production code and its test in `2325e064` (2026-04-07); both
+were deleted on 2026-04-14 by `7a54bdce`, "Delete NotificationAdapter and NotificationAction
+dead code (#125)", when the notifier pattern replaced them. So this row was not fictional
+when written — it went stale, along with the code it described. `docs/workflow.md:317`
+still lists `NotificationAdapter.kt` in the "Files to create" list of task plan T-7; that
+is a record of a plan that was carried out and later reversed, not a claim about today's
+architecture, and it is left alone here — it belongs to
 [#687](https://github.com/Monkopedia/rouse-context/issues/687).
 
 A `NotificationDaoTest` row also sat in this section. That class is real but lives in
@@ -273,9 +288,12 @@ module; it is listed under §8 instead.
 | `crash_test.rs` | Crash-report intake | ✓ |
 | `shutdown_test.rs` | Clean shutdown | ✓ |
 
-A row for `api_wake_test.rs` was removed. There is no such file in `relay/tests/`; it is
-listed in `docs/workflow.md:207,227` as a file the plan called for. Wake-endpoint behaviour
-is exercised inside `integration_test.rs`, `api_status_test.rs` and `rate_limit_test.rs`.
+A row for `api_wake_test.rs` was removed: there is no such file in `relay/tests/` at
+`61c84b93`. There was. It landed in `0cf23dc2` (2026-04-05) and was deleted on 2026-04-19
+by `1993b794`, "Fix #303: Remove dead wake endpoint module (#310)", together with the
+endpoint it tested. `docs/workflow.md:207,227` still lists it. Wake-related behaviour that
+survives is exercised inside `integration_test.rs`, `api_status_test.rs` and
+`rate_limit_test.rs`.
 
 **Still open:**
 - No relay-side test for a TLS record spanning multiple WebSocket frames. The client side
@@ -287,8 +305,12 @@ is exercised inside `integration_test.rs`, `api_status_test.rs` and `rate_limit_
 ### 8. Integrations (`integrations/src/test/`) — 29 test classes
 
 The 2026-04-06 revision split this across sections headed "Health Connect
-(`health/src/test/`)" and "Outreach, Usage". There is no `health` module and never has
-been; `settings.gradle.kts` declares `:integrations`, which holds all three providers.
+(`health/src/test/`)" and "Outreach, Usage". `settings.gradle.kts` declares no `:health`
+module at `61c84b93` — it declares `:integrations`, which holds all three providers. It
+once did: `include(":health")` was added in `65d71fba` (2026-04-05) and dropped on
+2026-04-14 by `f198df6b`, "Fix #124: Wire `:integrations`, drop old modules", which moved
+`health/` to `integrations/health/`. The old headings describe where those tests used to
+live.
 
 | Test Class | Covers | Subject ships? | Status |
 |---|---|---|---|
@@ -317,11 +339,13 @@ been; `settings.gradle.kts` declares `:integrations`, which holds all three prov
 | `e2e` | `ColdStartEndToEndTest`, `McpEndToEndTest`, `IntegrationToolsTest` | Cold start through push, MCP round trip, tool surface | ✓ |
 | `core/testfixtures` | `IntegrationHttpSupportTest` | The shared HTTP fixture itself | ✓ |
 
-A row for `TunnelRelayIntegrationTest` was removed from this section. No such class exists
-in the tree, and none ever has; the only occurrence of that name anywhere was the row
-itself. Tunnel-plus-relay integration is covered by `core/tunnel`'s
-`RealRelayIntegrationTest` and `EndToEndSessionTest`, and by `device-tests`'
-`DeviceIntegrationTest`.
+A row for `TunnelRelayIntegrationTest` was removed from this section: no such class exists
+at `61c84b93`. It did exist — 360 lines at
+`integration-tests/src/test/kotlin/com/rousecontext/tunnel/integration/TunnelRelayIntegrationTest.kt`,
+added in `51f99bdf` (2026-04-05) and deleted on 2026-04-14 by `0f35f265`, "Remove orphaned
+`:integration-tests` module", along with the module that held it. Tunnel-plus-relay
+integration is now covered by `core/tunnel`'s `RealRelayIntegrationTest` and
+`EndToEndSessionTest`, and by `device-tests`' `DeviceIntegrationTest`.
 
 ---
 
@@ -350,8 +374,9 @@ itself. Tunnel-plus-relay integration is covered by `core/tunnel`'s
 
 > **Closed on the client side.** `TlsAcceptorSplitRecordTest` pins a TLS record split
 > across two DATA frames in both the handshake and the application-data direction. The
-> relay-side frame-boundary test was never added; the relay splices bytes without parsing
-> TLS, so it is a lower-value gap than it looked here.
+> relay-side frame-boundary test does not exist at `61c84b93` — no file in `relay/tests/`
+> mentions record splitting. The relay splices bytes without parsing TLS, so it is a
+> lower-value gap than it looked here.
 
 ### Bug 2: OAuth Auth Page Renders with Broken Styles
 
@@ -381,9 +406,10 @@ itself. Tunnel-plus-relay integration is covered by `core/tunnel`'s
 > the FGS-limit notifier, the security-check alert and info notifiers, and the
 > auth-request notifier. The device-rendering gap remains open.
 >
-> This entry originally named a `NotificationAdapterTest` in
-> `notifications/src/test/java/.../NotificationAdapterTest.kt`. Neither that test nor its
-> subject `NotificationAdapter` has ever existed in the tree — see #654.
+> The `NotificationAdapterTest` this entry originally named was real when it was written
+> and is gone now: `7a54bdce` deleted it and its subject as dead code on 2026-04-14
+> (#125). The bullets above are reworded to name the property rather than the vanished
+> class.
 
 ### Bug 4: Hardcoded URLs Not Caught
 
@@ -489,6 +515,12 @@ itself. Tunnel-plus-relay integration is covered by `core/tunnel`'s
 - ✗ No test for state race conditions
 
 **Test Location:** `core/tunnel/src/jvmTest/kotlin/com/rousecontext/tunnel/TunnelClientImplTest.kt` (add test)
+
+> **Closed.** `core/tunnel`'s `AbruptDisconnectTest` and `HalfOpenDetectionTest` cover the
+> transport side; `app`'s `HalfOpenReconnectTest` drives a half-open socket to
+> `DISCONNECTED` through keepalive, and `RapidFcmWakesTest` asserts five rapid wakes leave
+> the tunnel stable. Concurrent state transitions are pinned by
+> `ConnectionStateMachineTest.concurrentTransitionsAreAtomic`.
 
 ### Bug 12: FCM Token Send Fails After Reconnect
 
@@ -827,11 +859,12 @@ fun `dashboard updates connection status when tunnel connects`() = runTest {
 
 > **Since implemented**, as
 > `notifications/src/test/java/com/rousecontext/notifications/NotificationIconTest.kt`.
-> The sketch below named a `NotificationAdapterTest` against a `NotificationAdapter`;
-> neither has ever existed in the tree (#654). The shipped test asserts the small icon is
-> `ic_stat_rouse` at each notifier rather than probing the resource id.
+> The sketch below targets a `NotificationAdapterTest` against a `NotificationAdapter`.
+> Both existed when it was written and were deleted as dead code on 2026-04-14 by
+> `7a54bdce` (#125), so the sketch cannot be applied as drafted. The shipped test asserts
+> the small icon is `ic_stat_rouse` at each notifier rather than probing the resource id.
 
-**Proposed file (never created):** `notifications/src/test/java/com/rousecontext/notifications/NotificationAdapterTest.kt`
+**File as proposed (since deleted):** `notifications/src/test/java/com/rousecontext/notifications/NotificationAdapterTest.kt`
 
 **Test:**
 ```kotlin

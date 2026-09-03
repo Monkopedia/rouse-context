@@ -70,7 +70,7 @@ Removed from active audit on 2026-04-25 (deleted from repo):
 
 
 ### docs/test-coverage-audit.md
-- **Length**: ~1150 lines
+- **Length**: ~1230 lines
 - **Audience**: engineering
 - **Accuracy**: split, deliberately. Repaired under #654 on 2026-09-02.
   The inventory half was rebuilt and verified against `61c84b93` — every
@@ -86,7 +86,14 @@ Removed from active audit on 2026-04-25 (deleted from repo):
   the command that reproduces them, and names only the classes the document
   itself cites. #654 also added a **Subject ships?** column: a `✓` used to
   mean only that a test existed and passed, which credited production with
-  coverage of classes that never run.
+  coverage of a class that never runs. Note that most of the bad rows were
+  ordinary staleness of exactly the kind this entry already described: the
+  April 2026 cleanup wave (#124, #125, #303, and the removal of the orphaned
+  `:integration-tests` module) deleted the code they named, and nobody
+  updated the audit. Only the `TokenStore` row failed the other way, staying
+  accurate while supporting a false inference. That one is what #654 is
+  actually about, and it is the one a reader could not have caught from the
+  date on the file.
 
 ### docs/security.md
 - **Length**: 237 lines
