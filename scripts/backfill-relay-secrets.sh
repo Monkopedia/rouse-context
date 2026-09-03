@@ -18,6 +18,9 @@
 #   - shred -u on exit (success, failure, or interrupt)
 #   - never echoes secret values to stdout; only sizes/counts for sanity
 #   - requires explicit "yes" confirmation before mutating GH state
+#   - exits 7 if any secret failed to push, naming each one. The exit status is
+#     the operator's only signal that provisioning worked, so a partial run must
+#     never be able to look like a complete one (#686).
 #
 # Prereqs:
 #   - gcloud configured with access to the `relay` GCE instance
@@ -142,10 +145,10 @@ python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$WORK/firebase-sa.js
 base64 -w0 "$WORK/firebase-sa.json" > "$WORK/firebase_sa_b64"
 chmod 600 "$WORK/firebase_sa_b64"
 # Assigned and CHECKED, not substituted into the `echo`. This script runs
-# without `set -e` (see line 31), so a masked `wc` failure here would print
-# "   bytes (base64)" and carry straight on to upload, as a repository secret, a
-# blob nothing has been able to so much as size. Same family as the JSON
-# validation above, so the same exit code.
+# without `set -e` (see the `set -u -o pipefail` above), so a masked `wc` failure
+# here would print "   bytes (base64)" and carry straight on to upload, as a
+# repository secret, a blob nothing has been able to so much as size. Same
+# family as the JSON validation above, so the same exit code.
 if ! b64_bytes=$(wc -c < "$WORK/firebase_sa_b64"); then
   echo "ERROR: cannot read $WORK/firebase_sa_b64 immediately after writing it" >&2
   exit 6
@@ -153,11 +156,25 @@ fi
 echo "  $b64_bytes bytes (base64)"
 
 # --- 3. Push to GH secrets ----------------------------------------------------
+#
+# Every secret that did not land, by name. This script runs without `set -e`
+# (the interactive prompt and the cleanup trap are why it stays that way), so a failing push has to be recorded deliberately or it is
+# discarded -- which is exactly how a four-of-six run used to exit 0 and pass
+# for a complete provision (#686).
+#
+# Accumulate-then-fail rather than abort-on-first, because aborting would not
+# prevent a partial provision, only shrink it: the pushes before the failure
+# have already mutated the repo and cannot be taken back. The six secrets are
+# independent and each push is idempotent, so attempting them all costs
+# nothing and leaves the operator knowing precisely which ones are missing.
+failed_secrets=()
+
 push_secret() {
   local name="$1"
   local file="$2"
   local bytes
   if [[ ! -f "$file" ]]; then
+    # Intentionally optional (RUST_LOG); a skip is not a failure.
     echo "  [skip] $name (no value captured)"
     return 0
   fi
@@ -168,10 +185,19 @@ push_secret() {
   # not pushed.
   if ! bytes=$(wc -c < "$file"); then
     echo "  [fail] $name -- cannot read $file; NOT pushed" >&2
+    failed_secrets+=("$name")
     return 1
   fi
+  # Recorded here rather than at the six call sites below: the defect this
+  # replaces was six call sites that each ignored the return, and a seventh
+  # secret added later would have ignored it too.
+  if ! gh secret set "$name" --repo "$REPO" < "$file"; then
+    echo "  [fail] $name ($bytes bytes) -- gh secret set failed; NOT pushed" >&2
+    failed_secrets+=("$name")
+    return 1
+  fi
+  # After the push, not before: "[set]" means it landed.
   echo "  [set]  $name ($bytes bytes)"
-  gh secret set "$name" --repo "$REPO" < "$file"
 }
 
 echo "Updating GitHub secrets on $REPO ..."
@@ -181,5 +207,18 @@ push_secret RELAY_GTS_EAB_KID                    "$WORK/gts_eab_kid"
 push_secret RELAY_GTS_EAB_HMAC                   "$WORK/gts_eab_hmac"
 push_secret RELAY_RUST_LOG                       "$WORK/rust_log"
 push_secret RELAY_FIREBASE_SERVICE_ACCOUNT_JSON  "$WORK/firebase_sa_b64"
+
+if [[ "${#failed_secrets[@]}" -gt 0 ]]; then
+  echo >&2
+  echo "ERROR: ${#failed_secrets[@]} secret(s) did NOT land on $REPO:" >&2
+  for name in "${failed_secrets[@]}"; do
+    echo "  - $name" >&2
+  done
+  echo >&2
+  echo "The rest were updated. $REPO is now PARTIALLY provisioned: the relay" >&2
+  echo "may fail to renew certs or authenticate. Fix the cause and re-run --" >&2
+  echo "pushing a secret again is idempotent." >&2
+  exit 7
+fi
 
 echo "Done. Verify with: gh secret list --repo $REPO"

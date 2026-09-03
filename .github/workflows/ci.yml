@@ -123,6 +123,12 @@ jobs:
       # reported as clean.
       - name: "shell-lint gate self-test (#592, #659)"
         run: bash scripts/tests/check-shell-lint-test.sh
+      # Not a gate, but the highest-consequence shell in the repo: it writes the
+      # production relay secrets, and its exit status is the operator's only
+      # signal that all six landed. A partial run used to exit 0 (#686). The
+      # test stubs `gh` and `gcloud`, so it never reaches GitHub or the VPS.
+      - name: "backfill-relay-secrets self-test (#686)"
+        run: bash scripts/tests/backfill-relay-secrets-test.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

@@ -336,6 +336,11 @@ VPS, reading `/etc/rouse-relay/env` and `firebase-sa.json`, and piping each
 value into `gh secret set`. It never echoes secret values and shreds its temp
 files on exit. Requires `gcloud` (for the SSH) and `gh` (for the API).
 
+Its exit status is the signal that provisioning worked: it attempts every
+secret, then exits `7` naming each one that did not land, so a run that pushed
+four of six cannot be mistaken for a complete one. Fix the cause and re-run --
+pushing a secret again is idempotent.
+
 ```bash
 ./scripts/backfill-relay-secrets.sh Monkopedia/rouse-context
 ```
