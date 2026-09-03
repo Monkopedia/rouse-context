@@ -220,10 +220,12 @@ A row for `NotificationAdapterTest` was removed: neither it nor its subject exis
 in `52276b1e` (2026-04-05) as production code and its test in `2325e064` (2026-04-07); both
 were deleted on 2026-04-14 by `7a54bdce`, "Delete NotificationAdapter and NotificationAction
 dead code (#125)", when the notifier pattern replaced them. So this row was not fictional
-when written — it went stale, along with the code it described. `docs/workflow.md:317`
-still lists `NotificationAdapter.kt` in the "Files to create" list of task plan T-7; that
-is a record of a plan that was carried out and later reversed, not a claim about today's
-architecture, and it is left alone here — it belongs to
+when written — it went stale, along with the code it described. `docs/workflow.md` still
+lists it in the "Files to create" list of task plan T-7, on the line reading `— maps
+NotificationAction to Android NotificationManager` (grep that text; the line number has
+moved three times and citing it here has already gone stale once). That is a record of a
+plan that was carried out and later reversed, not a claim about today's architecture, and
+it is left alone here — it belongs to
 [#687](https://github.com/Monkopedia/rouse-context/issues/687).
 
 A `NotificationDaoTest` row also sat in this section. That class is real but lives in
@@ -291,9 +293,12 @@ module; it is listed under §8 instead.
 A row for `api_wake_test.rs` was removed: there is no such file in `relay/tests/` at
 `61c84b93`. There was. It landed in `0cf23dc2` (2026-04-05) and was deleted on 2026-04-19
 by `1993b794`, "Fix #303: Remove dead wake endpoint module (#310)", together with the
-endpoint it tested. `docs/workflow.md:207,227` still lists it. Wake-related behaviour that
-survives is exercised inside `integration_test.rs`, `api_status_test.rs` and
-`rate_limit_test.rs`.
+endpoint it tested. `docs/workflow.md`'s task plan T-4 still lists it twice: under "Tests
+first" on the `api_wake_test.rs` line reading `online device returns 200 immediately`, and
+under "Files to create" as `relay/tests/api_wake_test.rs` (grep those rather than line
+numbers — the numbers this sentence used to carry have already gone stale once).
+Wake-related behaviour that survives is exercised inside `integration_test.rs`,
+`api_status_test.rs` and `rate_limit_test.rs`.
 
 **Still open:**
 - No relay-side test for a TLS record spanning multiple WebSocket frames. The client side
