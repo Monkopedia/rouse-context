@@ -1,7 +1,9 @@
 package com.rousecontext.integrations.health
 
 import com.rousecontext.integrations.health.query.CategoryQueries
+import com.rousecontext.integrations.health.query.Streamed
 import com.rousecontext.integrations.health.query.TimedValue
+import com.rousecontext.integrations.health.query.streamed
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
@@ -36,7 +38,7 @@ class RealHealthConnectRepositoryTest {
         private val queryResponse: List<JsonObject> = emptyList(),
         private val summaryKey: String? = null,
         private val summaryValue: Long = 0L,
-        private val bucketable: Map<String, Flow<TimedValue>> = emptyMap()
+        private val bucketable: Map<String, Flow<Streamed<TimedValue>>> = emptyMap()
     ) : CategoryQueries {
         val queryCalls: MutableList<QueryCall> = mutableListOf()
         var bucketValuesCalled = false
@@ -70,7 +72,7 @@ class RealHealthConnectRepositoryTest {
             recordType: String,
             from: Instant,
             to: Instant
-        ): Flow<TimedValue>? {
+        ): Flow<Streamed<TimedValue>>? {
             bucketValuesCalled = true
             return bucketable[recordType]
         }
@@ -208,7 +210,7 @@ class RealHealthConnectRepositoryTest {
             val cat = RecordingCategory(
                 setOf("BloodGlucose"),
                 queryResponse = jsonRecords(count),
-                bucketable = mapOf("BloodGlucose" to values.asFlow())
+                bucketable = mapOf("BloodGlucose" to values.asFlow().streamed())
             )
             val repo = make(listOf(cat))
 
@@ -252,7 +254,7 @@ class RealHealthConnectRepositoryTest {
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
             queryResponse = jsonRecords(600),
-            bucketable = mapOf("BloodGlucose" to values)
+            bucketable = mapOf("BloodGlucose" to values.streamed())
         )
         val repo = make(listOf(cat))
 
@@ -270,7 +272,7 @@ class RealHealthConnectRepositoryTest {
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
             queryResponse = jsonRecords(count),
-            bucketable = mapOf("BloodGlucose" to values.asFlow())
+            bucketable = mapOf("BloodGlucose" to values.asFlow().streamed())
         )
         val repo = make(listOf(cat))
 
@@ -324,7 +326,7 @@ class RealHealthConnectRepositoryTest {
         )
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
-            bucketable = mapOf("BloodGlucose" to values.asFlow())
+            bucketable = mapOf("BloodGlucose" to values.asFlow().streamed())
         )
         val repo = make(listOf(cat))
 
@@ -345,7 +347,7 @@ class RealHealthConnectRepositoryTest {
     fun `bucketRecords rejects too-fine bucket before reading`() = runBlocking {
         val cat = RecordingCategory(
             setOf("BloodGlucose"),
-            bucketable = mapOf("BloodGlucose" to emptyFlow())
+            bucketable = mapOf("BloodGlucose" to emptyFlow<TimedValue>().streamed())
         )
         val repo = make(listOf(cat))
 
