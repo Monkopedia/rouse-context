@@ -24,11 +24,20 @@ import org.acra.sender.HttpSender
  * Crashlytics→issue convention). The endpoint URL derives from the same
  * `BuildConfig` relay host the tunnel uses, over HTTPS.
  *
- * Collection is gated to release builds here (debug builds never phone home, so
- * local repros don't open spurious issues). The runtime toggle is also exposed
- * via [AcraCrashReporter.setCollectionEnabled], wired through the shared
- * `RouseApplication.configureCrashReporting` path so a future Settings opt-out
- * can flip it at runtime.
+ * ## Collection starts OFF, unconditionally (issue #546)
+ *
+ * This used to be `setEnabled(!BuildConfig.DEBUG)` — on in every release build.
+ * Crash reporting is now opt-in and only ever opt-in, so init leaves ACRA
+ * disabled and [com.rousecontext.app.support.CrashReportingPreference]
+ * re-affirms the user's stored answer from `RouseApplication.onCreate`.
+ *
+ * The unconditional `false` is what closes the gap between the two. This runs
+ * in [Application.attachBaseContext]; the re-affirmation is a posted message
+ * plus a DataStore read later. Left at `!BuildConfig.DEBUG`, a crash inside
+ * that window would be reported from a release build without consent — the
+ * exact thing the opt-in exists to prevent. Starting disabled costs an
+ * opted-in user reports from those few milliseconds, which is the safe
+ * direction to fail in.
  */
 object CrashReporterInitializer {
     fun initialize(application: Application) {
@@ -36,11 +45,9 @@ object CrashReporterInitializer {
 
         ACRA.init(application, buildConfiguration())
 
-        // Mirror the google flavor's debug/release gate (Crashlytics is
-        // collection-disabled in debug). Release builds collect by default
-        // until a user opts out. The shared configureCrashReporting() hook
-        // reaffirms this shortly after onCreate.
-        ACRA.errorReporter.setEnabled(!BuildConfig.DEBUG)
+        // Never `!BuildConfig.DEBUG` — see the class kdoc. Nothing may leave
+        // the device until the stored preference has been read.
+        ACRA.errorReporter.setEnabled(false)
     }
 
     /**
