@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.rousecontext.app.ui.components.CrashReportConsentContent
 import com.rousecontext.app.ui.navigation.LocalNavBarController
 import com.rousecontext.app.ui.navigation.NavBarControllerImpl
 import com.rousecontext.app.ui.screens.AddIntegrationPickerScreen
@@ -974,6 +975,83 @@ class ScreenScreenshotTest {
     }
 
     // =========================================================================
+    // Crash-reporting consent (issue #546)
+    // =========================================================================
+
+    // The first-run consent sheet's body, rendered without the ModalBottomSheet
+    // wrapper (a dialog window is not part of the captured composition root).
+    @Test
+    fun crashConsentSheetLight() = captureLight("90_crash_consent_sheet") {
+        CrashConsentFrame()
+    }
+
+    @Test
+    fun crashConsentSheetDark() = captureDark("90_crash_consent_sheet") {
+        CrashConsentFrame()
+    }
+
+    // The Settings Support section carrying the "Send crash reports" switch,
+    // scrolled into view. Both states, because the subtitle is what tells the
+    // user where reports go.
+    @Test
+    fun settingsCrashReportsOffLight() = captureLight(
+        "91_settings_crash_reports_off",
+        scrollTo = SEND_CRASH_REPORTS
+    ) {
+        SettingsScreen(
+            state = settingsCrashReportingState(enabled = false),
+            showDeveloperSection = false
+        )
+    }
+
+    @Test
+    fun settingsCrashReportsOffDark() = captureDark(
+        "91_settings_crash_reports_off",
+        scrollTo = SEND_CRASH_REPORTS
+    ) {
+        SettingsScreen(
+            state = settingsCrashReportingState(enabled = false),
+            showDeveloperSection = false
+        )
+    }
+
+    @Test
+    fun settingsCrashReportsOnLight() = captureLight(
+        "92_settings_crash_reports_on",
+        scrollTo = SEND_CRASH_REPORTS
+    ) {
+        SettingsScreen(
+            state = settingsCrashReportingState(enabled = true),
+            showDeveloperSection = false
+        )
+    }
+
+    @Test
+    fun settingsCrashReportsOnDark() = captureDark(
+        "92_settings_crash_reports_on",
+        scrollTo = SEND_CRASH_REPORTS
+    ) {
+        SettingsScreen(
+            state = settingsCrashReportingState(enabled = true),
+            showDeveloperSection = false
+        )
+    }
+
+    private fun settingsCrashReportingState(enabled: Boolean) = SettingsState(
+        showBatteryWarning = false,
+        batteryOptimizationExempt = true,
+        canControlCrashReporting = true,
+        crashReportingEnabled = enabled
+    )
+
+    @Composable
+    private fun CrashConsentFrame() {
+        Box(modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow)) {
+            CrashReportConsentContent(onTurnOn = {}, onDismiss = {})
+        }
+    }
+
+    // =========================================================================
     // Audit Detail
     // =========================================================================
 
@@ -1361,6 +1439,12 @@ class ScreenScreenshotTest {
         }
     }
 }
+
+/**
+ * Text of the Settings "Send crash reports" row, used to scroll it into view
+ * before capturing (it sits below the fold at this window size).
+ */
+private const val SEND_CRASH_REPORTS = "Send crash reports"
 
 /**
  * Representative granted-permission set for the Health Connect settings

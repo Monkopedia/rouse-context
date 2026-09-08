@@ -5,12 +5,12 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import androidx.work.Configuration
-import com.rousecontext.api.CrashReporter
 import com.rousecontext.app.debug.debugModules
 import com.rousecontext.app.di.appModule
 import com.rousecontext.app.di.distributionModule
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.support.CrashReporterInitializer
+import com.rousecontext.app.support.CrashReportingPreference
 import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.work.CertRenewalScheduler
@@ -102,7 +102,7 @@ class RouseApplication :
         // every millisecond saved here reduces the risk of
         // ForegroundServiceDidNotStartInTimeException. Issue #325.
         Handler(Looper.getMainLooper()).post {
-            configureCrashReporting()
+            appScope.launch { configureCrashReporting() }
             scheduleSecurityChecks()
             CertRenewalScheduler.enqueuePeriodic(this)
             enqueueImmediateCertRenewalIfNeeded()
@@ -131,19 +131,21 @@ class RouseApplication :
     }
 
     /**
-     * Wire Firebase Crashlytics (issue #233) collection to the build variant:
-     * debug builds never phone home so local repros don't pollute the
-     * dashboard, release builds collect by default. A user-facing toggle can
-     * call [CrashReporter.setCollectionEnabled] later to honour opt-out.
+     * Re-affirm crash-reporting collection from the STORED user preference on
+     * every launch (issues #233, #546).
      *
-     * Separated from [onCreate] so tests can mock [CrashReporter] and assert
-     * the initialization call without invoking Firebase's real runtime.
+     * This used to read `BuildConfig.DEBUG` alone, which made collection a pure
+     * function of the build variant and would have overwritten a Settings
+     * toggle on the next start. [CrashReportingPreference] owns the decision
+     * now; this hook only supplies the startup moment.
+     *
+     * Suspending because the preference lives in DataStore, so it runs on
+     * [appScope] rather than blocking the posted-message path above.
      */
-    internal fun configureCrashReporting(
-        crashReporter: CrashReporter = GlobalContext.get().get(),
-        isDebugBuild: Boolean = BuildConfig.DEBUG
+    internal suspend fun configureCrashReporting(
+        crashReportingPreference: CrashReportingPreference = GlobalContext.get().get()
     ) {
-        crashReporter.setCollectionEnabled(!isDebugBuild)
+        crashReportingPreference.applyToReporter()
     }
 
     /**

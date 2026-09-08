@@ -225,9 +225,12 @@
     <string name="screen_settings_renew_cert_subtitle">Enqueue a one-shot cert renewal via WorkManager</string>
     <string name="screen_settings_renew_cert_enqueued">Renewal enqueued</string>
     <string name="screen_settings_section_support">Support</string>
-    <string name="screen_settings_support_privacy_note">Your device model and app state are included. Personal integration data is not.</string>
+    <string name="screen_settings_support_privacy_note">Your device model and app state are included. Personal integration data is not. Reports become issues on GitHub, where anyone can read them.</string>
     <string name="screen_settings_report_bug">Report a bug</string>
     <string name="screen_settings_report_bug_subtitle">Opens GitHub with device info prefilled</string>
+    <string name="screen_settings_crash_reports_title">Send crash reports</string>
+    <string name="screen_settings_crash_reports_off">Off. Nothing is sent when the app crashes.</string>
+    <string name="screen_settings_crash_reports_on">On. Sent automatically to relay.rousecontext.com when the app crashes.</string>
     <string name="screen_settings_time_just_now">just now</string>
     <string name="screen_settings_time_min_ago">%1$d min ago</string>
     <string name="screen_settings_time_hours_ago">%1$d hours ago</string>
@@ -321,4 +324,15 @@
     <string name="screen_integration_enabled_url_preparing">Preparing URL\u2026</string>
     <string name="screen_integration_enabled_url_unavailable">URL not available yet.</string>
     <string name="screen_integration_enabled_url_retry">Retry</string>
+
+    <!-- First-run crash-reporting consent sheet (issue #546) -->
+    <string name="crash_consent_title">Send crash reports?</string>
+    <string name="crash_consent_body">When the app crashes, Rouse Context can send a report so the problem can be fixed.</string>
+    <string name="crash_consent_public_warning">Reports become issues on a public GitHub tracker. Anyone can read them.</string>
+    <string name="crash_consent_summary">The report holds a stack trace, your device and app version, and a random ID linking your reports. It never holds the system log, your notifications, usage or health data.</string>
+    <string name="crash_consent_details_title">What gets sent, in full</string>
+    <string name="crash_consent_details_body">Sent with every report:\n\n• The stack trace, thread state and the app\'s own logged breadcrumbs at the moment of the crash\n• App version, build type, package name and how long the app had been running\n• Device model, manufacturer, Android version, screen and locale\n• Free memory and storage at the time of the crash\n• A random installation ID, so your own reports can be linked to each other. It is generated on this device and is not your account, email or advertising ID.\n\nNever sent: the Android system log, your notifications, app-usage or health data, integration credentials, or the contents of any AI session.</string>
+    <string name="crash_consent_not_now">Not now</string>
+    <string name="crash_consent_turn_on">Turn on</string>
+    <string name="crash_consent_footer">Off unless you turn it on. Change any time in Settings › Support.</string>
 </resources>

@@ -95,6 +95,40 @@ class AppStatePreferences(private val context: Context) {
         }
     }
 
+    /**
+     * Whether the user has turned crash reporting ON. Default OFF: on the FOSS
+     * distribution nothing is ever sent unless the user asks for it (issue
+     * #546). Read on every launch by
+     * [com.rousecontext.app.support.CrashReportingPreference], which is what
+     * makes the choice survive a restart.
+     */
+    suspend fun crashReportingOptIn(): Boolean =
+        dataStore.data.first()[KEY_CRASH_REPORTING_OPT_IN] ?: false
+
+    fun observeCrashReportingOptIn(): Flow<Boolean> = dataStore.data.map {
+        it[KEY_CRASH_REPORTING_OPT_IN] ?: false
+    }
+
+    suspend fun setCrashReportingOptIn(value: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_CRASH_REPORTING_OPT_IN] = value
+        }
+    }
+
+    /**
+     * Whether the first-run crash-reporting consent sheet has already been
+     * shown. Set on EVERY exit from that sheet — Turn on, Not now, swipe, back
+     * — so the app asks exactly once and Settings is the only other route in.
+     */
+    suspend fun crashReportingConsentAsked(): Boolean =
+        dataStore.data.first()[KEY_CRASH_REPORTING_CONSENT_ASKED] ?: false
+
+    suspend fun markCrashReportingConsentAsked() {
+        dataStore.edit { prefs ->
+            prefs[KEY_CRASH_REPORTING_CONSENT_ASKED] = true
+        }
+    }
+
     suspend fun hasLaunchedBefore(): Boolean =
         dataStore.data.first()[KEY_HAS_LAUNCHED_BEFORE] ?: false
 
@@ -115,6 +149,8 @@ class AppStatePreferences(private val context: Context) {
             prefs.remove(KEY_IDLE_TIMEOUT_DISABLED)
             prefs.remove(KEY_QUICK_DISCONNECT_SECONDS)
             prefs.remove(KEY_IGNORE_DAILY_TIME_LIMIT)
+            prefs.remove(KEY_CRASH_REPORTING_OPT_IN)
+            prefs.remove(KEY_CRASH_REPORTING_CONSENT_ASKED)
         }
     }
 
@@ -139,5 +175,9 @@ class AppStatePreferences(private val context: Context) {
         private val KEY_QUICK_DISCONNECT_SECONDS = intPreferencesKey("quick_disconnect_seconds")
         private val KEY_IGNORE_DAILY_TIME_LIMIT =
             booleanPreferencesKey("ignore_daily_time_limit")
+        private val KEY_CRASH_REPORTING_OPT_IN =
+            booleanPreferencesKey("crash_reporting_opt_in")
+        private val KEY_CRASH_REPORTING_CONSENT_ASKED =
+            booleanPreferencesKey("crash_reporting_consent_asked")
     }
 }

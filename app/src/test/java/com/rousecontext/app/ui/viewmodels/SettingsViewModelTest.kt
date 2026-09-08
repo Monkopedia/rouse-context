@@ -3,13 +3,17 @@ package com.rousecontext.app.ui.viewmodels
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
+import com.rousecontext.api.CrashReporter
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.support.CrashReportingPreference
 import com.rousecontext.app.testing.MainDispatcherRule
+import com.rousecontext.app.testing.RecordingCrashReporter
+import com.rousecontext.app.testing.inMemoryCrashReportingPreferences
 import com.rousecontext.app.ui.screens.PostSessionModeOption
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
@@ -420,6 +424,91 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `crash-reporting switch is absent without a consent seam (google)`() =
+        runTest(testDispatcher) {
+            val vm = createViewModel(PostSessionMode.SUMMARY)
+            vm.state.test {
+                val state = awaitLoaded()
+                assertFalse(state.canControlCrashReporting)
+                assertFalse(state.crashReportingEnabled)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `crash-reporting switch is present and off on a fresh foss install`() =
+        runTest(testDispatcher) {
+            val vm = createViewModel(
+                PostSessionMode.SUMMARY,
+                crashReportingPreference = fossCrashReportingPreference()
+            )
+            vm.state.test {
+                val state = awaitLoaded()
+                assertTrue(state.canControlCrashReporting)
+                assertFalse(state.crashReportingEnabled)
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `crash-reporting switch reflects the stored opt-in`() = runTest(testDispatcher) {
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            crashReportingPreference = fossCrashReportingPreference(
+                preferences = inMemoryCrashReportingPreferences(optIn = true)
+            )
+        )
+        vm.state.test {
+            val state = awaitLoaded()
+            assertTrue(state.crashReportingEnabled)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `setCrashReportingEnabled enables collection and persists it`() = runTest(testDispatcher) {
+        val reporter = RecordingCrashReporter()
+        val store = inMemoryCrashReportingPreferences()
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            crashReportingPreference = fossCrashReportingPreference(reporter, store)
+        )
+
+        vm.setCrashReportingEnabled(true)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf(true), reporter.collectionEnabledCalls)
+        assertTrue(store.crashReportingOptIn())
+    }
+
+    @Test
+    fun `setCrashReportingEnabled off stops collection and persists it`() =
+        runTest(testDispatcher) {
+            val reporter = RecordingCrashReporter()
+            val store = inMemoryCrashReportingPreferences(optIn = true)
+            val vm = createViewModel(
+                PostSessionMode.SUMMARY,
+                crashReportingPreference = fossCrashReportingPreference(reporter, store)
+            )
+
+            vm.setCrashReportingEnabled(false)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf(false), reporter.collectionEnabledCalls)
+            assertFalse(store.crashReportingOptIn())
+        }
+
+    private fun fossCrashReportingPreference(
+        reporter: CrashReporter = RecordingCrashReporter(),
+        preferences: AppStatePreferences = inMemoryCrashReportingPreferences()
+    ) = CrashReportingPreference(
+        preferences = preferences,
+        crashReporter = reporter,
+        requiresOptIn = true,
+        isDebugBuild = false
+    )
+
+    @Test
     fun `battery exempt hides the warning`() = runTest(testDispatcher) {
         val vm = createViewModel(PostSessionMode.SUMMARY, batteryExempt = true)
         vm.state.test {
@@ -521,16 +610,19 @@ class SettingsViewModelTest {
         securityPrefs: SecurityCheckPreferences? = null,
         appStatePrefs: AppStatePreferences? = null,
         batteryExempt: Boolean = false,
-        canIgnoreDailyLimit: Boolean = false
+        canIgnoreDailyLimit: Boolean = false,
+        crashReportingPreference: CrashReportingPreference? = null
     ): SettingsViewModel = createViewModel(
         mode,
         securityPrefs,
         provider = null,
         appStatePrefs = appStatePrefs,
         batteryExempt = batteryExempt,
-        canIgnoreDailyLimit = canIgnoreDailyLimit
+        canIgnoreDailyLimit = canIgnoreDailyLimit,
+        crashReportingPreference = crashReportingPreference
     )
 
+    @Suppress("LongParameterList")
     private fun createViewModel(
         mode: PostSessionMode,
         securityPrefs: SecurityCheckPreferences?,
@@ -538,7 +630,8 @@ class SettingsViewModelTest {
         spuriousWakesFlow: Flow<SpuriousWakeStats> = flowOf(SpuriousWakeStats.EMPTY),
         appStatePrefs: AppStatePreferences? = null,
         batteryExempt: Boolean = false,
-        canIgnoreDailyLimit: Boolean = false
+        canIgnoreDailyLimit: Boolean = false,
+        crashReportingPreference: CrashReportingPreference? = null
     ): SettingsViewModel {
         val resolvedProvider = provider ?: mockk {
             val s = NotificationSettings(
@@ -563,7 +656,8 @@ class SettingsViewModelTest {
             appStatePrefs,
             batteryExemptProvider = { batteryExempt },
             spuriousWakesFlow = spuriousWakesFlow,
-            canIgnoreDailyLimit = canIgnoreDailyLimit
+            canIgnoreDailyLimit = canIgnoreDailyLimit,
+            crashReportingPreference = crashReportingPreference
         )
     }
 }

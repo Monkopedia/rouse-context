@@ -10,6 +10,7 @@ import com.rousecontext.app.delivery.NoOpBackgroundDelivery
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.state.ThemeMode
 import com.rousecontext.app.state.ThemePreference
+import com.rousecontext.app.support.CrashReportingPreference
 import com.rousecontext.app.ui.screens.BackgroundDeliveryRowState
 import com.rousecontext.app.ui.screens.PostSessionModeOption
 import com.rousecontext.app.ui.screens.SecurityCheckIntervalOption
@@ -87,7 +88,13 @@ class SettingsViewModel(
      * true in the foss DistributionModule, false on google. Gates whether the
      * Settings row is rendered at all — google never sees it.
      */
-    private val canIgnoreDailyLimit: Boolean = false
+    private val canIgnoreDailyLimit: Boolean = false,
+    /**
+     * Crash-reporting consent (issue #546). Absent in tests that don't exercise
+     * the Support switch; the row is then hidden and the toggle is a no-op,
+     * matching the google distribution.
+     */
+    private val crashReportingPreference: CrashReportingPreference? = null
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -148,6 +155,14 @@ class SettingsViewModel(
             )
         )
 
+    /**
+     * Stored crash-reporting consent (issue #546), driving the Support switch.
+     * `false` when there is no consent seam — the google distribution and tests
+     * that don't exercise the row, both of which also hide it.
+     */
+    private val crashReportingFlow: Flow<Boolean> =
+        crashReportingPreference?.observeOptIn() ?: flowOf(false)
+
     val state: StateFlow<SettingsState> = combine(
         combine(
             refreshTrigger,
@@ -161,16 +176,23 @@ class SettingsViewModel(
             // resume-driven refresh() picks up a change made in system settings.
             Quint(themeMode, rotating, rotateErr, spurious, batteryExemptProvider())
         },
-        notificationSettingsProvider.observeSettings(),
+        // Paired rather than passed separately: `combine` tops out at five
+        // flows and the outer call is already using all five.
+        combine(
+            notificationSettingsProvider.observeSettings(),
+            crashReportingFlow
+        ) { notificationSettings, crashReporting -> notificationSettings to crashReporting },
         trustStatusFlow,
         intervalFlow,
         idleTimeoutFlow
-    ) { tuple, settings, trust, intervalHours, idle ->
+    ) { tuple, notificationAndCrash, trust, intervalHours, idle ->
         val themeMode = tuple.a
         val rotating = tuple.b
         val rotateErr = tuple.c
         val spurious = tuple.d
         val batteryExempt = tuple.e
+        val settings = notificationAndCrash.first
+        val crashReportingEnabled = notificationAndCrash.second
         SettingsState(
             idleTimeoutMinutes = idle.minutes,
             idleTimeoutDisabled = idle.disabled,
@@ -179,6 +201,8 @@ class SettingsViewModel(
             ignoreDailyTimeLimit = idle.ignoreDailyTimeLimit,
             batteryOptimizationExempt = batteryExempt,
             showBatteryWarning = !batteryExempt,
+            canControlCrashReporting = crashReportingPreference?.isUserControlled == true,
+            crashReportingEnabled = crashReportingEnabled,
             postSessionMode = settings.postSessionMode.toOption(),
             themeMode = themeMode.toOption(),
             securityCheckInterval = SecurityCheckIntervalOption.forHours(intervalHours),
@@ -264,6 +288,17 @@ class SettingsViewModel(
         viewModelScope.launch {
             appStatePreferences?.setIgnoreDailyTimeLimit(enabled)
             refresh()
+        }
+    }
+
+    /**
+     * Persist the "Send crash reports" switch and apply it immediately, so
+     * turning it on covers a crash in this session and turning it off stops
+     * collection without waiting for a restart. Issue #546.
+     */
+    fun setCrashReportingEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            crashReportingPreference?.setOptIn(enabled)
         }
     }
 

@@ -63,6 +63,7 @@ import com.rousecontext.app.BuildConfig
 import com.rousecontext.app.R
 import com.rousecontext.app.state.AppStatePreferences
 import com.rousecontext.app.ui.components.ErrorState
+import com.rousecontext.app.ui.components.ListDivider
 import com.rousecontext.app.ui.components.LoadingIndicator
 import com.rousecontext.app.ui.components.SectionHeader
 import com.rousecontext.app.ui.components.SwitchRow
@@ -179,6 +180,15 @@ data class SettingsState(
      */
     val backgroundDelivery: BackgroundDeliveryRowState? = null,
     val showBatteryWarning: Boolean = true,
+    /**
+     * Whether this distribution exposes the "Send crash reports" switch in
+     * Support (issue #546). True on foss, where collection is opt-in and only
+     * ever opt-in; false on google, which ships no consent UI. Backed by an
+     * injected capability flag, not a BuildConfig check.
+     */
+    val canControlCrashReporting: Boolean = false,
+    /** Current value of the "Send crash reports" switch. Default OFF. */
+    val crashReportingEnabled: Boolean = false,
     val versionName: String = BuildConfig.VERSION_NAME,
     val trustStatus: TrustStatusState? = null,
     /**
@@ -218,6 +228,7 @@ fun SettingsContent(
     onOpenBackgroundDelivery: () -> Unit = {},
     onAcknowledgeAlert: () -> Unit = {},
     onReportBug: () -> Unit = {},
+    onCrashReportingToggled: (Boolean) -> Unit = {},
     onOpenPrivacy: () -> Unit = {},
     onRenewCertNow: () -> Unit = {},
     showDeveloperSection: Boolean = BuildConfig.DEBUG,
@@ -570,6 +581,23 @@ fun SettingsContent(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            // "Send crash reports" sits here, next to the MANUAL bug report it
+            // is the automatic sibling of, rather than under Diagnostics (which
+            // holds one read-only counter and no controls). Foss only: google
+            // ships no consent UI, so the row is absent there. Issue #546.
+            if (state.canControlCrashReporting) {
+                ListDivider()
+                SwitchRow(
+                    title = stringResource(R.string.screen_settings_crash_reports_title),
+                    subtitle = if (state.crashReportingEnabled) {
+                        stringResource(R.string.screen_settings_crash_reports_on)
+                    } else {
+                        stringResource(R.string.screen_settings_crash_reports_off)
+                    },
+                    checked = state.crashReportingEnabled,
+                    onCheckedChange = onCrashReportingToggled
+                )
             }
         }
 

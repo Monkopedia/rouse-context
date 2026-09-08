@@ -114,6 +114,7 @@ private fun SettingsDestinationContent(onOpenBackgroundDelivery: () -> Unit) {
         onOpenBackgroundDelivery = onOpenBackgroundDelivery,
         onAcknowledgeAlert = viewModel::acknowledgeAlert,
         onReportBug = { openUriSafely(settingsContext, bugReportUriBuilder.build()) },
+        onCrashReportingToggled = viewModel::setCrashReportingEnabled,
         onOpenPrivacy = { openUriSafely(settingsContext, Uri.parse(PRIVACY_URL)) },
         // Debug-only button (gated in SettingsContent via BuildConfig.DEBUG).
         // Route through the scheduler so WorkManager wiring stays in :work.

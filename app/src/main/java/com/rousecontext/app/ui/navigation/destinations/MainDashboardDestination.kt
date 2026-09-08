@@ -22,11 +22,13 @@ import com.rousecontext.app.R
 import com.rousecontext.app.delivery.BackgroundDelivery
 import com.rousecontext.app.state.NotificationPermissionRefresher
 import com.rousecontext.app.support.BatteryOptimization
+import com.rousecontext.app.ui.components.CrashReportConsentSheet
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.navigation.Routes
 import com.rousecontext.app.ui.navigation.TAB_INDEX
 import com.rousecontext.app.ui.navigation.tabSlideDirection
 import com.rousecontext.app.ui.screens.HomeDashboardContent
+import com.rousecontext.app.ui.viewmodels.CrashReportConsentViewModel
 import com.rousecontext.app.ui.viewmodels.MainDashboardViewModel
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -150,5 +152,19 @@ fun NavGraphBuilder.mainDashboardDestination(navController: NavController) {
             },
             onRetry = { viewModel.retry() }
         )
+
+        // First-run crash-reporting consent (issue #546). Modal over the
+        // dashboard rather than a step in onboarding: it is dismissible and
+        // must not block first run. Shown at most once — every exit route
+        // records the ask — and never on google, whose consent VM reports
+        // nothing to ask. Collection stays OFF unless "Turn on" is pressed.
+        val consentViewModel: CrashReportConsentViewModel = koinViewModel()
+        val consentVisible by consentViewModel.visible.collectAsState()
+        if (consentVisible) {
+            CrashReportConsentSheet(
+                onTurnOn = consentViewModel::turnOn,
+                onDismiss = consentViewModel::dismiss
+            )
+        }
     }
 }
