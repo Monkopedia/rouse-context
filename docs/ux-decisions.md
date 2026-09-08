@@ -14,6 +14,76 @@ Newest entries on top.
 
 ---
 
+## 2026-09-08 — Crash reporting is opt-in, asked once on first run (#546)
+
+**Decision:** On the FOSS distribution crash reporting is **opt-in, and only
+ever opt-in** — it is never enabled without an explicit user action. Two
+surfaces, and no more:
+
+- A **modal bottom sheet over the dashboard, shown exactly once.** Title *"Send
+  crash reports?"*, a `PrivacyWarningCard` reading *"Reports become issues on a
+  public GitHub tracker. Anyone can read them."*, a one-paragraph summary of the
+  payload, an expandable *"What gets sent, in full"* disclosure, and
+  **[Not now] [Turn on]**. Footer: *"Off unless you turn it on. Change any time
+  in Settings › Support."*
+- A **"Send crash reports" switch in Settings › Support**, below "Report a bug".
+
+**Shown once means once, by any exit** — Turn on, Not now, swipe-dismiss or
+back all record the ask, and there is deliberately **no second prompt**.
+Settings is the only other route in. Dismissing leaves reporting OFF.
+
+**Approved by:** Jason, in-session, including the rendered mockup of both
+surfaces (`Main.dc.html` / `SettingsRow.dc.html` artboards). A first-run consent
+prompt is approval-gated by [`ux-changes.md`](../.claude/rules/ux-changes.md);
+the Settings switch on its own would not have been.
+
+**Context:** The FOSS build shipped ACRA on by default with no opt-out, while
+the shipped F-Droid listing claims *"Private by design — data never leaves the
+device except through a live, user-approved session"* and *"no analytics or
+tracking in the app"*. An F-Droid reviewer found the same thing independently
+against the built APK on `fdroiddata!42096` (note 3804211192) while the
+packaging MR was open. Payload size was never the defect; a shipped store
+listing making a false privacy claim is.
+
+**Alternatives considered:**
+- **Correct the listing text instead** (disclose default-on reporting). Rejected
+  on #546: F-Droid users pick that build *for* the asserted property, and the
+  assertion is made in the strongest available form ("never", "no analytics").
+  Removing the property rather than honouring it is the worse answer.
+- **Settings switch only, no first-run prompt.** Cheaper, and not
+  approval-gated. Rejected because it makes the honest default —
+  reporting off — also the silent one: nobody who would happily opt in ever
+  learns the option exists, and crash visibility goes to roughly zero.
+- **A blocking consent step inside onboarding.** Rejected: consent to an
+  optional diagnostic is not worth a gate on first run. The sheet is modal but
+  dismissible, and dismissal is a complete answer.
+- **Ask again later** (re-prompt after N launches / after a crash). Rejected as
+  nagging. One ask, then Settings.
+
+**Trade-off accepted:** Crash reports will drop sharply — most users will take
+"Not now" or swipe the sheet away, and there is no second chance to ask. That is
+the cost of the listing being true, and the issue judged it the cheapest thing
+on the table given how few users the build has so far.
+
+**Deliberately unchanged:** the **google/Play distribution** keeps #233's
+behaviour (Crashlytics collects in release builds, no consent UI). It ships no
+consent surfaces, so gating it here would disable Crashlytics with no way for a
+user to turn it back on — a separate decision for the owner, not a side effect
+of this one. The distinction is one injected Koin flag,
+`crashReportingRequiresOptIn`, pinned by a test in each distribution's test
+source set.
+
+**Relevant:**
+- Issue: `#546`. Related: `#233` (Crashlytics gate), `#464` (ACRA), `#516` (ANR
+  reporting — `needs-decision`, and it inherits this gate), `fdroiddata!42096`.
+- Screens: `CrashReportConsentSheet.kt` (new component),
+  `MainDashboardDestination.kt` (host), `SettingsScreen.kt` (Support switch).
+- Screenshots: `app/screenshots/90_crash_consent_sheet_{light,dark}.png`,
+  `91_settings_crash_reports_off_{light,dark}.png`,
+  `92_settings_crash_reports_on_{light,dark}.png`.
+
+---
+
 ## 2026-08-26 — Health Connect setup no longer auto-advances on the base grant (#537)
 
 **Decision:** In `SetupMode.SETUP`, granting the base Health Connect

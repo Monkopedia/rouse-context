@@ -66,4 +66,11 @@ val distributionModule = module {
     // Capability flag: the "Ignore daily time limit" Settings row is foss-only,
     // so it is unavailable here. The foss DistributionModule binds true.
     single<Boolean>(named("canIgnoreDailyLimit")) { false }
+
+    // Crash-reporting consent UI is foss-only (#546): that is where the
+    // F-Droid listing's privacy claim lives. Crashlytics here keeps #233's
+    // behaviour — collection on in release builds, off in debug — and the
+    // consent sheet / Settings switch are absent. Binding true without also
+    // shipping that UI would silently disable Crashlytics with no way back on.
+    single<Boolean>(named("crashReportingRequiresOptIn")) { false }
 }

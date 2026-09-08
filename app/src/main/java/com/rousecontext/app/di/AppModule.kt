@@ -38,6 +38,7 @@ import com.rousecontext.app.state.ThemePreference
 import com.rousecontext.app.state.notificationPermissionFlow
 import com.rousecontext.app.support.BatteryOptimization
 import com.rousecontext.app.support.BugReportUriBuilder
+import com.rousecontext.app.support.CrashReportingPreference
 import com.rousecontext.app.support.batteryExemptFlow
 import com.rousecontext.app.token.RoomTokenStore
 import com.rousecontext.app.token.TokenDatabase
@@ -46,6 +47,7 @@ import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
 import com.rousecontext.app.ui.viewmodels.AuthorizationApprovalViewModel
 import com.rousecontext.app.ui.viewmodels.BackgroundDeliveryViewModel
+import com.rousecontext.app.ui.viewmodels.CrashReportConsentViewModel
 import com.rousecontext.app.ui.viewmodels.HealthConnectSetupViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationManageViewModel
 import com.rousecontext.app.ui.viewmodels.IntegrationSetupViewModel
@@ -292,6 +294,17 @@ val appModule = module {
 
     // --- App-level preferences (first-launch marker, security-check schedule) ---
     single { AppStatePreferences(androidContext()) }
+
+    // --- Crash-reporting consent (#546) ---
+    // Owns the "may reports leave the device" decision for both the startup
+    // re-affirmation and the two consent surfaces, so they cannot disagree.
+    single {
+        CrashReportingPreference(
+            preferences = get(),
+            crashReporter = get(),
+            requiresOptIn = get(named("crashReportingRequiresOptIn"))
+        )
+    }
 
     // --- Worker-owned preferences (DataStore-backed, replaces legacy SharedPrefs) ---
     single { SecurityCheckPreferences(androidContext()) }
@@ -683,9 +696,11 @@ val appModule = module {
             batteryExemptProvider = { BatteryOptimization.isExempt(androidContext()) },
             spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get()),
             backgroundDelivery = get(),
-            canIgnoreDailyLimit = get(named("canIgnoreDailyLimit"))
+            canIgnoreDailyLimit = get(named("canIgnoreDailyLimit")),
+            crashReportingPreference = get()
         )
     }
+    viewModel { CrashReportConsentViewModel(crashReportingPreference = get()) }
     viewModel {
         AuthorizationApprovalViewModel(
             get<McpSession>().authorizationCodeManager,

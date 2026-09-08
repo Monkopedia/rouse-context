@@ -1,0 +1,8 @@
+Crash reporting is now opt-in, and off unless you turn it on.
+
+Earlier versions sent a crash report automatically. They no longer do. The app
+asks once, on first run, and you can change the answer any time in
+Settings > Support. Reports become issues on a public GitHub tracker, so the
+prompt says exactly what a report carries — a stack trace, your device and app
+version, and a random ID that links your own reports. It never carries the
+system log, your notifications, or usage or health data.

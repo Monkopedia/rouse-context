@@ -99,4 +99,11 @@ val distributionModule = module {
     // Capability flag gating the foss-only "Ignore daily time limit" Settings
     // row. True here; the google DistributionModule binds false.
     single<Boolean>(named("canIgnoreDailyLimit")) { true }
+
+    // Crash reporting is opt-in on this distribution and only ever opt-in
+    // (#546): ACRA collects nothing until the user turns it on, from the
+    // first-run consent sheet or Settings › Support. Google binds false — that
+    // build ships no consent UI, so it keeps #233's release-builds-collect
+    // behaviour.
+    single<Boolean>(named("crashReportingRequiresOptIn")) { true }
 }
