@@ -49,7 +49,7 @@ To wake your phone when it is asleep, the relay uses Firebase Cloud Messaging to
 - **Integration configuration** — retention settings, permissions state, the integration-specific secret prefix.
 - **TLS certificates** — the hardware-backed private key lives in the Android Keystore. The public certificate lives in app storage.
 
-The app does not ship with any third-party SDKs that phone home. The only network calls are to the relay (for tunnel traffic and ACME cert orchestration) and to Firebase Cloud Messaging (for push wake-up).
+The app does not ship with any third-party SDKs that phone home. Its network calls are to the relay (for tunnel traffic and ACME cert orchestration), to Firebase Cloud Messaging (for push wake-up), and — while certificate monitoring is switched on — to the transparency logs described above.
 
 ## Deleting your data
 
