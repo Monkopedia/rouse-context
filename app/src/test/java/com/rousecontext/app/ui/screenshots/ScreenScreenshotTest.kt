@@ -49,6 +49,7 @@ import com.rousecontext.app.ui.screens.NotificationSetupScreen
 import com.rousecontext.app.ui.screens.OutreachSetupScreen
 import com.rousecontext.app.ui.screens.PickerIntegration
 import com.rousecontext.app.ui.screens.PickerIntegrationState
+import com.rousecontext.app.ui.screens.SecurityCheckIntervalOption
 import com.rousecontext.app.ui.screens.SettingUpScreen
 import com.rousecontext.app.ui.screens.SettingUpState
 import com.rousecontext.app.ui.screens.SettingUpVariant
@@ -915,6 +916,31 @@ class ScreenScreenshotTest {
         )
     }
 
+    // The "Never" check interval (F-Droid review of fdroiddata!42096). Captures
+    // the two surfaces the option changes: the interval control now reading
+    // "Never", and a trust card whose rows say the checks are off rather than
+    // showing the last run's result with an ageing timestamp.
+
+    // Scrolled to the control itself: the Security section sits well below the
+    // fold at this window size, and an unscrolled capture of this state is
+    // byte-identical to `38_settings_no_battery` — a golden that costs a CI
+    // comparison and proves nothing.
+    @Test
+    fun settingsChecksDisabledDark() = captureDark(
+        "42_settings_checks_disabled",
+        scrollTo = CHECK_INTERVAL
+    ) {
+        SettingsScreen(state = settingsChecksDisabledState(), showDeveloperSection = false)
+    }
+
+    @Test
+    fun settingsChecksDisabledLight() = captureLight(
+        "42_settings_checks_disabled",
+        scrollTo = CHECK_INTERVAL
+    ) {
+        SettingsScreen(state = settingsChecksDisabledState(), showDeveloperSection = false)
+    }
+
     // Isolated trust-card renderings for the user-facing docs site. Each
     // captures only the TrustStatusSection card inside an 8dp app-background
     // border so the PNG reads as a minimal cropped screenshot without the
@@ -971,6 +997,24 @@ class ScreenScreenshotTest {
             TrustOverallStatus.ALERT,
             selfCheckResult = "alert",
             ctResult = "verified"
+        )
+    }
+
+    @Test
+    fun trustCardDisabledLight() = captureLight("50d_trust_card_disabled") {
+        TrustCardDocsFrame(
+            TrustOverallStatus.DISABLED,
+            selfCheckResult = "disabled",
+            ctResult = "disabled"
+        )
+    }
+
+    @Test
+    fun trustCardDisabledDark() = captureDark("50d_trust_card_disabled") {
+        TrustCardDocsFrame(
+            TrustOverallStatus.DISABLED,
+            selfCheckResult = "disabled",
+            ctResult = "disabled"
         )
     }
 
@@ -1403,6 +1447,28 @@ class ScreenScreenshotTest {
         resultJson = """{"total":52340,"average":7477}"""
     )
 
+    /**
+     * Settings with the check interval set to `Never`: the dropdown reads
+     * "Never" and both trust rows read as turned off. `lastCheckTime` is
+     * deliberately populated — the card only renders once a check has run, and
+     * the point of the golden is that a past run leaves no stale "Verified"
+     * behind. Its value does not reach the pixels: `TrustCheckRow` suppresses
+     * the "N hours ago" stamp on a disabled row, so this golden carries no
+     * clock dependency (unlike the audit-detail fixtures, see #633/#712).
+     */
+    private fun settingsChecksDisabledState() = SettingsState(
+        showBatteryWarning = false,
+        batteryOptimizationExempt = true,
+        securityCheckInterval = SecurityCheckIntervalOption.NEVER,
+        trustStatus = TrustStatusState(
+            lastCheckTime = System.currentTimeMillis() - 7_200_000,
+            selfCheckResult = "disabled",
+            ctCheckResult = "disabled",
+            certFingerprint = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
+            overallStatus = TrustOverallStatus.DISABLED
+        )
+    )
+
     private fun settingsTrustState(overall: TrustOverallStatus, ctResult: String) = SettingsState(
         showBatteryWarning = false,
         batteryOptimizationExempt = true,
@@ -1445,6 +1511,12 @@ class ScreenScreenshotTest {
  * before capturing (it sits below the fold at this window size).
  */
 private const val SEND_CRASH_REPORTS = "Send crash reports"
+
+/**
+ * Label of the Settings "Check interval" dropdown, used to scroll the Security
+ * section into view before capturing.
+ */
+private const val CHECK_INTERVAL = "Check interval"
 
 /**
  * Representative granted-permission set for the Health Connect settings

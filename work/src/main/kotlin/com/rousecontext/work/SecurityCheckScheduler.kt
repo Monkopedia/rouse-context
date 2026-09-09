@@ -62,4 +62,27 @@ object SecurityCheckScheduler {
             request
         )
     }
+
+    /**
+     * Cancel the periodic security check. Backs the `Never` option in the
+     * Settings check-interval control.
+     *
+     * This removes the *scheduled* work only. It is not on its own sufficient
+     * to stop the checks: `TunnelForegroundService` also enqueues a one-time
+     * run on tunnel connect, in a different unique-work slot, which this cannot
+     * reach. [SecurityCheckWorker] therefore enforces the setting again when it
+     * runs. Removing either half leaves network egress the user asked to stop.
+     */
+    fun cancelPeriodic(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+    }
+
+    /**
+     * Flex window for a given cadence: a quarter of the interval, at least an
+     * hour. Shared by the two callers that enqueue this work — app startup and
+     * the Settings control — so they cannot drift apart.
+     */
+    fun flexFor(intervalHours: Int): Int = (intervalHours / FLEX_DIVISOR).coerceAtLeast(1)
+
+    private const val FLEX_DIVISOR = 4
 }

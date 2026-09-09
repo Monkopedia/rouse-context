@@ -14,6 +14,68 @@ Newest entries on top.
 
 ---
 
+## 2026-09-09 — `Never` added to the security check interval
+
+**Decision:** `SecurityCheckIntervalOption` gains a fourth value, `Never`,
+alongside 6/12/24 hours. Selecting it stops the periodic `SecurityCheckWorker`
+entirely — no CT log query to crt.sh or Certspotter, and no local self-cert
+check either. Default is unchanged (12 hours); `Never` is an added option, not
+a new default, and nothing becomes opt-in. The trust card's two rows then read
+"Turned off" with an overall status of "Checks off" rather than showing the
+last run's result.
+
+**Approved by:** NOT independently verified by the implementing agent. The
+dispatching agent stated Jason approved this in-session on 2026-09-09, and
+relayed a mid-task revision from him replacing an earlier CT-only toggle design
+with this one. A relayed approval is not the same as an in-session reply, so
+**this line needs confirming or correcting by Jason before it counts as the
+approval this log is for.**
+
+**Context:** An F-Droid reviewer on `fdroiddata!42096` found the app queries
+public Certificate Transparency logs on a schedule with no way to turn it off —
+`HttpCtLogFetcher.kt` (crt.sh) and `CertspotterCtLogFetcher.kt`, both in the
+shipped dex, with the per-device hostname as the query value. `SettingsScreen`
+offered only cadence choices. F-Droid maintainer linsui is deciding antifeature
+labels on that MR.
+
+**Alternatives considered:**
+- **A CT-specific switch that leaves the local self-cert check running** — the
+  first design, dropped. It exposes an implementation detail as UI: a user does
+  not know the check has two internal sources, and "check every 12 hours, but
+  not the certificate-transparency part" is harder to explain than one cadence
+  with `Never` in it. It also answers the reviewer less cleanly.
+- **Encoding `Never` as a sentinel hour count (0 or -1)** — rejected.
+  `forHours()` snaps unrecognised values to `HOURS_12`, so a stored "never"
+  would have been one stale read away from decoding back into a live 12-hour
+  cadence and silently resuming the egress the user switched off. Persisted as
+  a separate boolean instead; `NEVER.hours` is null so no integer can name it.
+
+**Trade-off accepted:** A user on `Never` loses the local self-cert check too,
+which costs security for no privacy gain on its own. Accepted because the
+interval already governs the whole feature — `SelfCertVerifier` and
+`CtLogMonitor` are each reachable only via `SecurityCheckSources` →
+`SecurityCheckWorker`, with no other caller and no other scheduler — so `Never`
+completes the existing control rather than carving a second one into it. It is
+clearly labelled, and it is what "never" means.
+
+Also accepted: an unacknowledged `alert` keeps showing while checks are off,
+rather than being relabelled "Turned off". The alert gate in `McpSession` still
+blocks integration requests on the stored value, and hiding a live block would
+leave the user unable to see why requests are failing.
+
+**Relevant:**
+- `fdroiddata!42096` (the review), `docs/security.md` (user-facing description)
+- Enforced in two places on purpose: `SecurityCheckScheduler.cancelPeriodic`
+  removes the scheduled work, and `SecurityCheckWorker` re-checks the flag
+  before touching either source. The second is not redundant —
+  `TunnelForegroundService.triggerOpportunisticSecurityCheck` enqueues a
+  *one-time* run in a different unique-work slot that the scheduler cannot
+  cancel, and it fires whenever the last check is stale. Under `Never` the
+  last-check time stops advancing, so scheduler-only cancellation would have
+  made the CT queries *more* frequent — one per tunnel connect.
+
+---
+
 ## 2026-09-08 — Crash reporting is opt-in, asked once on first run (#546)
 
 **Decision:** On the FOSS distribution crash reporting is **opt-in, and only

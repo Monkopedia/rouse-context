@@ -73,11 +73,19 @@ import com.rousecontext.app.ui.components.navBarItemColors
 import com.rousecontext.app.ui.theme.LocalExtendedColors
 import com.rousecontext.app.ui.theme.RouseContextTheme
 import com.rousecontext.app.ui.theme.SuccessGreen
+import com.rousecontext.work.SecurityCheckWorker
 
 enum class TrustOverallStatus {
     VERIFIED,
     WARNING,
-    ALERT
+    ALERT,
+
+    /**
+     * The user set the check interval to `Never`. Distinct from [VERIFIED]:
+     * nothing has been verified, and showing a green tick for checks that are
+     * not running would be the dishonest reading of a stale result.
+     */
+    DISABLED
 }
 
 /**
@@ -114,18 +122,51 @@ enum class ThemeModeOption {
 }
 
 /**
- * Discrete options for the security self-check cadence. Persisted as the
- * underlying [hours] value via [com.rousecontext.app.state.AppStatePreferences].
+ * Discrete options for the security self-check cadence, plus [NEVER] for "do
+ * not run the checks at all".
+ *
+ * Persisted across two preferences, not one: the [hours] cadence in
+ * [com.rousecontext.app.state.AppStatePreferences], and whether the checks run
+ * at all in [com.rousecontext.work.SecurityCheckPreferences]. See [NEVER] for
+ * why the two are not folded into a single key.
  */
-enum class SecurityCheckIntervalOption(val hours: Int) {
+enum class SecurityCheckIntervalOption(val hours: Int?) {
     HOURS_6(6),
     HOURS_12(12),
-    HOURS_24(24);
+    HOURS_24(24),
+
+    /**
+     * No periodic check at all — the off switch for the whole feature, added
+     * after an F-Droid review of `fdroiddata!42096` noted that the check queries
+     * public CT logs (crt.sh, Certspotter) with the per-device hostname and this
+     * control offered only cadences.
+     *
+     * `hours` is null on purpose. It is not a cadence, and giving it a sentinel
+     * hour count (0, -1) would put it one [forHours] call away from decoding
+     * back into a live 12-hour interval — silently resuming the network egress
+     * the user turned off. Persisted as a separate boolean instead; see
+     * [com.rousecontext.work.SecurityCheckPreferences.securityCheckEnabled].
+     */
+    NEVER(null);
 
     companion object {
-        /** Snap an arbitrary hour count to the nearest supported option. */
+        /**
+         * Snap an arbitrary hour count to the nearest supported option.
+         *
+         * Cannot return [NEVER]: its `hours` is null and the parameter is not,
+         * so the match never fires. That is the property [SecurityCheckIntervalOptionTest]
+         * pins — "never" is not reachable from the interval preference.
+         */
         fun forHours(hours: Int): SecurityCheckIntervalOption =
             entries.firstOrNull { it.hours == hours } ?: HOURS_12
+
+        /**
+         * Decode the persisted pair. [enabled] is authoritative: a stored hour
+         * count is retained while the checks are off so re-selecting an interval
+         * restores the user's previous cadence rather than resetting to 12h.
+         */
+        fun from(enabled: Boolean, hours: Int): SecurityCheckIntervalOption =
+            if (enabled) forHours(hours) else NEVER
     }
 }
 
@@ -379,9 +420,7 @@ fun SettingsContent(
                     label = stringResource(R.string.screen_settings_label_check_interval),
                     selected = state.securityCheckInterval,
                     options = SecurityCheckIntervalOption.entries,
-                    labelFor = {
-                        stringResource(R.string.screen_settings_check_interval_value, it.hours)
-                    },
+                    labelFor = { it.label() },
                     onSelected = onSecurityCheckIntervalChanged
                 )
                 Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_md)))
@@ -768,6 +807,22 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * User-facing label for a check-interval option. Extracted from
+ * [SettingsContent] rather than inlined in the dropdown's `labelFor`: the null
+ * branch for [SecurityCheckIntervalOption.NEVER] pushed that function past
+ * detekt's cyclomatic-complexity threshold.
+ */
+@Composable
+private fun SecurityCheckIntervalOption.label(): String {
+    val hours = hours
+    return if (hours == null) {
+        stringResource(R.string.screen_settings_check_interval_never)
+    } else {
+        stringResource(R.string.screen_settings_check_interval_value, hours)
+    }
+}
+
 private const val FINGERPRINT_TRUNCATE_LENGTH = 23
 
 private const val SECURITY_DOCS_BASE = "https://rousecontext.com/security"
@@ -793,6 +848,11 @@ internal fun TrustStatusSection(
             Icons.Default.Error,
             ext.alertContent,
             stringResource(R.string.screen_settings_trust_alert)
+        )
+        TrustOverallStatus.DISABLED -> Triple(
+            Icons.Default.Info,
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            stringResource(R.string.screen_settings_trust_disabled)
         )
     }
 
@@ -939,6 +999,14 @@ private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
             MaterialTheme.colorScheme.onSurfaceVariant,
             stringResource(R.string.screen_settings_trust_result_skipped)
         )
+        // Check interval is `Never`. Muted like "skipped", but says the check
+        // is off rather than waiting on something — the user turned it off and
+        // nothing is pending.
+        SecurityCheckWorker.RESULT_DISABLED -> Triple(
+            Icons.Default.Info,
+            MaterialTheme.colorScheme.onSurfaceVariant,
+            stringResource(R.string.screen_settings_trust_result_disabled)
+        )
         else -> Triple(
             Icons.Default.Warning,
             MaterialTheme.colorScheme.onSurfaceVariant,
@@ -963,7 +1031,10 @@ private fun TrustCheckRow(label: String, result: String, timeAgo: String) {
             color = color,
             modifier = Modifier.weight(1f)
         )
-        if (timeAgo.isNotEmpty()) {
+        // A "checked N hours ago" stamp beside a check that is switched off
+        // reads as a check that ran. Suppress it for disabled rows only, so a
+        // still-live sibling row (an unacknowledged alert) keeps its stamp.
+        if (timeAgo.isNotEmpty() && result != SecurityCheckWorker.RESULT_DISABLED) {
             Text(
                 text = timeAgo,
                 style = MaterialTheme.typography.bodySmall,

@@ -110,6 +110,7 @@ import com.rousecontext.work.IdleTimeoutManager
 import com.rousecontext.work.IntegrationSecretsSynchronizer
 import com.rousecontext.work.RealWakeLockHandle
 import com.rousecontext.work.SecurityCheckPreferences
+import com.rousecontext.work.SecurityCheckScheduler
 import com.rousecontext.work.SecurityCheckSource
 import com.rousecontext.work.SessionActivityAuditListener
 import com.rousecontext.work.SessionActivityTracker
@@ -697,7 +698,19 @@ val appModule = module {
             spuriousWakesFlow = SettingsViewModel.spuriousWakeStatsFlow(get()),
             backgroundDelivery = get(),
             canIgnoreDailyLimit = get(named("canIgnoreDailyLimit")),
-            crashReportingPreference = get()
+            crashReportingPreference = get(),
+            applySecurityCheckSchedule = { interval ->
+                val hours = interval.hours
+                if (hours == null) {
+                    SecurityCheckScheduler.cancelPeriodic(androidContext())
+                } else {
+                    SecurityCheckScheduler.enqueuePeriodic(
+                        androidContext(),
+                        intervalHours = hours,
+                        flexHours = SecurityCheckScheduler.flexFor(hours)
+                    )
+                }
+            }
         )
     }
     viewModel { CrashReportConsentViewModel(crashReportingPreference = get()) }
