@@ -24,12 +24,27 @@ a new default, and nothing becomes opt-in. The trust card's two rows then read
 "Turned off" with an overall status of "Checks off" rather than showing the
 last run's result.
 
-**Approved by:** NOT independently verified by the implementing agent. The
-dispatching agent stated Jason approved this in-session on 2026-09-09, and
-relayed a mid-task revision from him replacing an earlier CT-only toggle design
-with this one. A relayed approval is not the same as an in-session reply, so
-**this line needs confirming or correcting by Jason before it counts as the
-approval this log is for.**
+**Approved by:** Jason, in session 2026-09-09 — witnessed and recorded by the
+repo agent, not by the implementing agent, at
+[`#741 (comment)`](https://github.com/Monkopedia/rouse-context/pull/741#issuecomment-5604042230),
+which quotes him verbatim. He proposed this design himself: presented with a
+plan for a separate CT-specific toggle, he pushed back with *"is it just a
+switch or should it just be a different value in the interval? like never"* —
+the shape this entry describes. He also set the sequencing: *"if we're adding
+an off switch the order is, add an off switch, create a new release, then
+respond to linsui after I approve the message"*.
+
+The approval covers the **mechanism** (a `Never` value on the existing interval
+control rather than a second toggle) and the **order of work**. It does not
+cover the reply to `fdroiddata!42096`, which he explicitly reserved for his own
+sign-off.
+
+**Gating:** this entry is **voluntary**. Adding an option to an existing
+Settings control is a pure addition behind an existing entry point, which
+[`.claude/rules/ux-changes.md`](../.claude/rules/ux-changes.md) lists under
+"does NOT require approval". The owner approval above is stronger than the rule
+asks for. A future reader should not read this entry as a mandatory gate that
+was nearly missed.
 
 **Context:** An F-Droid reviewer on `fdroiddata!42096` found the app queries
 public Certificate Transparency logs on a schedule with no way to turn it off —
