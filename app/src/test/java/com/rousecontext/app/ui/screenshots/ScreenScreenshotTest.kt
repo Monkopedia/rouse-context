@@ -851,7 +851,8 @@ class ScreenScreenshotTest {
         SettingsScreen(
             state = SettingsState(
                 showBatteryWarning = false,
-                batteryOptimizationExempt = true
+                batteryOptimizationExempt = true,
+                versionName = SCREENSHOT_VERSION_NAME
             ),
             showDeveloperSection = false
         )
@@ -862,7 +863,8 @@ class ScreenScreenshotTest {
         SettingsScreen(
             state = SettingsState(
                 showBatteryWarning = false,
-                batteryOptimizationExempt = true
+                batteryOptimizationExempt = true,
+                versionName = SCREENSHOT_VERSION_NAME
             ),
             showDeveloperSection = false
         )
@@ -1080,13 +1082,6 @@ class ScreenScreenshotTest {
             showDeveloperSection = false
         )
     }
-
-    private fun settingsCrashReportingState(enabled: Boolean) = SettingsState(
-        showBatteryWarning = false,
-        batteryOptimizationExempt = true,
-        canControlCrashReporting = true,
-        crashReportingEnabled = enabled
-    )
 
     @Composable
     private fun CrashConsentFrame() {
@@ -1459,6 +1454,7 @@ class ScreenScreenshotTest {
     private fun settingsChecksDisabledState() = SettingsState(
         showBatteryWarning = false,
         batteryOptimizationExempt = true,
+        versionName = SCREENSHOT_VERSION_NAME,
         securityCheckInterval = SecurityCheckIntervalOption.NEVER,
         trustStatus = TrustStatusState(
             lastCheckTime = System.currentTimeMillis() - 7_200_000,
@@ -1472,6 +1468,7 @@ class ScreenScreenshotTest {
     private fun settingsTrustState(overall: TrustOverallStatus, ctResult: String) = SettingsState(
         showBatteryWarning = false,
         batteryOptimizationExempt = true,
+        versionName = SCREENSHOT_VERSION_NAME,
         trustStatus = TrustStatusState(
             lastCheckTime = System.currentTimeMillis() - 7_200_000,
             selfCheckResult = "verified",
@@ -1511,6 +1508,23 @@ class ScreenScreenshotTest {
  * before capturing (it sits below the fold at this window size).
  */
 private const val SEND_CRASH_REPORTS = "Send crash reports"
+
+/**
+ * Fixture behind `91_settings_crash_reports_off` / `92_settings_crash_reports_on`.
+ *
+ * These four goldens scroll past the About section, so unlike every other
+ * Settings capture they render the version row. `versionName` is pinned for
+ * that reason — see [ScreenshotVersionPinTest], which asserts this function
+ * still pins it. File-level and `internal` so that guard can call the real
+ * fixture rather than a copy of it.
+ */
+internal fun settingsCrashReportingState(enabled: Boolean) = SettingsState(
+    showBatteryWarning = false,
+    batteryOptimizationExempt = true,
+    canControlCrashReporting = true,
+    crashReportingEnabled = enabled,
+    versionName = SCREENSHOT_VERSION_NAME
+)
 
 /**
  * Label of the Settings "Check interval" dropdown, used to scroll the Security
