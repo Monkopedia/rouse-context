@@ -154,6 +154,7 @@ class ListingScreenshotTest {
     )
 
     private fun settingsConnectionClusterState() = SettingsState(
+        versionName = SCREENSHOT_VERSION_NAME,
         idleTimeoutMinutes = 5,
         quickDisconnectSeconds = 30,
         batteryOptimizationExempt = true,

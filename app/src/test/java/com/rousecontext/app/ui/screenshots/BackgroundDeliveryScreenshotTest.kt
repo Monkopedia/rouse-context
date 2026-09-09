@@ -127,13 +127,19 @@ class BackgroundDeliveryScreenshotTest {
 
     @Test fun settingsRowLight() = capture("84_real_settings_row", false) {
         SettingsContent(
-            state = SettingsState(backgroundDelivery = BackgroundDeliveryRowState("ntfy"))
+            state = SettingsState(
+                versionName = SCREENSHOT_VERSION_NAME,
+                backgroundDelivery = BackgroundDeliveryRowState("ntfy")
+            )
         )
     }
 
     @Test fun settingsRowDark() = capture("84_real_settings_row", true) {
         SettingsContent(
-            state = SettingsState(backgroundDelivery = BackgroundDeliveryRowState("ntfy"))
+            state = SettingsState(
+                versionName = SCREENSHOT_VERSION_NAME,
+                backgroundDelivery = BackgroundDeliveryRowState("ntfy")
+            )
         )
     }
 }

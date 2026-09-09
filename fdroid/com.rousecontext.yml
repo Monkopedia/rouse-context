@@ -38,6 +38,16 @@
 # (the `googleBuild` resolution at the top) and docs/distribution.md.
 # =============================================================================
 
+# The relay host is baked in at build time (app/build.gradle.kts resolves
+# `relay.host` to `relay.<baseDomain>` unless a `-Prelay.host` / `-Pdomain`
+# flag overrides it, and F-Droid builds bare). A user who wants a different
+# relay has to rebuild, so the shipped APK talks to one operator's server only
+# — TetheredNet, declared rather than left for a reviewer to find.
+AntiFeatures:
+  TetheredNet:
+    en-US: Connects only to relay.rousecontext.com. The relay host is fixed at
+      build time, so using a self-hosted relay requires rebuilding the app.
+
 Categories:
   - Internet
   - System
@@ -49,20 +59,13 @@ Changelog: https://github.com/Monkopedia/rouse-context/releases
 
 AutoName: Rouse Context
 
-Description: |-
-    Rouse Context turns your Android phone into an on-demand
-    [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) server.
-    AI clients connect to a URL, your phone wakes up, and a direct encrypted
-    session is established. The AI asks for what it needs — health data,
-    notifications, app usage — your phone responds, then it goes back to sleep.
-    Your data never leaves the device except through that live, user-approved
-    session.
-
-    This is the FOSS distribution: it uses [UnifiedPush](https://unifiedpush.org/)
-    for background wake-ups instead of Firebase Cloud Messaging, and contains no
-    Google Play Services or Firebase code. A UnifiedPush distributor (for
-    example ntfy) must be installed for the phone to be woken while the app is
-    backgrounded.
+# No `Description:` here, deliberately. The listing text comes from
+# fastlane/metadata/android/en-US/full_description.txt, which fdroidserver reads
+# out of the tree at the recipe's `commit:`. The submitted fdroiddata copy
+# (fdroiddata!42096) carries no Description field either — the maintainer asked
+# for HTML markup, and the fastlane file is where that lives. Two copies of the
+# same prose is how the listing and the app drift apart (see #737); edit
+# full_description.txt instead.
 
 RepoType: git
 Repo: https://github.com/Monkopedia/rouse-context.git
@@ -75,20 +78,20 @@ Binaries: https://github.com/Monkopedia/rouse-context/releases/download/v%v/rous
 AllowedAPKSigningKeys: 7cc8d2d568eb3d20a5e190e77baa97b3bde80782dd2576f29088a16c4ce47850
 
 Builds:
-  - versionName: 1.0.9
-    versionCode: 10
-    # Build from the signed release tag. `v1.0.8` does not exist yet; it is
+  - versionName: 1.0.10
+    versionCode: 11
+    # Build from the signed release tag. `v1.0.10` does not exist yet; it is
     # created when the owner cuts the release. Until then this is a template.
     #
     # IMPORTANT — when copying this to fdroiddata, pin `commit:` to the IMMUTABLE
     # release SHA, NOT the tag:
-    #     git rev-parse v1.0.8^{commit}
+    #     git rev-parse v1.0.10^{commit}
     # and put that full 40-char SHA here. This matches the proven
     # com.monkopedia.healthdisconnect recipe, whose published Builds entry pins a
     # full commit SHA rather than a movable tag ref. A SHA can't be retargeted
     # after submission, so the from-source build is locked to exactly the bytes
     # F-Droid reviewed.
-    commit: v1.0.9
+    commit: v1.0.10
     subdir: app
     # Remove the Google-only Gradle config BEFORE F-Droid scans/builds. All
     # Firebase / Google-services build coordinates (the two Gradle plugins, the
@@ -232,5 +235,5 @@ MaintainerNotes: |-
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[0-9.]+$
-CurrentVersion: 1.0.9
-CurrentVersionCode: 10
+CurrentVersion: 1.0.10
+CurrentVersionCode: 11
