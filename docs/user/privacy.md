@@ -10,7 +10,9 @@ This page explains what data leaves your phone, what the relay server sees, and 
 
 ## What leaves your phone
 
-Only what the AI client asks for, and only while the AI client is connected. There is no background upload, no analytics, no telemetry.
+Only what the AI client asks for, and only while the AI client is connected. There is no analytics and no telemetry, and nothing about you is uploaded in the background.
+
+**Certificate monitoring.** The app asks public transparency logs whether a certificate has been issued for your device's address. That address is already published there whenever one is issued, so this reads a public record rather than sending yours. It goes to crt.sh, or Certspotter when that's down. Settings › Security sets how often, including never.
 
 Concretely:
 
