@@ -118,6 +118,57 @@ class SecurityCheckSchedulerTest {
         )
     }
 
+    @Test
+    fun `cancelPeriodic leaves no live periodic work behind`() {
+        // The "Never" option (F-Droid review of fdroiddata!42096) must stop the
+        // scheduled work, not merely hide its result. Anything still ENQUEUED
+        // here would keep firing on its cadence and keep querying crt.sh with
+        // the device hostname.
+        SecurityCheckScheduler.enqueuePeriodic(
+            context,
+            intervalHours = DEFAULT_INTERVAL_HOURS,
+            flexHours = DEFAULT_FLEX_HOURS
+        )
+
+        SecurityCheckScheduler.cancelPeriodic(context)
+
+        val infos = workManager
+            .getWorkInfosForUniqueWork(SecurityCheckScheduler.WORK_NAME)
+            .get()
+        assertTrue(
+            "No security-check work may remain runnable after Never is selected. " +
+                "States were ${infos.map { it.state }}",
+            infos.none { !it.state.isFinished }
+        )
+    }
+
+    @Test
+    fun `re-selecting an interval after cancel restores live periodic work`() {
+        // Both directions. A one-way switch — off, and never back on without a
+        // reinstall — would be a worse bug than the one being fixed.
+        SecurityCheckScheduler.enqueuePeriodic(
+            context,
+            intervalHours = DEFAULT_INTERVAL_HOURS,
+            flexHours = DEFAULT_FLEX_HOURS
+        )
+        SecurityCheckScheduler.cancelPeriodic(context)
+
+        SecurityCheckScheduler.enqueuePeriodic(
+            context,
+            intervalHours = DEFAULT_INTERVAL_HOURS,
+            flexHours = DEFAULT_FLEX_HOURS
+        )
+
+        val infos = workManager
+            .getWorkInfosForUniqueWork(SecurityCheckScheduler.WORK_NAME)
+            .get()
+        assertEquals(
+            "Re-enqueueing after a cancel must produce exactly one live entry",
+            listOf(WorkInfo.State.ENQUEUED),
+            infos.filter { !it.state.isFinished }.map { it.state }
+        )
+    }
+
     private companion object {
         const val DEFAULT_INTERVAL_HOURS = 24
         const val DEFAULT_FLEX_HOURS = 6

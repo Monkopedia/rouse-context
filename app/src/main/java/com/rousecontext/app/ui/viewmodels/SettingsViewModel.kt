@@ -22,6 +22,7 @@ import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RelayApiClient
 import com.rousecontext.tunnel.RelayApiResult
 import com.rousecontext.work.SecurityCheckPreferences
+import com.rousecontext.work.SecurityCheckWorker
 import com.rousecontext.work.SpuriousWakePreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -94,7 +95,15 @@ class SettingsViewModel(
      * the Support switch; the row is then hidden and the toggle is a no-op,
      * matching the google distribution.
      */
-    private val crashReportingPreference: CrashReportingPreference? = null
+    private val crashReportingPreference: CrashReportingPreference? = null,
+    /**
+     * Applies a check-interval choice to WorkManager — enqueue at the chosen
+     * cadence, or cancel for [SecurityCheckIntervalOption.NEVER]. A seam rather
+     * than a direct `SecurityCheckScheduler` call so the ViewModel stays free of
+     * `Context`; bound in `AppModule`. No-op default for tests that don't
+     * exercise scheduling.
+     */
+    private val applySecurityCheckSchedule: (SecurityCheckIntervalOption) -> Unit = {}
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -112,25 +121,41 @@ class SettingsViewModel(
                 prefs.observeLastCheckAt(),
                 prefs.observeSelfCertResult(),
                 prefs.observeCtLogResult(),
-                prefs.observeCertFingerprint()
-            ) { lastCheck, self, ct, fingerprint ->
+                prefs.observeCertFingerprint(),
+                prefs.observeSecurityCheckEnabled()
+            ) { lastCheck, self, ct, fingerprint, enabled ->
                 if (lastCheck == 0L) {
                     null
                 } else {
+                    // Derived from the live setting, not only from what the
+                    // worker last wrote: picking `Never` must read as off
+                    // immediately, rather than showing the previous run's
+                    // result until an interval that no longer fires elapses.
+                    val selfDisplay = displayResult(self, enabled)
+                    val ctDisplay = displayResult(ct, enabled)
                     TrustStatusState(
                         lastCheckTime = lastCheck,
-                        selfCheckResult = self,
-                        ctCheckResult = ct,
+                        selfCheckResult = selfDisplay,
+                        ctCheckResult = ctDisplay,
                         certFingerprint = fingerprint,
-                        overallStatus = computeOverallStatus(self, ct)
+                        overallStatus = computeOverallStatus(selfDisplay, ctDisplay)
                     )
                 }
             }
         } ?: flowOf(null)
 
-    private val intervalFlow: Flow<Int> = appStatePreferences
-        ?.observeSecurityCheckIntervalHours()
-        ?: flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
+    /**
+     * The check-interval control's current value, decoded from the two
+     * preferences that back it: the hour count in [AppStatePreferences] and the
+     * enabled flag in [SecurityCheckPreferences]. Combined here rather than in
+     * the UI so `Never` and a cadence arrive as one value.
+     */
+    private val intervalFlow: Flow<SecurityCheckIntervalOption> = combine(
+        appStatePreferences?.observeSecurityCheckIntervalHours()
+            ?: flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS),
+        securityCheckPreferences?.observeSecurityCheckEnabled()
+            ?: flowOf(SecurityCheckPreferences.DEFAULT_SECURITY_CHECK_ENABLED)
+    ) { hours, enabled -> SecurityCheckIntervalOption.from(enabled, hours) }
 
     /**
      * (idle-timeout minutes, idle-timeout disabled, quick-disconnect seconds,
@@ -185,7 +210,7 @@ class SettingsViewModel(
         trustStatusFlow,
         intervalFlow,
         idleTimeoutFlow
-    ) { tuple, notificationAndCrash, trust, intervalHours, idle ->
+    ) { tuple, notificationAndCrash, trust, interval, idle ->
         val themeMode = tuple.a
         val rotating = tuple.b
         val rotateErr = tuple.c
@@ -205,7 +230,7 @@ class SettingsViewModel(
             crashReportingEnabled = crashReportingEnabled,
             postSessionMode = settings.postSessionMode.toOption(),
             themeMode = themeMode.toOption(),
-            securityCheckInterval = SecurityCheckIntervalOption.forHours(intervalHours),
+            securityCheckInterval = interval,
             trustStatus = trust,
             canRotateAddress = !rotating,
             rotationCooldownMessage = rotateErr,
@@ -315,9 +340,27 @@ class SettingsViewModel(
         }
     }
 
+    /**
+     * Persist the check-interval choice and apply it to WorkManager now.
+     *
+     * `Never` writes the enabled flag and cancels the scheduled work; it does
+     * NOT overwrite the stored hour count, so switching back restores the
+     * user's previous cadence instead of resetting to 12h.
+     *
+     * The scheduling call is not deferred to the next app start: leaving the
+     * periodic work enqueued after the user selected `Never` is precisely the
+     * "control that appears to work and changes nothing" shape this is meant to
+     * avoid. [SecurityCheckWorker] enforces the flag as well, which is what
+     * covers the one-time opportunistic run that this cannot cancel.
+     */
     fun setSecurityCheckInterval(interval: SecurityCheckIntervalOption) {
         viewModelScope.launch {
-            appStatePreferences?.setSecurityCheckIntervalHours(interval.hours)
+            val hours = interval.hours
+            if (hours != null) {
+                appStatePreferences?.setSecurityCheckIntervalHours(hours)
+            }
+            securityCheckPreferences?.setSecurityCheckEnabled(hours != null)
+            applySecurityCheckSchedule(interval)
             refresh()
         }
     }
@@ -409,12 +452,26 @@ class SettingsViewModel(
             ThemeModeOption.AUTO -> ThemeMode.AUTO
         }
 
+        /**
+         * Map a stored per-check result to what the trust card should show.
+         *
+         * With the checks off, a stored result is neither fresh nor failing —
+         * nothing is running to produce one — so it reads as disabled. An
+         * `alert` is the exception: the alert gate in `McpSession` still blocks
+         * integration requests on the stored value, and relabelling a live
+         * block as "turned off" would hide the reason requests are failing.
+         */
+        internal fun displayResult(stored: String, enabled: Boolean): String =
+            if (!enabled && stored != "alert") SecurityCheckWorker.RESULT_DISABLED else stored
+
         internal fun computeOverallStatus(
             selfResult: String,
             ctResult: String
         ): TrustOverallStatus = when {
             selfResult == "alert" || ctResult == "alert" -> TrustOverallStatus.ALERT
             selfResult == "warning" || ctResult == "warning" -> TrustOverallStatus.WARNING
+            selfResult == SecurityCheckWorker.RESULT_DISABLED &&
+                ctResult == SecurityCheckWorker.RESULT_DISABLED -> TrustOverallStatus.DISABLED
             else -> TrustOverallStatus.VERIFIED
         }
     }

@@ -203,6 +203,7 @@
     <string name="screen_settings_trust_verified">Verified</string>
     <string name="screen_settings_trust_warning">Warning</string>
     <string name="screen_settings_trust_alert">Alert</string>
+    <string name="screen_settings_trust_disabled">Checks off</string>
     <string name="screen_settings_trust_self_check">Self-check</string>
     <string name="screen_settings_trust_ct_log">CT log</string>
     <string name="screen_settings_trust_result_verified">Verified</string>
@@ -210,6 +211,7 @@
     <string name="screen_settings_trust_result_alert">Verification failed</string>
     <string name="screen_settings_trust_result_unchecked">Not checked</string>
     <string name="screen_settings_trust_result_skipped">Waiting for onboarding</string>
+    <string name="screen_settings_trust_result_disabled">Turned off</string>
     <string name="screen_settings_trust_row">%1$s: %2$s</string>
     <string name="screen_settings_trust_alert_note">Integration requests are blocked while an alert is active.</string>
     <string name="screen_settings_trust_acknowledge">Acknowledge</string>
@@ -245,6 +247,7 @@
     <string name="screen_settings_post_session_each_usage">Each usage</string>
     <string name="screen_settings_post_session_suppress">Suppress</string>
     <string name="screen_settings_check_interval_value">%1$d hours</string>
+    <string name="screen_settings_check_interval_never">Never</string>
 
     <!-- Main Dashboard screen -->
     <string name="screen_dashboard_title">Rouse Context</string>

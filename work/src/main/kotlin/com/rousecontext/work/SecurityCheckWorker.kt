@@ -56,11 +56,31 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
     var preferences: SecurityCheckPreferences? = null
 
     override suspend fun doWork(): Result {
+        val prefs = preferences ?: injectedPreferences
+
+        if (!prefs.securityCheckEnabled()) {
+            // The user set the check interval to `Never`. Return before either
+            // source is touched: CtLogMonitorSource would otherwise query
+            // crt.sh / Certspotter with this device's hostname, which is the
+            // egress the setting exists to stop (F-Droid review of
+            // fdroiddata!42096). Suppressing the *result* instead would leave
+            // that request happening on schedule.
+            //
+            // The gate is here, not only in SecurityCheckScheduler, because
+            // cancelling the periodic work does not reach the one-time run that
+            // TunnelForegroundService enqueues on connect. That run fires when
+            // the last check is stale, and under `Never` the last-check time
+            // never advances — so scheduler-only cancellation would have made
+            // the queries *more* frequent, once per tunnel connect.
+            Log.d(TAG, "Security checks are set to Never; skipping run")
+            recordDisabled(prefs)
+            return Result.success()
+        }
+
         Log.d(TAG, "Starting security checks")
 
         val selfCertResult = selfCertVerifier.check()
         val ctResult = ctLogMonitor.check()
-        val prefs = preferences ?: injectedPreferences
 
         prefs.recordCheck(
             lastCheckAt = System.currentTimeMillis(),
@@ -85,6 +105,28 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
 
         Log.d(TAG, "Security checks complete: self=$selfCertResult, ct=$ctResult")
         return Result.success()
+    }
+
+    /**
+     * Overwrite both stored results with [RESULT_DISABLED] and clear anything
+     * the checks left behind while they were running.
+     *
+     * Leaving the previous values in place would be the misleading failure
+     * mode: the trust card would go on reporting a "verified" from before the
+     * user switched the checks off, with a last-checked time that quietly ages.
+     * Any notification posted by an earlier run is cancelled for the same
+     * reason — nothing will run again to clear it.
+     */
+    private suspend fun recordDisabled(prefs: SecurityCheckPreferences) {
+        prefs.recordCheck(
+            lastCheckAt = System.currentTimeMillis(),
+            selfCertResult = RESULT_DISABLED,
+            ctLogResult = RESULT_DISABLED
+        )
+        prefs.resetWarningStreak(SecurityCheckPreferences.SOURCE_SELF_CERT)
+        prefs.resetWarningStreak(SecurityCheckPreferences.SOURCE_CT_LOG)
+        notifier.cancel(SecurityCheck.SELF_CERT)
+        notifier.cancel(SecurityCheck.CT_LOG)
     }
 
     private suspend fun handleResult(
@@ -162,6 +204,14 @@ class SecurityCheckWorker(context: Context, params: WorkerParameters) :
          * cannot absorb on its own.
          */
         const val WARNING_NOTIFICATION_THRESHOLD = 3
+
+        /**
+         * Recorded result when the user has set the check interval to `Never`.
+         * A distinct value from "skipped" (pre-onboarding) so the trust card can
+         * say the check is off rather than waiting, and so a previously stored
+         * "verified" cannot linger and read as fresh.
+         */
+        const val RESULT_DISABLED = "disabled"
 
         private fun resultToString(result: SecurityCheckResult): String = when (result) {
             is SecurityCheckResult.Verified -> "verified"

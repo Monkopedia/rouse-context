@@ -44,6 +44,37 @@ class SecurityCheckPreferences(
 
     fun observeCtLogResult(): Flow<String> = dataStore.data.map { it[KEY_CT_LOG_RESULT] ?: "" }
 
+    /**
+     * Whether the periodic security check runs at all — the storage behind the
+     * `Never` option in the Settings check-interval control (see
+     * [com.rousecontext.app.ui.screens.SecurityCheckIntervalOption]).
+     *
+     * Deliberately a **boolean in its own key**, not a sentinel folded into the
+     * interval-hours preference. `SecurityCheckIntervalOption.forHours()` snaps
+     * any unrecognised hour count to `HOURS_12`, so a "never" encoded as an
+     * hours value would silently decode back into a live 12-hour cadence and
+     * resume querying crt.sh after the user had switched it off. No integer can
+     * mean "never" here, so that round-trip cannot happen.
+     *
+     * Lives in this store rather than `AppStatePreferences` (which holds the
+     * interval hours) because [SecurityCheckWorker] already injects this class:
+     * the worker can enforce the setting itself, with no new seam, on **every**
+     * path that reaches it — including the one-time opportunistic run that
+     * `TunnelForegroundService` enqueues, which cancelling the periodic work
+     * does not touch.
+     */
+    suspend fun securityCheckEnabled(): Boolean =
+        dataStore.data.first()[KEY_SECURITY_CHECK_ENABLED] ?: DEFAULT_SECURITY_CHECK_ENABLED
+
+    fun observeSecurityCheckEnabled(): Flow<Boolean> =
+        dataStore.data.map { it[KEY_SECURITY_CHECK_ENABLED] ?: DEFAULT_SECURITY_CHECK_ENABLED }
+
+    suspend fun setSecurityCheckEnabled(enabled: Boolean) {
+        dataStore.edit { prefs ->
+            prefs[KEY_SECURITY_CHECK_ENABLED] = enabled
+        }
+    }
+
     suspend fun certFingerprint(): String = dataStore.data.first()[KEY_CERT_FINGERPRINT] ?: ""
 
     fun observeCertFingerprint(): Flow<String> =
@@ -153,6 +184,13 @@ class SecurityCheckPreferences(
         private val KEY_SELF_CERT_RESULT = stringPreferencesKey("self_cert_result")
         private val KEY_CT_LOG_RESULT = stringPreferencesKey("ct_log_result")
         private val KEY_CERT_FINGERPRINT = stringPreferencesKey("cert_fingerprint")
+        private val KEY_SECURITY_CHECK_ENABLED = booleanPreferencesKey("security_check_enabled")
+
+        /**
+         * Security checks run unless the user picks `Never`. Adding the option
+         * makes the feature disableable; it does not make it opt-in.
+         */
+        const val DEFAULT_SECURITY_CHECK_ENABLED = true
 
         /** Minimum interval between streak increments for the same source. */
         const val MIN_STREAK_INCREMENT_INTERVAL_MS = 6 * 60 * 60 * 1000L // 6 hours

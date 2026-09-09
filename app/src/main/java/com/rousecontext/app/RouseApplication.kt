@@ -15,6 +15,7 @@ import com.rousecontext.notifications.NotificationChannels
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.work.CertRenewalScheduler
 import com.rousecontext.work.KoinWorkerFactory
+import com.rousecontext.work.SecurityCheckPreferences
 import com.rousecontext.work.SecurityCheckScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -155,13 +156,21 @@ class RouseApplication :
      */
     private fun scheduleSecurityChecks() {
         appScope.launch {
+            // `Never` (F-Droid review of fdroiddata!42096) must survive a
+            // restart. Re-enqueueing here regardless of the flag would quietly
+            // undo the user's choice on the next app launch — the setting would
+            // hold for one session and then start querying crt.sh again.
+            val securityCheckPrefs = SecurityCheckPreferences(this@RouseApplication)
+            if (!securityCheckPrefs.securityCheckEnabled()) {
+                SecurityCheckScheduler.cancelPeriodic(this@RouseApplication)
+                return@launch
+            }
             val appState = AppStatePreferences(this@RouseApplication)
             val intervalHours = appState.securityCheckIntervalHours()
-            val flexHours = (intervalHours / 4).coerceAtLeast(1)
             SecurityCheckScheduler.enqueuePeriodic(
                 this@RouseApplication,
                 intervalHours = intervalHours,
-                flexHours = flexHours
+                flexHours = SecurityCheckScheduler.flexFor(intervalHours)
             )
         }
     }

@@ -172,11 +172,15 @@ Token grants are also logged -- you can see when each client was authorized and 
 
 ### Security monitoring
 
-The app runs two background checks (every few hours via WorkManager):
+The app runs two background checks (every few hours via WorkManager, or not at all if you set the check interval to `Never` -- see below):
 
 **Self-cert verification:** The app connects to its own relay hostname and verifies the TLS certificate fingerprint matches the cert it provisioned. If someone swapped the cert (relay compromise, MITM), the app surfaces an alert. During the 90-day renewal window, both old and new fingerprints are accepted to avoid false positives.
 
-**Certificate Transparency monitoring:** The app queries CT logs (via crt.sh) for any certificate issued for its subdomain. If a cert appears that the app didn't provision, it alerts you. This catches sophisticated attacks where an adversary might filter the self-check traffic but can't suppress a fraudulent cert from public CT logs.
+**Certificate Transparency monitoring:** The app queries CT logs (via crt.sh, falling back to Certspotter) for any certificate issued for its subdomain. If a cert appears that the app didn't provision, it alerts you. This catches sophisticated attacks where an adversary might filter the self-check traffic but can't suppress a fraudulent cert from public CT logs.
+
+**Turning the checks off:** The CT lookup is a request to a third party (crt.sh or Certspotter) whose query value is your device's hostname, so those operators can observe that the hostname is being monitored and roughly how often. If you would rather not send it, **Settings → Security → Check interval → Never** stops the checks entirely: no scheduled run, no CT query, and no local self-cert check either. The setting persists across restarts, and selecting an interval again resumes the checks at your previous cadence.
+
+The default is on. Turning it off is a real trade: nothing will then notice a swapped certificate or a fraudulently issued one on your behalf.
 
 ### Rate limiting and bot protection
 

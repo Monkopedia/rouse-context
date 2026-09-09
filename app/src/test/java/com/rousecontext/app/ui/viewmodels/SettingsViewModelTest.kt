@@ -15,13 +15,16 @@ import com.rousecontext.app.testing.MainDispatcherRule
 import com.rousecontext.app.testing.RecordingCrashReporter
 import com.rousecontext.app.testing.inMemoryCrashReportingPreferences
 import com.rousecontext.app.ui.screens.PostSessionModeOption
+import com.rousecontext.app.ui.screens.SecurityCheckIntervalOption
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
 import com.rousecontext.work.SecurityCheckPreferences
+import com.rousecontext.work.SecurityCheckWorker
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -171,6 +174,166 @@ class SettingsViewModelTest {
             awaitItem()
             val state = awaitItem()
             assertEquals(TrustOverallStatus.ALERT, state.trustStatus?.overallStatus)
+        }
+    }
+
+    // -------------------------------------------------------------------
+    // "Never" check interval (F-Droid review of fdroiddata!42096)
+    // -------------------------------------------------------------------
+
+    @Test
+    fun `selecting Never cancels the scheduled work`() = runTest(testDispatcher) {
+        // The setting must act on WorkManager when the user picks it, not on
+        // the next app launch: work left enqueued keeps querying crt.sh with
+        // the device hostname on its cadence.
+        val recorder = ScheduleRecorder()
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            securityPrefs = freshSecurityPrefs(),
+            appStatePrefs = freshAppStatePrefs(),
+            applySchedule = recorder
+        )
+
+        vm.setSecurityCheckInterval(SecurityCheckIntervalOption.NEVER)
+
+        assertEquals(
+            listOf(SecurityCheckIntervalOption.NEVER),
+            recorder.awaitCount(1)
+        )
+    }
+
+    @Test
+    fun `selecting Never persists and survives a new ViewModel`() = runTest(testDispatcher) {
+        // Round-trip through the real DataStore. A choice that only lived in
+        // memory would silently resume checks on the next process start.
+        val securityPrefs = freshSecurityPrefs()
+        val appStatePrefs = freshAppStatePrefs()
+        val recorder = ScheduleRecorder()
+        val vm = createViewModel(
+            PostSessionMode.SUMMARY,
+            securityPrefs = securityPrefs,
+            appStatePrefs = appStatePrefs,
+            applySchedule = recorder
+        )
+
+        vm.setSecurityCheckInterval(SecurityCheckIntervalOption.NEVER)
+        recorder.awaitCount(1)
+
+        val reloaded = createViewModel(
+            PostSessionMode.SUMMARY,
+            securityPrefs = securityPrefs,
+            appStatePrefs = appStatePrefs
+        )
+        reloaded.state.test {
+            awaitItem()
+            assertEquals(
+                SecurityCheckIntervalOption.NEVER,
+                awaitItem().securityCheckInterval
+            )
+        }
+    }
+
+    @Test
+    fun `Never does not overwrite the stored cadence so switching back restores it`() =
+        runTest(testDispatcher) {
+            val securityPrefs = freshSecurityPrefs()
+            val appStatePrefs = freshAppStatePrefs()
+            val recorder = ScheduleRecorder()
+            val vm = createViewModel(
+                PostSessionMode.SUMMARY,
+                securityPrefs = securityPrefs,
+                appStatePrefs = appStatePrefs,
+                applySchedule = recorder
+            )
+
+            vm.setSecurityCheckInterval(SecurityCheckIntervalOption.HOURS_6)
+            vm.setSecurityCheckInterval(SecurityCheckIntervalOption.NEVER)
+            recorder.awaitCount(2)
+
+            assertEquals(
+                "the user's cadence must be remembered while checks are off",
+                6,
+                appStatePrefs.securityCheckIntervalHours()
+            )
+        }
+
+    @Test
+    fun `switching from Never back to an interval re-enables and re-enqueues`() =
+        runTest(testDispatcher) {
+            // Both directions. A one-way switch would be a worse bug than the
+            // one being fixed.
+            val recorder = ScheduleRecorder()
+            val securityPrefs = freshSecurityPrefs()
+            val vm = createViewModel(
+                PostSessionMode.SUMMARY,
+                securityPrefs = securityPrefs,
+                appStatePrefs = freshAppStatePrefs(),
+                applySchedule = recorder
+            )
+
+            vm.setSecurityCheckInterval(SecurityCheckIntervalOption.NEVER)
+            vm.setSecurityCheckInterval(SecurityCheckIntervalOption.HOURS_24)
+
+            assertEquals(
+                listOf(
+                    SecurityCheckIntervalOption.NEVER,
+                    SecurityCheckIntervalOption.HOURS_24
+                ),
+                recorder.awaitCount(2)
+            )
+            assertTrue(securityPrefs.securityCheckEnabled())
+        }
+
+    @Test
+    fun `trust card reads as disabled, not as the last result, once checks are off`() =
+        runTest(testDispatcher) {
+            // The stale-result trap: a prior "verified" must not keep showing a
+            // green tick for checks that are no longer running.
+            val prefs = freshSecurityPrefs()
+            runBlocking {
+                prefs.recordCheck(1_000L, "verified", "verified")
+                prefs.setSecurityCheckEnabled(false)
+            }
+            val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
+
+            vm.state.test {
+                awaitItem()
+                val state = awaitItem()
+                assertEquals(
+                    SecurityCheckWorker.RESULT_DISABLED,
+                    state.trustStatus?.selfCheckResult
+                )
+                assertEquals(
+                    SecurityCheckWorker.RESULT_DISABLED,
+                    state.trustStatus?.ctCheckResult
+                )
+                assertEquals(
+                    TrustOverallStatus.DISABLED,
+                    state.trustStatus?.overallStatus
+                )
+            }
+        }
+
+    @Test
+    fun `an unacknowledged alert keeps showing while checks are off`() = runTest(testDispatcher) {
+        // The alert gate in McpSession still blocks integration requests on
+        // the stored "alert". Relabelling that as "turned off" would hide
+        // the reason requests are being refused.
+        val prefs = freshSecurityPrefs()
+        runBlocking {
+            prefs.recordCheck(1_000L, "verified", "alert")
+            prefs.setSecurityCheckEnabled(false)
+        }
+        val vm = createViewModel(PostSessionMode.SUMMARY, securityPrefs = prefs)
+
+        vm.state.test {
+            awaitItem()
+            val state = awaitItem()
+            assertEquals("alert", state.trustStatus?.ctCheckResult)
+            assertEquals(
+                TrustOverallStatus.ALERT,
+                state.trustStatus?.overallStatus
+            )
         }
     }
 
@@ -576,12 +739,25 @@ class SettingsViewModelTest {
         return item
     }
 
+    /**
+     * Real DataStore-backed [AppStatePreferences], reset between tests — the
+     * file persists across tests in the same VM.
+     */
+    private fun freshAppStatePrefs(): AppStatePreferences {
+        val prefs = AppStatePreferences(ApplicationProvider.getApplicationContext())
+        runBlocking { prefs.reset() }
+        return prefs
+    }
+
     private fun freshSecurityPrefs(): SecurityCheckPreferences {
         val prefs = SecurityCheckPreferences(ApplicationProvider.getApplicationContext())
         runBlocking {
             // Reset any state left over from a sibling test in the same VM.
             prefs.clearResults()
             prefs.setCertFingerprint("")
+            prefs.setSecurityCheckEnabled(
+                SecurityCheckPreferences.DEFAULT_SECURITY_CHECK_ENABLED
+            )
         }
         return prefs
     }
@@ -611,7 +787,8 @@ class SettingsViewModelTest {
         appStatePrefs: AppStatePreferences? = null,
         batteryExempt: Boolean = false,
         canIgnoreDailyLimit: Boolean = false,
-        crashReportingPreference: CrashReportingPreference? = null
+        crashReportingPreference: CrashReportingPreference? = null,
+        applySchedule: (SecurityCheckIntervalOption) -> Unit = {}
     ): SettingsViewModel = createViewModel(
         mode,
         securityPrefs,
@@ -619,7 +796,8 @@ class SettingsViewModelTest {
         appStatePrefs = appStatePrefs,
         batteryExempt = batteryExempt,
         canIgnoreDailyLimit = canIgnoreDailyLimit,
-        crashReportingPreference = crashReportingPreference
+        crashReportingPreference = crashReportingPreference,
+        applySchedule = applySchedule
     )
 
     @Suppress("LongParameterList")
@@ -631,7 +809,8 @@ class SettingsViewModelTest {
         appStatePrefs: AppStatePreferences? = null,
         batteryExempt: Boolean = false,
         canIgnoreDailyLimit: Boolean = false,
-        crashReportingPreference: CrashReportingPreference? = null
+        crashReportingPreference: CrashReportingPreference? = null,
+        applySchedule: (SecurityCheckIntervalOption) -> Unit = {}
     ): SettingsViewModel {
         val resolvedProvider = provider ?: mockk {
             val s = NotificationSettings(
@@ -657,7 +836,38 @@ class SettingsViewModelTest {
             batteryExemptProvider = { batteryExempt },
             spuriousWakesFlow = spuriousWakesFlow,
             canIgnoreDailyLimit = canIgnoreDailyLimit,
-            crashReportingPreference = crashReportingPreference
+            crashReportingPreference = crashReportingPreference,
+            applySecurityCheckSchedule = applySchedule
         )
+    }
+}
+
+/**
+ * Captures the check-interval choices [SettingsViewModel] pushes to
+ * WorkManager, and lets a test wait for a given number of them.
+ *
+ * The waiting matters. `setSecurityCheckInterval` writes to a real DataStore
+ * before it calls this seam, so its coroutine suspends on I/O that is not on
+ * the test dispatcher; `advanceUntilIdle()` returns while the continuation is
+ * still queued and the assertion reads a half-finished list. Suspending on a
+ * [CompletableDeferred] instead lets the scheduler run those continuations,
+ * and also guarantees the DataStore write has landed before the next test
+ * resets the file.
+ */
+private class ScheduleRecorder : (SecurityCheckIntervalOption) -> Unit {
+    private val applied = mutableListOf<SecurityCheckIntervalOption>()
+    private val waiters = mutableMapOf<Int, CompletableDeferred<Unit>>()
+
+    override fun invoke(interval: SecurityCheckIntervalOption) {
+        applied += interval
+        waiters.remove(applied.size)?.complete(Unit)
+    }
+
+    /** Suspends until [count] intervals have been applied, then returns them. */
+    suspend fun awaitCount(count: Int): List<SecurityCheckIntervalOption> {
+        if (applied.size < count) {
+            waiters.getOrPut(count) { CompletableDeferred() }.await()
+        }
+        return applied.toList()
     }
 }
