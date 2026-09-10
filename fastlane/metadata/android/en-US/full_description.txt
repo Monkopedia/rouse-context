@@ -10,6 +10,6 @@
   <li>On-demand — your phone is only reachable while a client is connected, then sleeps again. No always-on background service draining the battery.</li>
   <li>You stay in control — you enable each integration explicitly, and every tool call an AI client makes is recorded in an on-device audit history you can review.</li>
   <li>Private by design — data never leaves the device except through a live, user-approved session.</li>
-  <li>Certificate monitoring — the app checks public transparency logs (crt.sh, or Certspotter as backup) for certificates issued to your device's address, so a forged one doesn't go unnoticed. Runs on an interval you pick, or not at all.</li>
+  <li>Certificate monitoring — the app checks public transparency logs (crt.sh, or Certspotter as backup) for certificates issued to your device's address, so a forged one doesn't go unnoticed. Runs every 12 hours by default; change the interval or turn it off in Settings.</li>
   <li>Free and open source, with no analytics or tracking in the app.</li>
 </ul>
