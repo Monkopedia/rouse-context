@@ -135,7 +135,7 @@ Rust binary on a small VPS. Handles:
 ./gradlew assembleDebug
 ```
 
-Requires Android SDK (`compileSdk` 36, `targetSdk` 35, `minSdk` 24). Build requires JDK 21 (`JAVA_HOME=/usr/lib/jvm/java-21-openjdk`).
+Requires Android SDK (`compileSdk` 36, `targetSdk` 36, `minSdk` 24). Build requires JDK 21 (`JAVA_HOME=/usr/lib/jvm/java-21-openjdk`).
 
 ### Coverage report
 
