@@ -227,7 +227,8 @@ MaintainerNotes: |-
       * Bare build = FOSS (UnifiedPush + ACRA, no Firebase/GMS). `-Pgoogle` is
         the Firebase build and must NOT be used for F-Droid.
       * Toolchain at v1.0.8: AGP 8.13.2, Kotlin 2.2.21, JDK 21, compileSdk 36,
-        minSdk 24, targetSdk 35, Gradle 8.14.3.
+        minSdk 24, targetSdk 36 (raised after v1.0.8; ships in the next
+        release), Gradle 8.14.3.
       * FOSS-only runtime deps: UnifiedPush connector 2.5.0, ACRA 5.13.1.
 
     On bump: update versionName/versionCode here and in CurrentVersion(Code)
