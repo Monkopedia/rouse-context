@@ -335,7 +335,13 @@ val appModule = module {
         )
     }
     single<McpIntegration>(named("notifications")) {
-        NotificationIntegration(androidContext(), get(), get())
+        NotificationIntegration(
+            context = androidContext(),
+            dao = get(),
+            settingsStore = get(),
+            appScope = get(named("appScope")),
+            fieldEncryptor = get()
+        )
     }
     single<McpIntegration>(named("usage")) { UsageIntegration(androidContext()) }
 

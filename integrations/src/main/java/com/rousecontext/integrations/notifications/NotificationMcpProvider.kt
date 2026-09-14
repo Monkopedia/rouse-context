@@ -33,6 +33,12 @@ import kotlinx.serialization.json.buildJsonObject
  * @param activeNotificationSource callback to retrieve active StatusBarNotifications
  * @param actionPerformer callback to perform a notification action by key + action index
  * @param notificationDismisser callback to dismiss a notification by key
+ * @param allowActions consulted on every call to the action and dismiss tools.
+ *   Suspending and re-evaluated per invocation so the user's "allow AI to act
+ *   on notifications" consent applies immediately, and so the caller can await
+ *   an asynchronously-loaded preference instead of reading a default that the
+ *   user never chose. Defaults to denying: a provider constructed without an
+ *   explicit consent source must not act on the user's notifications.
  */
 class NotificationMcpProvider(
     private val dao: NotificationDao,
@@ -40,7 +46,7 @@ class NotificationMcpProvider(
     private val actionPerformer: (key: String, actionIndex: Int) -> Boolean,
     private val notificationDismisser: (key: String) -> Boolean,
     private val fieldEncryptor: FieldEncryptor? = null,
-    private val allowActions: Boolean = true
+    private val allowActions: suspend () -> Boolean = { false }
 ) : McpServerProvider {
 
     override val id = "notifications"
@@ -105,7 +111,7 @@ internal class ListActiveNotificationsTool(
 internal class PerformNotificationActionTool(
     private val activeNotificationSource: () -> Array<StatusBarNotification>,
     private val actionPerformer: (key: String, actionIndex: Int) -> Boolean,
-    private val allowActions: Boolean
+    private val allowActions: suspend () -> Boolean
 ) : McpTool() {
     override val name = "perform_notification_action"
     override val description = "Invoke an action button on an active notification."
@@ -115,7 +121,7 @@ internal class PerformNotificationActionTool(
     val actionIndex by intParam("action_index", "0-based").required()
 
     override suspend fun execute(): ToolResult {
-        if (!allowActions) {
+        if (!allowActions()) {
             return ToolResult.Error(NotificationMcpProvider.errActionsDisabled())
         }
 
@@ -147,7 +153,7 @@ internal class PerformNotificationActionTool(
 internal class DismissNotificationTool(
     private val activeNotificationSource: () -> Array<StatusBarNotification>,
     private val notificationDismisser: (key: String) -> Boolean,
-    private val allowActions: Boolean
+    private val allowActions: suspend () -> Boolean
 ) : McpTool() {
     override val name = "dismiss_notification"
     override val description = "Dismiss an active notification by key."
@@ -155,7 +161,7 @@ internal class DismissNotificationTool(
     val notificationKey by stringParam("notification_key", "").required()
 
     override suspend fun execute(): ToolResult {
-        if (!allowActions) {
+        if (!allowActions()) {
             return ToolResult.Error(NotificationMcpProvider.errActionsDisabled())
         }
 

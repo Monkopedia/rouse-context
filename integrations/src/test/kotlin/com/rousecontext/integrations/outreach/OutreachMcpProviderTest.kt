@@ -39,7 +39,7 @@ class OutreachMcpProviderTest {
         harness = McpToolTestHarness()
         val server = harness.createMockServer()
 
-        provider = OutreachMcpProvider(context, dndEnabled = true)
+        provider = OutreachMcpProvider(context, dndEnabled = { true })
         provider.register(server)
     }
 
@@ -68,14 +68,30 @@ class OutreachMcpProviderTest {
     }
 
     @Test
-    fun `register without dnd skips DND tools`() {
+    fun `dnd tools refuse when dnd is not allowed`() = runBlocking {
+        // The DND tools used to be omitted from the tool list when
+        // `dndEnabled` was false. That decision had to be made once, at
+        // registration, from a value captured before the user's opt-in had
+        // loaded — so it is now taken per call inside execute() instead. The
+        // tools are always advertised and always refuse without consent.
         val noDndHarness = McpToolTestHarness()
-        val noDndProvider = OutreachMcpProvider(context, dndEnabled = false)
+        val noDndProvider = OutreachMcpProvider(context, dndEnabled = { false })
         noDndProvider.register(noDndHarness.createMockServer())
 
-        assertFalse(noDndHarness.toolHandlers.containsKey("get_dnd_state"))
-        assertFalse(noDndHarness.toolHandlers.containsKey("set_dnd_state"))
+        assertTrue(noDndHarness.toolHandlers.containsKey("get_dnd_state"))
+        assertTrue(noDndHarness.toolHandlers.containsKey("set_dnd_state"))
         assertTrue(noDndHarness.toolHandlers.containsKey("launch_app"))
+
+        for (tool in listOf("get_dnd_state", "set_dnd_state")) {
+            val result = noDndHarness.callTool(
+                name = tool,
+                arguments = buildJsonObject { put("enabled", JsonPrimitive(true)) },
+                connection = fakeConnection
+            )
+            assertTrue("$tool must refuse", result.isError == true)
+            val text = (result.content.first() as TextContent).text!!
+            assertTrue(text.contains("Do Not Disturb control is not enabled"))
+        }
     }
 
     @Test
@@ -187,7 +203,7 @@ class OutreachMcpProviderTest {
         val h = McpToolTestHarness()
         OutreachMcpProvider(
             context = context,
-            dndEnabled = false,
+            dndEnabled = { false },
             canLaunchDirectly = canLaunchDirectly,
             launchNotifier = launchNotifier
         ).register(h.createMockServer())
@@ -231,7 +247,7 @@ class OutreachMcpProviderTest {
             override fun currentTimeMillis(): Long = time
         }
         val rlHarness = McpToolTestHarness()
-        val rlProvider = OutreachMcpProvider(context, dndEnabled = false, clock = clock)
+        val rlProvider = OutreachMcpProvider(context, dndEnabled = { false }, clock = clock)
         rlProvider.register(rlHarness.createMockServer())
 
         val args = buildJsonObject {

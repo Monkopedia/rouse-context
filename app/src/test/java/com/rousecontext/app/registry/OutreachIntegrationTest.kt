@@ -15,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -138,6 +139,15 @@ class OutreachIntegrationTest {
             gate.await()
             emit(true)
         }
+        // The DND opt-in is observed by the same integration; stub it so this
+        // test isolates the direct-launch readiness path.
+        every {
+            slowStore.observeBoolean(
+                "outreach",
+                IntegrationSettingsStore.KEY_DND_TOGGLED,
+                any()
+            )
+        } returns flowOf(false)
 
         val integration = OutreachIntegration(context, slowStore, NoopNotifier, scope)
         // While gated, awaitReadyBlocking with a short timeout reports false.
@@ -169,6 +179,15 @@ class OutreachIntegrationTest {
             gate.await()
             emit(true)
         }
+        // The DND opt-in is observed by the same integration; stub it so this
+        // test isolates the direct-launch readiness path.
+        every {
+            slowStore.observeBoolean(
+                "outreach",
+                IntegrationSettingsStore.KEY_DND_TOGGLED,
+                any()
+            )
+        } returns flowOf(false)
 
         val integration = OutreachIntegration(context, slowStore, NoopNotifier, scope)
 

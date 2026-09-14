@@ -50,7 +50,7 @@ class AllToolsHumanizerValidationTest {
                 notificationDismisser = { _ -> false }
             ),
             // dndEnabled = true so the DND tools are registered and validated.
-            OutreachMcpProvider(context = context, dndEnabled = true),
+            OutreachMcpProvider(context = context, dndEnabled = { true }),
             UsageMcpProvider(context = context),
             HealthConnectMcpServer(repository = FakeHealthConnectRepository())
         )

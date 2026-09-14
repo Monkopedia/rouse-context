@@ -5,23 +5,37 @@ import android.content.Context
 import android.provider.Settings
 import android.service.notification.StatusBarNotification
 import com.rousecontext.api.McpIntegration
+import com.rousecontext.app.state.IntegrationSettingsStore
+import com.rousecontext.app.state.LiveBooleanSetting
 import com.rousecontext.integrations.notifications.NotificationCaptureService
 import com.rousecontext.integrations.notifications.NotificationDao
 import com.rousecontext.integrations.notifications.NotificationMcpProvider
 import com.rousecontext.mcp.core.McpServerProvider
 import com.rousecontext.notifications.FieldEncryptor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * [McpIntegration] for device notifications.
  *
  * Checks whether the user has granted notification listener access and
  * delegates MCP tool/resource registration to [NotificationMcpProvider].
+ *
+ * ### Consent gating
+ *
+ * "Allow AI to act on notifications" ([IntegrationSettingsStore.KEY_ALLOW_ACTIONS])
+ * gates `perform_notification_action` and `dismiss_notification`. The stored
+ * value is resolved per tool call rather than captured here, so revoking
+ * consent applies to the next call instead of the next app start, and so a
+ * call racing process spawn cannot read a default the user never chose
+ * (see [LiveBooleanSetting]).
  */
 class NotificationIntegration(
     private val context: Context,
     dao: NotificationDao,
-    fieldEncryptor: FieldEncryptor? = null,
-    allowActions: Boolean = true
+    settingsStore: IntegrationSettingsStore,
+    appScope: CoroutineScope,
+    fieldEncryptor: FieldEncryptor? = null
 ) : McpIntegration {
 
     override val id = "notifications"
@@ -31,13 +45,29 @@ class NotificationIntegration(
     override val onboardingRoute = "setup"
     override val settingsRoute = "settings"
 
+    private val allowActionsSetting = LiveBooleanSetting(
+        settingsStore = settingsStore,
+        integrationId = id,
+        key = IntegrationSettingsStore.KEY_ALLOW_ACTIONS,
+        appScope = appScope
+    )
+
+    /** Live view of the user's "allow AI to act on notifications" consent. */
+    val allowActions: StateFlow<Boolean> = allowActionsSetting.value
+
+    /**
+     * Whether the action and dismiss tools may run right now. Suspends until
+     * the stored consent has been loaded at least once.
+     */
+    suspend fun isActionsAllowed(): Boolean = allowActionsSetting.current()
+
     override val provider: McpServerProvider = NotificationMcpProvider(
         dao = dao,
         activeNotificationSource = ::getActiveNotifications,
         actionPerformer = ::performAction,
         notificationDismisser = ::dismissNotification,
         fieldEncryptor = fieldEncryptor,
-        allowActions = allowActions
+        allowActions = { isActionsAllowed() }
     )
 
     override suspend fun isAvailable(): Boolean = true
