@@ -44,7 +44,12 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class OutreachMcpProvider(
     private val context: Context,
-    private val dndEnabled: Boolean = false,
+    // Suspend and re-evaluated per call, exactly like [canLaunchDirectly]: DND
+    // control needs BOTH the OS ACCESS_NOTIFICATION_POLICY grant and the user's
+    // own toggle, and either can change while the process lives. A value
+    // captured at construction would keep the tools live after the user
+    // revoked consent. Defaults to denying.
+    private val dndEnabled: suspend () -> Boolean = { false },
     clock: Clock = SystemClock,
     // Suspend so callers can await async opt-in state before deciding (issue #419 finding #2).
     private val canLaunchDirectly: suspend () -> Boolean = { defaultCanLaunchDirectly(context) },
@@ -77,10 +82,12 @@ class OutreachMcpProvider(
         server.registerTool { CreateNotificationChannelTool(context) }
         server.registerTool { ListNotificationChannelsTool(context) }
         server.registerTool { DeleteNotificationChannelTool(context) }
-        if (dndEnabled) {
-            server.registerTool { GetDndStateTool(context) }
-            server.registerTool { SetDndStateTool(context) }
-        }
+        // Registered unconditionally and gated inside execute(). Deciding here
+        // would freeze the answer for the lifetime of the MCP session and would
+        // have to read the opt-in before it has loaded, which is the race the
+        // readiness gate exists to avoid.
+        server.registerTool { GetDndStateTool(context, dndEnabled) }
+        server.registerTool { SetDndStateTool(context, dndEnabled) }
     }
 
     private fun ensureNotificationChannel() {
@@ -107,6 +114,10 @@ class OutreachMcpProvider(
         internal const val RATE_LIMIT_WINDOW_MS = 60_000L
         internal const val MAX_NOTIFICATION_ACTIONS = 3
         internal const val TAG = "OutreachMcp"
+
+        /** Refusal returned by the DND tools when consent is absent. */
+        internal const val DND_DISABLED_MESSAGE =
+            "Do Not Disturb control is not enabled by the user."
 
         /**
          * Default "can launch activity directly" check used when the caller does
@@ -346,11 +357,15 @@ internal class DeleteNotificationChannelTool(private val context: Context) : Mcp
     }
 }
 
-internal class GetDndStateTool(private val context: Context) : McpTool() {
+internal class GetDndStateTool(
+    private val context: Context,
+    private val dndEnabled: suspend () -> Boolean
+) : McpTool() {
     override val name = "get_dnd_state"
     override val description = "Get Do Not Disturb state."
 
     override suspend fun execute(): ToolResult {
+        if (!dndEnabled()) return outreachError(OutreachMcpProvider.DND_DISABLED_MESSAGE)
         val nm = context.getSystemService(NotificationManager::class.java)
         val filter = nm.currentInterruptionFilter
         val enabled = filter != NotificationManager.INTERRUPTION_FILTER_ALL
@@ -361,7 +376,10 @@ internal class GetDndStateTool(private val context: Context) : McpTool() {
     }
 }
 
-internal class SetDndStateTool(private val context: Context) : McpTool() {
+internal class SetDndStateTool(
+    private val context: Context,
+    private val dndEnabled: suspend () -> Boolean
+) : McpTool() {
     override val name = "set_dnd_state"
     override val description = "Set Do Not Disturb state."
 
@@ -370,6 +388,7 @@ internal class SetDndStateTool(private val context: Context) : McpTool() {
         .optional().choices("total_silence", "priority_only", "alarms_only")
 
     override suspend fun execute(): ToolResult {
+        if (!dndEnabled()) return outreachError(OutreachMcpProvider.DND_DISABLED_MESSAGE)
         val nm = context.getSystemService(NotificationManager::class.java)
         if (!nm.isNotificationPolicyAccessGranted) {
             return outreachError("ACCESS_NOTIFICATION_POLICY permission not granted")

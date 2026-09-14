@@ -92,7 +92,7 @@ class ToolsListSizeTest {
 
     @Test
     fun `report sizes`() {
-        report("outreach", OutreachMcpProvider(context, dndEnabled = true))
+        report("outreach", OutreachMcpProvider(context, dndEnabled = { true }))
         report("usage", UsageMcpProvider(context))
         report("health", HealthConnectMcpServer(FakeHealthConnectRepository()))
         report(

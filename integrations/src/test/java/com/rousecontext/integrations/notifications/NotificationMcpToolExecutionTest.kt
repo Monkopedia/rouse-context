@@ -80,7 +80,7 @@ class NotificationMcpToolExecutionTest {
      */
     private fun registerProvider(
         fieldEncryptor: FieldEncryptor? = passthroughEncryptor(),
-        allowActions: Boolean = true
+        allowActions: suspend () -> Boolean = { true }
     ): NotificationMcpProvider = NotificationMcpProvider(
         dao = dao,
         activeNotificationSource = { activeNotifications },
@@ -281,7 +281,7 @@ class NotificationMcpToolExecutionTest {
 
     @Test
     fun `perform_notification_action blocked when actions disabled`() = runBlocking {
-        registerProvider(allowActions = false)
+        registerProvider(allowActions = { false })
         activeNotifications = arrayOf(mockSbn(key = "k1", pkg = "com.x"))
 
         val result = call(
@@ -336,8 +336,30 @@ class NotificationMcpToolExecutionTest {
     }
 
     @Test
+    fun `allowActions is consulted on every call, not captured at construction`() = runBlocking {
+        // The consent gate must follow the user's current choice. Capturing it
+        // once is what let a revoked "allow AI to act on notifications" keep
+        // working until the app was restarted.
+        var consent = false
+        registerProvider(allowActions = { consent })
+        activeNotifications = arrayOf(mockSbn(key = "k1", pkg = "com.x"))
+        val args = mapOf("notification_key" to "k1", "action_index" to 0)
+
+        assertTrue(call("perform_notification_action", args).isError == true)
+        assertTrue(actionCalls.isEmpty())
+
+        consent = true
+        assertFalse(call("perform_notification_action", args).isError == true)
+        assertEquals(1, actionCalls.size)
+
+        consent = false
+        assertTrue(call("perform_notification_action", args).isError == true)
+        assertEquals("no further action may be performed", 1, actionCalls.size)
+    }
+
+    @Test
     fun `dismiss_notification blocked when actions disabled`() = runBlocking {
-        registerProvider(allowActions = false)
+        registerProvider(allowActions = { false })
         activeNotifications = arrayOf(mockSbn(key = "k1", pkg = "com.x"))
 
         val result = call("dismiss_notification", mapOf("notification_key" to "k1"))

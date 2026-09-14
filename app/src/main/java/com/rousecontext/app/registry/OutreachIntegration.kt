@@ -6,34 +6,40 @@ import android.os.Build
 import com.rousecontext.api.LaunchRequestNotifierApi
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.app.state.IntegrationSettingsStore
+import com.rousecontext.app.state.LiveBooleanSetting
 import com.rousecontext.integrations.outreach.OutreachMcpProvider
 import com.rousecontext.mcp.core.McpServerProvider
-import com.rousecontext.mcp.core.ReadinessGate
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.launch
 
 /**
  * [McpIntegration] for Outreach actions (launch apps, open links, clipboard, notifications, DND).
  *
- * Basic tools are always available. DND tools require ACCESS_NOTIFICATION_POLICY permission,
- * checked at construction time and re-evaluated via [isAvailable].
+ * ### Consent gating
+ *
+ * Two Outreach capabilities are behind a user control, and both are resolved
+ * per tool call rather than captured when this object is built:
+ *
+ * - **Direct launch** needs the OS overlay permission *and* the user's
+ *   `direct_launch_enabled` opt-in ([isDirectLaunchAllowed]).
+ * - **Do Not Disturb** needs `ACCESS_NOTIFICATION_POLICY` *and* the user's
+ *   `dnd_toggled` opt-in ([isDndAllowed]).
+ *
+ * Passing either as a plain value would freeze it at DI time: consent revoked
+ * later in the process lifetime — or a permission revoked from system settings
+ * — would not reach the tools until the app restarted.
  *
  * ### Cold-start readiness (issue #419 finding #2)
  *
- * The user's `direct-launch` opt-in is loaded asynchronously from a DataStore-backed
- * [IntegrationSettingsStore]. Until the first emission lands, [_directLaunchEnabled]
- * holds the `false` default — so a tool call that fired immediately after process
- * spawn would route through the notification fallback even when the user had
- * opted into direct launch. Tool callers go through [isDirectLaunchAllowed], which
- * suspends on [awaitReady] until the first emission has been collected.
+ * Both opt-ins load asynchronously from a DataStore-backed
+ * [IntegrationSettingsStore]. Until the first emission lands the in-memory
+ * value is the `false` default, so a tool call that fired immediately after
+ * process spawn would read a value the user never chose. [LiveBooleanSetting]
+ * suspends on its readiness gate before answering.
  */
 class OutreachIntegration(
     private val context: Context,
-    private val settingsStore: IntegrationSettingsStore,
+    settingsStore: IntegrationSettingsStore,
     private val launchNotifier: LaunchRequestNotifierApi,
     appScope: CoroutineScope
 ) : McpIntegration {
@@ -46,30 +52,28 @@ class OutreachIntegration(
     override val onboardingRoute = "setup"
     override val settingsRoute = "settings"
 
+    private val directLaunchSetting = LiveBooleanSetting(
+        settingsStore = settingsStore,
+        integrationId = id,
+        key = IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED,
+        appScope = appScope
+    )
+
+    private val dndSetting = LiveBooleanSetting(
+        settingsStore = settingsStore,
+        integrationId = id,
+        key = IntegrationSettingsStore.KEY_DND_TOGGLED,
+        appScope = appScope
+    )
+
     /**
      * Live view of the user's direct-launch opt-in. Read by [isDirectLaunchAllowed]
      * after [awaitReady] has unblocked.
      */
-    private val _directLaunchEnabled = MutableStateFlow(false)
-    val directLaunchEnabled: StateFlow<Boolean> = _directLaunchEnabled.asStateFlow()
+    val directLaunchEnabled: StateFlow<Boolean> = directLaunchSetting.value
 
-    private val readinessGate = ReadinessGate()
-
-    init {
-        appScope.launch {
-            settingsStore.observeBoolean(
-                id,
-                IntegrationSettingsStore.KEY_DIRECT_LAUNCH_ENABLED
-            )
-                .onEach { _directLaunchEnabled.value = it }
-                .collect { signalReady() }
-        }
-    }
-
-    private fun signalReady() {
-        // Idempotent: subsequent emissions just no-op on the already-ready gate.
-        readinessGate.signalReady()
-    }
+    /** Live view of the user's Do Not Disturb opt-in. */
+    val dndToggled: StateFlow<Boolean> = dndSetting.value
 
     /**
      * Suspends until the user's direct-launch opt-in has been loaded from disk
@@ -77,7 +81,7 @@ class OutreachIntegration(
      * [com.rousecontext.mcp.core.ProviderRegistry.awaitReady] shape.
      */
     suspend fun awaitReady() {
-        readinessGate.awaitReady()
+        directLaunchSetting.awaitReady()
     }
 
     /**
@@ -85,7 +89,8 @@ class OutreachIntegration(
      * [com.rousecontext.mcp.core.ProviderRegistry.awaitReadyBlocking];
      * not currently exercised in production but provided for parity.
      */
-    fun awaitReadyBlocking(timeoutMs: Long): Boolean = readinessGate.awaitReadyBlocking(timeoutMs)
+    fun awaitReadyBlocking(timeoutMs: Long): Boolean =
+        directLaunchSetting.awaitReadyBlocking(timeoutMs)
 
     /**
      * Returns whether direct-activity launch is allowed right now. Suspends
@@ -100,14 +105,21 @@ class OutreachIntegration(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             return true
         }
-        awaitReady()
         return OutreachMcpProvider.defaultCanLaunchDirectly(context) &&
-            _directLaunchEnabled.value
+            directLaunchSetting.current()
     }
+
+    /**
+     * Returns whether the DND tools may run right now: the OS grant is
+     * re-checked on every call, and the user's own toggle must also be on.
+     * Granting `ACCESS_NOTIFICATION_POLICY` once is not consent to let an AI
+     * client silence the phone.
+     */
+    suspend fun isDndAllowed(): Boolean = isDndPermissionGranted() && dndSetting.current()
 
     override val provider: McpServerProvider = OutreachMcpProvider(
         context = context,
-        dndEnabled = isDndPermissionGranted(),
+        dndEnabled = { isDndAllowed() },
         canLaunchDirectly = { isDirectLaunchAllowed() },
         launchNotifier = launchNotifier
     )

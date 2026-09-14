@@ -48,7 +48,7 @@ class OutreachChannelIdResolutionTest {
         context = ApplicationProvider.getApplicationContext()
         nm = context.getSystemService(NotificationManager::class.java)
         harness = McpToolTestHarness()
-        OutreachMcpProvider(context, dndEnabled = false).register(harness.createMockServer())
+        OutreachMcpProvider(context, dndEnabled = { false }).register(harness.createMockServer())
     }
 
     private fun createChannel(id: String): CallToolResult = runBlocking {
