@@ -161,9 +161,8 @@ class SessionHandler(
      * is rewritten to include the `X-Internal-Token` shared secret.
      *
      * Ordinary failures -- the peer hanging up mid-copy, the stream closing --
-     * are normal, frequent, and end the loop quietly. The one exception is
-     * [TunnelError.UnhandledTlsState], which reports a defect in our own TLS
-     * layer rather than anything the peer did; that propagates. See #616.
+     * are normal, frequent, and end the loop quietly. The exceptions that do
+     * propagate are listed on [mustEndSession].
      *
      * Must run under [Dispatchers.IO].
      */
@@ -184,24 +183,42 @@ class SessionHandler(
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: TunnelError.UnhandledTlsState) {
-            // NOT a peer going away: our own TLS layer reached a state it has no
-            // handling for. Swallowing it here reproduced the pre-#615 clean EOF
-            // bit for bit, so the guard #615 added could never be heard (#616).
-            // Rethrow: `TunnelForegroundService.collectIncomingSessions` already
-            // does Log.e + crashReporter.logCaughtException around handleStream,
-            // and it catches per stream, so one bad session still cannot take the
-            // tunnel down. This module is a KMP jvm target with no Android
-            // logging or CrashReporter dependency, so propagating to that
-            // existing handler is how the defect becomes observable.
-            throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (mustEndSession(e)) throw e
             // Stream closed or peer errored -- expected and frequent. Treat as
             // EOF and stay silent: making routine disconnects noisy would train
             // whoever reads the logs to ignore them, which is the same failure
             // one level up.
         }
     }
+
+    /**
+     * The two throwables the read direction must NOT file as an ordinary
+     * disconnect. A predicate rather than two more `catch (e: X) { throw e }`
+     * clauses only because three rethrows in one chain trips detekt's
+     * `ThrowsCount`; the reasoning is per-type and is why it lives here rather
+     * than inline.
+     *
+     *  - [TunnelError.UnhandledTlsState] is NOT a peer going away: our own TLS
+     *    layer reached a state it has no handling for. Swallowing it reproduced
+     *    the pre-#615 clean EOF bit for bit, so the guard #615 added could
+     *    never be heard (#616). This module is a KMP jvm target with no Android
+     *    logging or CrashReporter dependency, so propagating to
+     *    `TunnelForegroundService.collectIncomingSessions` -- which catches per
+     *    stream, so one bad session still cannot take the tunnel down -- is how
+     *    the defect becomes observable.
+     *
+     *  - [HttpFramingLimitExceededException] means the peer sent a header block
+     *    or chunk-size line larger than [HttpHeaderInjector] will buffer, so the
+     *    injector aborted and is terminally failed. A session whose request
+     *    direction has quietly stopped is worse than a closed one, so this ends
+     *    the whole session. It is an [java.io.IOException] on purpose:
+     *    `classifyTunnelFailure` files it as `PeerOrTransport` -- INFO, rate
+     *    visible, no non-fatal -- because a remotely-triggerable crash report
+     *    would be a spam channel.
+     */
+    private fun mustEndSession(e: Exception): Boolean =
+        e is TunnelError.UnhandledTlsState || e is HttpFramingLimitExceededException
 
     /**
      * Copies bytes from [from] into [tlsSession] until EOF or error.

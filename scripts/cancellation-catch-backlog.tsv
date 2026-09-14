@@ -89,5 +89,4 @@ integrations/src/main/kotlin/com/rousecontext/integrations/outreach/OutreachMcpP
 integrations/src/main/kotlin/com/rousecontext/integrations/outreach/OutreachMcpProvider.kt	launchActivitySafely	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 notifications/src/main/java/com/rousecontext/notifications/FieldEncryptor.kt	decrypt	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 work/src/main/kotlin/com/rousecontext/work/SecurityCheckSources.kt	check	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
-work/src/main/kotlin/com/rousecontext/work/TunnelForegroundService.kt	collectIncomingSessions	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 work/src/main/kotlin/com/rousecontext/work/TunnelForegroundService.kt	connectToRelay	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
