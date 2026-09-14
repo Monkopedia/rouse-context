@@ -1,0 +1,8 @@
+The notification and Do Not Disturb switches now actually gate what the AI can do.
+
+Turning off "Allow AI to act on notifications" or "Allow DND changes" left the
+matching tools working anyway. Both switches are now read where the tools are
+built, so off means off.
+
+A connection that sends an endless HTTP header is dropped instead of buffered,
+and refreshing a token can no longer mint two replacements at once.
