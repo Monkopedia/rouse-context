@@ -41,8 +41,27 @@ interface TokenDao {
     @Query("UPDATE tokens SET lastUsedAt = :now WHERE id = :id")
     fun updateLastUsed(id: Long, now: Long)
 
-    @Query("UPDATE tokens SET rotatedAt = :rotatedAt WHERE id = :id")
-    fun markRotated(id: Long, rotatedAt: Long)
+    /**
+     * Compare-and-swap rotation: marks the row rotated **only if it is not
+     * already**, and reports whether this caller was the one that did it.
+     *
+     * @return 1 if this call rotated the row, 0 if it was already rotated (by a
+     *   concurrent redemption, or by an earlier one being replayed).
+     *
+     * This is the whole of OAuth 2.1 §4.14 reuse detection on this store. The
+     * unconditional `UPDATE ... WHERE id = :id` it replaced made
+     * [RoomTokenStore.refreshToken] a read -> check -> write with nothing
+     * holding the gap: two concurrent redemptions of one refresh token both
+     * read `rotatedAt IS NULL`, both wrote, and both minted a descendant, so
+     * the family was never revoked and a stolen refresh token survived
+     * indefinitely. Measured before the fix: 199 of 200 rounds double-minted.
+     *
+     * A single SQLite `UPDATE` is atomic, so the `rotatedAt IS NULL` predicate
+     * and the write cannot be separated and no surrounding transaction is
+     * needed.
+     */
+    @Query("UPDATE tokens SET rotatedAt = :rotatedAt WHERE id = :id AND rotatedAt IS NULL")
+    fun markRotatedIfUnrotated(id: Long, rotatedAt: Long): Int
 
     @Query("DELETE FROM tokens WHERE integrationId = :integrationId AND tokenHash = :tokenHash")
     fun deleteByHash(integrationId: String, tokenHash: String)

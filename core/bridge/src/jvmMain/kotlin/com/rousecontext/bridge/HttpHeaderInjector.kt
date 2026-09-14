@@ -24,15 +24,42 @@ package com.rousecontext.bridge
  * because the MCP clients we bridge do comply with HTTP/1.1 framing, and the
  * local Ktor server will close the connection on any malformed request.
  *
+ * Framing limits (see [HttpFramingLimitExceededException]): because nothing is
+ * emitted downstream until the header terminator arrives, the local Ktor
+ * server cannot police a header block that never terminates -- it has not
+ * received a byte of it. This class therefore enforces its own caps, matched to
+ * Ktor CIO 3.4.2's so that nothing this layer accepts is something Ktor would
+ * then reject on size:
+ *
+ *  - [MAX_HEADER_LINE_BYTES] per header line, equal to ktor-http-cio's
+ *    `HTTP_LINE_LIMIT` (8192), the limit `parseRequest`/`parseHeaders` pass to
+ *    `readLineStrictTo`.
+ *  - [MAX_CHUNK_SIZE_LINE_BYTES] per chunk-size line, equal to
+ *    ktor-http-cio's `MAX_CHUNK_SIZE_LENGTH` (128), the bound on
+ *    `parseChunkSize`'s scan.
+ *  - [MAX_HEADER_BLOCK_BYTES] for the whole header block. Ktor CIO has no
+ *    block-level cap at all, so this one undercuts rather than matches: the
+ *    per-line limit alone bounds nothing when a peer sends limitless
+ *    well-formed lines.
+ *
+ * Exceeding any of them puts the injector in a terminal failed state and
+ * throws. It does NOT fall through to [State.PASSTHROUGH]: passthrough would
+ * forward the request without the `X-Internal-Token` header, which merely
+ * fails closed at the Ktor guard *after* the bytes have already been consumed
+ * and copied.
+ *
  * Not thread-safe: construct one per connection; feed bytes via [feed] in
  * a single coroutine.
  */
 internal class HttpHeaderInjector(private val headerLine: String) {
 
-    private enum class State { HEADERS, BODY_FIXED, BODY_CHUNKED, PASSTHROUGH }
+    private enum class State { HEADERS, BODY_FIXED, BODY_CHUNKED, PASSTHROUGH, FAILED }
 
     private var state: State = State.HEADERS
     private val headerBuf = StringBuilder()
+
+    /** Index in [headerBuf] where the header line currently being read starts. */
+    private var headerLineStart = 0
     private var bodyRemaining: Long = 0
     private var chunkRemaining: Long = -1
     private var chunkSizeBuf = StringBuilder()
@@ -43,11 +70,18 @@ internal class HttpHeaderInjector(private val headerLine: String) {
      * Consume [input] of length [length] and emit the transformed stream via
      * [emit]. A single feed may emit zero or more byte chunks.
      */
+    @Throws(HttpFramingLimitExceededException::class)
     fun feed(input: ByteArray, offset: Int, length: Int, emit: (ByteArray, Int, Int) -> Unit) {
+        if (state == State.FAILED) {
+            // Terminal. A caller that ignored the first throw must not be able
+            // to get bytes forwarded by feeding more.
+            throw HttpFramingLimitExceededException(FAILED_STATE_MESSAGE)
+        }
         var i = offset
         val end = offset + length
         while (i < end) {
             when (state) {
+                State.FAILED -> throw HttpFramingLimitExceededException(FAILED_STATE_MESSAGE)
                 State.HEADERS -> i = consumeHeaderBytes(input, i, end, emit)
                 State.BODY_FIXED -> i = consumeFixedBody(input, i, end, emit)
                 State.BODY_CHUNKED -> i = consumeChunkedBody(input, i, end, emit)
@@ -69,8 +103,11 @@ internal class HttpHeaderInjector(private val headerLine: String) {
         // of bytes in this chunk. Buffer everything seen so far as ASCII.
         var i = start
         while (i < end) {
-            headerBuf.append((input[i].toInt() and 0xFF).toChar())
+            val c = (input[i].toInt() and 0xFF).toChar()
+            headerBuf.append(c)
             i++
+            if (c == '\n') headerLineStart = headerBuf.length
+            enforceHeaderLimits()
             val idx = indexOfHeaderEnd(headerBuf)
             if (idx >= 0) {
                 // Full header block captured. Emit it with the injected line.
@@ -78,10 +115,44 @@ internal class HttpHeaderInjector(private val headerLine: String) {
                 val rawHeaders = headerBuf.toString()
                 transitionAfterHeaders(rawHeaders)
                 headerBuf.setLength(0)
+                headerLineStart = 0
                 return i
             }
         }
         return i
+    }
+
+    /**
+     * Enforced after every appended byte rather than once per line, so a peer
+     * that sends one endless line is stopped at the limit instead of at the
+     * next `\n` it never sends.
+     */
+    private fun enforceHeaderLimits() {
+        if (headerBuf.length - headerLineStart > MAX_HEADER_LINE_BYTES) {
+            failFraming(
+                "HTTP header line exceeded $MAX_HEADER_LINE_BYTES bytes " +
+                    "(Ktor CIO's HTTP_LINE_LIMIT)"
+            )
+        }
+        if (headerBuf.length > MAX_HEADER_BLOCK_BYTES) {
+            failFraming(
+                "HTTP header block exceeded $MAX_HEADER_BLOCK_BYTES bytes " +
+                    "with no \\r\\n\\r\\n terminator"
+            )
+        }
+    }
+
+    /**
+     * Enters the terminal [State.FAILED], drops both buffers so the memory is
+     * released immediately, and throws. Never returns, and in particular never
+     * degrades to [State.PASSTHROUGH].
+     */
+    private fun failFraming(reason: String): Nothing {
+        state = State.FAILED
+        headerBuf.setLength(0)
+        headerLineStart = 0
+        chunkSizeBuf.setLength(0)
+        throw HttpFramingLimitExceededException(reason)
     }
 
     private fun emitInjectedHeaders(fullHeaderBlock: String, emit: (ByteArray, Int, Int) -> Unit) {
@@ -173,6 +244,12 @@ internal class HttpHeaderInjector(private val headerLine: String) {
                     }
                 } else if (b != '\r'.code.toByte()) {
                     chunkSizeBuf.append((b.toInt() and 0xFF).toChar())
+                    if (chunkSizeBuf.length > MAX_CHUNK_SIZE_LINE_BYTES) {
+                        failFraming(
+                            "HTTP chunk-size line exceeded $MAX_CHUNK_SIZE_LINE_BYTES bytes " +
+                                "(Ktor CIO's MAX_CHUNK_SIZE_LENGTH)"
+                        )
+                    }
                 }
             } else if (chunkRemaining == TRAILER_MODE) {
                 // We've seen size=0; consume any trailer headers + the final
@@ -203,6 +280,18 @@ internal class HttpHeaderInjector(private val headerLine: String) {
         private val CRLF = byteArrayOf('\r'.code.toByte(), '\n'.code.toByte())
         private const val HEX_RADIX = 16
         private const val TRAILER_MODE = Long.MIN_VALUE
+
+        /** ktor-http-cio 3.4.2 `HttpParser.HTTP_LINE_LIMIT`. */
+        internal const val MAX_HEADER_LINE_BYTES = 8 * 1024
+
+        /** ktor-http-cio 3.4.2 `ChunkedTransferEncoding.MAX_CHUNK_SIZE_LENGTH`. */
+        internal const val MAX_CHUNK_SIZE_LINE_BYTES = 128
+
+        /** No Ktor CIO equivalent -- see the class kdoc. */
+        internal const val MAX_HEADER_BLOCK_BYTES = 64 * 1024
+
+        private const val FAILED_STATE_MESSAGE =
+            "HTTP framing limit already exceeded on this connection"
 
         /**
          * Return the index of the character just before the `\r\n\r\n`

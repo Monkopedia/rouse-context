@@ -257,15 +257,33 @@ class TunnelForegroundService : LifecycleService() {
                 Log.i(TAG, "New mux stream ${stream.id}, starting session handler")
                 try {
                     sessionHandler.handleStream(stream)
-                } catch (e: Exception) {
+                } catch (e: CancellationException) {
+                    // Explicit and FIRST, so the broad clause below cannot take
+                    // delivery of it. [reportTunnelFailure] would rethrow it
+                    // anyway, but relying on that left this site looking like a
+                    // cancellation swallow to every reader and to the #674
+                    // gate. Stating it is cheaper than the note explaining why
+                    // it is fine.
+                    throw e
+                } catch (e: Throwable) {
+                    // Throwable, not Exception. An OutOfMemoryError raised while
+                    // serving ONE session -- the bridge holds per-session
+                    // buffers, and up to 32 streams share this process -- is an
+                    // Error, so an `Exception` clause lets it past, fails the
+                    // launched coroutine, and takes the whole foreground
+                    // service down with it. One bad session must cost one
+                    // session. The framing caps in HttpHeaderInjector are what
+                    // make that unreachable from the header path; this is the
+                    // boundary that makes it survivable from anywhere else.
+                    //
                     // Three-way, not two (#642). Every exception used to become
                     // a non-fatal crash report here, which discarded the
                     // discrimination #616/#626/#630/#639/#643/#647 built inside
                     // the TLS layer: a peer aborting mid-handshake, this
                     // layer's own defects and plain cancellation all landed in
-                    // the same channel. See [reportTunnelFailure]; it rethrows
-                    // CancellationException. Still catches per stream, so one
-                    // bad session cannot take the tunnel down.
+                    // the same channel. [reportTunnelFailure] already accepts a
+                    // Throwable and classifies an unanticipated one as Defect,
+                    // which is the right home for an OOM.
                     crashReporter.reportTunnelFailure(
                         TAG,
                         "Session handler failed for stream ${stream.id}",

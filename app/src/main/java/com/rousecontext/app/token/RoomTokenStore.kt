@@ -112,25 +112,49 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         dao.updateLabelByClientId(integrationId, clientId, newLabel)
     }
 
+    /**
+     * Redeems [refreshToken] for a fresh pair, rotating the parent row.
+     *
+     * Exactly one redemption of a given refresh token can succeed. A second
+     * one -- whether it is a replay minutes later or a concurrent request
+     * racing the first -- is a reuse event under OAuth 2.1 §4.14 and revokes
+     * the whole family.
+     *
+     * That is strict by design and it has a cost: a well-behaved client that
+     * fires two refreshes at once (a 401 storm does this) now has its family
+     * revoked and its user sent back through authorization, where before both
+     * refreshes quietly succeeded. The spec-clean softening is a short grace
+     * window in which the immediately-preceding token returns the child that
+     * was already minted for it instead of counting as reuse; that is a
+     * product decision and is deliberately NOT taken here.
+     */
     override fun refreshToken(integrationId: String, refreshToken: String): TokenPair? {
         val hash = hashToken(refreshToken)
         val entity = dao.findByRefreshHash(integrationId, hash) ?: return null
 
-        // Reuse detection (OAuth 2.1 §4.14): if the refresh token has already
-        // been rotated, treat this redemption as a replay and revoke the
-        // entire token family.
-        if (entity.rotatedAt != null) {
-            dao.deleteByFamilyId(entity.familyId)
-            return null
-        }
-
         val now = System.currentTimeMillis()
-        if (now > entity.refreshExpiresAt) return null
+        // Expiry is only a reason to refuse a token that has NOT been redeemed.
+        // A token that has already been rotated and is presented again is a
+        // reuse event whatever the clock says, and the compare-and-swap below
+        // is what detects it -- so the expiry check is guarded rather than
+        // allowed to return early ahead of it.
+        if (entity.rotatedAt == null && now > entity.refreshExpiresAt) return null
 
         // Rotate: keep the parent row (with rotatedAt set) so future replays
         // are detectable; mint a child pair with the same familyId. Setting
         // rotatedAt also invalidates the old access token via findByHash.
-        dao.markRotated(entity.id, now)
+        //
+        // Compare-and-swap, not a plain UPDATE, and it is the ONLY thing that
+        // decides who rotated the row: `entity.rotatedAt` is a value another
+        // thread may write between our read and this line, which is exactly
+        // the gap the audit measured. A 0 return means someone else got there
+        // first -- a replay minutes later and a concurrent redemption racing
+        // us are the same event from here, and get the same answer.
+        if (dao.markRotatedIfUnrotated(entity.id, now) == 0) {
+            // Reuse detection (OAuth 2.1 §4.14): revoke the entire family.
+            dao.deleteByFamilyId(entity.familyId)
+            return null
+        }
         return createTokenPair(
             integrationId = integrationId,
             clientId = entity.clientId,
