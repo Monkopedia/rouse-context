@@ -33,7 +33,7 @@ class RoomTokenStoreTest {
         db = Room.inMemoryDatabaseBuilder(context, TokenDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        store = RoomTokenStore(db.tokenDao())
+        store = RoomTokenStore(db.tokenDao(), RoomTransactionRunner(db))
     }
 
     @After

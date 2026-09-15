@@ -41,7 +41,9 @@ import com.rousecontext.app.support.BugReportUriBuilder
 import com.rousecontext.app.support.CrashReportingPreference
 import com.rousecontext.app.support.batteryExemptFlow
 import com.rousecontext.app.token.RoomTokenStore
+import com.rousecontext.app.token.RoomTransactionRunner
 import com.rousecontext.app.token.TokenDatabase
+import com.rousecontext.app.token.TokenTransactionRunner
 import com.rousecontext.app.token.createUnknownClientLabeler
 import com.rousecontext.app.ui.viewmodels.AddIntegrationViewModel
 import com.rousecontext.app.ui.viewmodels.AuditHistoryViewModel
@@ -171,6 +173,7 @@ val appModule = module {
     // --- Databases ---
     single { TokenDatabase.create(androidContext()) }
     single { get<TokenDatabase>().tokenDao() }
+    single<TokenTransactionRunner> { RoomTransactionRunner(get<TokenDatabase>()) }
     single { AuditDatabase.create(androidContext()) }
     single { get<AuditDatabase>().auditDao() }
     single { get<AuditDatabase>().mcpRequestDao() }
