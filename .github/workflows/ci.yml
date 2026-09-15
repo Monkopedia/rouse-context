@@ -150,6 +150,32 @@ jobs:
       # test stubs `gh` and `gcloud`, so it never reaches GitHub or the VPS.
       - name: "backfill-relay-secrets self-test (#686)"
         run: bash scripts/tests/backfill-relay-secrets-test.sh
+      # The FOSS-purity gate. release.yml runs it as "Staged FOSS APK contains
+      # no Google/Firebase code" -- the whole of #548's answer -- and until #705
+      # it had never been observed going red. Fixtures, not real APKs: the gate
+      # reads an APK as a zip of files and greps the bytes, so a zip of text
+      # files exercises every path it has, in a second, with no SDK.
+      - name: "APK distribution gate self-test (#705, #548)"
+        run: bash scripts/tests/check-apk-distribution-test.sh
+      # #657 measured this gate printing "OK: no zombie screens" and exiting 0
+      # over a tree containing one, with a stubbed-failing `awk`. That red case
+      # is pinned here, alongside a reconstruction of the pre-#657 shape that
+      # must still produce the lie -- so the pin cannot pass for an unrelated
+      # reason.
+      - name: "Zombie-screens gate self-test (#705, #657)"
+        run: bash scripts/tests/check-zombie-screens-test.sh
+      # The rule the two steps above satisfy, made mechanical: every
+      # scripts/check-*.sh has a scripts/tests/<gate>-test.sh, and every
+      # self-test is invoked by a workflow. It was a comment in
+      # scripts/lib/gate-filters.sh, and on main it was false.
+      - name: "Every gate ships a wired self-test (#705)"
+        run: bash scripts/check-gate-selftests.sh
+      # ...and the coverage gate is itself a gate, so it has its own harness.
+      # A coverage check is the easiest kind to make vacuous -- discover
+      # nothing, compare nothing, report clean (#629) -- so every way it could
+      # look at an empty set is a red case in here.
+      - name: "Gate self-test coverage gate self-test (#705)"
+        run: bash scripts/tests/check-gate-selftests-test.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
