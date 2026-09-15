@@ -1,0 +1,9 @@
+Security fixes from an outside audit of 1.0.11.
+
+Turning a consent switch off could leave the matching tool waiting forever
+instead of refusing, when the setting itself could not be read.
+
+Detecting a reused refresh token now revokes that whole token family in one
+step, so a replacement can no longer slip in just after the revocation.
+
+The sign-in token endpoint now refuses oversized or stalled requests.
