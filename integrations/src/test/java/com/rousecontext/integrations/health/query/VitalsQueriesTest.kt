@@ -342,7 +342,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val values = queries.bucketValues("BloodGlucose", from, to)!!.toList()
+        val values = queries.bucketValues("BloodGlucose", from, to)!!.valueList()
         assertEquals(1, values.size)
         assertEquals(5.4, values[0].value, 0.0001)
         assertEquals(Instant.parse("2026-04-10T08:00:00Z"), values[0].time)
@@ -367,7 +367,7 @@ class VitalsQueriesTest {
                 )
             )
         )
-        val values = queries.bucketValues("HeartRate", from, to)!!.toList()
+        val values = queries.bucketValues("HeartRate", from, to)!!.valueList()
         assertEquals(listOf(70.0, 80.0), values.map { it.value })
     }
 
@@ -376,5 +376,35 @@ class VitalsQueriesTest {
         val (queries, _) = make()
         assertEquals(null, queries.bucketValues("BloodPressure", from, to))
         assertEquals(null, queries.bucketValues("SkinTemperature", from, to))
+    }
+
+    @Test
+    fun `bucketValues carries the reader's ceiling note through the mapping`() = runBlocking {
+        val (queries, reader) = make()
+        reader.streamHitsCeiling = true
+        reader.put(
+            HeartRateRecord::class,
+            listOf(
+                HeartRateRecord(
+                    startTime = Instant.parse("2026-04-10T08:00:00Z"),
+                    startZoneOffset = ZoneOffset.UTC,
+                    endTime = Instant.parse("2026-04-10T09:00:00Z"),
+                    endZoneOffset = ZoneOffset.UTC,
+                    samples = emptyList(),
+                    metadata = testMetadata
+                )
+            )
+        )
+        // flatMapValues: the record yields nothing, so the note is all that is
+        // left to say the reader stopped before the end of the range.
+        assertEquals(
+            listOf(Streamed.CeilingReached),
+            queries.bucketValues("HeartRate", from, to)!!.toList()
+        )
+        // mapValues: same note, one-to-one path.
+        assertEquals(
+            listOf(Streamed.CeilingReached),
+            queries.bucketValues("BloodGlucose", from, to)!!.toList()
+        )
     }
 }
