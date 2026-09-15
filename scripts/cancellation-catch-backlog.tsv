@@ -63,7 +63,6 @@ core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	handleAuthor
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	handleMcpDelete	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	handleRegister	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	newSessionEntry	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
-core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	parseTokenRequestParams	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	readJsonRpcBody	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	shutdown	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	sweepExpiredSessions	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.

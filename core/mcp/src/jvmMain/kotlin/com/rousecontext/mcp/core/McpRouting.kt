@@ -2,12 +2,14 @@ package com.rousecontext.mcp.core
 
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.parseUrlEncodedParameters
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.request.contentLength
 import io.ktor.server.request.contentType
-import io.ktor.server.request.receiveParameters
+import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
@@ -16,6 +18,8 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.readRemaining
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
@@ -25,10 +29,13 @@ import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
 import java.net.URI
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -599,10 +606,16 @@ class McpRoutes(
             return
         }
 
-        val params = parseTokenRequestParams(this)
-        if (params == null) {
-            respond(HttpStatusCode.BadRequest)
-            return
+        val params = when (val body = parseTokenRequestParams(this)) {
+            is TokenRequestBody.Parsed -> body.params
+            TokenRequestBody.TooLarge -> {
+                respond(HttpStatusCode.PayloadTooLarge)
+                return
+            }
+            TokenRequestBody.Malformed -> {
+                respond(HttpStatusCode.BadRequest)
+                return
+            }
         }
 
         val grantType = params["grant_type"]
@@ -1186,22 +1199,133 @@ internal suspend fun dispatchJsonRpc(transport: HttpTransport, requestBody: Stri
     }
 }
 
+/** Outcome of a size-bounded body read. See [receiveBoundedText]. */
+private sealed interface BoundedBody {
+    /** The complete body, which was at or under the cap. */
+    data class Text(val value: String) : BoundedBody
+
+    /** The body exceeded the cap and was NOT read past the cap. */
+    data object TooLarge : BoundedBody
+
+    /** The body could not be read: timed out, or the connection failed. */
+    data object Unreadable : BoundedBody
+}
+
 /**
- * Parses token request parameters from either form-encoded or JSON body.
- * Returns a simple map of parameter names to values, or null on parse failure.
+ * Reads at most [maxBytes] of the request body, failing closed.
+ *
+ * Two guards, because either one alone leaves a hole:
+ *
+ *  - A `Content-Length` already above the cap is rejected BEFORE the body is
+ *    touched at all, so the cheap case stays cheap.
+ *  - The read itself then goes through [readBounded], which takes exactly
+ *    `maxBytes + 1` bytes off the channel. A chunked body, or one whose
+ *    `Content-Length` understates what is actually sent, therefore still
+ *    cannot make this process accumulate more than a single byte past the cap.
+ *
+ * The read is also wrapped in a timeout, for the same reason `/register` and
+ * `/mcp` wrap theirs: a size cap alone does not stop a client dripping bytes
+ * slowly and holding the request coroutine open indefinitely.
+ *
+ * [TimeoutCancellationException] is caught first and by its own narrow type.
+ * It IS a [CancellationException], so it has to be taken before the rethrow
+ * clause below -- but the rethrow clause has to stay, and stay above the broad
+ * one, or cancellation of the enclosing scope would be swallowed here too
+ * (`CancellationException` extends `IllegalStateException` on the JVM; see
+ * `scripts/check-cancellation-catch-order.sh`).
  */
-private suspend fun parseTokenRequestParams(call: RoutingCall): Map<String, String?>? = try {
-    if (call.request.contentType().match(ContentType.Application.FormUrlEncoded)) {
-        val params = call.receiveParameters()
-        params.names().associateWith { params[it] }
-    } else {
-        val body = mcpJson.parseToJsonElement(call.receiveText()).jsonObject
-        body.mapValues { (_, v) ->
-            if (v is JsonNull) null else v.jsonPrimitive.content
+private suspend fun RoutingCall.receiveBoundedText(maxBytes: Int): BoundedBody {
+    val declared = request.contentLength()
+    if (declared != null && declared > maxBytes) return BoundedBody.TooLarge
+    val bytes = try {
+        withTimeout(TOKEN_BODY_TIMEOUT_MS) {
+            receiveChannel().readBounded(maxBytes)
         }
+    } catch (_: TimeoutCancellationException) {
+        return BoundedBody.Unreadable
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        return BoundedBody.Unreadable
     }
-} catch (_: Exception) {
-    null
+    return if (bytes == null) {
+        BoundedBody.TooLarge
+    } else {
+        BoundedBody.Text(bytes.decodeToString())
+    }
+}
+
+/**
+ * Takes at most `maxBytes + 1` bytes off this channel, returning null if the
+ * extra sentinel byte came back -- which proves the remaining content is longer
+ * than [maxBytes] WITHOUT having read it.
+ *
+ * Reading the sentinel rather than checking a length afterwards is the whole
+ * point: `readRemaining()` with no bound would accumulate the entire body in
+ * memory first and only then discover it was too big, which is the defect this
+ * is fixing (#761). The distinction is invisible from the outside -- both shapes
+ * answer 413 -- so it is pinned by a direct test of this function rather than
+ * through the endpoint.
+ */
+internal suspend fun ByteReadChannel.readBounded(maxBytes: Int): ByteArray? {
+    val bytes = readRemaining((maxBytes + 1).toLong()).readByteArray()
+    return if (bytes.size > maxBytes) null else bytes
+}
+
+/**
+ * Outcome of reading and parsing a `/token` request body.
+ *
+ * "Too large" is kept distinct from "malformed" so the endpoint can answer 413
+ * rather than 400: a client that gets 400 for a body it considers well-formed
+ * has no way to discover that the size was the problem.
+ */
+private sealed interface TokenRequestBody {
+    data class Parsed(val params: Map<String, String?>) : TokenRequestBody
+    data object TooLarge : TokenRequestBody
+    data object Malformed : TokenRequestBody
+}
+
+/**
+ * Parses token request parameters from either a form-encoded or a JSON body.
+ *
+ * Both branches read through [receiveBoundedText], so neither can accumulate an
+ * unbounded body. Capping only the JSON branch would leave the common path
+ * open: `application/x-www-form-urlencoded` is the default for OAuth token
+ * requests, and is what every client we have seen actually sends.
+ *
+ * The form branch parses the bounded text with [parseUrlEncodedParameters]
+ * rather than calling `receiveParameters()`, which would read the channel
+ * itself and defeat the cap. The two decode identically; that equivalence is
+ * pinned by `TokenBodyLimitTest`, not assumed.
+ */
+private suspend fun parseTokenRequestParams(call: RoutingCall): TokenRequestBody {
+    val text = when (val body = call.receiveBoundedText(MAX_TOKEN_BODY_BYTES)) {
+        is BoundedBody.Text -> body.value
+        BoundedBody.TooLarge -> return TokenRequestBody.TooLarge
+        BoundedBody.Unreadable -> return TokenRequestBody.Malformed
+    }
+    return try {
+        val isForm = call.request.contentType()
+            .match(ContentType.Application.FormUrlEncoded)
+        val params = if (isForm) {
+            // `plusIsSpace = true` is NOT optional and NOT the default: in
+            // `application/x-www-form-urlencoded` a `+` means a space, and
+            // `receiveParameters()` decodes it that way. Leaving the default
+            // here would have silently changed the value of every form field
+            // containing a `+`. The equivalence test caught exactly that.
+            val parsed = text.parseUrlEncodedParameters(plusIsSpace = true)
+            parsed.names().associateWith { parsed[it] }
+        } else {
+            mcpJson.parseToJsonElement(text).jsonObject.mapValues { (_, v) ->
+                if (v is JsonNull) null else v.jsonPrimitive.content
+            }
+        }
+        TokenRequestBody.Parsed(params)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        TokenRequestBody.Malformed
+    }
 }
 
 /**
@@ -1494,6 +1618,38 @@ internal fun htmlEscapeForJs(value: String): String {
 
 /** Timeout for reading the MCP request body and dispatching it (30 seconds). */
 private const val MCP_REQUEST_TIMEOUT_MS = 30_000L
+
+/**
+ * Maximum accepted `/token` request body, in bytes (#761).
+ *
+ * Sized from what this codebase actually sends rather than picked as a round
+ * number. Every OAuth credential here is 32 random bytes rendered base64url --
+ * 43 characters -- from [AuthorizationCodeManager], [DeviceCodeManager] and the
+ * token store, and `client_id` is a UUID, 36 characters. The largest token
+ * request RFC 6749/7636 permit against this server is therefore an
+ * `authorization_code` grant carrying a 43-character `code`, a `code_verifier`
+ * at RFC 7636's 128-character maximum, a UUID `client_id` and a `redirect_uri`:
+ * 268 bytes before the redirect URI. `TokenBodyLimitTest` measures that against
+ * the real generators instead of trusting this comment.
+ *
+ * 4096 leaves roughly 3.8 KB for a `redirect_uri`, well past the ~2 KB that
+ * browsers and intermediaries impose on a URL anyway, and is deliberately below
+ * the 8192 bytes Ktor CIO already accepts unconditionally for a SINGLE request
+ * header line. That is the anchor: with this cap a `/token` body can never be
+ * the largest thing this endpoint has already agreed to buffer, so the body
+ * stops being the dominant memory term rather than merely being smaller.
+ */
+internal const val MAX_TOKEN_BODY_BYTES = 4096
+
+/**
+ * Read timeout for the `/token` request body.
+ *
+ * Matches `/register`'s 5 seconds: both carry a few hundred bytes from a client
+ * that has already completed a TLS handshake, so anything slower is not a real
+ * client. `/mcp` is the one that legitimately needs 30s, because its body is a
+ * tool call rather than a credential exchange.
+ */
+private const val TOKEN_BODY_TIMEOUT_MS = 5_000L
 
 /** RFC 8628 device code lifetime (10 minutes). Matches [DeviceCodeManager]. */
 private const val DEVICE_CODE_EXPIRES_IN_SECONDS = 600L
