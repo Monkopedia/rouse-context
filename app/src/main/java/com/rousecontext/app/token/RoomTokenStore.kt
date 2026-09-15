@@ -19,7 +19,8 @@ import kotlinx.coroutines.flow.map
  * Tokens are generated as 32 random bytes encoded as base64url.
  * Only the SHA-256 hash of the token is persisted.
  */
-class RoomTokenStore(private val dao: TokenDao) : TokenStore {
+class RoomTokenStore(private val dao: TokenDao, private val transactions: TokenTransactionRunner) :
+    TokenStore {
 
     override fun validateToken(integrationId: String, token: String): Boolean {
         val hash = hashToken(token)
@@ -132,35 +133,54 @@ class RoomTokenStore(private val dao: TokenDao) : TokenStore {
         val hash = hashToken(refreshToken)
         val entity = dao.findByRefreshHash(integrationId, hash) ?: return null
 
-        val now = System.currentTimeMillis()
         // Expiry is only a reason to refuse a token that has NOT been redeemed.
         // A token that has already been rotated and is presented again is a
         // reuse event whatever the clock says, and the compare-and-swap below
         // is what detects it -- so the expiry check is guarded rather than
         // allowed to return early ahead of it.
-        if (entity.rotatedAt == null && now > entity.refreshExpiresAt) return null
-
-        // Rotate: keep the parent row (with rotatedAt set) so future replays
-        // are detectable; mint a child pair with the same familyId. Setting
-        // rotatedAt also invalidates the old access token via findByHash.
-        //
-        // Compare-and-swap, not a plain UPDATE, and it is the ONLY thing that
-        // decides who rotated the row: `entity.rotatedAt` is a value another
-        // thread may write between our read and this line, which is exactly
-        // the gap the audit measured. A 0 return means someone else got there
-        // first -- a replay minutes later and a concurrent redemption racing
-        // us are the same event from here, and get the same answer.
-        if (dao.markRotatedIfUnrotated(entity.id, now) == 0) {
-            // Reuse detection (OAuth 2.1 §4.14): revoke the entire family.
-            dao.deleteByFamilyId(entity.familyId)
+        if (entity.rotatedAt == null && System.currentTimeMillis() > entity.refreshExpiresAt) {
             return null
         }
-        return createTokenPair(
-            integrationId = integrationId,
-            clientId = entity.clientId,
-            clientName = entity.label,
-            familyId = entity.familyId
-        )
+
+        // ONE transaction covering all three parts of a rotation: consume the
+        // parent, then either mint the child or revoke the family. It is not
+        // enough for the compare-and-swap alone to be atomic (issue #760): a
+        // CAS loser revoking the family between a CAS winner's swap and its
+        // child insert left the winner inserting a live token into a family
+        // the store had already revoked, because at delete time the child did
+        // not exist yet.
+        //
+        //   A: CAS -> 1  |  B: CAS -> 0  |  B: deleteByFamilyId  |  A: INSERT
+        //
+        // "At most one descendant" survived that; "a revoked family stays
+        // revoked" did not. SQLite serializes write transactions, so with the
+        // insert and the delete inside one, a revocation can only be ordered
+        // wholly before or wholly after a rotation, and either order ends with
+        // the family empty.
+        //
+        // The read above is deliberately left outside: it cannot widen the
+        // race. The CAS is keyed on `id` with `rotatedAt IS NULL`, so a stale
+        // read can only ever lose the CAS -- including when the row has since
+        // been deleted by a revocation -- and losing routes to the reuse
+        // branch, which is the correct answer for a stale token.
+        return transactions.inTransaction {
+            val now = System.currentTimeMillis()
+            // Rotate: keep the parent row (with rotatedAt set) so future
+            // replays are detectable; mint a child pair with the same
+            // familyId. Setting rotatedAt also invalidates the old access
+            // token via findByHash.
+            if (dao.markRotatedIfUnrotated(entity.id, now) == 0) {
+                // Reuse detection (OAuth 2.1 §4.14): revoke the entire family.
+                dao.deleteByFamilyId(entity.familyId)
+                return@inTransaction null
+            }
+            createTokenPair(
+                integrationId = integrationId,
+                clientId = entity.clientId,
+                clientName = entity.label,
+                familyId = entity.familyId
+            )
+        }
     }
 
     override fun listTokens(integrationId: String): List<TokenInfo> =

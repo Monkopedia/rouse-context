@@ -66,7 +66,7 @@ class RoomTokenStoreConcurrentRefreshTest {
      */
     @Test
     fun `concurrent refresh of one token mints exactly one descendant`() {
-        val store = RoomTokenStore(db.tokenDao())
+        val store = RoomTokenStore(db.tokenDao(), RoomTransactionRunner(db))
         var doubleMints = 0
         var zeroMints = 0
         val attempts = 200
@@ -134,7 +134,7 @@ class RoomTokenStoreConcurrentRefreshTest {
                 return row
             }
         }
-        val store = RoomTokenStore(dao)
+        val store = RoomTokenStore(dao, RoomTransactionRunner(db))
         val parent = store.createTokenPair("health", "client-x", "Client")
 
         val done = CountDownLatch(2)
@@ -162,6 +162,12 @@ class RoomTokenStoreConcurrentRefreshTest {
             interleavedReads.get()
         )
         assertEquals("descendants minted from one refresh token", 1, minted.size)
+        // Issue #760: the losing caller revoked the family, so nothing of it
+        // may be left behind -- not even the descendant the winner minted.
+        // Asserting only on `minted.size` let a live token survive in a
+        // revoked family; `RoomTokenStoreFamilyRevocationTest` reproduces that
+        // deterministically.
+        assertEquals("a revoked family must leave no live rows", 0, live.size)
     }
 
     /**
@@ -171,7 +177,7 @@ class RoomTokenStoreConcurrentRefreshTest {
      */
     @Test
     fun `uncontended refresh mints one descendant and burns the parent`() {
-        val store = RoomTokenStore(db.tokenDao())
+        val store = RoomTokenStore(db.tokenDao(), RoomTransactionRunner(db))
         val parent = store.createTokenPair("health", "client-seq", "Client")
 
         val child = store.refreshToken("health", parent.refreshToken)

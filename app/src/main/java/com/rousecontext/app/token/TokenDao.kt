@@ -57,8 +57,14 @@ interface TokenDao {
      * indefinitely. Measured before the fix: 199 of 200 rounds double-minted.
      *
      * A single SQLite `UPDATE` is atomic, so the `rotatedAt IS NULL` predicate
-     * and the write cannot be separated and no surrounding transaction is
-     * needed.
+     * and the write cannot be separated.
+     *
+     * That makes the *decision* atomic, and nothing more. The rotation as a
+     * whole is not: consuming the parent, minting the child and revoking the
+     * family are three statements, and issue #760 was a loser's
+     * [deleteByFamilyId] landing between a winner's swap here and its
+     * [insert]. Callers MUST therefore run this and whichever branch follows
+     * inside one transaction -- see [RoomTokenStore.refreshToken].
      */
     @Query("UPDATE tokens SET rotatedAt = :rotatedAt WHERE id = :id AND rotatedAt IS NULL")
     fun markRotatedIfUnrotated(id: Long, rotatedAt: Long): Int
