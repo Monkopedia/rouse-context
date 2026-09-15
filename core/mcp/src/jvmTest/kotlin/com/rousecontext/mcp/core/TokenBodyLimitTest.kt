@@ -503,6 +503,90 @@ class TokenBodyLimitTest {
         }
     }
 
+    // -- The read timeout, the other half of #761 --
+    //
+    // A cap without a timeout still admits a slowloris: a client that declares a
+    // body comfortably UNDER the cap and then dribbles it, or stops, holds the
+    // request coroutine open for as long as it likes. The cap cannot catch that
+    // -- by construction the body is small -- so the timeout is what ends it,
+    // and it needs its own test or a regression that drops it goes unnoticed.
+
+    /**
+     * Declares [declaredLength] bytes, sends [sentBytes] of them, and then stops,
+     * returning the status line and how long the server took to answer.
+     */
+    private fun postAndStall(port: Int, declaredLength: Int, sentBytes: Int): Pair<String, Long> {
+        Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = SOCKET_TIMEOUT_MS
+            val out = socket.getOutputStream()
+            out.write(
+                (
+                    "POST /token HTTP/1.1\r\n" +
+                        "Host: test.rousecontext.com\r\n" +
+                        "Content-Type: application/x-www-form-urlencoded\r\n" +
+                        "Content-Length: $declaredLength\r\n" +
+                        "Connection: close\r\n\r\n"
+                    ).toByteArray()
+            )
+            // Plain filler: this body is never meant to parse into a grant, it
+            // exists to be incomplete. The status only has to show the server
+            // ANSWERED rather than waited forever.
+            out.write("a".repeat(sentBytes).toByteArray())
+            out.flush()
+
+            val startedAt = System.nanoTime()
+            val statusLine = socket.getInputStream().bufferedReader().readLine()
+                ?: error("server closed without sending a status line")
+            return statusLine to (System.nanoTime() - startedAt) / 1_000_000
+        }
+    }
+
+    @Test
+    fun `a stalled under-cap body is ended by the read timeout`() {
+        // Content-Length is UNDER the cap on purpose, so the cheap pre-check
+        // cannot fire and the only thing that can end this request is the 5s
+        // read timeout. Without the timeout the request would hang until the
+        // socket read timeout above, and this test would fail by hanging.
+        withCioServer { port ->
+            val (statusLine, elapsedMs) = postAndStall(port, declaredLength = 200, sentBytes = 20)
+
+            assertTrue(
+                "a stalled body must be rejected, not left open; was: $statusLine",
+                statusLine.contains("400") ||
+                    statusLine.contains("408") ||
+                    statusLine.contains("413") ||
+                    statusLine.contains("504")
+            )
+            // The elapsed time is what separates "the timeout fired" from "the
+            // body happened to parse instantly and 400 means something else".
+            // The control below is the other half of that comparison.
+            assertTrue(
+                "the answer must come from the ${BODY_READ_TIMEOUT_MS}ms read timeout, " +
+                    "but arrived after only ${elapsedMs}ms",
+                elapsedMs >= BODY_READ_TIMEOUT_MS * 3 / 4
+            )
+        }
+    }
+
+    @Test
+    fun `a complete under-cap body is answered without waiting for the timeout`() {
+        // Control for the test above: same shape, same status, but the body is
+        // delivered in full. Without this, a server that simply waited 5s before
+        // answering everything would pass.
+        withCioServer { port ->
+            val (statusLine, elapsedMs) = postAndStall(port, declaredLength = 200, sentBytes = 200)
+
+            assertTrue(
+                "a complete body must still be answered by the grant handler; was: $statusLine",
+                statusLine.contains("400")
+            )
+            assertTrue(
+                "a complete body must not wait on the read timeout; took ${elapsedMs}ms",
+                elapsedMs < BODY_READ_TIMEOUT_MS / 2
+            )
+        }
+    }
+
     // -- The production cap, and the measurements that justify it --
 
     @Test
