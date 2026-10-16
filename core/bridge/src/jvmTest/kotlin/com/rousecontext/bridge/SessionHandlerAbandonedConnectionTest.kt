@@ -9,9 +9,11 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
@@ -67,9 +69,12 @@ class SessionHandlerAbandonedConnectionTest {
     @Test
     fun `connections abandoned mid-request hold no IO worker threads`() = runBlocking {
         val bridged = AtomicInteger()
+        val allBridged = CompletableDeferred<Unit>()
         val handler = SessionHandler(
             certProvider = certStore,
-            mcpSessionFactory = sharedFactory(onCreate = { bridged.incrementAndGet() })
+            mcpSessionFactory = sharedFactory(
+                onCreate = { if (bridged.incrementAndGet() == ABANDONED) allBridged.complete(Unit) }
+            )
         )
         val baseline = workersInsideSessionHandler()
 
@@ -89,9 +94,11 @@ class SessionHandlerAbandonedConnectionTest {
             }
             sent
         }
-        withTimeout(SETTLE_TIMEOUT_MS) { requestsSent.awaitAll() }
-        assertEquals(ABANDONED, bridged.get(), "every stream should have reached the bridge")
-        // Let every bridge reach its socket read.
+        withTimeout(SETTLE_TIMEOUT_MS) {
+            requestsSent.awaitAll()
+            allBridged.await()
+        }
+        // Let every bridge connect and reach its socket read.
         delay(SETTLE_DELAY_MS)
 
         val held = workersInsideSessionHandler() - baseline
@@ -109,6 +116,79 @@ class SessionHandlerAbandonedConnectionTest {
         coroutineContext.cancelChildren()
     }
 
+    @Test
+    fun `a session abandoned mid-request ends after the idle bound`() = runBlocking {
+        val handler = SessionHandler(
+            certProvider = certStore,
+            mcpSessionFactory = sharedFactory(),
+            idleTimeout = SHORT_IDLE
+        )
+        val (serverStream, clientStream) = createMuxPipe(1u)
+        val session = launch { handler.handleStream(serverStream) }
+        launch(clientDispatcher) {
+            val (_, out) = tlsClientHandshake(certStore, clientStream)
+            out.write(partialInitializeRequest())
+            out.flush()
+        }
+
+        withTimeout(SETTLE_TIMEOUT_MS) { session.join() }
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `a completed request still gets its response`() = runBlocking {
+        val handler = SessionHandler(certProvider = certStore, mcpSessionFactory = sharedFactory())
+        val (serverStream, clientStream) = createMuxPipe(1u)
+        val session = launch { handler.handleStream(serverStream) }
+
+        val statusLine = withTimeout(SETTLE_TIMEOUT_MS) {
+            async(clientDispatcher) {
+                val (input, out) = tlsClientHandshake(certStore, clientStream)
+                out.write(initializeRequest())
+                out.flush()
+                input.bufferedReader().readLine()
+            }.await()
+        }
+        assertEquals("HTTP/1.1 200 OK", statusLine)
+
+        // The client hanging up (the relay's CLOSE) still ends the session.
+        clientStream.close()
+        withTimeout(SETTLE_TIMEOUT_MS) { session.join() }
+
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    fun `a request that keeps moving bytes outlives the idle bound`() = runBlocking {
+        val handler = SessionHandler(
+            certProvider = certStore,
+            mcpSessionFactory = sharedFactory(),
+            idleTimeout = SHORT_IDLE
+        )
+        val (serverStream, clientStream) = createMuxPipe(1u)
+        launch { handler.handleStream(serverStream) }
+
+        val statusLine = withTimeout(SETTLE_TIMEOUT_MS) {
+            async(clientDispatcher) {
+                val (input, out) = tlsClientHandshake(certStore, clientStream)
+                // Dribble the request so it takes several idle periods in all,
+                // but no single gap reaches one.
+                val request = initializeRequest()
+                val chunk = request.size / DRIBBLE_CHUNKS + 1
+                for (start in request.indices step chunk) {
+                    out.write(request, start, minOf(chunk, request.size - start))
+                    out.flush()
+                    delay(SHORT_IDLE / 3)
+                }
+                input.bufferedReader().readLine()
+            }.await()
+        }
+        assertEquals("HTTP/1.1 200 OK", statusLine)
+
+        coroutineContext.cancelChildren()
+    }
+
     // -- helpers --
 
     private fun sharedFactory(onCreate: () -> Unit = {}) = object : McpSessionFactory {
@@ -118,7 +198,7 @@ class SessionHandlerAbandonedConnectionTest {
         }
     }
 
-    private fun partialInitializeRequest(): ByteArray {
+    private fun initializeRequest(): ByteArray {
         val body = INITIALIZE_BODY.toByteArray()
         val head = "POST /mcp HTTP/1.1\r\n" +
             "Host: test.rousecontext.com\r\n" +
@@ -126,7 +206,13 @@ class SessionHandlerAbandonedConnectionTest {
             "Accept: application/json\r\n" +
             "Authorization: Bearer $token\r\n" +
             "Content-Length: ${body.size}\r\n\r\n"
-        return head.toByteArray() + body.copyOf(body.size / 2)
+        return head.toByteArray() + body
+    }
+
+    /** [initializeRequest] cut off halfway through its body. */
+    private fun partialInitializeRequest(): ByteArray {
+        val full = initializeRequest()
+        return full.copyOf(full.size - INITIALIZE_BODY.length / 2)
     }
 
     private fun stacksInsideSessionHandler(): Map<Thread, Array<StackTraceElement>> =
@@ -150,6 +236,8 @@ class SessionHandlerAbandonedConnectionTest {
         const val SETTLE_TIMEOUT_MS = 15_000L
         const val SETTLE_DELAY_MS = 1_000L
         const val STACK_DEPTH = 12
+        const val DRIBBLE_CHUNKS = 8
+        val SHORT_IDLE = 600.milliseconds
         const val IO_WORKER_PREFIX = "DefaultDispatcher-worker"
         const val INITIALIZE_BODY =
             """{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-03-26",""" +

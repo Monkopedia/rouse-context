@@ -51,7 +51,6 @@ app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt	dismi
 app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt	getActiveNotifications	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 app/src/main/java/com/rousecontext/app/registry/NotificationIntegration.kt	performAction	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 app/src/main/java/com/rousecontext/app/ui/screens/AuditDetailScreen.kt	formatJsonOrRaw	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
-core/bridge/src/jvmMain/kotlin/com/rousecontext/bridge/SessionHandler.kt	bridgeToMcpServer	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/AuthorizationCodeManager.kt	registerClient	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/HttpTransport.kt	handleRequest	1	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.
 core/mcp/src/jvmMain/kotlin/com/rousecontext/mcp/core/McpRouting.kt	dispatchJsonRpc	2	Pre-existing when the #674 gate landed; unaudited. Tracked by #722.

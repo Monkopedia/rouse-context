@@ -4,14 +4,24 @@ import com.rousecontext.mcp.core.INTERNAL_TOKEN_HEADER
 import com.rousecontext.tunnel.MuxStream
 import com.rousecontext.tunnel.TlsAcceptor
 import com.rousecontext.tunnel.TunnelError
-import java.io.InputStream
-import java.io.OutputStream
-import java.net.Socket
+import io.ktor.network.selector.SelectorManager
+import io.ktor.network.sockets.aSocket
+import io.ktor.network.sockets.openReadChannel
+import io.ktor.network.sockets.openWriteChannel
+import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.ByteWriteChannel
+import io.ktor.utils.io.readAvailable
+import io.ktor.utils.io.writeFully
+import java.io.ByteArrayOutputStream
 import javax.net.ssl.SSLContext
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -25,13 +35,18 @@ import kotlinx.coroutines.withContext
  * 1. TLS accept over the mux stream (device is the TLS server)
  * 2. Start a local MCP HTTP session
  * 3. Bridge plaintext bytes between the TLS stream and the MCP session
- * 4. Clean up on disconnect -- whichever direction finishes first, the other is
- *    unblocked by closing the local TCP socket in `finally` so the still-running
- *    side's blocking `read()` throws and terminates promptly.
+ * 4. Clean up on disconnect, or after [idleTimeout] with no bytes in either
+ *    direction -- whichever ends first, the rest is cancelled and the local
+ *    TCP socket closed.
  */
 class SessionHandler(
     private val certProvider: TlsCertProvider,
     private val mcpSessionFactory: McpSessionFactory,
+    /**
+     * Ends a session that has moved no bytes in either direction for this long.
+     * A parameter so tests can use a short bound; production uses the default.
+     */
+    private val idleTimeout: Duration = DEFAULT_IDLE_TIMEOUT,
     /**
      * How an incoming [MuxStream] becomes a TLS session. Defaults to the real
      * [TlsAcceptor]; exists as a parameter so tests can drive the byte-copy
@@ -41,6 +56,13 @@ class SessionHandler(
     private val tlsAccept: suspend (SSLContext, MuxStream) -> TlsAcceptor.TlsSession =
         { sslContext, stream -> TlsAcceptor.create(sslContext).accept(stream) }
 ) {
+
+    /**
+     * Selector for the loopback sockets. Lives as long as this handler -- a
+     * process-lifetime singleton in production, like the Ktor engine it
+     * connects to.
+     */
+    private val selectorManager = SelectorManager(Dispatchers.IO)
 
     /**
      * Handles a single incoming mux stream from the relay.
@@ -80,77 +102,67 @@ class SessionHandler(
     /**
      * Bridges a suspend-native [TlsAcceptor.TlsSession] to a local MCP server via TCP.
      *
-     * Both directions run as structured coroutines on [Dispatchers.IO]:
+     * Both directions are suspending -- the loopback socket is a Ktor
+     * selector-backed socket, not a `java.net.Socket` -- so a session waiting
+     * on a silent peer parks a coroutine, not a thread. With a blocking socket
+     * read each live session held one [Dispatchers.IO] worker, and a burst of
+     * clients that vanished mid-request (no more bytes, no CLOSE) filled the
+     * 64-thread pool and wedged every `withContext(Dispatchers.IO)` in the app.
+     * See #778.
      *
-     *  - TLS -> socket uses suspend [TlsAcceptor.TlsSession.read], so cancellation
-     *    propagates cleanly.
-     *  - Socket -> TLS still calls blocking `Socket.InputStream.read`, which cannot
-     *    be cooperatively cancelled. We park that read on [Dispatchers.IO] and rely
-     *    on closing the socket to unblock it.
-     *
-     * When either direction finishes it signals [done]; the surviving coroutine is
-     * cancelled, then the socket is closed to unstick any still-blocked read.
-     *
-     * The socket close MUST run under [NonCancellable]: when the enclosing scope is
-     * cancelled, a bare `withContext(Dispatchers.IO) { socket.close() }` would itself
-     * throw [kotlinx.coroutines.CancellationException] before executing the close,
-     * leaving `socketToTls` blocked on `InputStream.read` for up to 45 s (Ktor CIO's
-     * `connectionIdleTimeoutSeconds` default) and stalling teardown. See issue #175.
+     * The session ends when either direction finishes, or when neither has
+     * moved a byte for [idleTimeout]. The survivors are cancelled and the
+     * socket is closed on the way out.
      */
     private suspend fun bridgeToMcpServer(
         tlsSession: TlsAcceptor.TlsSession,
         mcpPort: Int,
         internalToken: String
     ) = coroutineScope {
-        val socket = withContext(Dispatchers.IO) {
-            Socket("127.0.0.1", mcpPort)
-        }
-        val done = CompletableDeferred<Unit>()
-        try {
-            val socketIn = socket.getInputStream()
-            val socketOut = socket.getOutputStream()
+        aSocket(selectorManager).tcp().connect(LOOPBACK_HOST, mcpPort).use { socket ->
+            val socketIn = socket.openReadChannel()
+            val socketOut = socket.openWriteChannel()
             val injector = HttpHeaderInjector(
                 "$INTERNAL_TOKEN_HEADER: $internalToken"
             )
+            val activity = ActivityClock()
+            val done = CompletableDeferred<Unit>()
 
             // TLS -> socket (client request bytes forwarded to MCP server).
             // The injector rewrites each request's header block to include
             // the shared secret that the local Ktor guard expects. See #177.
             val tlsToSocket = launch(Dispatchers.IO) {
                 try {
-                    copyTlsToStream(tlsSession, socketOut, injector)
+                    copyTlsToChannel(tlsSession, socketOut, injector, activity)
                 } finally {
                     done.complete(Unit)
                 }
             }
 
             // Socket -> TLS (MCP server response bytes forwarded back through TLS).
-            // The blocking Socket.InputStream.read cannot be cancelled cooperatively;
-            // we rely on closing the socket in `finally` to unstick it.
             val socketToTls = launch(Dispatchers.IO) {
                 try {
-                    copyStreamToTls(socketIn, tlsSession)
+                    copyChannelToTls(socketIn, tlsSession, activity)
                 } finally {
                     done.complete(Unit)
                 }
             }
 
-            // Suspend until EITHER direction finishes (or we are cancelled).
+            // A peer that goes silent without closing never ends either copy
+            // loop on its own, so bound the session by inactivity.
+            val idleWatch = launch {
+                activity.awaitIdle(idleTimeout)
+                done.complete(Unit)
+            }
+
+            // Suspend until a direction finishes, the session idles out, or we
+            // are cancelled.
             try {
                 done.await()
             } finally {
                 tlsToSocket.cancel()
                 socketToTls.cancel()
-            }
-        } finally {
-            // Close the socket even when the surrounding scope is being cancelled.
-            // Must be NonCancellable -- see kdoc on [bridgeToMcpServer].
-            withContext(NonCancellable + Dispatchers.IO) {
-                try {
-                    socket.close()
-                } catch (_: Exception) {
-                    // Best effort cleanup.
-                }
+                idleWatch.cancel()
             }
         }
     }
@@ -163,22 +175,25 @@ class SessionHandler(
      * Ordinary failures -- the peer hanging up mid-copy, the stream closing --
      * are normal, frequent, and end the loop quietly. The exceptions that do
      * propagate are listed on [mustEndSession].
-     *
-     * Must run under [Dispatchers.IO].
      */
-    private suspend fun copyTlsToStream(
+    private suspend fun copyTlsToChannel(
         tlsSession: TlsAcceptor.TlsSession,
-        to: OutputStream,
-        injector: HttpHeaderInjector
+        to: ByteWriteChannel,
+        injector: HttpHeaderInjector,
+        activity: ActivityClock
     ) {
         try {
             val buf = ByteArray(BUFFER_SIZE)
+            val injected = ByteArrayOutputStream(BUFFER_SIZE)
             while (true) {
                 val n = tlsSession.read(buf)
                 if (n == -1) break
+                activity.touch()
+                injected.reset()
                 injector.feed(buf, 0, n) { out, off, len ->
-                    to.write(out, off, len)
+                    injected.write(out, off, len)
                 }
+                to.writeFully(injected.toByteArray())
                 to.flush()
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -223,16 +238,19 @@ class SessionHandler(
     /**
      * Copies bytes from [from] into [tlsSession] until EOF or error.
      *
-     * Same quiet-on-disconnect, loud-on-defect split as [copyTlsToStream]. See #616.
-     *
-     * Must run under [Dispatchers.IO] -- the underlying [InputStream.read] call is blocking.
+     * Same quiet-on-disconnect, loud-on-defect split as [copyTlsToChannel]. See #616.
      */
-    private suspend fun copyStreamToTls(from: InputStream, tlsSession: TlsAcceptor.TlsSession) {
+    private suspend fun copyChannelToTls(
+        from: ByteReadChannel,
+        tlsSession: TlsAcceptor.TlsSession,
+        activity: ActivityClock
+    ) {
         try {
             val buf = ByteArray(BUFFER_SIZE)
             while (true) {
-                val n = from.read(buf)
+                val n = from.readAvailable(buf)
                 if (n == -1) break
+                activity.touch()
                 tlsSession.write(buf, 0, n)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -259,5 +277,34 @@ class SessionHandler(
 
     companion object {
         private const val BUFFER_SIZE = 8192
+        private const val LOOPBACK_HOST = "127.0.0.1"
+
+        /**
+         * How long a session may move no bytes in either direction before it
+         * is torn down. Generous on purpose: a client waiting on a slow tool
+         * call is silent too, and between requests Ktor already closes an idle
+         * keep-alive connection after 45 s. This only has to catch a peer that
+         * vanished mid-request, which nothing else ever ends. See #778.
+         */
+        val DEFAULT_IDLE_TIMEOUT: Duration = 5.minutes
+    }
+}
+
+/** When either direction of a bridged session last moved a byte. */
+private class ActivityClock {
+    @Volatile
+    private var lastNanos = System.nanoTime()
+
+    fun touch() {
+        lastNanos = System.nanoTime()
+    }
+
+    /** Suspends until nothing has called [touch] for [timeout]. */
+    suspend fun awaitIdle(timeout: Duration) {
+        while (true) {
+            val idle = (System.nanoTime() - lastNanos).nanoseconds
+            if (idle >= timeout) return
+            delay(timeout - idle)
+        }
     }
 }
