@@ -52,6 +52,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
         firebase_uid: "uid-456".to_string(),
         key_thumbprint: None,
         public_key: pub_key_b64,
+        key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
         last_rotation: None,

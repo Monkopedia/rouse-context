@@ -111,6 +111,44 @@ pub async fn handle_ws(
     ws.on_upgrade(move |socket| handle_mux_session(socket, params))
 }
 
+/// Auto-create a placeholder record for an mTLS-authenticated device that has
+/// no Firestore record (test-harness only; see `allow_ws_auto_create_device`).
+///
+/// Create-only: if a record appeared since the upgrade-time lookup, it is left
+/// untouched. The device already holds a relay-CA client cert, so its key is
+/// treated as bound; the placeholder can never accept an unsigned first key.
+pub async fn create_placeholder_record(
+    firestore: &dyn crate::firestore::FirestoreClient,
+    subdomain: &str,
+) {
+    let placeholder = crate::firestore::DeviceRecord {
+        fcm_token: String::new(),
+        firebase_uid: String::new(),
+        key_thumbprint: None,
+        public_key: String::new(),
+        key_binding: crate::firestore::KeyBinding::Bound,
+        cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400 * 90),
+        registered_at: std::time::SystemTime::now(),
+        last_rotation: None,
+        renewal_nudge_sent: None,
+        secret_prefix: None,
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
+        valid_secrets: Vec::new(),
+        integration_secrets: std::collections::HashMap::new(),
+        retired_secrets: std::collections::HashMap::new(),
+    };
+    match firestore.create_device(subdomain, &placeholder).await {
+        Ok(()) => info!(subdomain = %subdomain, "Auto-created Firestore record from mTLS cert"),
+        Err(crate::firestore::FirestoreError::AlreadyExists(_)) => {
+            info!(subdomain = %subdomain, "Firestore record already exists; not auto-creating")
+        }
+        Err(e) => {
+            warn!(subdomain = %subdomain, error = %e, "Failed to auto-create Firestore record")
+        }
+    }
+}
+
 async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     let SessionParams {
         subdomain,
@@ -127,27 +165,7 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     // If no Firestore record exists (e.g. after relay restart), auto-create one
     // with a placeholder FCM token. The device will send its real token shortly.
     if !firestore_has_record {
-        let placeholder = crate::firestore::DeviceRecord {
-            fcm_token: String::new(),
-            firebase_uid: String::new(),
-            key_thumbprint: None,
-            public_key: String::new(),
-            cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400 * 90),
-            registered_at: std::time::SystemTime::now(),
-            last_rotation: None,
-            renewal_nudge_sent: None,
-            secret_prefix: None,
-            push_kind: Default::default(),
-            push_endpoint: String::new(),
-            valid_secrets: Vec::new(),
-            integration_secrets: std::collections::HashMap::new(),
-            retired_secrets: std::collections::HashMap::new(),
-        };
-        if let Err(e) = firestore.put_device(&subdomain, &placeholder).await {
-            warn!(subdomain = %subdomain, error = %e, "Failed to auto-create Firestore record");
-        } else {
-            info!(subdomain = %subdomain, "Auto-created Firestore record from mTLS cert");
-        }
+        create_placeholder_record(firestore.as_ref(), &subdomain).await;
     }
     let mut session = MuxSession::new(subdomain.clone(), max_streams);
     let frame_rx = match session.take_frame_rx() {
@@ -615,6 +633,7 @@ mod tests {
             firebase_uid: "u".to_string(),
             key_thumbprint: None,
             public_key: String::new(),
+            key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
             cert_expires: std::time::SystemTime::UNIX_EPOCH,
             registered_at: std::time::SystemTime::now(),
             last_rotation: None,
@@ -658,6 +677,7 @@ mod tests {
                     firebase_uid: "uid".to_string(),
                     key_thumbprint: None,
                     public_key: String::new(),
+                    key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
                     cert_expires: std::time::SystemTime::now(),
                     registered_at: std::time::SystemTime::now(),
                     last_rotation: None,

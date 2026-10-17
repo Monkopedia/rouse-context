@@ -367,6 +367,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
     );
     fields.insert("public_key".to_string(), string_val(&record.public_key));
     fields.insert(
+        "key_binding".to_string(),
+        string_val(record.key_binding.as_wire()),
+    );
+    fields.insert(
         "cert_expires".to_string(),
         timestamp_val(record.cert_expires),
     );
@@ -412,11 +416,20 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
 fn device_record_from_fields(
     fields: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<DeviceRecord, FirestoreError> {
+    let fcm_token = read_string(fields, "fcm_token")?;
+    let firebase_uid = read_string(fields, "firebase_uid")?;
+    let public_key = read_string(fields, "public_key")?;
+    // Documents written before key_binding existed: inferred from the key.
+    let key_binding = crate::firestore::KeyBinding::from_stored(
+        read_opt_string(fields, "key_binding").as_deref(),
+        &public_key,
+    );
     Ok(DeviceRecord {
-        fcm_token: read_string(fields, "fcm_token")?,
-        firebase_uid: read_string(fields, "firebase_uid")?,
+        fcm_token,
+        firebase_uid,
         key_thumbprint: read_opt_string(fields, "key_thumbprint"),
-        public_key: read_string(fields, "public_key")?,
+        public_key,
+        key_binding,
         cert_expires: read_timestamp(fields, "cert_expires")?,
         registered_at: read_timestamp(fields, "registered_at")?,
         last_rotation: read_opt_timestamp(fields, "last_rotation")?,
@@ -966,6 +979,7 @@ mod tests {
             firebase_uid: "uid".to_string(),
             key_thumbprint: None,
             public_key: String::new(),
+            key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
             cert_expires: UNIX_EPOCH,
             registered_at: UNIX_EPOCH,
             last_rotation: None,
@@ -1047,6 +1061,76 @@ mod tests {
         server.abort();
     }
 
+    fn key_binding_after_roundtrip(
+        public_key: &str,
+        stored: Option<&str>,
+    ) -> crate::firestore::KeyBinding {
+        let mut record = sample_device_record();
+        record.public_key = public_key.to_string();
+        let mut fields = device_record_to_fields(&record);
+        match stored {
+            Some(v) => {
+                fields.insert("key_binding".to_string(), string_val(v));
+            }
+            None => {
+                fields.remove("key_binding");
+            }
+        }
+        device_record_from_fields(&fields).unwrap().key_binding
+    }
+
+    #[test]
+    fn legacy_record_with_key_and_no_binding_field_reads_as_bound() {
+        use crate::firestore::KeyBinding;
+        assert_eq!(
+            key_binding_after_roundtrip("cHVia2V5", None),
+            KeyBinding::Bound
+        );
+    }
+
+    #[test]
+    fn legacy_record_without_key_or_binding_field_reads_as_awaiting() {
+        use crate::firestore::KeyBinding;
+        assert_eq!(
+            key_binding_after_roundtrip("", None),
+            KeyBinding::AwaitingFirstKey
+        );
+    }
+
+    #[test]
+    fn stored_binding_field_wins_over_empty_key() {
+        use crate::firestore::KeyBinding;
+        assert_eq!(
+            key_binding_after_roundtrip("", Some("bound")),
+            KeyBinding::Bound
+        );
+        assert_eq!(
+            key_binding_after_roundtrip("", Some("awaiting_first_key")),
+            KeyBinding::AwaitingFirstKey
+        );
+    }
+
+    #[test]
+    fn unrecognised_binding_value_reads_as_bound() {
+        use crate::firestore::KeyBinding;
+        assert_eq!(
+            key_binding_after_roundtrip("", Some("garbage")),
+            KeyBinding::Bound
+        );
+    }
+
+    #[test]
+    fn key_binding_is_written_explicitly() {
+        use crate::firestore::KeyBinding;
+        let mut record = sample_device_record();
+        record.key_binding = KeyBinding::Bound;
+        let fields = device_record_to_fields(&record);
+        assert_eq!(fields["key_binding"]["stringValue"], "bound");
+        record.key_binding = KeyBinding::AwaitingFirstKey;
+        let fields = device_record_to_fields(&record);
+        assert_eq!(fields["key_binding"]["stringValue"], "awaiting_first_key");
+    }
+
     #[test]
     fn device_record_roundtrip() {
         let record = DeviceRecord {
@@ -1054,6 +1138,7 @@ mod tests {
             firebase_uid: "uid456".to_string(),
             key_thumbprint: None,
             public_key: "cHVia2V5".to_string(),
+            key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_750_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_712_000_000),
             last_rotation: Some(UNIX_EPOCH + Duration::from_secs(1_713_000_000)),
@@ -1182,6 +1267,7 @@ mod tests {
             firebase_uid: "u".to_string(),
             key_thumbprint: None,
             public_key: "k".to_string(),
+            key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
             last_rotation: None,
@@ -1209,6 +1295,7 @@ mod tests {
             firebase_uid: "u".to_string(),
             key_thumbprint: None,
             public_key: "k".to_string(),
+            key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
             last_rotation: None,
@@ -1267,6 +1354,7 @@ mod tests {
             firebase_uid: "u".to_string(),
             key_thumbprint: None,
             public_key: "k".to_string(),
+            key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
             last_rotation: None,
@@ -1295,6 +1383,7 @@ mod tests {
             firebase_uid: String::new(),
             key_thumbprint: Some("thumb-abc".to_string()),
             public_key: "k".to_string(),
+            key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
             last_rotation: None,
@@ -1323,6 +1412,7 @@ mod tests {
             firebase_uid: "u".to_string(),
             key_thumbprint: None,
             public_key: "k".to_string(),
+            key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
             last_rotation: None,

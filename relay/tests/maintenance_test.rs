@@ -15,6 +15,7 @@ fn make_device_record(cert_expires: SystemTime) -> DeviceRecord {
         firebase_uid: "uid".to_string(),
         key_thumbprint: None,
         public_key: "key".to_string(),
+        key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires,
         registered_at: SystemTime::now(),
         last_rotation: None,

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use crate::api::{ApiError, ApiErrorResponse, AppState, ClientIp};
-use crate::firestore::{DeviceRecord, FirestoreError, PushKind};
+use crate::firestore::{DeviceRecord, FirestoreError, KeyBinding, PushKind};
 use crate::unifiedpush::validate_push_endpoint;
 use crate::words::adjectives;
 
@@ -388,6 +388,11 @@ pub async fn handle_register(
         }
     };
 
+    // The key already bound to this identity, if any. Carried into the record
+    // written below on both reuse and `force_new` rotation, so re-registration
+    // never resets a bound key to the awaiting-first-key state.
+    let mut carried_key: Option<(String, KeyBinding, SystemTime)> = None;
+
     let assignment = if let Some((existing_subdomain, existing_record)) = existing {
         // Re-registration or rotation. For Firebase, a signature over the token
         // bytes proves key possession (the token alone is bearer-only). For the
@@ -406,6 +411,12 @@ pub async fn handle_register(
                     .into_response();
             }
         }
+
+        carried_key = Some((
+            existing_record.public_key.clone(),
+            existing_record.key_binding,
+            existing_record.cert_expires,
+        ));
 
         if req.force_new {
             // Subdomain rotation: check 30-day cooldown
@@ -520,21 +531,28 @@ pub async fn handle_register(
     let secrets_map = generate_integration_secrets(&req.integrations);
     let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
 
-    // 5. Store device record (public_key will be set in round 2 when CSR
-    //    arrives — for the keypair path the round-2 CSR's public key is matched
-    //    to this record by its thumbprint).
+    // 5. Store device record. A brand-new identity awaits its first key, which
+    //    round 2 binds (for the keypair path the round-2 CSR's public key is
+    //    matched to this record by its thumbprint). An existing identity keeps
+    //    the key, binding state and cert expiry it already has.
     //    A new subdomain is claimed with a create-only write; only the
     //    caller's own existing record is ever updated in place.
     let (firebase_uid, key_thumbprint) = match identity {
         RegisterIdentity::Firebase { uid, .. } => (uid, None),
         RegisterIdentity::Keypair { thumbprint } => (String::new(), Some(thumbprint)),
     };
+    let (public_key, key_binding, cert_expires) = carried_key.unwrap_or((
+        String::new(),
+        KeyBinding::AwaitingFirstKey,
+        SystemTime::UNIX_EPOCH,
+    ));
     let record = DeviceRecord {
         fcm_token,
         firebase_uid,
         key_thumbprint,
-        public_key: String::new(),            // set in round 2
-        cert_expires: SystemTime::UNIX_EPOCH, // set in round 2
+        public_key,
+        key_binding,
+        cert_expires,
         registered_at: SystemTime::now(),
         last_rotation: if req.force_new {
             Some(SystemTime::now())
@@ -668,18 +686,20 @@ pub async fn handle_register_certs(
 
     // 4a. Proof-of-possession check (issue #201).
     //
-    // If the device record already has a public key on file — i.e. a prior
-    // /register/certs round 2 has completed — require the caller to sign the
+    // Unless the record is still awaiting its first key — i.e. no prior
+    // /register/certs round 2 has bound one — require the caller to sign the
     // raw CSR DER bytes with the registered private key. This prevents an
     // attacker who only holds a valid Firebase ID token from re-issuing a
     // relay-CA client cert with an attacker-controlled key. (On the keypair
     // path the CSR thumbprint already had to match the registered identity, so
     // this is belt-and-suspenders, but it stays uniform across both flavors.)
     //
-    // Fresh registrations (record.public_key empty) still work without a
+    // Fresh registrations (`awaits_first_key`) still work without a
     // signature: round 2 is the step that binds the key for the first time.
+    // Any other record — including a bound one with no stored key — needs the
+    // signature, and fails verification if there is no key to check it with.
     let mut record = record;
-    if !record.public_key.is_empty() {
+    if !record.awaits_first_key() {
         let sig_b64 = match req.signature.as_deref() {
             Some(s) if !s.is_empty() => s,
             _ => {
@@ -739,6 +759,7 @@ pub async fn handle_register_certs(
 
     // 8. Update device record with public key and cert expiry
     record.public_key = public_key_b64;
+    record.key_binding = KeyBinding::Bound;
     record.cert_expires = SystemTime::now() + Duration::from_secs(90 * 86400);
 
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {

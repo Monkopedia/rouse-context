@@ -109,6 +109,7 @@ mod tests {
             firebase_uid: "uid".to_string(),
             key_thumbprint: None,
             public_key: String::new(),
+            key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
             cert_expires: SystemTime::UNIX_EPOCH,
             registered_at: SystemTime::now(),
             last_rotation: None,
