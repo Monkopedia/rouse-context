@@ -314,6 +314,7 @@ pub async fn run_rate_limit_sweep_loop(
         tokio::select! {
             _ = tokio::time::sleep(interval) => {
                 app_state.rate_limiter.sweep_expired();
+                app_state.register_rate_limiter.sweep_expired();
                 app_state.request_subdomain_rate_limiter.sweep_expired();
                 app_state.crash.sweep_expired();
                 fcm_wake_throttle.sweep_expired();

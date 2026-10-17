@@ -39,6 +39,16 @@ impl RealFirestoreClient {
         }
     }
 
+    /// Client against an arbitrary documents base URL (local test server).
+    #[cfg(test)]
+    fn with_base_url(base_url: String, token_provider: Arc<dyn TokenProvider>) -> Self {
+        Self {
+            http: reqwest::Client::new(),
+            token_provider,
+            base_url,
+        }
+    }
+
     /// Get an access token, mapping errors.
     async fn token(&self) -> Result<String, FirestoreError> {
         self.token_provider
@@ -949,6 +959,93 @@ impl FirestoreClient for RealFirestoreClient {
 mod tests {
     use super::*;
     use std::time::{Duration, UNIX_EPOCH};
+
+    fn sample_device_record() -> DeviceRecord {
+        DeviceRecord {
+            fcm_token: String::new(),
+            firebase_uid: "uid".to_string(),
+            key_thumbprint: None,
+            public_key: String::new(),
+            cert_expires: UNIX_EPOCH,
+            registered_at: UNIX_EPOCH,
+            last_rotation: None,
+            renewal_nudge_sent: None,
+            secret_prefix: None,
+            push_kind: Default::default(),
+            push_endpoint: String::new(),
+            valid_secrets: Vec::new(),
+            integration_secrets: Default::default(),
+            retired_secrets: Default::default(),
+        }
+    }
+
+    struct StaticToken;
+
+    #[async_trait]
+    impl TokenProvider for StaticToken {
+        async fn access_token(&self) -> Result<String, crate::google_auth::AuthError> {
+            Ok("test-token".to_string())
+        }
+    }
+
+    /// `create_device` must use Firestore's create-only `createDocument`
+    /// (POST to the collection with `documentId`), never the upserting PATCH,
+    /// and must surface a 409 as `AlreadyExists`. The stand-in server keeps
+    /// Firestore's semantics: the first create of a document id wins, later
+    /// ones get 409 and change nothing.
+    #[tokio::test]
+    async fn create_device_is_create_only_on_the_wire() {
+        use axum::extract::{Query, State as AxState};
+        use axum::http::StatusCode;
+        use std::collections::HashMap as Map;
+        use std::sync::Mutex;
+
+        type Store = Arc<Mutex<Map<String, serde_json::Value>>>;
+        async fn create(
+            AxState(store): AxState<Store>,
+            Query(q): Query<Map<String, String>>,
+            axum::Json(body): axum::Json<serde_json::Value>,
+        ) -> StatusCode {
+            let Some(id) = q.get("documentId") else {
+                return StatusCode::BAD_REQUEST;
+            };
+            let mut store = store.lock().unwrap();
+            if store.contains_key(id) {
+                return StatusCode::CONFLICT;
+            }
+            store.insert(id.clone(), body);
+            StatusCode::OK
+        }
+        let store: Store = Arc::new(Mutex::new(Map::new()));
+        let app = axum::Router::new()
+            .route("/devices", axum::routing::post(create))
+            .with_state(store.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let client =
+            RealFirestoreClient::with_base_url(format!("http://{addr}"), Arc::new(StaticToken));
+        let mut first = sample_device_record();
+        first.fcm_token = "first".to_string();
+        let mut second = sample_device_record();
+        second.fcm_token = "second".to_string();
+
+        let (a, b) = tokio::join!(
+            client.create_device("same-name", &first),
+            client.create_device("same-name", &second)
+        );
+        let outcomes = [a, b];
+        let wins = outcomes.iter().filter(|r| r.is_ok()).count();
+        let conflicts = outcomes
+            .iter()
+            .filter(|r| matches!(r, Err(FirestoreError::AlreadyExists(_))))
+            .count();
+        assert_eq!((wins, conflicts), (1, 1), "{outcomes:?}");
+        assert_eq!(store.lock().unwrap().len(), 1);
+
+        server.abort();
+    }
 
     #[test]
     fn device_record_roundtrip() {

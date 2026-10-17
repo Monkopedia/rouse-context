@@ -1,7 +1,7 @@
 //! POST /register -- Device registration (round 1: assign subdomain).
 //! POST /register/certs -- Certificate issuance (round 2: device sends CSR).
 
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use crate::api::{ApiError, ApiErrorResponse, AppState};
-use crate::firestore::{DeviceRecord, PushKind};
+use crate::api::{ApiError, ApiErrorResponse, AppState, ClientIp};
+use crate::firestore::{DeviceRecord, FirestoreError, PushKind};
 use crate::unifiedpush::validate_push_endpoint;
 use crate::words::adjectives;
 
@@ -122,6 +122,81 @@ pub(crate) fn generate_one_secret(
         }
     }
     secret
+}
+
+/// How many candidate names a new registration tries before giving up. Each
+/// generated adjective-noun name is rejected only if it is already held, so
+/// exhausting this bound means the pool is effectively full (or the store is
+/// misbehaving); either way the registration fails rather than reusing a name.
+const MAX_NEW_SUBDOMAIN_ATTEMPTS: usize = 16;
+
+/// Which subdomain a `/register` call writes to.
+enum SubdomainAssignment {
+    /// The caller's identity already owns this subdomain; its own record is
+    /// updated in place.
+    Existing(String),
+    /// The caller gets a subdomain no other device or active reservation
+    /// holds. `preferred` (a reservation this caller just consumed) is tried
+    /// first, then generated names.
+    New { preferred: Option<String> },
+}
+
+/// Whether `candidate` may be given to a new registration: no device record
+/// exists for it and no other account holds an active reservation on it.
+/// `own_uid` is the registering Firebase UID, whose own reservation does not
+/// count against it.
+async fn subdomain_available(
+    state: &AppState,
+    candidate: &str,
+    own_uid: Option<&str>,
+) -> Result<bool, FirestoreError> {
+    match state.firestore.get_device(candidate).await {
+        Ok(_) => return Ok(false),
+        Err(FirestoreError::NotFound(_)) => {}
+        Err(e) => return Err(e),
+    }
+    match state.firestore.get_reservation(candidate).await {
+        Ok(reservation) => Ok(reservation.expires_at <= SystemTime::now()
+            || own_uid == Some(reservation.firebase_uid.as_str())),
+        Err(FirestoreError::NotFound(_)) => Ok(true),
+        Err(e) => Err(e),
+    }
+}
+
+/// Store `record` under a subdomain that no other device holds and return
+/// that subdomain.
+///
+/// Candidates already held are skipped, and the write itself is create-only
+/// ([`crate::firestore::FirestoreClient::create_device`]), so even when two
+/// registrations pick the same name concurrently only one of them gets it;
+/// the other moves on to a fresh candidate. An existing record is never
+/// replaced. Fails after [`MAX_NEW_SUBDOMAIN_ATTEMPTS`] candidates.
+async fn claim_new_subdomain(
+    state: &AppState,
+    mut preferred: Option<String>,
+    own_uid: Option<&str>,
+    record: &DeviceRecord,
+) -> Result<String, ApiErrorResponse> {
+    for _ in 0..MAX_NEW_SUBDOMAIN_ATTEMPTS {
+        let candidate = preferred
+            .take()
+            .unwrap_or_else(|| state.subdomain_generator.generate());
+        match subdomain_available(state, &candidate, own_uid).await {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(e) => return Err(ApiError::internal(format!("Firestore lookup failed: {e}"))),
+        }
+        match state.firestore.create_device(&candidate, record).await {
+            Ok(()) => return Ok(candidate),
+            Err(FirestoreError::AlreadyExists(_)) => continue,
+            Err(e) => return Err(ApiError::internal(format!("Firestore write failed: {e}"))),
+        }
+    }
+    tracing::error!(
+        attempts = MAX_NEW_SUBDOMAIN_ATTEMPTS,
+        "No free subdomain found for new registration"
+    );
+    Err(ApiError::internal("No free subdomain available"))
 }
 
 /// Round 2: Submit CSR to receive certificates.
@@ -271,8 +346,20 @@ async fn resolve_register_identity(
 /// subdomain and calls POST /register/certs.
 pub async fn handle_register(
     State(state): State<Arc<AppState>>,
+    client_ip: Option<Extension<ClientIp>>,
     Json(req): Json<RegisterRequest>,
 ) -> Response {
+    // 0. Per-client-IP admission before any auth or Firestore work. The
+    //    connection handler always sets `ClientIp`; the in-process test
+    //    router may not, in which case all requests share one bucket.
+    let ip_key = client_ip
+        .map(|Extension(ClientIp(ip))| ip.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    if let Err(retry_after) = state.register_rate_limiter.try_acquire(&ip_key) {
+        return ApiError::rate_limited("Too many registrations from this address", retry_after)
+            .into_response();
+    }
+
     // 1. Resolve the push target: accept EITHER an FCM token (`google`) OR a
     //    UnifiedPush endpoint (`foss`). At least one is required.
     let (push_kind, fcm_token, push_endpoint) =
@@ -301,7 +388,7 @@ pub async fn handle_register(
         }
     };
 
-    let subdomain = if let Some((existing_subdomain, existing_record)) = existing {
+    let assignment = if let Some((existing_subdomain, existing_record)) = existing {
         // Re-registration or rotation. For Firebase, a signature over the token
         // bytes proves key possession (the token alone is bearer-only). For the
         // keypair path, the registration proof already proved possession.
@@ -360,16 +447,17 @@ pub async fn handle_register(
                     .into_response();
             }
 
-            // Generate new subdomain
-            state.subdomain_generator.generate()
+            // Move to a new subdomain
+            SubdomainAssignment::New { preferred: None }
         } else {
             // Re-registration: reuse existing subdomain
-            existing_subdomain
+            SubdomainAssignment::Existing(existing_subdomain)
         }
     } else {
         // New registration. The reservation flow (POST /request-subdomain) is
         // Firebase-only: it keys reservations on the UID. Keypair (foss) devices
-        // skip reservation and go straight to generation.
+        // skip reservation and go straight to generation. Either way the name
+        // is only used if no other device holds it (see `claim_new_subdomain`).
         //
         // If this UID holds an active (non-expired) reservation, consume it:
         // adopt the reserved subdomain and delete the reservation (single-use).
@@ -382,8 +470,8 @@ pub async fn handle_register(
             RegisterIdentity::Firebase { uid, .. } => Some(uid.as_str()),
             RegisterIdentity::Keypair { .. } => None,
         };
-        match uid {
-            None => state.subdomain_generator.generate(),
+        let preferred = match uid {
+            None => None,
             Some(uid) => match state.firestore.find_reservation_by_uid(uid).await {
                 Ok(Some((reserved_subdomain, reservation)))
                     if reservation.expires_at > SystemTime::now() =>
@@ -399,7 +487,7 @@ pub async fn handle_register(
                             "Failed to delete consumed reservation (non-fatal)"
                         );
                     }
-                    reserved_subdomain
+                    Some(reserved_subdomain)
                 }
                 Ok(Some((expired_subdomain, _))) => {
                     // Expired reservation: best-effort cleanup, then generate.
@@ -410,18 +498,19 @@ pub async fn handle_register(
                             "Failed to delete expired reservation (non-fatal)"
                         );
                     }
-                    state.subdomain_generator.generate()
+                    None
                 }
-                Ok(None) => state.subdomain_generator.generate(),
+                Ok(None) => None,
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
                         "Reservation lookup failed; falling back to generator"
                     );
-                    state.subdomain_generator.generate()
+                    None
                 }
             },
-        }
+        };
+        SubdomainAssignment::New { preferred }
     };
 
     // 4. Generate one secret per requested integration id. The relay is the
@@ -434,6 +523,8 @@ pub async fn handle_register(
     // 5. Store device record (public_key will be set in round 2 when CSR
     //    arrives — for the keypair path the round-2 CSR's public key is matched
     //    to this record by its thumbprint).
+    //    A new subdomain is claimed with a create-only write; only the
+    //    caller's own existing record is ever updated in place.
     let (firebase_uid, key_thumbprint) = match identity {
         RegisterIdentity::Firebase { uid, .. } => (uid, None),
         RegisterIdentity::Keypair { thumbprint } => (String::new(), Some(thumbprint)),
@@ -459,9 +550,21 @@ pub async fn handle_register(
         retired_secrets: HashMap::new(),
     };
 
-    if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
-        return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
-    }
+    let subdomain = match assignment {
+        SubdomainAssignment::Existing(subdomain) => {
+            if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
+                return ApiError::internal(format!("Firestore write failed: {e}")).into_response();
+            }
+            subdomain
+        }
+        SubdomainAssignment::New { preferred } => {
+            let own_uid = Some(record.firebase_uid.as_str()).filter(|u| !u.is_empty());
+            match claim_new_subdomain(&state, preferred, own_uid, &record).await {
+                Ok(subdomain) => subdomain,
+                Err(err) => return err.into_response(),
+            }
+        }
+    };
 
     // Seed the in-memory valid_secrets cache so SNI routing picks up freshly
     // registered secrets without waiting for Firestore eventual consistency.
