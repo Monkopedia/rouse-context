@@ -73,6 +73,10 @@ pub(super) struct AcmeChallenge {
     #[serde(rename = "type")]
     pub challenge_type: String,
     pub url: String,
+    /// Absent on some challenge types (e.g. GTS's `dns-persist-01`), so it
+    /// defaults to empty rather than failing the whole authorization. The
+    /// `dns-01` path checks it is non-empty before use.
+    #[serde(default)]
     pub token: String,
     #[serde(default)]
     pub status: Option<String>,
@@ -217,6 +221,28 @@ mod tests {
             .expect("should have dns-01");
         assert_eq!(dns.token, "dns-token-xyz");
         assert_eq!(dns.status.as_deref(), Some("pending"));
+    }
+
+    /// A real Google Trust Services authorization response (2026-10-17). GTS
+    /// now offers a `dns-persist-01` challenge alongside `dns-01`, and that
+    /// challenge has no `token`. A challenge we don't use must not make the
+    /// whole authorization unparseable.
+    const GTS_AUTHORIZATION_WITH_DNS_PERSIST: &str = r#"{"identifier":{"type":"dns","value":"arrow.rousecontext.com"},"status":"pending","expires":"2026-10-25T11:53:28.009623848Z","challenges":[{"type":"dns-01","url":"https://dv.acme-v02.api.pki.goog/challenge/xo4F8NJVG8gAIlUsl9co_A","status":"pending","token":"imYU6pFdPPhSXppW2RpvexCtJ-5nNsmFPEtHT42a2n_-xQFFiuFTpgl0zqXTjMYG"},{"type":"dns-account-01","url":"https://dv.acme-v02.api.pki.goog/challenge/pPJwFpSCBnDFSWN45ddgcA","status":"pending","token":"UYRSRpHub_dTFCuiLTiLfjruHmoVDD36FN0eNCoJb4liVAS9SQRgr50kZV4zYkT_"},{"type":"dns-persist-01","url":"https://dv.acme-v02.api.pki.goog/challenge/XP-92Ear-RNRofazw3oLMw","status":"pending","issuer-domain-names":["pki.goog"]}],"wildcard":true}"#;
+
+    #[test]
+    fn parse_gts_authorization_with_tokenless_challenge() {
+        let auth: AcmeAuthorization = serde_json::from_str(GTS_AUTHORIZATION_WITH_DNS_PERSIST)
+            .expect("an authorization containing a token-less challenge must still parse");
+        assert_eq!(auth.challenges.len(), 3);
+        let dns = auth
+            .challenges
+            .iter()
+            .find(|c| c.challenge_type == "dns-01")
+            .expect("should have dns-01");
+        assert_eq!(
+            dns.token,
+            "imYU6pFdPPhSXppW2RpvexCtJ-5nNsmFPEtHT42a2n_-xQFFiuFTpgl0zqXTjMYG"
+        );
     }
 
     #[test]

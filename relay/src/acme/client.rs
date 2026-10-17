@@ -102,9 +102,8 @@ fn dns_to_acme_err(e: DnsError) -> AcmeError {
     }
 }
 
-#[async_trait]
-impl AcmeClient for RealAcmeClient {
-    async fn issue_certificate(
+impl RealAcmeClient {
+    async fn issue_certificate_inner(
         &self,
         subdomain: &str,
         device_csr_der: Option<&[u8]>,
@@ -196,6 +195,11 @@ impl AcmeClient for RealAcmeClient {
             .ok_or_else(|| {
                 AcmeError::ChallengeFailed("no dns-01 challenge in authorization".to_string())
             })?;
+        if dns_challenge.token.is_empty() {
+            return Err(AcmeError::ChallengeFailed(
+                "dns-01 challenge has no token".to_string(),
+            ));
+        }
 
         // 5. Compute key authorization and DNS TXT value
         let thumbprint = jwk_thumbprint(&self.account_key);
@@ -383,6 +387,26 @@ impl AcmeClient for RealAcmeClient {
         self.dns.delete_txt(&handle).await;
 
         challenge_result
+    }
+}
+
+#[async_trait]
+impl AcmeClient for RealAcmeClient {
+    async fn issue_certificate(
+        &self,
+        subdomain: &str,
+        device_csr_der: Option<&[u8]>,
+    ) -> Result<CertificateBundle, AcmeError> {
+        let result = self
+            .issue_certificate_inner(subdomain, device_csr_der)
+            .await;
+        if let Err(e) = &result {
+            // Callers turn this into an HTTP error for the device and do not
+            // log it, so without this line an issuance failure leaves no trace
+            // on the relay.
+            error!(subdomain = %subdomain, error = %e, "ACME certificate issuance failed");
+        }
+        result
     }
 }
 
