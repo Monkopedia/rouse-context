@@ -58,6 +58,62 @@ impl PushKind {
     }
 }
 
+/// Whether a device record has had its public key bound yet.
+///
+/// Only a record created by round-1 `/register` for a brand-new device starts
+/// as [`KeyBinding::AwaitingFirstKey`]; round-2 `/register/certs` moves it to
+/// [`KeyBinding::Bound`] and nothing moves it back. While awaiting, the first
+/// `/register/certs` may bind a key without a signature. Once bound, every
+/// later issuance must be signed by the bound key (or go through `/renew`).
+///
+/// The state is explicit rather than inferred from an empty `public_key`, so
+/// that no write that happens to leave `public_key` empty can make a bound
+/// record accept an unsigned key again. Stored documents written before this
+/// field existed are read as bound when they carry a key (see
+/// [`KeyBinding::infer_legacy`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyBinding {
+    AwaitingFirstKey,
+    Bound,
+}
+
+impl KeyBinding {
+    /// Wire string used in Firestore documents.
+    pub fn as_wire(&self) -> &'static str {
+        match self {
+            KeyBinding::AwaitingFirstKey => "awaiting_first_key",
+            KeyBinding::Bound => "bound",
+        }
+    }
+
+    /// Parse a stored value. A missing field is resolved by
+    /// [`Self::infer_legacy`]; an unrecognised value reads as
+    /// [`KeyBinding::Bound`] so it can only ever demand a signature.
+    pub fn from_stored(value: Option<&str>, public_key: &str) -> KeyBinding {
+        match value {
+            Some("awaiting_first_key") => KeyBinding::AwaitingFirstKey,
+            Some(_) => KeyBinding::Bound,
+            None => Self::infer_legacy(public_key),
+        }
+    }
+
+    /// State of a document written before this field existed: a stored key
+    /// means bound; no key means the device never completed round 2.
+    pub fn infer_legacy(public_key: &str) -> KeyBinding {
+        if public_key.is_empty() {
+            KeyBinding::AwaitingFirstKey
+        } else {
+            KeyBinding::Bound
+        }
+    }
+
+    /// Serde default for the field: fail closed.
+    fn serde_default() -> KeyBinding {
+        KeyBinding::Bound
+    }
+}
+
 /// A device record stored in `devices/{subdomain}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceRecord {
@@ -73,6 +129,10 @@ pub struct DeviceRecord {
     pub key_thumbprint: Option<String>,
     /// Base64-encoded DER SubjectPublicKeyInfo (ECDSA P-256).
     pub public_key: String,
+    /// Whether [`Self::public_key`] has been bound. Required on every
+    /// construction so each writer states it explicitly.
+    #[serde(default = "KeyBinding::serde_default")]
+    pub key_binding: KeyBinding,
     pub cert_expires: SystemTime,
     pub registered_at: SystemTime,
     /// When the Firebase UID last rotated subdomains. None if never.
@@ -120,6 +180,16 @@ pub struct DeviceRecord {
     /// existed.
     #[serde(default)]
     pub retired_secrets: HashMap<String, String>,
+}
+
+impl DeviceRecord {
+    /// True only for a record that has never had a key bound. Both the
+    /// explicit state and the absence of a stored key must agree, so neither
+    /// a stray `AwaitingFirstKey` nor a blanked `public_key` alone is enough
+    /// to skip proof of possession.
+    pub fn awaits_first_key(&self) -> bool {
+        self.key_binding == KeyBinding::AwaitingFirstKey && self.public_key.is_empty()
+    }
 }
 
 /// A pending certificate record stored in `pending_certs/{subdomain}`.

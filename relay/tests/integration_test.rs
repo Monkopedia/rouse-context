@@ -24,6 +24,7 @@ fn dummy_device_record() -> DeviceRecord {
         firebase_uid: "test-uid".to_string(),
         key_thumbprint: None,
         public_key: String::new(),
+        key_binding: rouse_relay::firestore::KeyBinding::AwaitingFirstKey,
         cert_expires: SystemTime::now(),
         registered_at: SystemTime::now(),
         last_rotation: None,

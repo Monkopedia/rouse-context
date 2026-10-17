@@ -29,6 +29,7 @@ fn make_device() -> DeviceRecord {
         firebase_uid: "uid-1".to_string(),
         key_thumbprint: None,
         public_key: "key".to_string(),
+        key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
         last_rotation: None,

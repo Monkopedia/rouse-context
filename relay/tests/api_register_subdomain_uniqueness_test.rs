@@ -109,6 +109,7 @@ fn established_device(key: &p256::ecdsa::SigningKey) -> DeviceRecord {
         firebase_uid: String::new(),
         key_thumbprint: Some(thumbprint(key)),
         public_key: BASE64.encode(spki_der(key)),
+        key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires: SystemTime::now() + Duration::from_secs(60 * 86400),
         registered_at: SystemTime::now() - Duration::from_secs(86400),
         last_rotation: None,
