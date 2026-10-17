@@ -1,5 +1,7 @@
 use rand::seq::SliceRandom;
 use rand::Rng;
+use std::collections::VecDeque;
+use std::sync::Mutex;
 
 const ADJECTIVES: &str = include_str!("words/adjectives.txt");
 const NOUNS: &str = include_str!("words/nouns.txt");
@@ -7,6 +9,10 @@ const NOUNS: &str = include_str!("words/nouns.txt");
 pub struct SubdomainGenerator {
     adjectives: Vec<&'static str>,
     nouns: Vec<&'static str>,
+    /// Names [`Self::generate`] returns, in order, before falling back to
+    /// random picks. Always `None` in production; set only via
+    /// [`Self::scripted`] so tests can drive specific names deterministically.
+    script: Option<Mutex<VecDeque<String>>>,
 }
 
 impl SubdomainGenerator {
@@ -21,11 +27,34 @@ impl SubdomainGenerator {
             .map(|l| l.trim())
             .filter(|l| !l.is_empty())
             .collect();
-        Self { adjectives, nouns }
+        Self {
+            adjectives,
+            nouns,
+            script: None,
+        }
+    }
+
+    /// A generator whose [`Self::generate`] returns `names` in order, then
+    /// falls back to random adjective-noun picks once the list is used up.
+    /// Test seam only.
+    #[doc(hidden)]
+    pub fn scripted<I, S>(names: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut generator = Self::new();
+        generator.script = Some(Mutex::new(names.into_iter().map(Into::into).collect()));
+        generator
     }
 
     /// Generate a random adjective-noun subdomain.
     pub fn generate(&self) -> String {
+        if let Some(script) = &self.script {
+            if let Some(next) = script.lock().unwrap_or_else(|e| e.into_inner()).pop_front() {
+                return next;
+            }
+        }
         let mut rng = rand::thread_rng();
         let adj = self.adjectives.choose(&mut rng).expect("no adjectives");
         let noun = self.nouns.choose(&mut rng).expect("no nouns");

@@ -31,6 +31,19 @@ impl Default for RateLimitConfig {
     }
 }
 
+impl RateLimitConfig {
+    /// Per-client-IP budget for `POST /register`: a burst of 10, refilling
+    /// one registration every 6 minutes (10 per hour sustained). A real
+    /// device registers once at onboarding plus the odd retry or rotation,
+    /// and the burst leaves headroom for several devices behind one NAT.
+    pub fn register_per_ip() -> Self {
+        Self {
+            max_tokens: 10,
+            refill_interval: Duration::from_secs(6 * 60),
+        }
+    }
+}
+
 struct Bucket {
     tokens: f64,
     last_refill: Instant,
@@ -301,6 +314,7 @@ pub async fn run_rate_limit_sweep_loop(
         tokio::select! {
             _ = tokio::time::sleep(interval) => {
                 app_state.rate_limiter.sweep_expired();
+                app_state.register_rate_limiter.sweep_expired();
                 app_state.request_subdomain_rate_limiter.sweep_expired();
                 app_state.crash.sweep_expired();
                 fcm_wake_throttle.sweep_expired();

@@ -191,6 +191,9 @@ pub struct AppState {
     pub firebase_auth: std::sync::Arc<dyn crate::firebase_auth::FirebaseAuth>,
     pub subdomain_generator: crate::subdomain::SubdomainGenerator,
     pub rate_limiter: crate::rate_limit::RateLimiter,
+    /// Per-client-IP limiter for `POST /register`. See
+    /// [`crate::rate_limit::RateLimitConfig::register_per_ip`].
+    pub register_rate_limiter: crate::rate_limit::RateLimiter,
     /// Per-Firebase-UID limiter for `POST /request-subdomain`. Prevents
     /// pool enumeration. Keyed by `firebase_uid`, independent from the
     /// wake/passthrough buckets.

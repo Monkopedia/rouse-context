@@ -207,6 +207,9 @@ async fn main() {
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
+        register_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::register_per_ip(),
+        ),
         request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             request_subdomain_limiter_cfg,
         ),
@@ -872,6 +875,21 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
             .iter()
             .find(|(_, r)| r.key_thumbprint.as_deref() == Some(key_thumbprint))
             .map(|(k, v)| (k.clone(), v.clone())))
+    }
+
+    async fn create_device(
+        &self,
+        subdomain: &str,
+        record: &rouse_relay::firestore::DeviceRecord,
+    ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+        if devices.contains_key(subdomain) {
+            return Err(rouse_relay::firestore::FirestoreError::AlreadyExists(
+                subdomain.to_string(),
+            ));
+        }
+        devices.insert(subdomain.to_string(), record.clone());
+        Ok(())
     }
 
     async fn put_device(

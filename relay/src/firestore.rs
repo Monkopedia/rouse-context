@@ -17,6 +17,10 @@ pub enum FirestoreError {
     Http(String),
     #[error("serialization error: {0}")]
     Serialization(String),
+    /// A create-only write found the document already present. Returned by
+    /// [`FirestoreClient::create_device`]; the existing document is untouched.
+    #[error("document already exists: {0}")]
+    AlreadyExists(String),
 }
 
 /// Which push transport the relay uses to wake a device.
@@ -164,6 +168,18 @@ pub trait FirestoreClient: Send + Sync {
         &self,
         key_thumbprint: &str,
     ) -> Result<Option<(String, DeviceRecord)>, FirestoreError>;
+
+    /// Create a device record only if no record exists for `subdomain`.
+    ///
+    /// The existence check and the write are a single atomic operation in the
+    /// backing store, so of several concurrent creates for the same subdomain
+    /// exactly one succeeds. All others get [`FirestoreError::AlreadyExists`]
+    /// and the stored record is left unchanged.
+    async fn create_device(
+        &self,
+        subdomain: &str,
+        record: &DeviceRecord,
+    ) -> Result<(), FirestoreError>;
 
     /// Create or update a device record.
     async fn put_device(

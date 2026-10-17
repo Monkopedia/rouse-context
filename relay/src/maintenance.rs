@@ -391,6 +391,13 @@ mod tests {
         ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
             Ok(None)
         }
+        async fn create_device(
+            &self,
+            _subdomain: &str,
+            _record: &DeviceRecord,
+        ) -> Result<(), FirestoreError> {
+            Ok(())
+        }
         async fn put_device(
             &self,
             _subdomain: &str,
