@@ -60,6 +60,9 @@ impl RealFirestoreClient {
             404 => Err(PendingError::Final(FirestoreError::NotFound(
                 path.to_string(),
             ))),
+            409 => Err(PendingError::Final(FirestoreError::AlreadyExists(
+                path.to_string(),
+            ))),
             401 | 403 => Err(PendingError::AuthRetry(status)),
             _ => Err(PendingError::Final(FirestoreError::Http(format!(
                 "Firestore returned {status} for {path}"
@@ -117,6 +120,27 @@ impl RealFirestoreClient {
     ) -> Result<reqwest::Response, FirestoreError> {
         self.authenticated_request_with_retry(path, |url, token| {
             self.http.patch(url).bearer_auth(token).json(body)
+        })
+        .await
+    }
+
+    /// Authenticated create-only POST (`createDocument`) with one retry on
+    /// auth errors. Firestore answers 409 ALREADY_EXISTS, mapped to
+    /// [`FirestoreError::AlreadyExists`], when the document is present.
+    async fn create_with_retry(
+        &self,
+        collection: &str,
+        document_id: &str,
+        body: &serde_json::Value,
+    ) -> Result<reqwest::Response, FirestoreError> {
+        let path = format!("{collection}/{document_id}");
+        let url = self.url(collection);
+        self.authenticated_request_with_retry(&path, |_, token| {
+            self.http
+                .post(&url)
+                .query(&[("documentId", document_id)])
+                .bearer_auth(token)
+                .json(body)
         })
         .await
     }
@@ -586,6 +610,21 @@ impl FirestoreClient for RealFirestoreClient {
         }
 
         Ok(None)
+    }
+
+    async fn create_device(
+        &self,
+        subdomain: &str,
+        record: &DeviceRecord,
+    ) -> Result<(), FirestoreError> {
+        let body = serde_json::json!({ "fields": device_record_to_fields(record) });
+        let resp = self.create_with_retry("devices", subdomain, &body).await?;
+        debug!(
+            subdomain,
+            status = resp.status().as_u16(),
+            "create_device OK"
+        );
+        Ok(())
     }
 
     async fn put_device(

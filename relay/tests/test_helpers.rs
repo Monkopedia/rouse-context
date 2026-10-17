@@ -97,6 +97,21 @@ impl FirestoreClient for MockFirestore {
         Ok(None)
     }
 
+    async fn create_device(
+        &self,
+        subdomain: &str,
+        record: &DeviceRecord,
+    ) -> Result<(), FirestoreError> {
+        // Check and insert under one lock: atomic like Firestore's
+        // createDocument.
+        let mut devices = self.devices.lock().unwrap();
+        if devices.contains_key(subdomain) {
+            return Err(FirestoreError::AlreadyExists(subdomain.to_string()));
+        }
+        devices.insert(subdomain.to_string(), record.clone());
+        Ok(())
+    }
+
     async fn put_device(
         &self,
         subdomain: &str,
@@ -470,6 +485,9 @@ pub fn build_test_state_with_dns(
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
         ),
+        register_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::register_per_ip(),
+        ),
         request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig {
                 max_tokens: 3,
@@ -495,6 +513,25 @@ pub fn build_test_state_with_ca(
     acme: Arc<dyn AcmeClient>,
     firebase_auth: Arc<dyn FirebaseAuth>,
 ) -> Arc<rouse_relay::api::AppState> {
+    build_test_state_with_ca_and_generator(
+        firestore,
+        fcm,
+        acme,
+        firebase_auth,
+        rouse_relay::subdomain::SubdomainGenerator::new(),
+    )
+}
+
+/// Build test AppState with a DeviceCa and a caller-supplied subdomain
+/// generator (e.g. [`rouse_relay::subdomain::SubdomainGenerator::scripted`]).
+#[allow(dead_code)]
+pub fn build_test_state_with_ca_and_generator(
+    firestore: Arc<dyn FirestoreClient>,
+    fcm: Arc<dyn FcmClient>,
+    acme: Arc<dyn AcmeClient>,
+    firebase_auth: Arc<dyn FirebaseAuth>,
+    subdomain_generator: rouse_relay::subdomain::SubdomainGenerator,
+) -> Arc<rouse_relay::api::AppState> {
     let tmp = tempfile::tempdir().expect("create tempdir for test CA");
     let ca = rouse_relay::device_ca::DeviceCa::load_or_create(
         &tmp.path().join("ca_key.pem"),
@@ -512,9 +549,12 @@ pub fn build_test_state_with_ca(
         acme,
         dns: Arc::new(MockDns::new()),
         firebase_auth,
-        subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
+        subdomain_generator,
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        register_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::register_per_ip(),
         ),
         request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             rouse_relay::rate_limit::RateLimitConfig {

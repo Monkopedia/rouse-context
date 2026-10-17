@@ -55,6 +55,9 @@ fn make_app(crash: Arc<CrashService>) -> axum::Router {
         firebase_auth: Arc::new(MockFirebaseAuth::new()),
         subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
         rate_limiter: rouse_relay::rate_limit::RateLimiter::new(RateLimitConfig::default()),
+        register_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::register_per_ip(),
+        ),
         request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
             RateLimitConfig::default(),
         ),

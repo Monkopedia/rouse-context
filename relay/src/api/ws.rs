@@ -693,6 +693,13 @@ mod tests {
         > {
             Ok(None)
         }
+        async fn create_device(
+            &self,
+            _s: &str,
+            _r: &crate::firestore::DeviceRecord,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
         async fn put_device(
             &self,
             _s: &str,
@@ -830,6 +837,9 @@ mod tests {
             rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
             ),
+            register_rate_limiter: crate::rate_limit::RateLimiter::new(
+                crate::rate_limit::RateLimitConfig::register_per_ip(),
+            ),
             request_subdomain_rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
             ),
@@ -942,6 +952,9 @@ mod tests {
             subdomain_generator: crate::subdomain::SubdomainGenerator::new(),
             rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
+            ),
+            register_rate_limiter: crate::rate_limit::RateLimiter::new(
+                crate::rate_limit::RateLimitConfig::register_per_ip(),
             ),
             request_subdomain_rate_limiter: crate::rate_limit::RateLimiter::new(
                 crate::rate_limit::RateLimitConfig::default(),
