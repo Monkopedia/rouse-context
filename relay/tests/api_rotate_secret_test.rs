@@ -64,6 +64,7 @@ fn make_device(secret: &str) -> DeviceRecord {
         key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
+        last_seen: None,
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: Some(secret.to_string()),

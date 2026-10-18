@@ -379,6 +379,10 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
         timestamp_val(record.registered_at),
     );
     fields.insert(
+        "last_seen".to_string(),
+        opt_timestamp_val(&record.last_seen),
+    );
+    fields.insert(
         "last_rotation".to_string(),
         opt_timestamp_val(&record.last_rotation),
     );
@@ -432,6 +436,8 @@ fn device_record_from_fields(
         key_binding,
         cert_expires: read_timestamp(fields, "cert_expires")?,
         registered_at: read_timestamp(fields, "registered_at")?,
+        // Legacy documents predate last_seen: missing reads as None.
+        last_seen: read_opt_timestamp(fields, "last_seen")?,
         last_rotation: read_opt_timestamp(fields, "last_rotation")?,
         renewal_nudge_sent: read_opt_timestamp(fields, "renewal_nudge_sent")?,
         secret_prefix: read_opt_string(fields, "secret_prefix"),
@@ -659,6 +665,31 @@ impl FirestoreClient for RealFirestoreClient {
         let body = serde_json::json!({ "fields": device_record_to_fields(record) });
         let resp = self.patch_with_retry(&path, &body).await?;
         debug!(subdomain, status = resp.status().as_u16(), "put_device OK");
+        Ok(())
+    }
+
+    async fn set_device_last_seen(
+        &self,
+        subdomain: &str,
+        last_seen: SystemTime,
+    ) -> Result<(), FirestoreError> {
+        // The update mask limits the write to `last_seen`, so a concurrent
+        // write to any other field is never overwritten. The `exists`
+        // precondition stops the PATCH from creating a stub document for a
+        // device deleted in the meantime.
+        let path = format!("devices/{subdomain}");
+        let body = serde_json::json!({ "fields": { "last_seen": timestamp_val(last_seen) } });
+        self.authenticated_request_with_retry(&path, |url, token| {
+            self.http
+                .patch(url)
+                .query(&[
+                    ("updateMask.fieldPaths", "last_seen"),
+                    ("currentDocument.exists", "true"),
+                ])
+                .bearer_auth(token)
+                .json(&body)
+        })
+        .await?;
         Ok(())
     }
 
@@ -982,6 +1013,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
             cert_expires: UNIX_EPOCH,
             registered_at: UNIX_EPOCH,
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -1132,6 +1164,74 @@ mod tests {
     }
 
     #[test]
+    fn last_seen_roundtrips() {
+        let mut record = sample_device_record();
+        record.last_seen = Some(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+        let back = device_record_from_fields(&device_record_to_fields(&record)).unwrap();
+        assert_eq!(back.last_seen, record.last_seen);
+    }
+
+    #[test]
+    fn legacy_record_without_last_seen_reads_none_and_falls_back_to_registered_at() {
+        let mut record = sample_device_record();
+        record.registered_at = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let mut fields = device_record_to_fields(&record);
+        fields.remove("last_seen");
+        let back = device_record_from_fields(&fields).unwrap();
+        assert_eq!(back.last_seen, None);
+        assert_eq!(back.last_active(), record.registered_at);
+    }
+
+    /// `set_device_last_seen` must write only `last_seen` (an update mask),
+    /// never the whole document, and must not create a missing document.
+    #[tokio::test]
+    async fn set_device_last_seen_writes_only_that_field_on_the_wire() {
+        use axum::extract::{RawQuery, State as AxState};
+        use axum::http::StatusCode;
+        use std::sync::Mutex;
+
+        type Seen = Arc<Mutex<Vec<(String, serde_json::Value)>>>;
+        async fn patch(
+            AxState(seen): AxState<Seen>,
+            RawQuery(q): RawQuery,
+            axum::Json(body): axum::Json<serde_json::Value>,
+        ) -> StatusCode {
+            seen.lock().unwrap().push((q.unwrap_or_default(), body));
+            StatusCode::OK
+        }
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let app = axum::Router::new()
+            .route("/devices/{id}", axum::routing::patch(patch))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let client =
+            RealFirestoreClient::with_base_url(format!("http://{addr}"), Arc::new(StaticToken));
+        let at = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        client.set_device_last_seen("dev", at).await.unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let (query, body) = &seen[0];
+        let mut params: Vec<&str> = query.split('&').collect();
+        params.sort_unstable();
+        assert_eq!(
+            params,
+            [
+                "currentDocument.exists=true",
+                "updateMask.fieldPaths=last_seen"
+            ]
+        );
+        let fields = body["fields"].as_object().unwrap();
+        assert_eq!(fields.keys().collect::<Vec<_>>(), ["last_seen"]);
+        assert_eq!(fields["last_seen"], timestamp_val(at));
+
+        server.abort();
+    }
+
+    #[test]
     fn device_record_roundtrip() {
         let record = DeviceRecord {
             fcm_token: "tok123".to_string(),
@@ -1141,6 +1241,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_750_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_712_000_000),
+            last_seen: None,
             last_rotation: Some(UNIX_EPOCH + Duration::from_secs(1_713_000_000)),
             renewal_nudge_sent: None,
             secret_prefix: Some("brave-falcon".to_string()),
@@ -1270,6 +1371,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -1298,6 +1400,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -1357,6 +1460,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -1386,6 +1490,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -1415,6 +1520,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: UNIX_EPOCH + Duration::from_secs(1_000_000),
             registered_at: UNIX_EPOCH + Duration::from_secs(1_000_000),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,

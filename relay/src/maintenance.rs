@@ -336,6 +336,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires,
             registered_at,
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -403,6 +404,13 @@ mod tests {
             &self,
             _subdomain: &str,
             _record: &DeviceRecord,
+        ) -> Result<(), FirestoreError> {
+            Ok(())
+        }
+        async fn set_device_last_seen(
+            &self,
+            _subdomain: &str,
+            _last_seen: SystemTime,
         ) -> Result<(), FirestoreError> {
             Ok(())
         }
@@ -624,6 +632,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::Bound,
             cert_expires: now + Duration::from_secs(86400 * 90),
             registered_at: future_time,
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -637,12 +646,73 @@ mod tests {
         assert!(!is_stale_device(&record, now, threshold));
     }
 
+    fn days_ago(days: u64) -> SystemTime {
+        SystemTime::now() - Duration::from_secs(days * 86400)
+    }
+
+    #[test]
+    fn device_registered_long_ago_but_seen_recently_is_not_stale() {
+        let mut record = make_record(200, 30);
+        record.last_seen = Some(days_ago(2));
+        let threshold = Duration::from_secs(180 * 86400);
+        assert!(!is_stale_device(&record, SystemTime::now(), threshold));
+    }
+
+    #[test]
+    fn device_neither_registered_nor_seen_within_threshold_is_stale() {
+        let mut record = make_record(200, 30);
+        record.last_seen = Some(days_ago(190));
+        let threshold = Duration::from_secs(180 * 86400);
+        assert!(is_stale_device(&record, SystemTime::now(), threshold));
+    }
+
+    #[test]
+    fn legacy_record_without_last_seen_falls_back_to_registered_at() {
+        let threshold = Duration::from_secs(180 * 86400);
+        let now = SystemTime::now();
+        let old = make_record(200, 30);
+        let recent = make_record(10, 30);
+        assert!(old.last_seen.is_none() && recent.last_seen.is_none());
+        assert!(is_stale_device(&old, now, threshold));
+        assert!(!is_stale_device(&recent, now, threshold));
+    }
+
     // ── Integration tests for run_maintenance_once ────────────────────
 
     #[tokio::test]
+    async fn active_device_registered_long_ago_is_not_swept() {
+        // Onboarded 200 days ago, but connected two days ago (#787).
+        let mut record = make_record(200, 30);
+        record.last_seen = Some(days_ago(2));
+        let devices = vec![("active-sub".to_string(), record)];
+        let firestore = Arc::new(MockFirestore::new(devices));
+        let dns = Arc::new(MockDns::new());
+        let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);
+        let acme: Arc<dyn AcmeClient> = Arc::new(StubAcme);
+        let config = test_config(180);
+
+        let report = run_maintenance_once(
+            &config,
+            &(firestore.clone() as Arc<dyn FirestoreClient>),
+            &fcm,
+            &stub_unifiedpush(),
+            &acme,
+            &(dns.clone() as Arc<dyn DnsClient>),
+        )
+        .await;
+
+        assert_eq!(report.stale_devices_swept, 0);
+        assert!(dns.deleted_subdomains.lock().unwrap().is_empty());
+        assert!(firestore.deleted_devices.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn stale_device_is_swept_with_dns_and_firestore_deletion() {
-        // Device registered 200 days ago, cert still valid (not reclaimable)
-        let devices = vec![("stale-sub".to_string(), make_record(200, 30))];
+        // Registered 200 days ago and last seen 190 days ago; cert still
+        // valid (not reclaimable).
+        let mut record = make_record(200, 30);
+        record.last_seen = Some(days_ago(190));
+        let devices = vec![("stale-sub".to_string(), record)];
         let firestore = Arc::new(MockFirestore::new(devices));
         let dns = Arc::new(MockDns::new());
         let fcm: Arc<dyn FcmClient> = Arc::new(StubFcm);

@@ -25,6 +25,8 @@ pub struct MockFirestore {
     pub devices: Mutex<HashMap<String, DeviceRecord>>,
     pub pending_certs: Mutex<HashMap<String, PendingCert>>,
     pub reservations: Mutex<HashMap<String, SubdomainReservation>>,
+    /// Every `set_device_last_seen` call, in order, as (subdomain, time).
+    pub last_seen_writes: Mutex<Vec<(String, std::time::SystemTime)>>,
 }
 
 impl Default for MockFirestore {
@@ -40,6 +42,7 @@ impl MockFirestore {
             devices: Mutex::new(HashMap::new()),
             pending_certs: Mutex::new(HashMap::new()),
             reservations: Mutex::new(HashMap::new()),
+            last_seen_writes: Mutex::new(Vec::new()),
         }
     }
 
@@ -121,6 +124,23 @@ impl FirestoreClient for MockFirestore {
             .lock()
             .unwrap()
             .insert(subdomain.to_string(), record.clone());
+        Ok(())
+    }
+
+    async fn set_device_last_seen(
+        &self,
+        subdomain: &str,
+        last_seen: std::time::SystemTime,
+    ) -> Result<(), FirestoreError> {
+        let mut devices = self.devices.lock().unwrap();
+        let record = devices
+            .get_mut(subdomain)
+            .ok_or_else(|| FirestoreError::NotFound(subdomain.to_string()))?;
+        record.last_seen = Some(last_seen);
+        self.last_seen_writes
+            .lock()
+            .unwrap()
+            .push((subdomain.to_string(), last_seen));
         Ok(())
     }
 

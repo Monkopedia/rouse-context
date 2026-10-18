@@ -112,6 +112,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
             cert_expires: SystemTime::UNIX_EPOCH,
             registered_at: SystemTime::now(),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,

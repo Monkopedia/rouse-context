@@ -55,6 +55,7 @@ fn setup_device() -> (SigningKey, DeviceRecord) {
         key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires: SystemTime::now() + Duration::from_secs(86400),
         registered_at: SystemTime::now(),
+        last_seen: None,
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
@@ -542,4 +543,46 @@ async fn renew_clears_renewal_nudge_sent() {
     let devices = firestore.devices.lock().unwrap();
     let updated = devices.get("brave-falcon").unwrap();
     assert!(updated.renewal_nudge_sent.is_none());
+}
+
+/// A successful renewal is a sign of life: it records `last_seen` with a
+/// field-level write so the stale-device sweep keeps the device (#787).
+#[tokio::test]
+async fn renew_records_last_seen() {
+    let (signing_key, mut record) = setup_device();
+    record.registered_at = SystemTime::now() - Duration::from_secs(200 * 86400);
+    let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record));
+    let acme = MockAcme::new("renewed-cert");
+    let auth = MockFirebaseAuth::new().with_token("valid-token", "uid-456");
+
+    let app = make_app(firestore.clone(), acme, auth);
+
+    let csr_b64 = generate_real_csr();
+    let csr_der = BASE64.decode(&csr_b64).unwrap();
+    let signature: Signature = signing_key.sign(&csr_der);
+    let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
+
+    let before = SystemTime::now();
+    let resp = axum::http::Request::builder()
+        .method("POST")
+        .uri("/renew")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({
+                "subdomain": "brave-falcon",
+                "firebase_token": "valid-token",
+                "csr": csr_b64,
+                "signature": sig_b64
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let resp = tower::ServiceExt::oneshot(app, resp).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let writes = firestore.last_seen_writes.lock().unwrap();
+    assert_eq!(writes.len(), 1, "{writes:?}");
+    assert_eq!(writes[0].0, "brave-falcon");
+    assert!(writes[0].1 >= before);
 }

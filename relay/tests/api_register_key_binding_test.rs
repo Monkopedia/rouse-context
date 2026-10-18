@@ -51,6 +51,7 @@ fn record(
         key_binding: KeyBinding::Bound,
         cert_expires,
         registered_at: SystemTime::now(),
+        last_seen: None,
         last_rotation,
         renewal_nudge_sent: None,
         secret_prefix: None,

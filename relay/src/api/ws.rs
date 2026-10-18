@@ -129,6 +129,7 @@ pub async fn create_placeholder_record(
         key_binding: crate::firestore::KeyBinding::Bound,
         cert_expires: std::time::SystemTime::now() + std::time::Duration::from_secs(86400 * 90),
         registered_at: std::time::SystemTime::now(),
+        last_seen: None,
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
@@ -636,6 +637,7 @@ mod tests {
             key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
             cert_expires: std::time::SystemTime::UNIX_EPOCH,
             registered_at: std::time::SystemTime::now(),
+            last_seen: None,
             last_rotation: None,
             renewal_nudge_sent: None,
             secret_prefix: None,
@@ -680,6 +682,7 @@ mod tests {
                     key_binding: crate::firestore::KeyBinding::AwaitingFirstKey,
                     cert_expires: std::time::SystemTime::now(),
                     registered_at: std::time::SystemTime::now(),
+                    last_seen: None,
                     last_rotation: None,
                     renewal_nudge_sent: None,
                     secret_prefix: None,
@@ -724,6 +727,13 @@ mod tests {
             &self,
             _s: &str,
             _r: &crate::firestore::DeviceRecord,
+        ) -> Result<(), crate::firestore::FirestoreError> {
+            Ok(())
+        }
+        async fn set_device_last_seen(
+            &self,
+            _s: &str,
+            _t: std::time::SystemTime,
         ) -> Result<(), crate::firestore::FirestoreError> {
             Ok(())
         }

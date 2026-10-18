@@ -554,6 +554,7 @@ pub async fn handle_register(
         key_binding,
         cert_expires,
         registered_at: SystemTime::now(),
+        last_seen: None,
         last_rotation: if req.force_new {
             Some(SystemTime::now())
         } else {

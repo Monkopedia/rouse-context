@@ -902,6 +902,19 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         Ok(())
     }
 
+    async fn set_device_last_seen(
+        &self,
+        subdomain: &str,
+        last_seen: std::time::SystemTime,
+    ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
+        let record = devices.get_mut(subdomain).ok_or_else(|| {
+            rouse_relay::firestore::FirestoreError::NotFound(subdomain.to_string())
+        })?;
+        record.last_seen = Some(last_seen);
+        Ok(())
+    }
+
     async fn delete_device(
         &self,
         subdomain: &str,
