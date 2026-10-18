@@ -120,10 +120,11 @@ impl FirestoreClient for MockFirestore {
         subdomain: &str,
         record: &DeviceRecord,
     ) -> Result<(), FirestoreError> {
-        self.devices
-            .lock()
-            .unwrap()
-            .insert(subdomain.to_string(), record.clone());
+        // Like the real client, a whole-record write leaves `last_seen` as stored.
+        let mut devices = self.devices.lock().unwrap();
+        let mut record = record.clone();
+        record.last_seen = devices.get(subdomain).and_then(|r| r.last_seen);
+        devices.insert(subdomain.to_string(), record);
         Ok(())
     }
 

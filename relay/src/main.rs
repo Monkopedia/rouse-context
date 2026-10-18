@@ -897,8 +897,11 @@ impl rouse_relay::firestore::FirestoreClient for InMemoryFirestore {
         subdomain: &str,
         record: &rouse_relay::firestore::DeviceRecord,
     ) -> Result<(), rouse_relay::firestore::FirestoreError> {
+        // Like the real client, a whole-record write leaves `last_seen` as stored.
         let mut devices = self.devices.lock().unwrap_or_else(|e| e.into_inner());
-        devices.insert(subdomain.to_string(), record.clone());
+        let mut record = record.clone();
+        record.last_seen = devices.get(subdomain).and_then(|r| r.last_seen);
+        devices.insert(subdomain.to_string(), record);
         Ok(())
     }
 

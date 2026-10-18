@@ -357,6 +357,8 @@ fn parse_rfc3339(s: &str) -> Result<SystemTime, FirestoreError> {
 
 // ── Conversion helpers ──────────────────────────────────────────────
 
+/// Every stored field except `last_seen`, which only
+/// [`FirestoreClient::set_device_last_seen`] writes.
 fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, serde_json::Value> {
     let mut fields = serde_json::Map::new();
     fields.insert("fcm_token".to_string(), string_val(&record.fcm_token));
@@ -377,10 +379,6 @@ fn device_record_to_fields(record: &DeviceRecord) -> serde_json::Map<String, ser
     fields.insert(
         "registered_at".to_string(),
         timestamp_val(record.registered_at),
-    );
-    fields.insert(
-        "last_seen".to_string(),
-        opt_timestamp_val(&record.last_seen),
     );
     fields.insert(
         "last_rotation".to_string(),
@@ -661,9 +659,25 @@ impl FirestoreClient for RealFirestoreClient {
         subdomain: &str,
         record: &DeviceRecord,
     ) -> Result<(), FirestoreError> {
+        // The update mask names exactly the written fields, so the PATCH
+        // leaves `last_seen` as stored and a record read before a concurrent
+        // `set_device_last_seen` cannot revert it.
         let path = format!("devices/{subdomain}");
-        let body = serde_json::json!({ "fields": device_record_to_fields(record) });
-        let resp = self.patch_with_retry(&path, &body).await?;
+        let fields = device_record_to_fields(record);
+        let mask: Vec<(&str, &str)> = fields
+            .keys()
+            .map(|k| ("updateMask.fieldPaths", k.as_str()))
+            .collect();
+        let body = serde_json::json!({ "fields": fields });
+        let resp = self
+            .authenticated_request_with_retry(&path, |url, token| {
+                self.http
+                    .patch(url)
+                    .query(&mask)
+                    .bearer_auth(token)
+                    .json(&body)
+            })
+            .await?;
         debug!(subdomain, status = resp.status().as_u16(), "put_device OK");
         Ok(())
     }
@@ -1164,11 +1178,12 @@ mod tests {
     }
 
     #[test]
-    fn last_seen_roundtrips() {
-        let mut record = sample_device_record();
-        record.last_seen = Some(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
-        let back = device_record_from_fields(&device_record_to_fields(&record)).unwrap();
-        assert_eq!(back.last_seen, record.last_seen);
+    fn stored_last_seen_is_read() {
+        let at = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let mut fields = device_record_to_fields(&sample_device_record());
+        fields.insert("last_seen".to_string(), timestamp_val(at));
+        let back = device_record_from_fields(&fields).unwrap();
+        assert_eq!(back.last_seen, Some(at));
     }
 
     #[test]
@@ -1227,6 +1242,63 @@ mod tests {
         let fields = body["fields"].as_object().unwrap();
         assert_eq!(fields.keys().collect::<Vec<_>>(), ["last_seen"]);
         assert_eq!(fields["last_seen"], timestamp_val(at));
+
+        server.abort();
+    }
+
+    /// `put_device` writes whole records read earlier (e.g. the `/ws` push
+    /// token update on every connect), so it must leave `last_seen` alone or
+    /// it could revert a concurrent `set_device_last_seen`. Its update mask
+    /// names every other field and its body omits `last_seen`.
+    #[tokio::test]
+    async fn put_device_never_writes_last_seen() {
+        use axum::extract::{RawQuery, State as AxState};
+        use axum::http::StatusCode;
+        use std::sync::Mutex;
+
+        type Seen = Arc<Mutex<Vec<(String, serde_json::Value)>>>;
+        async fn patch(
+            AxState(seen): AxState<Seen>,
+            RawQuery(q): RawQuery,
+            axum::Json(body): axum::Json<serde_json::Value>,
+        ) -> StatusCode {
+            seen.lock().unwrap().push((q.unwrap_or_default(), body));
+            StatusCode::OK
+        }
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let app = axum::Router::new()
+            .route("/devices/{id}", axum::routing::patch(patch))
+            .with_state(seen.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await });
+
+        let client =
+            RealFirestoreClient::with_base_url(format!("http://{addr}"), Arc::new(StaticToken));
+        let mut record = sample_device_record();
+        record.last_seen = Some(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+        client.put_device("dev", &record).await.unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let (query, body) = &seen[0];
+        let mut masked: Vec<&str> = query
+            .split('&')
+            .filter_map(|p| p.strip_prefix("updateMask.fieldPaths="))
+            .collect();
+        masked.sort_unstable();
+        let mut written: Vec<&str> = body["fields"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        written.sort_unstable();
+        assert!(!written.contains(&"last_seen"), "{written:?}");
+        assert_eq!(
+            masked, written,
+            "mask must cover exactly the written fields"
+        );
 
         server.abort();
     }
