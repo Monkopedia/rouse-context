@@ -27,6 +27,7 @@ fn dummy_device_record() -> DeviceRecord {
         key_binding: rouse_relay::firestore::KeyBinding::AwaitingFirstKey,
         cert_expires: SystemTime::now(),
         registered_at: SystemTime::now(),
+        last_seen: None,
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,

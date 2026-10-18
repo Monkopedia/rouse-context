@@ -135,6 +135,12 @@ pub struct DeviceRecord {
     pub key_binding: KeyBinding,
     pub cert_expires: SystemTime,
     pub registered_at: SystemTime,
+    /// When the device last checked in (a `/ws` mux session or a `/renew`).
+    /// Written only by [`FirestoreClient::set_device_last_seen`]. `None` for
+    /// records that predate the field or have not checked in since; those
+    /// fall back to [`Self::registered_at`] (see [`Self::last_active`]).
+    #[serde(default)]
+    pub last_seen: Option<SystemTime>,
     /// When the Firebase UID last rotated subdomains. None if never.
     pub last_rotation: Option<SystemTime>,
     /// Set when a renewal nudge FCM is sent. Cleared on successful renewal.
@@ -189,6 +195,13 @@ impl DeviceRecord {
     /// to skip proof of possession.
     pub fn awaits_first_key(&self) -> bool {
         self.key_binding == KeyBinding::AwaitingFirstKey && self.public_key.is_empty()
+    }
+
+    /// The most recent sign of life: the later of [`Self::registered_at`] and
+    /// [`Self::last_seen`].
+    pub fn last_active(&self) -> SystemTime {
+        self.last_seen
+            .map_or(self.registered_at, |seen| seen.max(self.registered_at))
     }
 }
 
@@ -256,6 +269,15 @@ pub trait FirestoreClient: Send + Sync {
         &self,
         subdomain: &str,
         record: &DeviceRecord,
+    ) -> Result<(), FirestoreError>;
+
+    /// Set only the `last_seen` field of an existing device record, leaving
+    /// every other field as stored. Never creates a record: a missing device
+    /// yields [`FirestoreError::NotFound`].
+    async fn set_device_last_seen(
+        &self,
+        subdomain: &str,
+        last_seen: SystemTime,
     ) -> Result<(), FirestoreError>;
 
     /// Delete a device record.

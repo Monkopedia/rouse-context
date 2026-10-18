@@ -112,6 +112,7 @@ fn established_device(key: &p256::ecdsa::SigningKey) -> DeviceRecord {
         key_binding: rouse_relay::firestore::KeyBinding::Bound,
         cert_expires: SystemTime::now() + Duration::from_secs(60 * 86400),
         registered_at: SystemTime::now() - Duration::from_secs(86400),
+        last_seen: None,
         last_rotation: None,
         renewal_nudge_sent: None,
         secret_prefix: None,
@@ -336,6 +337,13 @@ impl FirestoreClient for StaleReadFirestore {
     async fn put_device(&self, s: &str, r: &DeviceRecord) -> Result<(), FirestoreError> {
         tokio::task::yield_now().await;
         self.0.put_device(s, r).await
+    }
+    async fn set_device_last_seen(
+        &self,
+        s: &str,
+        t: std::time::SystemTime,
+    ) -> Result<(), FirestoreError> {
+        self.0.set_device_last_seen(s, t).await
     }
     async fn delete_device(&self, s: &str) -> Result<(), FirestoreError> {
         self.0.delete_device(s).await
