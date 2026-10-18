@@ -97,6 +97,7 @@ internal class ListActiveNotificationsTool(
     override suspend fun execute(): ToolResult {
         val f = filter
         val notifications = activeNotificationSource()
+            .filterNot { sbn -> NotificationCaptureService.isOwnPackage(sbn.packageName) }
             .filter { sbn -> f == null || sbn.packageName.contains(f, ignoreCase = true) }
 
         val result = buildJsonArray {

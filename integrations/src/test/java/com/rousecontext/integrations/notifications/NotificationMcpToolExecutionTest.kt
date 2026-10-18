@@ -17,8 +17,12 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -178,6 +182,40 @@ class NotificationMcpToolExecutionTest {
         assertTrue(text.contains("com.slack.android"))
         assertTrue(text.contains("com.google.gmail"))
     }
+
+    @Test
+    fun `list_active_notifications excludes own package notifications`() = runBlocking {
+        // #783: our own notifications carry other clients' pairing codes and
+        // tool activity; a notifications-only client must not see them.
+        registerProvider()
+        activeNotifications = arrayOf(
+            mockSbn(key = "own", pkg = "com.rousecontext.app", title = "Approve client ABC-123"),
+            mockSbn(key = "other", pkg = "com.slack.android", title = "Hi")
+        )
+
+        val result = call("list_active_notifications")
+
+        assertFalse(result.isError == true)
+        assertEquals(listOf("other"), returnedKeys(result))
+    }
+
+    @Test
+    fun `list_active_notifications package filter cannot reach own package`() = runBlocking {
+        registerProvider()
+        activeNotifications = arrayOf(
+            mockSbn(key = "own", pkg = "com.rousecontext.app"),
+            mockSbn(key = "other", pkg = "com.example.rousecontextfan")
+        )
+
+        val result = call("list_active_notifications", mapOf("filter" to "rousecontext"))
+
+        assertFalse(result.isError == true)
+        assertEquals(listOf("other"), returnedKeys(result))
+    }
+
+    private fun returnedKeys(result: CallToolResult): List<String> =
+        Json.parseToJsonElement(textOf(result)).jsonArray
+            .map { it.jsonObject.getValue("key").jsonPrimitive.content }
 
     @Test
     fun `list_active_notifications filters by package substring`() = runBlocking {
