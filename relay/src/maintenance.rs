@@ -6,8 +6,9 @@
 //!    that haven't been nudged yet. Send FCM `type: "renew"` to each.
 //! 2. **Subdomain reclamation**: Delete device records (and DNS) where the cert
 //!    has been expired for more than 180 days with no renewal attempts.
-//! 3. **Stale device sweep**: Delete device records (and DNS) where
-//!    `registered_at` is older than the configured threshold (default 180 days).
+//! 3. **Stale device sweep**: Delete device records (and DNS) for devices
+//!    neither registered nor seen (`/ws` session or `/renew`) within the
+//!    configured threshold (default 180 days).
 //! 4. **Pending cert queue**: If ACME rate limit has reset, process queued
 //!    cert requests and notify devices.
 //!
@@ -33,7 +34,8 @@ pub struct MaintenanceConfig {
     pub cert_expiry_nudge_days: u64,
     /// Days after cert expiry before reclaiming the subdomain.
     pub subdomain_reclaim_days: u64,
-    /// Days since `registered_at` before a device is considered stale and swept.
+    /// Days since a device was last active (the later of `registered_at` and
+    /// `last_seen`) before it is considered stale and swept.
     pub stale_device_sweep_days: u64,
     /// Relay hostname for FCM payloads.
     pub relay_hostname: String,
@@ -92,15 +94,12 @@ pub fn is_reclaimable(record: &DeviceRecord, now: SystemTime, reclaim_threshold:
     }
 }
 
-/// Check if a device is stale based on `registered_at` age.
-///
-/// A device is stale if it was registered more than `stale_threshold` ago.
-/// This catches devices that registered long ago and never renewed their cert
-/// or otherwise checked in.
+/// Check if a device is stale: neither registered nor seen within
+/// `stale_threshold` (see [`DeviceRecord::last_active`]).
 pub fn is_stale_device(record: &DeviceRecord, now: SystemTime, stale_threshold: Duration) -> bool {
-    match now.duration_since(record.registered_at) {
+    match now.duration_since(record.last_active()) {
         Ok(age) => age >= stale_threshold,
-        Err(_) => false, // registered_at is in the future (clock skew)
+        Err(_) => false, // last activity is in the future (clock skew)
     }
 }
 
@@ -202,7 +201,7 @@ pub async fn run_maintenance_once(
                     continue;
                 }
 
-                // Stale device sweep (registered_at too old)
+                // Stale device sweep (not registered or seen recently)
                 if is_stale_device(record, now, stale_threshold) {
                     if let Err(e) = dns.delete_subdomain_records(subdomain).await {
                         warn!(subdomain, error = %e, "Failed to delete DNS records for stale device");
@@ -211,7 +210,7 @@ pub async fn run_maintenance_once(
                     }
                     match firestore.delete_device(subdomain).await {
                         Ok(()) => {
-                            info!(subdomain, "Swept stale device (registered_at too old)");
+                            info!(subdomain, "Swept stale device (not seen recently)");
                             report.stale_devices_swept += 1;
                         }
                         Err(e) => {

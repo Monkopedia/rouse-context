@@ -15,7 +15,7 @@ use axum::response::{IntoResponse, Response};
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -23,6 +23,18 @@ use crate::api::{ApiError, AppState};
 use crate::mux::frame::Frame;
 use crate::mux::lifecycle::MuxSession;
 use crate::passthrough::{OpenStreamRequest, SessionRegistry};
+
+/// A `/ws` session records `last_seen` only when the stored record's last
+/// activity is at least this old, so a busy or reconnecting device writes to
+/// Firestore at most about once a day. The stale-device sweep works in months,
+/// so a day of lag is immaterial (#787).
+const LAST_SEEN_WRITE_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Whether a `/ws` session for `record` should write a fresh `last_seen`.
+fn last_seen_write_due(record: &crate::firestore::DeviceRecord, now: SystemTime) -> bool {
+    now.duration_since(record.last_active())
+        .is_ok_and(|age| age >= LAST_SEEN_WRITE_INTERVAL)
+}
 
 /// Axum request extension set by the TLS layer when a valid client cert is present.
 #[derive(Debug, Clone)]
@@ -41,6 +53,9 @@ struct SessionParams {
     session_registry: Arc<SessionRegistry>,
     firestore: Arc<dyn crate::firestore::FirestoreClient>,
     firestore_has_record: bool,
+    /// Write `last_seen` once the session registers (see
+    /// [`LAST_SEEN_WRITE_INTERVAL`]).
+    record_last_seen: bool,
     /// Shared throttle; cleared on session registration so a quick
     /// disconnect+reconnect cycle still triggers a fresh FCM wake (#423).
     fcm_wake_throttle: Arc<crate::rate_limit::FcmWakeThrottle>,
@@ -68,15 +83,15 @@ pub async fn handle_ws(
     //   - In the test harness (`allow_ws_auto_create_device` is true), the
     //     record is auto-created below so that `InMemoryFirestore`-backed
     //     fixtures don't need to call `/register` first.
-    let firestore_has_record = match state.firestore.get_device(&subdomain).await {
-        Ok(_) => true,
+    let record = match state.firestore.get_device(&subdomain).await {
+        Ok(record) => Some(record),
         Err(crate::firestore::FirestoreError::NotFound(_)) => {
             if state.config.limits.allow_ws_auto_create_device {
                 warn!(
                     subdomain = %subdomain,
                     "Device not in Firestore (mTLS cert valid, will auto-create record on connect)"
                 );
-                false
+                None
             } else {
                 warn!(
                     subdomain = %subdomain,
@@ -102,7 +117,8 @@ pub async fn handle_ws(
         relay_state: state.relay_state.clone(),
         session_registry: state.session_registry.clone(),
         firestore: state.firestore.clone(),
-        firestore_has_record,
+        firestore_has_record: record.is_some(),
+        record_last_seen: record.is_some_and(|r| last_seen_write_due(&r, SystemTime::now())),
         fcm_wake_throttle: state.fcm_wake_throttle.clone(),
     };
 
@@ -160,6 +176,7 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
         session_registry,
         firestore,
         firestore_has_record,
+        record_last_seen,
         fcm_wake_throttle,
     } = params;
 
@@ -213,6 +230,19 @@ async fn handle_mux_session(socket: WebSocket, params: SessionParams) {
     fcm_wake_throttle.clear(&subdomain);
 
     info!(subdomain = %subdomain, "Mux session registered");
+
+    if record_last_seen {
+        let firestore = firestore.clone();
+        let subdomain = subdomain.clone();
+        tokio::spawn(async move {
+            if let Err(e) = firestore
+                .set_device_last_seen(&subdomain, SystemTime::now())
+                .await
+            {
+                warn!(subdomain = %subdomain, error = %e, "Failed to record last_seen");
+            }
+        });
+    }
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 

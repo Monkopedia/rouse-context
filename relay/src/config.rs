@@ -215,8 +215,8 @@ pub struct LimitsConfig {
     /// If no WebSocket message (including Pong) is received within this many seconds,
     /// consider the device connection dead and tear down the session.
     pub ws_read_timeout_secs: u64,
-    /// Days since `registered_at` before a device is considered stale and swept
-    /// from Firestore and DNS. Default: 180.
+    /// Days since a device was last registered or seen (`/ws`, `/renew`) before
+    /// it is considered stale and swept from Firestore and DNS. Default: 180.
     pub stale_device_sweep_days: u64,
     /// How long a subdomain reservation remains valid after `POST /request-subdomain`.
     /// Must be long enough for the device to generate a CSR and call

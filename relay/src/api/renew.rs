@@ -23,6 +23,7 @@ use p256::pkcs8::DecodePublicKey;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use tracing::warn;
 
 use crate::api::{ApiError, AppState};
 
@@ -241,6 +242,13 @@ pub async fn handle_renew(
         record.cert_expires = SystemTime::now() + Duration::from_secs(90 * 86400);
         record.renewal_nudge_sent = None;
         let _ = state.firestore.put_device(&subdomain, &record).await;
+    }
+    if let Err(e) = state
+        .firestore
+        .set_device_last_seen(&subdomain, SystemTime::now())
+        .await
+    {
+        warn!(subdomain = %subdomain, error = %e, "Failed to record last_seen on renew");
     }
 
     (
