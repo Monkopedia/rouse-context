@@ -141,7 +141,6 @@ jobs:
             --status "$RELEASE_STATUS"
             --changelog-dir "$RUNNER_TEMP/at-tag/fastlane/metadata/android/en-US/changelogs"
           )
-          if [[ "$DRY_RUN" == true ]]; then
-            args+=(--dry-run)
-          fi
-          bash scripts/play-upload.sh "${args[@]}"
+          # Passed through verbatim: the script commits only on exactly
+          # `false` and treats every other value as a dry run (fail closed).
+          bash scripts/play-upload.sh "${args[@]}" --dry-run "$DRY_RUN"

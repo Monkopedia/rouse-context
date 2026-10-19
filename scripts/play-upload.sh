@@ -12,13 +12,16 @@
 #     --version 1.0.13 \
 #     --track alpha \
 #     --changelog-dir <dir holding fastlane changelogs/<versionCode>.txt> \
-#     [--status completed|draft] [--dry-run]
+#     [--status completed|draft] [--dry-run <value>]
+#
+#   --dry-run fails closed: the edit is committed ONLY when the value is exactly
+#   `false`. Omitted, empty, `True`, `0`, a typo -- all dry runs.
 #
 # FLOW (Android Publisher v3)
 #   edits.insert -> edits.bundles.upload -> edits.tracks.update -> edits.validate
-#   then  --dry-run : edits.delete. Never commits. (A dry run also prints
+#   then  dry run   : edits.delete. Never commits. (A dry run also prints
 #                     edits.tracks.list right after insert, before any change.)
-#         otherwise : edits.commit.
+#   --dry-run false : edits.commit.
 #   Any failure after the edit exists deletes the edit before exiting non-zero,
 #   so a failed run never leaves a dangling edit behind.
 #
@@ -52,7 +55,10 @@ die() {
   exit 1
 }
 
-aab="" version="" track="" changelog_dir="" status=completed dry_run=false
+# dry_run fails CLOSED: it is true unless --dry-run is given exactly `false`.
+# An omitted flag, an empty value, `True`, `0` or a typo all mean a dry run;
+# only the one exact spelling commits.
+aab="" version="" track="" changelog_dir="" status=completed dry_run=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --aab) aab=${2:?--aab needs a value}; shift 2 ;;
@@ -60,7 +66,10 @@ while [[ $# -gt 0 ]]; do
     --track) track=${2:?--track needs a value}; shift 2 ;;
     --changelog-dir) changelog_dir=${2:?--changelog-dir needs a value}; shift 2 ;;
     --status) status=${2:?--status needs a value}; shift 2 ;;
-    --dry-run) dry_run=true; shift ;;
+    --dry-run)
+      [[ $# -ge 2 ]] || die "--dry-run needs a value (false commits; anything else is a dry run)"
+      if [[ "$2" == false ]]; then dry_run=false; else dry_run=true; fi
+      shift 2 ;;
     *) die "unknown argument: $1" ;;
   esac
 done

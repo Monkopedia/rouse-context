@@ -234,7 +234,7 @@ expect_not_out() { # NAME FIXED_STRING
 
 # --- green: dry run ---------------------------------------------------------------
 
-run '{}' "${defaults[@]}" --dry-run
+run '{}' "${defaults[@]}" --dry-run true
 expect_status "dry run" zero
 expect_calls "dry run" "insert tracks upload track validate delete"
 expect_out "dry run" "DRY RUN OK"
@@ -265,22 +265,41 @@ else fail "dry run: uploaded $size bytes, bundle is $good_size"; fi
 
 # --- green: real run ----------------------------------------------------------------
 
-run '{}' "${defaults[@]}"
+run '{}' "${defaults[@]}" --dry-run false
 expect_status "commit run" zero
 expect_calls "commit run" "insert upload track validate commit"
 expect_out "commit run" "COMMITTED: versionCode 14 to track 'alpha' (completed)"
 
-run '{}' "${defaults[@]}" --status draft --dry-run
+run '{}' "${defaults[@]}" --status draft --dry-run true
 expect_status "draft status" zero
 body=$(cat "$mock_log.track-body" 2>/dev/null || true)
 if [[ "$body" == *'"status": "draft"'* ]]; then
   pass "draft status: track body carries status draft"
 else fail "draft status: track body lacks status draft" "$body"; fi
 
+# --- fail closed: only the exact value `false` commits -----------------------------
+
+dry_calls="insert tracks upload track validate delete"
+run '{}' "${defaults[@]}"
+expect_status "--dry-run omitted" zero
+expect_calls "--dry-run omitted is a dry run" "$dry_calls"
+expect_out "--dry-run omitted" "DRY RUN OK"
+for v in "" True TRUE FALSE False flase 0 no " false" "false "; do
+  run '{}' "${defaults[@]}" --dry-run "$v"
+  expect_status "--dry-run '$v'" zero
+  expect_calls "--dry-run '$v' is a dry run" "$dry_calls"
+  expect_out "--dry-run '$v'" "DRY RUN OK"
+  expect_not_out "--dry-run '$v'" "COMMITTED"
+done
+run '{}' "${defaults[@]}" --dry-run
+expect_status "--dry-run with no value" nonzero
+expect_out "--dry-run with no value" "--dry-run needs a value"
+expect_calls "--dry-run with no value" ""
+
 # --- red: API failures delete the edit ------------------------------------------------
 
 forbidden='{"fail": {"track": [403, {"error": {"code": 403, "message": "The caller does not have permission", "status": "PERMISSION_DENIED"}}]}}'
-run "$forbidden" "${defaults[@]}"
+run "$forbidden" "${defaults[@]}" --dry-run false
 expect_status "403 on tracks.update" nonzero
 expect_out "403 on tracks.update" "-> HTTP 403"
 expect_out "403 on tracks.update prints the body" "PERMISSION_DENIED"
@@ -290,42 +309,42 @@ expect_calls "403 on tracks.update" "insert upload track delete"
 # The dry run exists partly to learn the real API name of "Closed testing -
 # Alpha". If that name is wrong, tracks.update fails -- and the list must
 # already have been printed by then.
-run '{"fail": {"track": [404, {"error": {"code": 404, "message": "Track not found: alpha"}}]}}' "${defaults[@]}" --dry-run
+run '{"fail": {"track": [404, {"error": {"code": 404, "message": "Track not found: alpha"}}]}}' "${defaults[@]}" --dry-run true
 expect_status "dry run, unknown track" nonzero
 expect_out "dry run, unknown track" "-> HTTP 404"
 expect_out "dry run, unknown track prints the track list first" "completed:13"
 expect_calls "dry run, unknown track" "insert tracks upload track delete"
 
 run '{"fail": {"validate": [400, {"error": {"code": 400, "message": "Only releases with status draft may be created on draft app."}}]}}' \
-  "${defaults[@]}" --dry-run
+  "${defaults[@]}" --dry-run true
 expect_status "validate 400 on dry run" nonzero
 expect_out "validate 400 on dry run" "-> HTTP 400"
 expect_out "validate 400 on dry run prints the body" "Only releases with status draft"
 expect_calls "validate 400 on dry run" "insert tracks upload track validate delete"
 
-run '{"fail": {"commit": [500, {"error": {"code": 500, "message": "backend error"}}]}}' "${defaults[@]}"
+run '{"fail": {"commit": [500, {"error": {"code": 500, "message": "backend error"}}]}}' "${defaults[@]}" --dry-run false
 expect_status "commit 500" nonzero
 expect_out "commit 500" "-> HTTP 500"
 expect_out "commit 500" "edits.commit failed"
 expect_calls "commit 500" "insert upload track validate commit delete"
 
-run '{"fail": {"upload": [403, {"error": {"code": 403, "message": "APK specifies a version code that has already been used."}}]}}' "${defaults[@]}" --dry-run
+run '{"fail": {"upload": [403, {"error": {"code": 403, "message": "APK specifies a version code that has already been used."}}]}}' "${defaults[@]}" --dry-run true
 expect_status "upload 403" nonzero
 expect_out "upload 403" "-> HTTP 403"
 expect_out "upload 403" "edits.bundles.upload failed"
 expect_calls "upload 403" "insert tracks upload delete"
 
-run '{"upload_code": 99}' "${defaults[@]}" --dry-run
+run '{"upload_code": 99}' "${defaults[@]}" --dry-run true
 expect_status "upload versionCode mismatch" nonzero
 expect_out "upload versionCode mismatch" "Play reports versionCode 99 for the upload; the manifest says 14"
 expect_calls "upload versionCode mismatch" "insert tracks upload delete"
 
-run '{"fail": {"delete": [500, {"error": {"code": 500, "message": "delete broke"}}]}}' "${defaults[@]}" --dry-run
+run '{"fail": {"delete": [500, {"error": {"code": 500, "message": "delete broke"}}]}}' "${defaults[@]}" --dry-run true
 expect_status "dry run whose delete fails" nonzero
 expect_out "dry run whose delete fails" "dry run could not delete edit edit-123"
 expect_calls "dry run whose delete fails" "insert tracks upload track validate delete"
 
-run '{"fail": {"insert": [401, {"error": {"code": 401, "message": "Request had invalid authentication credentials."}}]}}' "${defaults[@]}" --dry-run
+run '{"fail": {"insert": [401, {"error": {"code": 401, "message": "Request had invalid authentication credentials."}}]}}' "${defaults[@]}" --dry-run true
 expect_status "insert 401" nonzero
 expect_out "insert 401" "-> HTTP 401"
 expect_out "insert 401" "edits.insert failed"
@@ -334,23 +353,23 @@ expect_calls "insert 401" "insert"
 # --- red: refused before any request -------------------------------------------------
 
 for t in production Production wear:production; do
-  run '{}' --aab "$good" --version 1.0.13 --track "$t" --changelog-dir "$sandbox/changelogs" --dry-run
+  run '{}' --aab "$good" --version 1.0.13 --track "$t" --changelog-dir "$sandbox/changelogs" --dry-run true
   expect_status "track $t" nonzero
   expect_out "track $t" "refusing track '$t': this workflow uploads to testing tracks only"
   expect_calls "track $t" ""
 done
 
-run '{}' --aab "$foss" --version 1.0.13 --track alpha --changelog-dir "$sandbox/changelogs" --dry-run
+run '{}' --aab "$foss" --version 1.0.13 --track alpha --changelog-dir "$sandbox/changelogs" --dry-run true
 expect_status "FOSS-named bundle" nonzero
 expect_out "FOSS-named bundle" "it is a FOSS artifact"
 expect_calls "FOSS-named bundle" ""
 
-run '{}' --aab "$wrongpkg" --version 1.0.13 --track alpha --changelog-dir "$sandbox/changelogs" --dry-run
+run '{}' --aab "$wrongpkg" --version 1.0.13 --track alpha --changelog-dir "$sandbox/changelogs" --dry-run true
 expect_status "wrong package" nonzero
 expect_out "wrong package" "manifest package is 'com.example.evil', expected 'com.rousecontext'"
 expect_calls "wrong package" ""
 
-run '{}' --aab "$good" --version 1.0.12 --track alpha --changelog-dir "$sandbox/changelogs" --dry-run
+run '{}' --aab "$good" --version 1.0.12 --track alpha --changelog-dir "$sandbox/changelogs" --dry-run true
 expect_status "version/file name mismatch" nonzero
 expect_out "version/file name mismatch" "expected exactly 'rouse-context-1.0.12-google.aab'"
 expect_calls "version/file name mismatch" ""
@@ -358,41 +377,60 @@ expect_calls "version/file name mismatch" ""
 mkdir -p "$sandbox/misnamed"
 make_aab "$sandbox/misnamed/rouse-context-1.0.13-google.aab" com.rousecontext 14 1.0.99
 run '{}' --aab "$sandbox/misnamed/rouse-context-1.0.13-google.aab" --version 1.0.13 --track alpha \
-  --changelog-dir "$sandbox/changelogs" --dry-run
+  --changelog-dir "$sandbox/changelogs" --dry-run true
 expect_status "manifest versionName mismatch" nonzero
 expect_out "manifest versionName mismatch" "manifest versionName is '1.0.99', expected '1.0.13'"
 expect_calls "manifest versionName mismatch" ""
 
 printf 'not a zip' >"$sandbox/other/rouse-context-9.9.9-google.aab"
 run '{}' --aab "$sandbox/other/rouse-context-9.9.9-google.aab" --version 9.9.9 --track alpha \
-  --changelog-dir "$sandbox/changelogs" --dry-run
+  --changelog-dir "$sandbox/changelogs" --dry-run true
 expect_status "not a bundle" nonzero
 expect_out "not a bundle" "is not a zip file"
 expect_calls "not a bundle" ""
 
+# Truncated fixed-width protobuf fields (wire types 1 and 5) must be reported
+# as malformed, not silently read short.
+mkdir -p "$sandbox/trunc"
+for wt in 64:09 32:0d; do
+  bits=${wt%%:*}
+  printf -v key '\\x%s' "${wt#*:}"
+  python3 - "$sandbox/trunc/rouse-context-1.0.13-google.aab" "$key" <<'PY'
+import sys, zipfile
+key = bytes([int(sys.argv[2][2:], 16)])
+with zipfile.ZipFile(sys.argv[1], "w") as z:
+    z.writestr("base/manifest/AndroidManifest.xml", key + b"\x01\x02")
+PY
+  run '{}' --aab "$sandbox/trunc/rouse-context-1.0.13-google.aab" --version 1.0.13 --track alpha \
+    --changelog-dir "$sandbox/changelogs" --dry-run true
+  expect_status "truncated ${bits}-bit field" nonzero
+  expect_out "truncated ${bits}-bit field" "truncated ${bits}-bit field"
+  expect_calls "truncated ${bits}-bit field" ""
+done
+
 run '{}' --aab "$sandbox/dist/rouse-context-1.0.14-google.aab" --version 1.0.14 --track alpha \
-  --changelog-dir "$sandbox/changelogs" --dry-run
+  --changelog-dir "$sandbox/changelogs" --dry-run true
 expect_status "missing bundle" nonzero
 expect_out "missing bundle" "bundle not found"
 expect_calls "missing bundle" ""
 
-run '{}' --aab "$good" --version 1.0.13 --track alpha --changelog-dir "$sandbox/nochangelogs" --dry-run
+run '{}' --aab "$good" --version 1.0.13 --track alpha --changelog-dir "$sandbox/nochangelogs" --dry-run true
 expect_status "missing changelog" nonzero
 expect_out "missing changelog" "no changelog for versionCode 14"
 expect_calls "missing changelog" ""
 
 : >"$sandbox/nochangelogs/14.txt"
-run '{}' --aab "$good" --version 1.0.13 --track alpha --changelog-dir "$sandbox/nochangelogs" --dry-run
+run '{}' --aab "$good" --version 1.0.13 --track alpha --changelog-dir "$sandbox/nochangelogs" --dry-run true
 expect_status "empty changelog" nonzero
 expect_out "empty changelog" "is empty"
 expect_calls "empty changelog" ""
 
-run '{}' "${defaults[@]}" --status inProgress --dry-run
+run '{}' "${defaults[@]}" --status inProgress --dry-run true
 expect_status "status inProgress" nonzero
 expect_out "status inProgress" "release status 'inProgress' is not one of: completed, draft"
 expect_calls "status inProgress" ""
 
-TOKEN="" run '{}' "${defaults[@]}" --dry-run
+TOKEN="" run '{}' "${defaults[@]}" --dry-run true
 expect_status "no token" nonzero
 expect_out "no token" "PLAY_ACCESS_TOKEN is not set"
 expect_calls "no token" ""

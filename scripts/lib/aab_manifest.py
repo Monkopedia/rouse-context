@@ -59,6 +59,8 @@ def fields(buf):
         if wire == 0:
             val, pos = varint(buf, pos)
         elif wire == 1:
+            if pos + 8 > len(buf):
+                raise ValueError("truncated 64-bit field")
             val, pos = buf[pos:pos + 8], pos + 8
         elif wire == 2:
             length, pos = varint(buf, pos)
@@ -66,6 +68,8 @@ def fields(buf):
                 raise ValueError("truncated length-delimited field")
             val, pos = buf[pos:pos + length], pos + length
         elif wire == 5:
+            if pos + 4 > len(buf):
+                raise ValueError("truncated 32-bit field")
             val, pos = buf[pos:pos + 4], pos + 4
         else:
             raise ValueError("unsupported wire type %d" % wire)
