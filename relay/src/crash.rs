@@ -98,6 +98,20 @@ fn long_token_re() -> &'static regex::Regex {
     RE.get_or_init(|| regex::Regex::new(r"[A-Za-z0-9_\-]{32,}").unwrap())
 }
 
+/// The one long token [long_token_re] lets through (#755): R8's mapping id in
+/// the source-file slot of a stack frame, `\tat <method>(r8-map-id-<hex>:<line>)`.
+/// A release build rewrites every frame's `SourceFile` to this; it identifies
+/// the build (it is the `pg_map_id` in that build's `mapping.txt`), not the
+/// user, and is what ties a trace to its mapping. Anchored to a whole frame
+/// line so the same token anywhere else, e.g. in an exception message, is
+/// still redacted. Group 1 is exactly the exempt span.
+fn r8_frame_file_re() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(r"(?m)^\t+at [^\s()]+\((r8-map-id-[0-9a-f]{64}):\d+\)\r?$").unwrap()
+    })
+}
+
 /// Redact anything resembling private user data from free text (stack traces).
 /// The field allowlist already drops identifying ACRA fields; this scrubs the
 /// one free-form field we DO keep.
@@ -105,7 +119,18 @@ pub fn sanitize_text(input: &str) -> String {
     let s = email_re().replace_all(input, "[redacted-email]");
     let s = ipv4_re().replace_all(&s, "[redacted-ip]");
     let s = user_path_re().replace_all(&s, "$1/[redacted-path]");
-    let s = long_token_re().replace_all(&s, "[redacted-token]");
+    let exempt: Vec<_> = r8_frame_file_re()
+        .captures_iter(&s)
+        .filter_map(|c| c.get(1).map(|m| m.range()))
+        .collect();
+    let s = long_token_re().replace_all(&s, |c: &regex::Captures| {
+        let m = c.get(0).unwrap();
+        if exempt.contains(&m.range()) {
+            m.as_str().to_owned()
+        } else {
+            "[redacted-token]".to_owned()
+        }
+    });
     // Defang GitHub markup: the sanitized text is interpolated into a public
     // GitHub issue title/body (the allowlisted fields render outside the fenced
     // code block). A crafted crash report could otherwise inject `@mentions`
@@ -707,6 +732,93 @@ mod tests {
         let out = sanitize_text(SAMPLE_STACK);
         assert!(out.contains("com.rousecontext.app.Foo.bar"));
         assert!(out.contains("IllegalStateException"));
+    }
+
+    /// The R8 mapping id of a real release build (`# pg_map_id:` in its
+    /// `mapping.txt`): 64 lowercase hex digits, a SHA-256 of the mapping.
+    const MAP_ID: &str = "fda67da19d8879d5b82acb8b75953c641498349a4e5ac3107020e3f1efcef519";
+
+    /// A trace in the shape a minified release build actually ships (#755):
+    /// R8 class/method names, and every frame's `SourceFile` rewritten to
+    /// `r8-map-id-<MAP_ID>`. Framework frames keep their real file names.
+    fn r8_stack() -> String {
+        format!(
+            "ha.c5: Failed to connect: Job was cancelled\n\
+             \tat ha.b5.d(r8-map-id-{MAP_ID}:315)\n\
+             \tat vg.j1.r0(r8-map-id-{MAP_ID}:49)\n\
+             \tat android.os.Handler.handleCallback(Handler.java:1095)\n\
+             Caused by: vg.d1: Job was cancelled; job=r1{{Cancelling}}@ae199b1"
+        )
+    }
+
+    #[test]
+    fn sanitize_keeps_r8_map_id_in_frame_file_slot() {
+        let out = sanitize_text(&r8_stack());
+        assert!(
+            out.contains(&format!("\tat ha.b5.d(r8-map-id-{MAP_ID}:315)")),
+            "{out}"
+        );
+        assert!(
+            out.contains(&format!("\tat vg.j1.r0(r8-map-id-{MAP_ID}:49)")),
+            "{out}"
+        );
+        assert!(out.contains("(Handler.java:1095)"), "{out}");
+        assert!(!out.contains("[redacted-token]"), "{out}");
+    }
+
+    #[test]
+    fn sanitize_redacts_other_long_token_in_frame_file_slot() {
+        let token = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let out = sanitize_text(&format!("E: x\n\tat a.b.c({token}:12)"));
+        assert!(out.contains("\tat a.b.c([redacted-token]:12)"), "{out}");
+        assert!(!out.contains(token), "{out}");
+    }
+
+    #[test]
+    fn sanitize_redacts_r8_map_id_outside_frame_file_slot() {
+        let id = format!("r8-map-id-{MAP_ID}");
+        let cases = [
+            // In the exception message (the header line).
+            format!("java.lang.IllegalStateException: bad {id}\n\tat a.b.c(Foo.kt:1)"),
+            // In a `Caused by:` message.
+            format!("E: x\n\tat a.b.c(Foo.kt:1)\nCaused by: E: ({id}:3)"),
+            // On a frame line, but in the method position, not the file slot.
+            format!("E: x\n\tat a.{id}.c(Foo.kt:1)"),
+            // A frame-shaped string not at the start of a line.
+            format!("E: see at a.b.c({id}:3)"),
+        ];
+        for input in cases {
+            let out = sanitize_text(&input);
+            assert!(!out.contains(MAP_ID), "{input:?} -> {out}");
+            assert!(out.contains("[redacted-token]"), "{input:?} -> {out}");
+        }
+    }
+
+    #[test]
+    fn sanitize_redacts_r8_map_id_look_alikes_in_frame_file_slot() {
+        let look_alikes = [
+            // Trailing suffix after the hex.
+            format!("r8-map-id-{MAP_ID}-x"),
+            format!("r8-map-id-{MAP_ID}0"),
+            // Non-hex / uppercase hex.
+            format!("r8-map-id-{}", "g".repeat(64)),
+            format!("r8-map-id-{}", MAP_ID.to_uppercase()),
+            // Too short.
+            format!("r8-map-id-{}", &MAP_ID[..40]),
+            // Wrong prefix.
+            format!("r9-map-id-{MAP_ID}"),
+            format!("xr8-map-id-{MAP_ID}"),
+        ];
+        for file in look_alikes {
+            let out = sanitize_text(&format!("E: x\n\tat a.b.c({file}:7)"));
+            assert!(
+                out.contains("\tat a.b.c([redacted-token]:7)"),
+                "{file} -> {out}"
+            );
+        }
+        // A frame missing its `:line` is not the shape R8 emits either.
+        let out = sanitize_text(&format!("E: x\n\tat a.b.c(r8-map-id-{MAP_ID})"));
+        assert!(!out.contains(MAP_ID), "{out}");
     }
 
     #[test]
