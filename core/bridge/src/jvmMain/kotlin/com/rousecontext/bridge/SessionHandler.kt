@@ -68,7 +68,8 @@ class SessionHandler(
      * Handles a single incoming mux stream from the relay.
      *
      * Suspends until the session ends (remote disconnect, error, or cancellation).
-     * Cleans up TLS, TCP, and MCP resources on exit.
+     * Cleans up TLS, TCP, and MCP resources on exit, and always closes [stream]
+     * so the relay is told the session is over. See [closeStream].
      *
      * @throws IllegalStateException if no TLS certificate is available
      * @throws TunnelError.UnhandledTlsState if the TLS layer hits a state it has
@@ -77,6 +78,37 @@ class SessionHandler(
      *   See #616.
      */
     suspend fun handleStream(stream: MuxStream) {
+        try {
+            serveStream(stream)
+        } finally {
+            closeStream(stream)
+        }
+    }
+
+    /**
+     * Closes [stream] however the session ended -- idle bound, error, the local
+     * server ending the connection, cancellation, or a failed accept. Closing
+     * is what sends CLOSE; without it the relay keeps the client's connection
+     * open (no bytes, no EOF) and holds the per-device stream slot. See #780.
+     *
+     * When the relay closed the stream first (the client hung up), the stream
+     * is already closed and this sends nothing: `MuxStreamImpl.close` is a no-op on
+     * a closed stream, so a client-initiated close never gets an echo.
+     *
+     * Under [NonCancellable] because the CLOSE send suspends, and the
+     * cancellation path -- service shutdown -- is one that must still send it.
+     */
+    private suspend fun closeStream(stream: MuxStream) = withContext(NonCancellable) {
+        try {
+            stream.close()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Best effort: a transport already gone has nobody to tell.
+        }
+    }
+
+    private suspend fun serveStream(stream: MuxStream) {
         val sslContext = certProvider.serverSslContext()
             ?: error("No TLS certificate available for server accept")
 
