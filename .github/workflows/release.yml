@@ -112,6 +112,36 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk \
             "dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk"
 
+      # The R8 mapping is the only thing that turns a release build's crash
+      # traces back into code, and the runner that made it is thrown away with
+      # the job (#755). Both variants write the SAME `release/` mapping path and
+      # the Google build starts with `clean`, so the FOSS mapping must be staged
+      # here, before that build deletes it. Verified against the staged APK by map id (R8 writes it into every
+      # frame's SourceFile as `r8-map-id-<pg_map_id>`), so a mapping from the
+      # wrong build fails here instead of shipping as a useless asset.
+      - name: "Stage FOSS R8 mapping (#755)"
+        env:
+          MAPPING: app/build/outputs/mapping/release/mapping.txt
+          APK: dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk
+          OUT: dist/rouse-context-${{ steps.version.outputs.name }}-foss-mapping.txt
+        run: |
+          set -euo pipefail
+          if [ ! -s "$MAPPING" ]; then
+            echo "::error::$MAPPING is missing or empty; a release without its R8 mapping files crash reports nobody can decode."
+            exit 1
+          fi
+          if ! ID=$(grep -m1 -oP '^# pg_map_id: \K[0-9a-f]{64}$' "$MAPPING"); then
+            echo "::error::no 64-hex pg_map_id header in $MAPPING"
+            exit 1
+          fi
+          unzip -p "$APK" 'classes*.dex' > "$RUNNER_TEMP/foss-dex.bin"
+          if ! grep -qaF "r8-map-id-$ID" "$RUNNER_TEMP/foss-dex.bin"; then
+            echo "::error::$APK does not carry r8-map-id-$ID; $MAPPING is not its mapping."
+            exit 1
+          fi
+          cp "$MAPPING" "$OUT"
+          echo "OK: $OUT (pg_map_id $ID)"
+
       # Verify the STAGED file, not the build output: step ordering plus a copy
       # is the only thing that distinguishes the two artifacts (both variants
       # write the same unprefixed `release/` path), so the thing that must be
@@ -148,6 +178,31 @@ jobs:
             --apk "dist/rouse-context-${{ steps.version.outputs.name }}-google.apk" \
             --expect google
 
+      # Same as "Stage FOSS R8 mapping" (#755). One R8 run backs both the Google
+      # APK and the AAB, so this one mapping covers both.
+      - name: "Stage Google R8 mapping (#755)"
+        env:
+          MAPPING: app/build/outputs/mapping/release/mapping.txt
+          APK: dist/rouse-context-${{ steps.version.outputs.name }}-google.apk
+          OUT: dist/rouse-context-${{ steps.version.outputs.name }}-google-mapping.txt
+        run: |
+          set -euo pipefail
+          if [ ! -s "$MAPPING" ]; then
+            echo "::error::$MAPPING is missing or empty; a release without its R8 mapping files crash reports nobody can decode."
+            exit 1
+          fi
+          if ! ID=$(grep -m1 -oP '^# pg_map_id: \K[0-9a-f]{64}$' "$MAPPING"); then
+            echo "::error::no 64-hex pg_map_id header in $MAPPING"
+            exit 1
+          fi
+          unzip -p "$APK" 'classes*.dex' > "$RUNNER_TEMP/google-dex.bin"
+          if ! grep -qaF "r8-map-id-$ID" "$RUNNER_TEMP/google-dex.bin"; then
+            echo "::error::$APK does not carry r8-map-id-$ID; $MAPPING is not its mapping."
+            exit 1
+          fi
+          cp "$MAPPING" "$OUT"
+          echo "OK: $OUT (pg_map_id $ID)"
+
       - name: Upload FOSS APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -182,9 +237,15 @@ jobs:
             | `rouse-context-${{ steps.version.outputs.name }}-foss.apk` | **FOSS** (UnifiedPush, no Firebase/Google Play services) | Sideloading on de-Googled devices / F-Droid-style installs. |
             | `rouse-context-${{ steps.version.outputs.name }}-google.apk` | **Google** (Firebase Cloud Messaging) | Sideloading on devices with Google Play services. |
             | `rouse-context-${{ steps.version.outputs.name }}-google.aab` | **Google** App Bundle | Play Console upload only — not directly installable. |
+            | `rouse-context-${{ steps.version.outputs.name }}-{foss,google}-mapping.txt` | R8 mapping | Deobfuscating crash traces from that build (match its `r8-map-id-…`). |
 
             ---
+          # Default is false: an unmatched path is skipped with a warning and
+          # the release still publishes. Every file below is required (#755).
+          fail_on_unmatched_files: true
           files: |
             dist/rouse-context-${{ steps.version.outputs.name }}-foss.apk
             dist/rouse-context-${{ steps.version.outputs.name }}-google.apk
             dist/rouse-context-${{ steps.version.outputs.name }}-google.aab
+            dist/rouse-context-${{ steps.version.outputs.name }}-foss-mapping.txt
+            dist/rouse-context-${{ steps.version.outputs.name }}-google-mapping.txt
