@@ -1,0 +1,146 @@
+name: Play upload
+
+# Uploads the Google-distribution app bundle already attached to a GitHub
+# release to a Google Play TESTING track. Nothing is rebuilt here: signing,
+# R8 mappings and the FOSS build all stay in release.yml, untouched, and the
+# FOSS artifact is never uploaded (scripts/play-upload.sh refuses it by name and
+# refuses any bundle whose manifest package is not com.rousecontext).
+#
+# Auth is keyless Workload Identity Federation: GitHub's OIDC token is
+# exchanged for a short-lived access token for the play-publisher service
+# account, which holds "Release apps to testing tracks" on com.rousecontext
+# only. There is no JSON key and no secret. Both values below are repo
+# VARIABLES. OIDC is not issued to fork PRs, and nothing here runs on PRs.
+#
+# release.yml calls this on every v* tag push (dry_run: false, track: alpha).
+# Run it by hand with dry_run: true (the default) to exercise the whole edit --
+# insert, upload, track update, validate -- and print the app's real track
+# names, then delete the edit without committing anything.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag whose -google.aab to upload (e.g. v1.0.13)'
+        required: true
+        type: string
+      track:
+        description: 'Play track (API name). Never production.'
+        required: false
+        default: alpha
+        type: string
+      dry_run:
+        description: 'Validate, list tracks, then delete the edit without committing'
+        required: false
+        default: true
+        type: boolean
+      release_status:
+        description: 'Play release status: completed, or draft if Play refuses completed for this app state'
+        required: false
+        default: completed
+        type: choice
+        options: [completed, draft]
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      track:
+        required: false
+        default: alpha
+        type: string
+      dry_run:
+        required: false
+        default: true
+        type: boolean
+      release_status:
+        required: false
+        default: completed
+        type: string
+
+concurrency:
+  group: play-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC token for Workload Identity Federation
+      contents: read    # checkout + gh release download
+
+    steps:
+      # The script and its manifest reader come from the ref this workflow runs
+      # at; the bundle and the changelog come from the tag.
+      - uses: actions/checkout@v4
+
+      - name: Resolve inputs
+        id: inputs
+        env:
+          TAG: ${{ inputs.tag }}
+          TRACK: ${{ inputs.track }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$TAG' is not a release tag like v1.0.13"
+            exit 1
+          fi
+          track_lc=${TRACK,,}
+          if [[ "$track_lc" == production || "$track_lc" == *:production ]]; then
+            echo "::error::refusing track '$TRACK': testing tracks only, never production."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download the Google AAB from the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.inputs.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release"
+          # Exact asset name, not a glob that could also match a FOSS file.
+          # Fails if the release or the asset does not exist.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "rouse-context-${VERSION}-google.aab" \
+            --dir "$RUNNER_TEMP/release"
+          ls -l "$RUNNER_TEMP/release"
+
+      - name: Extract changelogs at the tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          mkdir -p "$RUNNER_TEMP/at-tag"
+          git archive "refs/tags/$TAG" fastlane/metadata/android/en-US/changelogs \
+            | tar -x -C "$RUNNER_TEMP/at-tag"
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+
+      - name: Upload to Play (${{ inputs.track }}, dry run ${{ inputs.dry_run }})
+        env:
+          PLAY_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          VERSION: ${{ steps.inputs.outputs.version }}
+          TRACK: ${{ inputs.track }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
+        run: |
+          set -euo pipefail
+          args=(
+            --aab "$RUNNER_TEMP/release/rouse-context-${VERSION}-google.aab"
+            --version "$VERSION"
+            --track "$TRACK"
+            --status "$RELEASE_STATUS"
+            --changelog-dir "$RUNNER_TEMP/at-tag/fastlane/metadata/android/en-US/changelogs"
+          )
+          # Passed through verbatim: the script commits only on exactly
+          # `false` and treats every other value as a dry run (fail closed).
+          bash scripts/play-upload.sh "${args[@]}" --dry-run "$DRY_RUN"
