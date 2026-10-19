@@ -150,6 +150,14 @@ jobs:
       # test stubs `gh` and `gcloud`, so it never reaches GitHub or the VPS.
       - name: "backfill-relay-secrets self-test (#686)"
         run: bash scripts/tests/backfill-relay-secrets-test.sh
+      # Not a gate either: the Play upload release.yml runs on every tag. What
+      # matters is what a happy path never shows -- a dry run never commits and
+      # always deletes its edit, any API failure deletes the edit and prints
+      # the status and body, and production, a FOSS artifact or another
+      # package are refused before any request. Runs against a mock Android
+      # Publisher on 127.0.0.1; never reaches Google.
+      - name: "play-upload self-test"
+        run: bash scripts/tests/play-upload-test.sh
       # The FOSS-purity gate. release.yml runs it as "Staged FOSS APK contains
       # no Google/Firebase code" -- the whole of #548's answer -- and until #705
       # it had never been observed going red. Fixtures, not real APKs: the gate

@@ -249,3 +249,22 @@ jobs:
             dist/rouse-context-${{ steps.version.outputs.name }}-google.aab
             dist/rouse-context-${{ steps.version.outputs.name }}-foss-mapping.txt
             dist/rouse-context-${{ steps.version.outputs.name }}-google-mapping.txt
+
+  # Upload the Google AAB just attached to the release to Play's closed testing
+  # track. A separate job (and a reusable workflow) rather than an
+  # `on: release` workflow because a release created with GITHUB_TOKEN does not
+  # trigger other workflows' `release` events. Tag pushes only: a manual
+  # dispatch of this workflow creates no release, so there would be nothing to
+  # download. play-upload.yml reads the -google.aab asset and never the FOSS
+  # build; nothing in the `build` job above changes for it.
+  play-upload:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write   # Workload Identity Federation (no key, no secret)
+      contents: read
+    uses: ./.github/workflows/play-upload.yml
+    with:
+      tag: ${{ github.ref_name }}
+      track: alpha
+      dry_run: false
