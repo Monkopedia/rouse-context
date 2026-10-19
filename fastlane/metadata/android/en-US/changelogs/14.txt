@@ -1,0 +1,8 @@
+Fixes the app getting stuck on its loading screen after a burst of connections.
+
+A flood of connections that were opened and then abandoned could tie up the
+app until it was restarted. Sessions that go quiet now end on their own and
+release what they hold, and a client whose session ends gets a clean
+disconnect instead of waiting forever.
+
+Crash reports sent from this version can now be traced back to the code.
