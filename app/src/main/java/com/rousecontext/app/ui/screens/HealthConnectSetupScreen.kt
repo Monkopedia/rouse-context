@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -62,10 +63,14 @@ fun HealthConnectSetupContent(
     historicalAccessGranted: Boolean = false,
     onRequestHistoricalAccess: () -> Unit = {},
     grantedRecordTypes: Set<String> = emptySet(),
+    healthConnectAvailable: Boolean = true,
+    onInstallHealthConnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     HealthConnectSetupBody(
         mode = mode,
+        healthConnectAvailable = healthConnectAvailable,
+        onInstallHealthConnect = onInstallHealthConnect,
         onGrantAccess = onGrantAccess,
         onContinue = onContinue,
         onCancel = onCancel,
@@ -112,6 +117,8 @@ fun HealthConnectSetupScreen(onGrantAccess: () -> Unit = {}, onCancel: () -> Uni
 @Composable
 private fun HealthConnectSetupBody(
     mode: SetupMode = SetupMode.SETUP,
+    healthConnectAvailable: Boolean = true,
+    onInstallHealthConnect: () -> Unit = {},
     onGrantAccess: () -> Unit,
     onContinue: () -> Unit,
     onCancel: () -> Unit,
@@ -136,6 +143,13 @@ private fun HealthConnectSetupBody(
             text = stringResource(R.string.screen_health_connect_setup_description),
             style = MaterialTheme.typography.bodyLarge
         )
+
+        // #803: without the Health Connect app (a separate Play install on
+        // Android 13 and lower) nothing can handle the permission request.
+        if (!healthConnectAvailable) {
+            Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_lg)))
+            HealthConnectUnavailableNotice()
+        }
 
         Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
 
@@ -262,24 +276,14 @@ private fun HealthConnectSetupBody(
         Spacer(modifier = Modifier.weight(1f))
         Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xxl)))
 
-        // Once the base grant has landed, the primary action is no longer
-        // "grant" — the user has to be able to leave the screen deliberately,
-        // because SETUP no longer advances on the grant itself (#537). The
-        // historical-access button above is the reason to linger.
-        val readyToContinue = mode == SetupMode.SETUP && grantedRecordTypes.isNotEmpty()
-        val buttonText = when {
-            mode == SetupMode.SETTINGS ->
-                stringResource(R.string.screen_health_connect_setup_manage)
-            readyToContinue -> stringResource(R.string.common_continue)
-            else -> stringResource(R.string.screen_health_connect_setup_grant_all)
-        }
-
-        Button(
-            onClick = if (readyToContinue) onContinue else onGrantAccess,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(buttonText)
-        }
+        HealthConnectPrimaryButton(
+            mode = mode,
+            healthConnectAvailable = healthConnectAvailable,
+            hasGrantedRecordTypes = grantedRecordTypes.isNotEmpty(),
+            onGrantAccess = onGrantAccess,
+            onContinue = onContinue,
+            onInstallHealthConnect = onInstallHealthConnect
+        )
 
         // The Cancel button only appears during initial SETUP. In SETTINGS
         // mode the user dismisses via the top-bar back arrow (the "Update
@@ -297,6 +301,69 @@ private fun HealthConnectSetupBody(
         }
 
         Spacer(modifier = Modifier.height(dimensionResource(R.dimen.spacing_xl)))
+    }
+}
+
+@Composable
+private fun HealthConnectPrimaryButton(
+    mode: SetupMode,
+    healthConnectAvailable: Boolean,
+    hasGrantedRecordTypes: Boolean,
+    onGrantAccess: () -> Unit,
+    onContinue: () -> Unit,
+    onInstallHealthConnect: () -> Unit
+) {
+    // Once the base grant has landed, the primary action is no longer
+    // "grant" — the user has to be able to leave the screen deliberately,
+    // because SETUP no longer advances on the grant itself (#537). The
+    // historical-access button above is the reason to linger. Without
+    // Health Connect itself, the only useful action is installing it (#803).
+    val (textRes, onClick) = when {
+        !healthConnectAvailable ->
+            R.string.screen_health_connect_setup_install to onInstallHealthConnect
+        mode == SetupMode.SETTINGS ->
+            R.string.screen_health_connect_setup_manage to onGrantAccess
+        hasGrantedRecordTypes -> R.string.common_continue to onContinue
+        else -> R.string.screen_health_connect_setup_grant_all to onGrantAccess
+    }
+    Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(textRes))
+    }
+}
+
+@Composable
+private fun HealthConnectUnavailableNotice() {
+    Row(
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(HISTORICAL_CORNER_DP.dp))
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .padding(
+                horizontal = HISTORICAL_H_PADDING_DP.dp,
+                vertical = HISTORICAL_V_PADDING_DP.dp
+            )
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Warning,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onErrorContainer
+        )
+        Spacer(modifier = Modifier.width(dimensionResource(R.dimen.spacing_md)))
+        Column {
+            Text(
+                text = stringResource(R.string.screen_health_connect_setup_unavailable_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+            Text(
+                text = stringResource(
+                    R.string.screen_health_connect_setup_unavailable_description
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
+            )
+        }
     }
 }
 

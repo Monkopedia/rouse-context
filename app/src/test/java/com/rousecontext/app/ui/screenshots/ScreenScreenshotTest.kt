@@ -537,6 +537,24 @@ class ScreenScreenshotTest {
         )
     }
 
+    /**
+     * Health Connect app missing or outdated (#803): the screen explains why
+     * and the primary action becomes the Play Store install.
+     */
+    @Test
+    fun healthConnectSetupUnavailableDark() = captureDark(
+        "25b_health_connect_setup_unavailable"
+    ) {
+        HealthConnectSetupContent(mode = SetupMode.SETUP, healthConnectAvailable = false)
+    }
+
+    @Test
+    fun healthConnectSetupUnavailableLight() = captureLight(
+        "25b_health_connect_setup_unavailable"
+    ) {
+        HealthConnectSetupContent(mode = SetupMode.SETUP, healthConnectAvailable = false)
+    }
+
     @Test
     fun healthConnectSettingsDark() = captureDark("26_health_connect_settings") {
         HealthConnectSetupContent(
