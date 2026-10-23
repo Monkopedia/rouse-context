@@ -18,6 +18,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.nanoseconds
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -54,20 +55,33 @@ class SessionHandler(
      * handshake. Production wiring never passes it.
      */
     private val tlsAccept: suspend (SSLContext, MuxStream) -> TlsAcceptor.TlsSession =
-        { sslContext, stream -> TlsAcceptor.create(sslContext).accept(stream) }
-) {
-
+        { sslContext, stream -> TlsAcceptor.create(sslContext).accept(stream) },
+    /**
+     * Where the session's blocking and network work runs: cert/Keystore
+     * loading, the TLS accept, the loopback connect, and every socket and
+     * stream close. [handleStream] is called from `lifecycleScope` -- the
+     * Android main thread -- and Ktor's `connect` calls `SocketChannel.connect`
+     * synchronously on whatever thread calls it, so without this hop every
+     * session died of `NetworkOnMainThreadException` (1.0.13). Suspending on
+     * this dispatcher does not hold a thread while a session idles, so #778's
+     * fix is unaffected.
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /**
      * Selector for the loopback sockets. Lives as long as this handler -- a
      * process-lifetime singleton in production, like the Ktor engine it
-     * connects to.
+     * connects to. A parameter so tests can observe which thread opens and
+     * connects the loopback socket; production wiring never passes it.
      */
-    private val selectorManager = SelectorManager(Dispatchers.IO)
+    private val selectorManager: SelectorManager = SelectorManager(ioDispatcher)
+) {
 
     /**
      * Handles a single incoming mux stream from the relay.
      *
      * Suspends until the session ends (remote disconnect, error, or cancellation).
+     * Safe to call from the main thread: all of the session's work runs on
+     * [ioDispatcher].
      * Cleans up TLS, TCP, and MCP resources on exit, and always closes [stream]
      * so the relay is told the session is over. See [closeStream].
      *
@@ -79,7 +93,7 @@ class SessionHandler(
      */
     suspend fun handleStream(stream: MuxStream) {
         try {
-            serveStream(stream)
+            withContext(ioDispatcher) { serveStream(stream) }
         } finally {
             closeStream(stream)
         }
@@ -97,16 +111,19 @@ class SessionHandler(
      *
      * Under [NonCancellable] because the CLOSE send suspends, and the
      * cancellation path -- service shutdown -- is one that must still send it.
+     * Outside [serveStream]'s dispatcher hop so a caller cancelled before that
+     * hop still sends CLOSE, so it hops to [ioDispatcher] itself.
      */
-    private suspend fun closeStream(stream: MuxStream) = withContext(NonCancellable) {
-        try {
-            stream.close()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            // Best effort: a transport already gone has nobody to tell.
+    private suspend fun closeStream(stream: MuxStream) =
+        withContext(NonCancellable + ioDispatcher) {
+            try {
+                stream.close()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best effort: a transport already gone has nobody to tell.
+            }
         }
-    }
 
     private suspend fun serveStream(stream: MuxStream) {
         val sslContext = certProvider.serverSslContext()
@@ -163,7 +180,7 @@ class SessionHandler(
             // TLS -> socket (client request bytes forwarded to MCP server).
             // The injector rewrites each request's header block to include
             // the shared secret that the local Ktor guard expects. See #177.
-            val tlsToSocket = launch(Dispatchers.IO) {
+            val tlsToSocket = launch {
                 try {
                     copyTlsToChannel(tlsSession, socketOut, injector, activity)
                 } finally {
@@ -172,7 +189,7 @@ class SessionHandler(
             }
 
             // Socket -> TLS (MCP server response bytes forwarded back through TLS).
-            val socketToTls = launch(Dispatchers.IO) {
+            val socketToTls = launch {
                 try {
                     copyChannelToTls(socketIn, tlsSession, activity)
                 } finally {
