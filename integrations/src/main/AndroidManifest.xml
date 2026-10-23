@@ -37,6 +37,11 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <!-- Health Connect's provider app on Android 13 and lower. Without
+             this, HealthConnectClient.getSdkStatus() cannot see it on
+             Android 11+ and reports Health Connect missing even when it is
+             installed (#803). -->
+        <package android:name="com.google.android.apps.healthdata" />
     </queries>
 
     <!-- === Usage === -->

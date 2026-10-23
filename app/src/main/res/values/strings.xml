@@ -124,6 +124,9 @@
     <string name="screen_health_connect_setup_grant_historical">Grant historical access</string>
     <string name="screen_health_connect_setup_manage">Manage in Health Connect</string>
     <string name="screen_health_connect_setup_grant_all">Grant All Health Access</string>
+    <string name="screen_health_connect_setup_unavailable_title">Health Connect isn\'t installed</string>
+    <string name="screen_health_connect_setup_unavailable_description">This integration reads your data through Google\'s Health Connect app, which is missing or needs an update. Install it from Google Play, then come back here to grant access.</string>
+    <string name="screen_health_connect_setup_install">Install Health Connect</string>
     <string name="screen_health_connect_setup_granted_cd">%1$s granted</string>
     <string name="screen_health_connect_setup_not_granted_cd">%1$s not granted</string>
     <string name="screen_health_connect_setup_bullet">\u2022</string>
