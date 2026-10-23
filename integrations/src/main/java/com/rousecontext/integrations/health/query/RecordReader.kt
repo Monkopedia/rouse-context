@@ -40,8 +40,14 @@ interface RecordReader {
      * `maxValues`. That cap counts samples, though, so a record yielding none
      * would never trip it; implementations MUST also stop at
      * [STREAM_MAX_RECORDS] records so such a range terminates.
+     *
+     * When that record ceiling is what stopped the read, implementations MUST
+     * end the stream with [Streamed.CeilingReached]. Without it the collector
+     * cannot tell a range that ran out from one the reader abandoned, and a fold
+     * whose own cap never tripped would report whole-range coverage it does not
+     * have. A stream that reached the end of the range ends without the note.
      */
-    fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T>
+    fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<Streamed<T>>
 }
 
 /**

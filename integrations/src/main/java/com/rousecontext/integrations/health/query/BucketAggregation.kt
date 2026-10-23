@@ -39,9 +39,11 @@ data class Bucket(
 /**
  * [buckets] plus the number of samples they were folded from.
  *
- * @param truncated true when the fold stopped at its sample ceiling, so [buckets]
+ * @param truncated true when a ceiling stopped the aggregation short — either the
+ *   fold's own sample cap, or the upstream reader's record ceiling — so [buckets]
  *   cover only the earliest part of the requested range. Callers must not claim
- *   whole-range coverage when this is set.
+ *   whole-range coverage when this is set. It is not set merely because the
+ *   answer is small: a range that simply ran out is complete.
  */
 data class BucketedValues(val buckets: List<Bucket>, val totalCount: Int, val truncated: Boolean)
 
@@ -57,9 +59,16 @@ data class BucketedValues(val buckets: List<Bucket>, val totalCount: Int, val tr
  * At most [maxValues] are folded; hitting that ceiling stops collection (and so
  * the underlying read) and sets [BucketedValues.truncated], because the buckets
  * then describe only the earliest part of the range.
+ *
+ * [maxValues] counts *values*, so it cannot be the only guard: a producer whose
+ * records yield fewer than one value each stops at a ceiling of its own long
+ * before this cap trips. That producer says so with [Streamed.CeilingReached],
+ * which sets [BucketedValues.truncated] just the same — otherwise a fold that
+ * was cut short would report coverage it does not have simply because it was the
+ * cap that did not trip.
  */
 suspend fun bucketize(
-    values: Flow<TimedValue>,
+    values: Flow<Streamed<TimedValue>>,
     from: Instant,
     width: Duration,
     maxValues: Int
@@ -70,8 +79,18 @@ suspend fun bucketize(
     var total = 0
     var truncated = false
     // One past the ceiling: enough to tell "that was all of it" from "there is
-    // more", without folding the extra value.
-    values.take(maxValues + 1).collect { tv ->
+    // more", without folding the extra value. The terminal note, when there is
+    // one, arrives within that same slack.
+    values.take(maxValues + 1).collect { item ->
+        val tv = when (item) {
+            // Upstream stopped at a bound of its own, so the range holds more
+            // than these buckets describe — even though the cap never tripped.
+            Streamed.CeilingReached -> {
+                truncated = true
+                return@collect
+            }
+            is Streamed.Value -> item.value
+        }
         if (total == maxValues) {
             truncated = true
             return@collect
