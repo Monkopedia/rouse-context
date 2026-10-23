@@ -112,7 +112,11 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "refs/tags/$TAG:refs/tags/$TAG"
+          # Force-update the local tag. On a tag push, actions/checkout has already
+          # created refs/tags/$TAG pointing at the commit, and fetching the real
+          # annotated tag over it is rejected ("would clobber existing tag"). That
+          # failed the v1.0.14 upload; manual runs from main never had the tag locally.
+          git fetch --force --no-tags --depth=1 origin "+refs/tags/$TAG:refs/tags/$TAG"
           mkdir -p "$RUNNER_TEMP/at-tag"
           git archive "refs/tags/$TAG" fastlane/metadata/android/en-US/changelogs \
             | tar -x -C "$RUNNER_TEMP/at-tag"
