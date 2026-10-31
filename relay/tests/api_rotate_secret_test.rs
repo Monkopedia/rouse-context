@@ -549,8 +549,8 @@ async fn rotate_secret_swaps_integration_set() {
 /// #285 regression: empty integrations list legitimately invalidates
 /// every per-integration URL for the device — but the device itself stays
 /// onboarded (subdomain, account, public key, cert all untouched). The
-/// in-memory cache entry is fully evicted so the passthrough path returns
-/// a miss.
+/// in-memory cache holds the empty set, which the passthrough path treats as
+/// "nothing is valid" (#810).
 #[tokio::test]
 async fn rotate_secret_empty_list_clears_all_secrets() {
     let mut device = make_device("keep-me");
@@ -609,12 +609,12 @@ async fn rotate_secret_empty_list_clears_all_secrets() {
     assert_eq!(stored.secret_prefix, original_prefix);
     drop(devices);
 
-    // Cache is evicted (not just emptied) so the passthrough path falls
-    // back to Firestore and sees no valid secrets.
+    // Cache holds the empty set ("nothing valid"), not a miss: a miss used
+    // to fall through to a Firestore branch that skipped validation (#810).
     assert_eq!(
         state.relay_state.get_valid_secrets_cache("cool-penguin"),
-        None,
-        "cache must be evicted when valid_secrets becomes empty"
+        Some(Vec::new()),
+        "cache must hold the empty set when valid_secrets becomes empty"
     );
 }
 

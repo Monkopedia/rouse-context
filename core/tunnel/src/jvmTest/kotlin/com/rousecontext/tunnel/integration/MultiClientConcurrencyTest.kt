@@ -159,6 +159,9 @@ class MultiClientConcurrencyTest {
         relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
+        // Auto-created test devices have an empty secret set, which accepts
+        // no SNI label (#810); give the device the label the AI client uses.
+        relayManager.seedValidSecrets(DEVICE_SUBDOMAIN, listOf("exact-$INTEGRATION"))
 
         val registry = InMemoryProviderRegistry()
         registry.register("test", EchoProvider())

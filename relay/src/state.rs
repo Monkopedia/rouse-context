@@ -81,19 +81,15 @@ impl RelayState {
     /// write endpoints so that the passthrough path does not have to wait
     /// for Firestore eventual consistency after a rotate.
     ///
-    /// An empty `secrets` list removes the entry entirely (rather than
-    /// caching an empty list, which would break the cache-miss fall-through
-    /// logic in the passthrough path).
+    /// An empty `secrets` list is cached as-is and means "no secret is
+    /// valid" (#810): the passthrough path rejects every label without
+    /// waking the device. It is NOT treated as a cache miss.
     pub fn set_valid_secrets_cache(&self, subdomain: &str, secrets: Vec<String>) {
         let mut cache = self
             .valid_secrets_cache
             .lock()
             .expect("valid_secrets_cache mutex poisoned");
-        if secrets.is_empty() {
-            cache.pop(subdomain);
-        } else {
-            cache.put(subdomain.to_string(), secrets);
-        }
+        cache.put(subdomain.to_string(), secrets);
     }
 
     /// Look up cached `valid_secrets` for a device. Returns `None` if the
@@ -234,7 +230,7 @@ mod tests {
 
     /// Below capacity, the cache behaves exactly like a hashmap: inserts
     /// are retained, overwrites replace the value, and empty-list writes
-    /// remove the entry.
+    /// are cached as the empty set ("nothing valid", #810), not removed.
     #[test]
     fn cache_behaves_like_hashmap_below_capacity() {
         let state = RelayState::with_cache_capacity(100);
@@ -251,10 +247,10 @@ mod tests {
             Some(vec!["b".to_string(), "c".to_string()])
         );
 
-        // Empty list removes.
+        // Empty list is retained as an explicit empty set.
         state.set_valid_secrets_cache("dev-1", vec![]);
-        assert_eq!(state.get_valid_secrets_cache("dev-1"), None);
-        assert_eq!(state.valid_secrets_cache_len(), 0);
+        assert_eq!(state.get_valid_secrets_cache("dev-1"), Some(Vec::new()));
+        assert_eq!(state.valid_secrets_cache_len(), 1);
     }
 
     /// A zero capacity in config must not disable the cache — it falls

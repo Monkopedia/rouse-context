@@ -357,6 +357,12 @@ class TestRelayManager(
         private set
 
     /**
+     * Secret sets seeded via [seedValidSecrets]. Re-applied on every [start]
+     * so tests that restart the relay keep their devices reachable.
+     */
+    private val seededSecrets = java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
+    /**
      * Write relay.toml config and start the relay process.
      * Blocks until the relay is accepting connections on [port].
      */
@@ -368,6 +374,9 @@ class TestRelayManager(
         if (adminPort != null) {
             admin = TestRelayAdmin(adminPort)
             admin?.waitUntilReady()
+            seededSecrets.forEach { (subdomain, secrets) ->
+                admin?.seedValidSecrets(subdomain, secrets)
+            }
         }
         return relay
     }
@@ -481,6 +490,21 @@ class TestRelayManager(
      */
     fun waitForSessionRegistered(subdomain: String, timeoutMs: Long = 5_000L): Boolean =
         requireAdmin().waitForSessionRegistered(subdomain, timeoutMs)
+
+    /**
+     * Give [subdomain] the SNI secret labels in [secrets], as `/register` or
+     * `/rotate-secret` would. Devices auto-created on `/ws` (see
+     * `allow_ws_auto_create_device`) have an empty secret set, which the relay
+     * treats as "no label is valid" (#810). Tests that route AI clients through
+     * SNI passthrough with a fixed label must seed it first. The seed survives
+     * [stop]/[start] restarts of this manager.
+     *
+     * Requires [enableTestMode] = true.
+     */
+    fun seedValidSecrets(subdomain: String, secrets: List<String>) {
+        seededSecrets[subdomain] = secrets
+        requireAdmin().seedValidSecrets(subdomain, secrets)
+    }
 
     /** Count of `/register/certs` calls observed by the relay. */
     fun registerCertsCalls(): Int = requireAdmin().registerCertsCalls()
@@ -702,6 +726,18 @@ class TestRelayAdmin(private val port: Int) {
      */
     fun sendFcmWake(subdomain: String) {
         post("/test/fcm-wake?subdomain=${subdomain.urlEncoded()}", "")
+    }
+
+    /**
+     * Seed the relay's `valid_secrets` cache for [subdomain]. Wraps
+     * `POST /test/seed-secrets`.
+     */
+    fun seedValidSecrets(subdomain: String, secrets: List<String>) {
+        val joined = secrets.joinToString(",")
+        post(
+            "/test/seed-secrets?subdomain=${subdomain.urlEncoded()}&secrets=${joined.urlEncoded()}",
+            ""
+        )
     }
 
     /**

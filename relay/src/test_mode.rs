@@ -26,6 +26,11 @@
 //!   deterministic wait for a device's mux `SessionRegistry` insertion. Used
 //!   to replace the 500ms sleep that guarded the relay-insertion race in the
 //!   integration tests (issue #377). Returns immediately if already registered.
+//! - `POST /test/seed-secrets?subdomain=<sub>&secrets=<a,b,...>` — write a
+//!   `valid_secrets` set for a device into the in-memory cache, as
+//!   `/register` or `/rotate-secret` would. Fixtures whose devices are
+//!   auto-created on `/ws` (empty secret set, which accepts no SNI label
+//!   since #810) use this to give the device the label their AI clients use.
 //! - `GET  /test/stats` — per-endpoint request counters + synthetic-wake log.
 //!
 //! See issue #249 for the motivating scenarios (#247 integration tier).
@@ -49,6 +54,7 @@ use tracing::{info, warn};
 
 use crate::mux::frame::{ErrorCode, Frame, FrameType};
 use crate::passthrough::{EmitFrameError, SessionRegistry};
+use crate::state::RelayState;
 
 /// Per-endpoint request counters and captured synthetic wake events.
 ///
@@ -145,6 +151,47 @@ pub async fn record_api_request(
 pub struct AdminState {
     pub metrics: Arc<TestMetrics>,
     pub session_registry: Arc<SessionRegistry>,
+    pub relay_state: Arc<RelayState>,
+}
+
+#[derive(Deserialize)]
+pub struct SeedSecretsQuery {
+    pub subdomain: String,
+    /// Comma-separated secret labels. Empty means "no secret is valid".
+    #[serde(default)]
+    pub secrets: String,
+}
+
+#[derive(Serialize)]
+struct SeedSecretsResponse {
+    subdomain: String,
+    secrets: Vec<String>,
+}
+
+/// Seed the `valid_secrets` cache for a device (see module docs).
+pub async fn handle_seed_secrets(
+    State(state): State<AdminState>,
+    Query(q): Query<SeedSecretsQuery>,
+) -> Response {
+    let secrets: Vec<String> = q
+        .secrets
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect();
+    state
+        .relay_state
+        .set_valid_secrets_cache(&q.subdomain, secrets.clone());
+    info!(subdomain = %q.subdomain, count = secrets.len(), "test-mode: seeded valid_secrets");
+    (
+        StatusCode::OK,
+        Json(SeedSecretsResponse {
+            subdomain: q.subdomain,
+            secrets,
+        }),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -450,6 +497,10 @@ pub fn build_admin_router(admin_state: AdminState) -> axum::Router {
             "/test/wait-session-registered",
             axum::routing::get(handle_wait_session_registered),
         )
+        .route(
+            "/test/seed-secrets",
+            axum::routing::post(handle_seed_secrets),
+        )
         .route("/test/stats", axum::routing::get(handle_stats))
         .with_state(admin_state)
 }
@@ -461,6 +512,7 @@ pub async fn spawn_admin_server(
     port: u16,
     metrics: Arc<TestMetrics>,
     session_registry: Arc<SessionRegistry>,
+    relay_state: Arc<RelayState>,
 ) -> std::io::Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = TcpListener::bind(addr).await?;
@@ -470,6 +522,7 @@ pub async fn spawn_admin_server(
     let router = build_admin_router(AdminState {
         metrics,
         session_registry,
+        relay_state,
     });
 
     tokio::spawn(async move {
@@ -506,6 +559,7 @@ mod tests {
         let state = AdminState {
             metrics: Arc::new(TestMetrics::new()),
             session_registry: registry.clone(),
+            relay_state: Arc::new(RelayState::new()),
         };
         (state, registry)
     }
@@ -720,5 +774,29 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = read_body(resp).await;
         assert!(body.contains("\"registered\":false"), "body was: {body}");
+    }
+
+    #[tokio::test]
+    async fn seed_secrets_writes_valid_secrets_cache() {
+        let (state, _registry) = admin_state();
+        let relay_state = state.relay_state.clone();
+        let router = build_admin_router(state);
+        let resp = post(
+            router.clone(),
+            "/test/seed-secrets?subdomain=dev-seed&secrets=ai,other",
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            relay_state.get_valid_secrets_cache("dev-seed"),
+            Some(vec!["ai".to_string(), "other".to_string()])
+        );
+
+        let resp = post(router, "/test/seed-secrets?subdomain=dev-seed&secrets=").await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            relay_state.get_valid_secrets_cache("dev-seed"),
+            Some(vec![])
+        );
     }
 }

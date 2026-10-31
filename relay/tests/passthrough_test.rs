@@ -1177,3 +1177,57 @@ async fn fcm_refires_after_register_disconnect_within_cooldown() {
     );
     assert_eq!(sent[1].0, "fcm-flap");
 }
+
+/// #810 regression: a record with an empty `valid_secrets` and no legacy
+/// `secret_prefix` (the state a rotate-to-empty leaves behind) must accept
+/// NO first label. Before the fix the Firestore fallback treated this as a
+/// "legacy device with no secrets configured", skipped validation, and sent
+/// a wake for any label.
+#[tokio::test]
+async fn empty_valid_secrets_without_prefix_rejects_any_label_without_wake() {
+    let relay_state = Arc::new(RelayState::new());
+    let registry = Arc::new(SessionRegistry::new());
+
+    // valid_secrets: [], secret_prefix: None, cache empty, device offline.
+    let device_record = make_device_record("fcm-empty-set");
+    assert!(device_record.valid_secrets.is_empty());
+    assert!(device_record.secret_prefix.is_none());
+
+    let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device_record));
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = PassthroughContext {
+        relay_state: relay_state.clone(),
+        session_registry: registry,
+        firestore,
+        fcm: fcm.clone(),
+        unifiedpush: Arc::new(MockUnifiedPush::new()),
+        relay_hostname: "relay.rousecontext.com".to_string(),
+        fcm_wakeup_timeout: Duration::from_millis(200),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(30))),
+    };
+
+    for label in ["brave-health", "made-up-label"] {
+        let result = resolve_device_stream(
+            &ctx,
+            "cool-penguin",
+            &format!("{label}.cool-penguin.rousecontext.com"),
+            label,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(PassthroughError::InvalidSecret)),
+            "empty secret set must reject label {label:?}, got {:?}",
+            result.err()
+        );
+    }
+
+    assert!(
+        fcm.sent.lock().unwrap().is_empty(),
+        "no wake may be sent for a device with no valid secrets"
+    );
+    assert_eq!(
+        relay_state.get_valid_secrets_cache("cool-penguin"),
+        Some(Vec::new()),
+        "Firestore fallback should cache the empty set as 'nothing valid'"
+    );
+}

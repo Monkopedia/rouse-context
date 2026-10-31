@@ -88,11 +88,10 @@ class OAuthEndToEndTest {
 
         /**
          * The relay's auto-created Firestore record has empty `valid_secrets`,
-         * which makes `resolve_device_stream` skip secret validation. Any
-         * non-empty first SNI label is therefore accepted; we use the same
-         * `exact-test` prefix that the Host header uses so the OAuth server
-         * receives a consistent integration hostname. See sibling
-         * EndToEndSessionTest for the SNI router semantics.
+         * which accepts no SNI label (#810), so setUp seeds `exact-test` via
+         * the test-mode admin. It matches the prefix the Host header uses so
+         * the OAuth server receives a consistent integration hostname. See
+         * sibling EndToEndSessionTest for the SNI router semantics.
          */
         private const val SESSION_REGISTRATION_TIMEOUT_MS = 10_000L
     }
@@ -133,6 +132,9 @@ class OAuthEndToEndTest {
         relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
+        // Auto-created test devices have an empty secret set, which accepts
+        // no SNI label (#810); give the device the label the AI client uses.
+        relayManager.seedValidSecrets(DEVICE_SUBDOMAIN, listOf("exact-$INTEGRATION"))
     }
 
     @AfterEach

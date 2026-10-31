@@ -152,8 +152,12 @@ async fn main() {
 
     // Start the test-mode admin server (no-op unless the binary was built
     // with `--features test-mode` AND --test-mode <port> was passed).
-    let _test_metrics =
-        start_test_admin_if_enabled(test_admin_port, session_registry.clone()).await;
+    let _test_metrics = start_test_admin_if_enabled(
+        test_admin_port,
+        session_registry.clone(),
+        relay_state.clone(),
+    )
+    .await;
 
     // Build external service clients — use real implementations when a service account is available
     let firestore: Arc<dyn rouse_relay::firestore::FirestoreClient> =
@@ -1179,11 +1183,17 @@ fn parse_cli_args() -> (String, Option<u16>) {
 async fn start_test_admin_if_enabled(
     port: Option<u16>,
     session_registry: Arc<SessionRegistry>,
+    relay_state: Arc<RelayState>,
 ) -> Option<Arc<rouse_relay::test_mode::TestMetrics>> {
     let port = port?;
     let metrics = Arc::new(rouse_relay::test_mode::TestMetrics::new());
-    if let Err(e) =
-        rouse_relay::test_mode::spawn_admin_server(port, metrics.clone(), session_registry).await
+    if let Err(e) = rouse_relay::test_mode::spawn_admin_server(
+        port,
+        metrics.clone(),
+        session_registry,
+        relay_state,
+    )
+    .await
     {
         error!(port, "Failed to start test-mode admin server: {e}");
         std::process::exit(1);
@@ -1199,6 +1209,7 @@ async fn start_test_admin_if_enabled(
 async fn start_test_admin_if_enabled(
     port: Option<u16>,
     _session_registry: Arc<SessionRegistry>,
+    _relay_state: Arc<RelayState>,
 ) -> Option<()> {
     if port.is_some() {
         warn!(

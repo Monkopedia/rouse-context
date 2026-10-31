@@ -279,7 +279,10 @@ pub struct ResolvedStream {
 ///
 /// `integration_secret` is the secret extracted from the SNI hostname (first label).
 /// It is validated against the device's `valid_secrets` list,
-/// falling back to `secret_prefix` for legacy devices. Empty string skips validation.
+/// falling back to `secret_prefix` for legacy devices. An empty `valid_secrets`
+/// list (with no `secret_prefix`) rejects every label. An empty
+/// `integration_secret` skips validation (never produced by SNI routing, which
+/// rejects bare subdomains).
 ///
 /// Returns a `MuxHandle` and opens a stream, or an error if the device cannot
 /// be reached within the timeout.
@@ -316,22 +319,29 @@ pub async fn resolve_device_stream(
                     other => PassthroughError::FirestoreFailed(other.to_string()),
                 })?;
 
-            if !device.valid_secrets.is_empty() {
-                // Seed the cache from Firestore for future lookups.
-                ctx.relay_state
-                    .set_valid_secrets_cache(subdomain, device.valid_secrets.clone());
-                if !device.valid_secrets.iter().any(|s| s == integration_secret) {
-                    info!(subdomain, "Secret mismatch (silent reject)");
-                    return Err(PassthroughError::InvalidSecret);
+            match (&device.secret_prefix, device.valid_secrets.is_empty()) {
+                (Some(stored_secret), true) => {
+                    // Legacy secret_prefix for devices that never had a
+                    // valid_secrets list. Not cached: the cache only models
+                    // valid_secrets membership.
+                    if stored_secret != integration_secret {
+                        info!(subdomain, "Secret prefix mismatch (silent reject)");
+                        return Err(PassthroughError::InvalidSecret);
+                    }
                 }
-            } else if let Some(stored_secret) = &device.secret_prefix {
-                // Fall back to legacy secret_prefix for devices that haven't migrated
-                if stored_secret != integration_secret {
-                    info!(subdomain, "Secret prefix mismatch (silent reject)");
-                    return Err(PassthroughError::InvalidSecret);
+                _ => {
+                    // valid_secrets is authoritative. An empty list (e.g. after
+                    // the last integration was disabled, #810) means NOTHING is
+                    // valid -- never "skip validation". Cache it either way so
+                    // repeat probes do not hit Firestore.
+                    ctx.relay_state
+                        .set_valid_secrets_cache(subdomain, device.valid_secrets.clone());
+                    if !device.valid_secrets.iter().any(|s| s == integration_secret) {
+                        info!(subdomain, "Secret mismatch (silent reject)");
+                        return Err(PassthroughError::InvalidSecret);
+                    }
                 }
             }
-            // If device has neither valid_secrets nor secret_prefix, skip validation
         }
     }
 
