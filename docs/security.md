@@ -62,7 +62,7 @@ Each integration you enable gets its own secret hostname:
 
 The first part (`brave-health`, `falcon-notifs`) is a per-integration secret. The second part (`cool-penguin`) is your device identity. You share each URL only with the AI clients you want to have access.
 
-If you only share your health URL with Claude, Claude can't discover or access your notifications integration -- it doesn't know the hostname, and it can't guess it (roughly 4 million combinations per integration).
+If you only share your health URL with Claude, Claude isn't given your notifications hostname. The secret is a readable adjective plus the integration name, so it is a filter against casual scanning, not a strong credential. The real gate is the OAuth approval: a client that reaches your phone still has to be approved by you on the phone before it gets any data. The relay also throttles guessing (see [Secret URL scheme](#secret-url-scheme)).
 
 ### FCM wake
 
@@ -133,7 +133,9 @@ The key insight: the relay signs the mTLS client cert but the device generates a
 
 ### Secret URL scheme
 
-Each device gets a stable subdomain (e.g., `cool-penguin`) assigned at registration. Each integration gets an independent secret prefix (e.g., `brave-health`), drawn from approximately 4 million adjective-noun combinations.
+Each device gets a stable subdomain (e.g., `cool-penguin`) assigned at registration. Each integration gets an independent secret prefix (e.g., `brave-health`): a random adjective from the relay's word list followed by the integration name. That keeps URLs easy to type, but the space is small enough that the secret should be read as a filter against casual scanning, not as an authentication factor. Access to data is gated by OAuth: every new client must be approved by the user on the phone.
+
+To keep guessing slow, the relay throttles wrong secrets per (client IP, subdomain): after 5 invalid secrets within an hour (configurable via `[limits] wrong_secret_max_failures` / `wrong_secret_window_secs`), that IP is silently closed on that subdomain for the rest of the hour, including attempts that carry a correct secret, so the block reveals nothing. Blocked attempts never trigger an FCM wake.
 
 **Why this matters:**
 - Knowing a device's subdomain exists is useless without the integration secret. The relay validates the secret against the stored value *before* sending an FCM wake. Invalid secrets result in a silent TCP close -- no wake, no battery drain, no indication the device exists.
@@ -192,6 +194,7 @@ Multiple layers, applied at different points:
 | FCM wake throttle | Per subdomain | One FCM push per cooldown window |
 | `/wake` endpoint | Per subdomain | 6 requests per minute (token bucket) |
 | Connection rate limit | Per (source IP, subdomain) | Sliding window counter, rejects scanners |
+| Wrong-secret throttle | Per (source IP, subdomain) | 5 invalid secrets per hour, then silent close (even with a correct secret) for the rest of the hour, no FCM |
 | OAuth endpoints | Per endpoint (global) | Sliding window, prevents brute force |
 | MCP endpoint | Per endpoint (global) | Sliding window on authenticated requests |
 | ACME issuance | Global | 50 certs per week (Let's Encrypt limit, tracked by relay) |

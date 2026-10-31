@@ -80,6 +80,15 @@ wake_rate_limit = 6  # per minute per subdomain
 # conn_rate_limit_max = 200
 # conn_rate_limit_window_secs = 60
 #
+# Per-(source IP, subdomain) throttle on invalid integration secrets (#811).
+# After `wrong_secret_max_failures` invalid secrets within
+# `wrong_secret_window_secs`, that IP is silently closed on that subdomain for
+# the rest of the window, even with a correct secret, and never wakes the
+# device. `wrong_secret_max_entries` caps the in-memory table.
+# wrong_secret_max_failures = 5
+# wrong_secret_window_secs = 3600
+# wrong_secret_max_entries = 50000
+#
 # If true, `/ws` will auto-create a minimal Firestore device record when a
 # mTLS-authenticated device connects with no existing record. This exists
 # only to keep test fixtures convenient — MUST remain false in production.

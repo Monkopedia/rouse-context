@@ -7,6 +7,8 @@
 //!   woken recently (one wake per subdomain within a cooldown window).
 //! - `ConnectionRateLimiter`: Per-(source IP, subdomain) sliding-window counter
 //!   that rejects scanners hammering the same device from a single IP.
+//! - `WrongSecretThrottle`: Per-(source IP, subdomain) block after repeated
+//!   invalid integration secrets (#811).
 
 use dashmap::DashMap;
 use std::net::IpAddr;
@@ -292,6 +294,117 @@ impl ConnectionRateLimiter {
 }
 
 // ---------------------------------------------------------------------------
+// Per-(IP, subdomain) throttle on invalid integration secrets.
+// ---------------------------------------------------------------------------
+
+/// Blocks a source IP on a subdomain after repeated invalid integration
+/// secrets (#811).
+///
+/// Separate from [`ConnectionRateLimiter`], which caps connection volume
+/// regardless of outcome. This one counts only invalid-secret rejections:
+/// once `max_failures` land inside a fixed `window` (starting at the first
+/// failure), every further attempt from that IP on that subdomain is refused
+/// until the window ends -- including attempts that carry a correct secret,
+/// so a blocked prober learns nothing about which guess was right.
+///
+/// Memory is bounded: at most `max_entries` keys are held. When the table is
+/// full, expired entries are swept first; if it is still full the new key is
+/// not tracked (logged at warn). Under concurrent inserts the cap may be
+/// overshot by a few entries, never unboundedly.
+pub struct WrongSecretThrottle {
+    max_failures: u32,
+    window: Duration,
+    max_entries: usize,
+    /// Key: (source_ip, subdomain) -> (failure_count, window_start)
+    failures: DashMap<(IpAddr, String), (u32, Instant)>,
+}
+
+impl WrongSecretThrottle {
+    pub fn new(max_failures: u32, window: Duration, max_entries: usize) -> Self {
+        Self {
+            max_failures,
+            window,
+            max_entries,
+            failures: DashMap::new(),
+        }
+    }
+
+    /// Number of entries currently held (for tests / metrics).
+    pub fn len(&self) -> usize {
+        self.failures.len()
+    }
+
+    /// Returns `true` if the underlying map is empty.
+    pub fn is_empty(&self) -> bool {
+        self.failures.is_empty()
+    }
+
+    /// Returns `true` if `ip` is currently blocked on `subdomain`.
+    pub fn is_blocked(&self, ip: IpAddr, subdomain: &str) -> bool {
+        self.is_blocked_at(ip, subdomain, Instant::now())
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn is_blocked_at(&self, ip: IpAddr, subdomain: &str, now: Instant) -> bool {
+        let key = (ip, subdomain.to_string());
+        match self.failures.get(&key) {
+            Some(entry) => {
+                let (count, window_start) = *entry.value();
+                now.duration_since(window_start) < self.window && count >= self.max_failures
+            }
+            None => false,
+        }
+    }
+
+    /// Record one invalid-secret attempt from `ip` on `subdomain`.
+    pub fn record_failure(&self, ip: IpAddr, subdomain: &str) {
+        self.record_failure_at(ip, subdomain, Instant::now());
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn record_failure_at(&self, ip: IpAddr, subdomain: &str, now: Instant) {
+        let key = (ip, subdomain.to_string());
+        if let Some(mut entry) = self.failures.get_mut(&key) {
+            let (count, window_start) = entry.value_mut();
+            if now.duration_since(*window_start) >= self.window {
+                *count = 1;
+                *window_start = now;
+            } else {
+                *count = count.saturating_add(1);
+            }
+            return;
+        }
+
+        if self.failures.len() >= self.max_entries {
+            self.sweep_expired_at(now);
+            if self.failures.len() >= self.max_entries {
+                tracing::warn!(
+                    entries = self.failures.len(),
+                    "Wrong-secret throttle table full; not tracking new key"
+                );
+                return;
+            }
+        }
+        self.failures
+            .entry(key)
+            .and_modify(|(count, _)| *count = count.saturating_add(1))
+            .or_insert((1, now));
+    }
+
+    /// Drop entries whose window has ended. An expired entry neither blocks
+    /// nor carries its count forward, so evicting it never changes a decision.
+    pub fn sweep_expired(&self) {
+        self.sweep_expired_at(Instant::now());
+    }
+
+    /// Testable version that accepts a specific time instant.
+    pub fn sweep_expired_at(&self, now: Instant) {
+        self.failures
+            .retain(|_, (_, window_start)| now.duration_since(*window_start) < self.window);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Background sweep loop.
 // ---------------------------------------------------------------------------
 
@@ -303,6 +416,7 @@ pub async fn run_rate_limit_sweep_loop(
     app_state: Arc<crate::api::AppState>,
     fcm_wake_throttle: Arc<FcmWakeThrottle>,
     conn_rate_limiter: Arc<ConnectionRateLimiter>,
+    wrong_secret_throttle: Arc<WrongSecretThrottle>,
     shutdown: crate::shutdown::ShutdownController,
 ) {
     tracing::info!(
@@ -319,11 +433,13 @@ pub async fn run_rate_limit_sweep_loop(
                 app_state.crash.sweep_expired();
                 fcm_wake_throttle.sweep_expired();
                 conn_rate_limiter.sweep_expired();
+                wrong_secret_throttle.sweep_expired();
                 tracing::debug!(
                     rate_limiter = app_state.rate_limiter.len(),
                     request_subdomain_rate_limiter = app_state.request_subdomain_rate_limiter.len(),
                     fcm_wake_throttle = fcm_wake_throttle.len(),
                     conn_rate_limiter = conn_rate_limiter.len(),
+                    wrong_secret_throttle = wrong_secret_throttle.len(),
                     "Rate-limit sweep completed"
                 );
             }

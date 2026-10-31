@@ -16,10 +16,11 @@ use crate::firestore::FirestoreClient;
 use crate::mux::frame::{Frame, FrameType};
 use crate::mux::lifecycle::{MuxHandle, StreamHandle};
 use crate::push;
-use crate::rate_limit::FcmWakeThrottle;
+use crate::rate_limit::{FcmWakeThrottle, WrongSecretThrottle};
 use crate::state::RelayState;
 use crate::unifiedpush::UnifiedPushClient;
 use dashmap::DashMap;
+use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +46,9 @@ pub enum PassthroughError {
     ChannelClosed,
     /// Secret prefix does not match the device record.
     InvalidSecret,
+    /// Client IP is blocked on this subdomain after repeated invalid secrets
+    /// (#811). Closed exactly like `InvalidSecret`; the secret is not checked.
+    SecretThrottled,
     /// I/O error on the client socket.
     Io(std::io::Error),
 }
@@ -55,6 +59,9 @@ impl std::fmt::Display for PassthroughError {
             PassthroughError::WakeupTimeout => write!(f, "device wakeup timed out"),
             PassthroughError::DeviceNotFound => write!(f, "device not found"),
             PassthroughError::InvalidSecret => write!(f, "invalid secret prefix"),
+            PassthroughError::SecretThrottled => {
+                write!(f, "client throttled after invalid secrets")
+            }
             PassthroughError::StreamRefused => write!(f, "max streams exceeded"),
             PassthroughError::FcmFailed(e) => write!(f, "FCM send failed: {e}"),
             PassthroughError::FirestoreFailed(e) => write!(f, "Firestore failed: {e}"),
@@ -273,6 +280,35 @@ pub struct ResolvedStream {
     pub handle: MuxHandle,
     pub stream_id: u32,
     pub stream_rx: mpsc::Receiver<Frame>,
+}
+
+/// [`resolve_device_stream`] behind the per-(client IP, subdomain)
+/// wrong-secret throttle (#811).
+///
+/// A blocked client is refused before any secret check, Firestore lookup or
+/// wake -- whatever secret it presents -- so the refusal is indistinguishable
+/// from a wrong secret and never wakes the device. An unblocked attempt that
+/// fails with `InvalidSecret` counts toward the block.
+pub async fn resolve_device_stream_for_client(
+    ctx: &PassthroughContext,
+    throttle: &WrongSecretThrottle,
+    client_ip: IpAddr,
+    subdomain: &str,
+    sni_hostname: &str,
+    integration_secret: &str,
+) -> Result<ResolvedStream, PassthroughError> {
+    if throttle.is_blocked(client_ip, subdomain) {
+        debug!(
+            subdomain,
+            "Client throttled after invalid secrets (silent reject)"
+        );
+        return Err(PassthroughError::SecretThrottled);
+    }
+    let result = resolve_device_stream(ctx, subdomain, sni_hostname, integration_secret).await;
+    if matches!(result, Err(PassthroughError::InvalidSecret)) {
+        throttle.record_failure(client_ip, subdomain);
+    }
+    result
 }
 
 /// Attempt to get a mux handle for the device, waking it via FCM if needed.

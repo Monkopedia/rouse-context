@@ -116,7 +116,11 @@ async fn correct_secret_after_five_wrong_is_closed_without_wake() {
         matches!(r, Err(PassthroughError::SecretThrottled)),
         "6th attempt with the correct secret must be closed, got {r:?}"
     );
-    assert_eq!(pushes(&fcm), 0, "a blocked attempt must never wake the device");
+    assert_eq!(
+        pushes(&fcm),
+        0,
+        "a blocked attempt must never wake the device"
+    );
 }
 
 #[tokio::test]
@@ -215,7 +219,10 @@ fn throttle_blocks_after_threshold_until_window_ends() {
     let a = ip("203.0.113.7");
     let t0 = Instant::now();
     for i in 0..5 {
-        assert!(!t.is_blocked_at(a, SUB, t0), "not blocked before failure {i}");
+        assert!(
+            !t.is_blocked_at(a, SUB, t0),
+            "not blocked before failure {i}"
+        );
         t.record_failure_at(a, SUB, t0 + Duration::from_secs(i));
     }
     assert!(t.is_blocked_at(a, SUB, t0 + Duration::from_secs(10)));
