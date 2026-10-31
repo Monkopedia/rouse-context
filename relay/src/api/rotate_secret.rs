@@ -166,9 +166,13 @@ pub async fn handle_rotate_secret(
     // A wholesale-to-empty rotate caches the empty set, which the passthrough
     // path treats as "nothing is valid": every previously live URL (and any
     // guessed label) is rejected immediately, without a wake (#810).
-    state
-        .relay_state
-        .set_valid_secrets_cache(&subdomain, valid_secrets);
+    // Retired secrets travel with it so a stale client retrying a rotated-away
+    // URL is not counted by the wrong-secret throttle (#811).
+    state.relay_state.set_secrets_cache(
+        &subdomain,
+        valid_secrets,
+        record.retired_secrets.values().cloned().collect(),
+    );
 
     info!(
         subdomain = %subdomain,
