@@ -301,22 +301,90 @@ impl ConnectionRateLimiter {
 /// secrets (#811).
 ///
 /// Separate from [`ConnectionRateLimiter`], which caps connection volume
-/// regardless of outcome. This one counts only invalid-secret rejections:
-/// once `max_failures` land inside a fixed `window` (starting at the first
-/// failure), every further attempt from that IP on that subdomain is refused
-/// until the window ends -- including attempts that carry a correct secret,
-/// so a blocked prober learns nothing about which guess was right.
+/// regardless of outcome. This one budgets secret *guesses*: within a fixed
+/// `window` (starting at the first failure), at most `max_failures` distinct
+/// secrets are evaluated per (IP, subdomain). Once `max_failures` of them
+/// have failed, every further attempt is refused until the window ends --
+/// including attempts that carry a correct secret, so a blocked prober learns
+/// nothing about which guess was right.
+///
+/// Admission is atomic: [`try_admit`](Self::try_admit) reserves a slot under
+/// the map entry *before* the (awaited) secret lookup, and the returned
+/// [`SecretAttempt`] is settled after it. A slot counts against the budget
+/// while in flight, so concurrent connections cannot all slip past the check
+/// during a slow lookup. In-flight attempts are tracked by a hash of the
+/// secret: concurrent connections presenting the same secret share one slot
+/// (they get the same verdict), so a real client opening many connections at
+/// once does not exhaust the budget. A correct secret releases its slot and
+/// never counts as a failure.
 ///
 /// Memory is bounded: at most `max_entries` keys are held. When the table is
-/// full, expired entries are swept first; if it is still full the new key is
-/// not tracked (logged at warn). Under concurrent inserts the cap may be
-/// overshot by a few entries, never unboundedly.
+/// full, expired entries are swept (at most once per second); if it is still
+/// full the new key is admitted untracked (logged at warn). Under concurrent
+/// inserts the cap may be overshot by a few entries, never unboundedly.
+///
+/// Keys use the full source address. Production is IPv4-only; if IPv6 is
+/// ever enabled, key IPv6 by /64 or one allocation yields unlimited keys.
 pub struct WrongSecretThrottle {
     max_failures: u32,
     window: Duration,
     max_entries: usize,
-    /// Key: (source_ip, subdomain) -> (failure_count, window_start)
-    failures: DashMap<(IpAddr, String), (u32, Instant)>,
+    hasher: std::collections::hash_map::RandomState,
+    last_full_sweep: std::sync::Mutex<Option<Instant>>,
+    entries: DashMap<(IpAddr, String), ThrottleEntry>,
+}
+
+struct ThrottleEntry {
+    failures: u32,
+    window_start: Instant,
+    /// Hashes of secrets currently being evaluated, with connection counts.
+    in_flight: Vec<(u64, u32)>,
+}
+
+impl ThrottleEntry {
+    fn budget_used(&self) -> u32 {
+        self.failures.saturating_add(self.in_flight.len() as u32)
+    }
+}
+
+/// An admitted attempt holding a guess slot. Settle it with
+/// [`failed`](Self::failed) or [`succeeded`](Self::succeeded) once the secret
+/// has been checked. Dropping it unsettled (lookup error, unknown device,
+/// cancelled task) releases the slot without counting a failure.
+pub struct SecretAttempt<'a> {
+    throttle: &'a WrongSecretThrottle,
+    /// `None` when the table was full and the key is not tracked.
+    key: Option<(IpAddr, String)>,
+    secret_hash: u64,
+    /// When the attempt was admitted; anchors the window on a failure.
+    admitted_at: Instant,
+}
+
+impl SecretAttempt<'_> {
+    /// The secret was invalid: count a failure.
+    pub fn failed(mut self) {
+        if let Some(key) = self.key.take() {
+            self.throttle
+                .settle(key, self.secret_hash, self.admitted_at, true);
+        }
+    }
+
+    /// The secret was valid: release the slot, no failure counted.
+    pub fn succeeded(mut self) {
+        if let Some(key) = self.key.take() {
+            self.throttle
+                .settle(key, self.secret_hash, self.admitted_at, false);
+        }
+    }
+}
+
+impl Drop for SecretAttempt<'_> {
+    fn drop(&mut self) {
+        if let Some(key) = self.key.take() {
+            self.throttle
+                .settle(key, self.secret_hash, self.admitted_at, false);
+        }
+    }
 }
 
 impl WrongSecretThrottle {
@@ -325,21 +393,29 @@ impl WrongSecretThrottle {
             max_failures,
             window,
             max_entries,
-            failures: DashMap::new(),
+            hasher: std::collections::hash_map::RandomState::new(),
+            last_full_sweep: std::sync::Mutex::new(None),
+            entries: DashMap::new(),
         }
     }
 
     /// Number of entries currently held (for tests / metrics).
     pub fn len(&self) -> usize {
-        self.failures.len()
+        self.entries.len()
     }
 
     /// Returns `true` if the underlying map is empty.
     pub fn is_empty(&self) -> bool {
-        self.failures.is_empty()
+        self.entries.is_empty()
     }
 
-    /// Returns `true` if `ip` is currently blocked on `subdomain`.
+    fn hash_secret(&self, secret: &str) -> u64 {
+        use std::hash::BuildHasher;
+        self.hasher.hash_one(secret)
+    }
+
+    /// Returns `true` if `ip` has used up its failures on `subdomain` for the
+    /// current window.
     pub fn is_blocked(&self, ip: IpAddr, subdomain: &str) -> bool {
         self.is_blocked_at(ip, subdomain, Instant::now())
     }
@@ -347,60 +423,163 @@ impl WrongSecretThrottle {
     /// Testable version that accepts a specific time instant.
     pub fn is_blocked_at(&self, ip: IpAddr, subdomain: &str, now: Instant) -> bool {
         let key = (ip, subdomain.to_string());
-        match self.failures.get(&key) {
-            Some(entry) => {
-                let (count, window_start) = *entry.value();
-                now.duration_since(window_start) < self.window && count >= self.max_failures
+        match self.entries.get(&key) {
+            Some(e) => {
+                now.duration_since(e.window_start) < self.window && e.failures >= self.max_failures
             }
             None => false,
         }
     }
 
-    /// Record one invalid-secret attempt from `ip` on `subdomain`.
-    pub fn record_failure(&self, ip: IpAddr, subdomain: &str) {
-        self.record_failure_at(ip, subdomain, Instant::now());
+    /// Reserve a guess slot for `secret` from `ip` on `subdomain`, or `None`
+    /// if the budget for this window is used up.
+    pub fn try_admit(
+        &self,
+        ip: IpAddr,
+        subdomain: &str,
+        secret: &str,
+    ) -> Option<SecretAttempt<'_>> {
+        self.try_admit_at(ip, subdomain, secret, Instant::now())
     }
 
     /// Testable version that accepts a specific time instant.
-    pub fn record_failure_at(&self, ip: IpAddr, subdomain: &str, now: Instant) {
+    pub fn try_admit_at(
+        &self,
+        ip: IpAddr,
+        subdomain: &str,
+        secret: &str,
+        now: Instant,
+    ) -> Option<SecretAttempt<'_>> {
+        let secret_hash = self.hash_secret(secret);
         let key = (ip, subdomain.to_string());
-        if let Some(mut entry) = self.failures.get_mut(&key) {
-            let (count, window_start) = entry.value_mut();
-            if now.duration_since(*window_start) >= self.window {
-                *count = 1;
-                *window_start = now;
-            } else {
-                *count = count.saturating_add(1);
-            }
-            return;
-        }
 
-        if self.failures.len() >= self.max_entries {
-            self.sweep_expired_at(now);
-            if self.failures.len() >= self.max_entries {
+        if !self.entries.contains_key(&key) && self.entries.len() >= self.max_entries {
+            self.sweep_if_due(now);
+            if self.entries.len() >= self.max_entries {
                 tracing::warn!(
-                    entries = self.failures.len(),
+                    entries = self.entries.len(),
                     "Wrong-secret throttle table full; not tracking new key"
                 );
-                return;
+                return Some(SecretAttempt {
+                    throttle: self,
+                    key: None,
+                    secret_hash,
+                    admitted_at: now,
+                });
             }
         }
-        self.failures
-            .entry(key)
-            .and_modify(|(count, _)| *count = count.saturating_add(1))
-            .or_insert((1, now));
+
+        let mut entry = self
+            .entries
+            .entry(key.clone())
+            .or_insert_with(|| ThrottleEntry {
+                failures: 0,
+                window_start: now,
+                in_flight: Vec::new(),
+            });
+        let e = entry.value_mut();
+        if now.duration_since(e.window_start) >= self.window {
+            e.failures = 0;
+            e.window_start = now;
+        }
+
+        if let Some(slot) = e.in_flight.iter_mut().find(|(h, _)| *h == secret_hash) {
+            // Same secret already being evaluated: share its slot. It was
+            // admitted under the budget, and gets the same verdict.
+            if e.failures >= self.max_failures {
+                return None;
+            }
+            slot.1 += 1;
+        } else {
+            if e.budget_used() >= self.max_failures {
+                return None;
+            }
+            e.in_flight.push((secret_hash, 1));
+        }
+        Some(SecretAttempt {
+            throttle: self,
+            key: Some(key),
+            secret_hash,
+            admitted_at: now,
+        })
     }
 
-    /// Drop entries whose window has ended. An expired entry neither blocks
-    /// nor carries its count forward, so evicting it never changes a decision.
+    fn settle(&self, key: (IpAddr, String), secret_hash: u64, now: Instant, failed: bool) {
+        let Some(mut entry) = self.entries.get_mut(&key) else {
+            return;
+        };
+        let e = entry.value_mut();
+        if let Some(pos) = e.in_flight.iter().position(|(h, _)| *h == secret_hash) {
+            let slot = &mut e.in_flight[pos];
+            slot.1 -= 1;
+            if slot.1 == 0 {
+                e.in_flight.swap_remove(pos);
+                // Count one failure per distinct secret, not per connection.
+                if failed {
+                    if e.failures == 0 || now.duration_since(e.window_start) >= self.window {
+                        // The window is anchored at the first failure.
+                        e.failures = 0;
+                        e.window_start = now;
+                    }
+                    e.failures = e.failures.saturating_add(1);
+                    if e.failures == self.max_failures {
+                        let remaining = self
+                            .window
+                            .saturating_sub(now.duration_since(e.window_start));
+                        let until = std::time::SystemTime::now() + remaining;
+                        let until_unix = until
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        tracing::info!(
+                            peer = %key.0,
+                            subdomain = %key.1,
+                            blocked_until_unix = until_unix,
+                            blocked_for_secs = remaining.as_secs(),
+                            "Client blocked on subdomain after repeated invalid secrets"
+                        );
+                    }
+                }
+            }
+            // Otherwise another connection with the same secret is still in
+            // flight; its failure is counted when the last one settles.
+        }
+        let idle = e.failures == 0 && e.in_flight.is_empty();
+        drop(entry);
+        if idle {
+            // Nothing recorded: drop the entry so correct-secret traffic does
+            // not occupy the table.
+            self.entries
+                .remove_if(&key, |_, e| e.failures == 0 && e.in_flight.is_empty());
+        }
+    }
+
+    /// Sweep expired entries, at most once per second (full-table path).
+    fn sweep_if_due(&self, now: Instant) {
+        let mut last = self
+            .last_full_sweep
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if last.is_some_and(|t| now.saturating_duration_since(t) < Duration::from_secs(1)) {
+            return;
+        }
+        *last = Some(now);
+        drop(last);
+        self.sweep_expired_at(now);
+    }
+
+    /// Drop entries whose window has ended and that have nothing in flight.
+    /// Such an entry neither blocks nor carries its count forward, so
+    /// evicting it never changes a decision.
     pub fn sweep_expired(&self) {
         self.sweep_expired_at(Instant::now());
     }
 
     /// Testable version that accepts a specific time instant.
     pub fn sweep_expired_at(&self, now: Instant) {
-        self.failures
-            .retain(|_, (_, window_start)| now.duration_since(*window_start) < self.window);
+        self.entries.retain(|_, e| {
+            !e.in_flight.is_empty() || now.duration_since(e.window_start) < self.window
+        });
     }
 }
 

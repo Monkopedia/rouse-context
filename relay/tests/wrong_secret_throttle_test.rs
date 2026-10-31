@@ -213,6 +213,10 @@ async fn correct_secrets_do_not_count_as_failures() {
         assert!(matches!(r, Err(PassthroughError::WakeupTimeout)));
     }
     assert_eq!(pushes(&fcm), 8);
+    assert!(
+        throttle.is_empty(),
+        "correct-secret traffic leaves no entry behind"
+    );
 }
 
 // --- Throttle-level tests (injected clock) ---
@@ -227,7 +231,9 @@ fn throttle_blocks_after_threshold_until_window_ends() {
             !t.is_blocked_at(a, SUB, t0),
             "not blocked before failure {i}"
         );
-        t.record_failure_at(a, SUB, t0 + Duration::from_secs(i));
+        t.try_admit_at(a, SUB, &format!("g{i}"), t0 + Duration::from_secs(i))
+            .unwrap()
+            .failed();
     }
     assert!(t.is_blocked_at(a, SUB, t0 + Duration::from_secs(10)));
     assert!(t.is_blocked_at(a, SUB, t0 + Duration::from_secs(3599)));
@@ -241,7 +247,9 @@ fn state_stays_bounded_under_many_distinct_keys() {
     let t0 = Instant::now();
     for i in 0..10_000u32 {
         let addr = IpAddr::from(std::net::Ipv4Addr::from(0x0a00_0000 + i));
-        t.record_failure_at(addr, &format!("sub{}", i % 7), t0);
+        if let Some(a) = t.try_admit_at(addr, &format!("sub{}", i % 7), "g", t0) {
+            a.failed();
+        }
     }
     assert!(t.len() <= cap, "len {} exceeds cap {cap}", t.len());
 }
@@ -252,7 +260,9 @@ fn expired_entries_are_swept_and_make_room() {
     let t = WrongSecretThrottle::new(5, Duration::from_secs(60), cap);
     let t0 = Instant::now();
     for i in 0..cap as u32 {
-        t.record_failure_at(IpAddr::from(std::net::Ipv4Addr::from(i)), SUB, t0);
+        t.try_admit_at(IpAddr::from(std::net::Ipv4Addr::from(i)), SUB, "g", t0)
+            .unwrap()
+            .failed();
     }
     assert_eq!(t.len(), cap);
 
@@ -263,12 +273,16 @@ fn expired_entries_are_swept_and_make_room() {
 
     // A full table of expired entries must not stop new failures being tracked.
     for i in 0..cap as u32 {
-        t.record_failure_at(IpAddr::from(std::net::Ipv4Addr::from(i)), SUB, t0);
+        t.try_admit_at(IpAddr::from(std::net::Ipv4Addr::from(i)), SUB, "g", t0)
+            .unwrap()
+            .failed();
     }
     let fresh = ip("203.0.113.7");
     let later = t0 + Duration::from_secs(120);
-    for _ in 0..5 {
-        t.record_failure_at(fresh, SUB, later);
+    for i in 0..5 {
+        t.try_admit_at(fresh, SUB, &format!("g{i}"), later)
+            .unwrap()
+            .failed();
     }
     assert!(t.len() <= cap);
     assert!(

@@ -285,10 +285,12 @@ pub struct ResolvedStream {
 /// [`resolve_device_stream`] behind the per-(client IP, subdomain)
 /// wrong-secret throttle (#811).
 ///
-/// A blocked client is refused before any secret check, Firestore lookup or
-/// wake -- whatever secret it presents -- so the refusal is indistinguishable
-/// from a wrong secret and never wakes the device. An unblocked attempt that
-/// fails with `InvalidSecret` counts toward the block.
+/// A guess slot is reserved synchronously before the secret lookup and
+/// settled right after it, before any stream open or wake, so concurrent
+/// connections cannot exceed the budget during a slow lookup and a client
+/// with the correct secret does not hold a slot through the wake wait. A
+/// refused client gets no secret check, Firestore lookup or wake -- whatever
+/// secret it presents -- and is closed the same way as an invalid secret.
 pub async fn resolve_device_stream_for_client(
     ctx: &PassthroughContext,
     throttle: &WrongSecretThrottle,
@@ -297,18 +299,23 @@ pub async fn resolve_device_stream_for_client(
     sni_hostname: &str,
     integration_secret: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
-    if throttle.is_blocked(client_ip, subdomain) {
+    let Some(slot) = throttle.try_admit(client_ip, subdomain, integration_secret) else {
         debug!(
             subdomain,
             "Client throttled after invalid secrets (silent reject)"
         );
         return Err(PassthroughError::SecretThrottled);
+    };
+    match validate_secret(ctx, subdomain, integration_secret).await {
+        Ok(()) => slot.succeeded(),
+        Err(PassthroughError::InvalidSecret) => {
+            slot.failed();
+            return Err(PassthroughError::InvalidSecret);
+        }
+        // Lookup errors / unknown device: release the slot, count nothing.
+        Err(e) => return Err(e),
     }
-    let result = resolve_device_stream(ctx, subdomain, sni_hostname, integration_secret).await;
-    if matches!(result, Err(PassthroughError::InvalidSecret)) {
-        throttle.record_failure(client_ip, subdomain);
-    }
-    result
+    open_or_wake(ctx, subdomain, sni_hostname).await
 }
 
 /// Attempt to get a mux handle for the device, waking it via FCM if needed.
@@ -328,6 +335,17 @@ pub async fn resolve_device_stream(
     sni_hostname: &str,
     integration_secret: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
+    validate_secret(ctx, subdomain, integration_secret).await?;
+    open_or_wake(ctx, subdomain, sni_hostname).await
+}
+
+/// Check `integration_secret` against the device's valid secrets (cache
+/// first, then Firestore). See [`resolve_device_stream`] for the rules.
+async fn validate_secret(
+    ctx: &PassthroughContext,
+    subdomain: &str,
+    integration_secret: &str,
+) -> Result<(), PassthroughError> {
     if !integration_secret.is_empty() {
         // Check the in-memory cache first. Write endpoints populate this on
         // every /register and /rotate-secret, so freshly-pushed secrets are
@@ -380,7 +398,16 @@ pub async fn resolve_device_stream(
             }
         }
     }
+    Ok(())
+}
 
+/// Open a stream on the device's mux connection, waking it first if it is
+/// offline. Callers must have validated the secret.
+async fn open_or_wake(
+    ctx: &PassthroughContext,
+    subdomain: &str,
+    sni_hostname: &str,
+) -> Result<ResolvedStream, PassthroughError> {
     // Try to open a stream on an existing mux connection
     if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain).await {
         send_open_frame(&handle, stream.stream_id, sni_hostname).await?;
