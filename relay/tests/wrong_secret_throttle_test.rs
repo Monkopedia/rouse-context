@@ -485,3 +485,156 @@ async fn concurrent_connections_with_the_correct_secret_are_not_refused() {
         "correct secrets never count"
     );
 }
+
+// --- Retired secrets do not count toward the throttle ---
+//
+// A stale client still using a URL whose secret was rotated away (e.g. an
+// old connector after disable/re-enable) must not lock out the working URL
+// from the same egress IP. Retired attempts are still closed like any other
+// invalid secret.
+
+const RETIRED: &str = "stale-health";
+
+fn record_with_retired() -> DeviceRecord {
+    let mut r = device_record();
+    r.retired_secrets =
+        std::collections::HashMap::from([("health".to_string(), RETIRED.to_string())]);
+    r
+}
+
+fn retired_ctx(fcm: Arc<MockFcm>) -> PassthroughContext {
+    let mut ctx = offline_ctx(fcm, &[]);
+    ctx.firestore = Arc::new(MockFirestore::new().with_device(SUB, record_with_retired()));
+    ctx
+}
+
+#[tokio::test]
+async fn retired_secret_attempts_do_not_block_the_correct_secret() {
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = retired_ctx(fcm.clone());
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+
+    // First attempt misses the cache (Firestore path); the rest hit it.
+    for i in 0..20 {
+        let r = attempt(&ctx, &throttle, client, SUB, RETIRED).await;
+        assert!(
+            matches!(r, Err(PassthroughError::InvalidSecret)),
+            "retired attempt {i} is closed like any invalid secret, got {r:?}"
+        );
+    }
+    assert_eq!(pushes(&fcm), 0, "retired secrets never wake");
+    assert!(!throttle.is_blocked(client, SUB));
+
+    let r = attempt(&ctx, &throttle, client, SUB, GOOD).await;
+    assert!(
+        matches!(r, Err(PassthroughError::WakeupTimeout)),
+        "correct secret is admitted after retired attempts, got {r:?}"
+    );
+    assert_eq!(pushes(&fcm), 1);
+}
+
+#[tokio::test]
+async fn retired_secret_set_by_cache_writers_is_honoured() {
+    // The rotate/register write path fills the cache; the retired set must
+    // travel with it so a warm cache does not count retired attempts.
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = retired_ctx(fcm.clone());
+    ctx.relay_state
+        .set_secrets_cache(SUB, vec![GOOD.to_string()], vec![RETIRED.to_string()]);
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+    for _ in 0..10 {
+        let r = attempt(&ctx, &throttle, client, SUB, RETIRED).await;
+        assert!(matches!(r, Err(PassthroughError::InvalidSecret)));
+    }
+    assert!(!throttle.is_blocked(client, SUB));
+}
+
+#[tokio::test]
+async fn retired_attempts_mixed_with_four_guesses_do_not_block_but_a_fifth_guess_does() {
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = retired_ctx(fcm.clone());
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+
+    for i in 0..4 {
+        let _ = attempt(&ctx, &throttle, client, SUB, RETIRED).await;
+        let r = attempt(&ctx, &throttle, client, SUB, &format!("guess{i}")).await;
+        assert!(matches!(r, Err(PassthroughError::InvalidSecret)));
+        for _ in 0..3 {
+            let _ = attempt(&ctx, &throttle, client, SUB, RETIRED).await;
+        }
+    }
+    assert!(
+        !throttle.is_blocked(client, SUB),
+        "4 guesses plus retired attempts"
+    );
+
+    let r = attempt(&ctx, &throttle, client, SUB, "guess4").await;
+    assert!(matches!(r, Err(PassthroughError::InvalidSecret)));
+    assert!(
+        throttle.is_blocked(client, SUB),
+        "the 5th random guess blocks"
+    );
+    assert!(matches!(
+        attempt(&ctx, &throttle, client, SUB, GOOD).await,
+        Err(PassthroughError::SecretThrottled)
+    ));
+    assert!(matches!(
+        attempt(&ctx, &throttle, client, SUB, RETIRED).await,
+        Err(PassthroughError::SecretThrottled)
+    ));
+}
+
+#[tokio::test]
+async fn concurrent_burst_with_retired_labels_evaluates_at_most_max_random_guesses() {
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = slow_ctx(fcm.clone(), record_with_retired());
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+
+    // Interleave retired attempts with distinct random guesses, all at once.
+    let futs: Vec<_> = (0..200)
+        .map(|i| {
+            let secret = if i % 2 == 0 {
+                RETIRED.to_string()
+            } else {
+                format!("wrong{i}")
+            };
+            let (ctx, throttle) = (&ctx, &throttle);
+            async move {
+                (
+                    i % 2 == 1,
+                    attempt(ctx, throttle, client, SUB, &secret).await,
+                )
+            }
+        })
+        .collect();
+    let rs = futures_util::future::join_all(futs).await;
+    let random_evaluated = rs
+        .iter()
+        .filter(|(random, r)| *random && matches!(r, Err(PassthroughError::InvalidSecret)))
+        .count();
+    assert!(
+        random_evaluated <= 5,
+        "{random_evaluated} random guesses evaluated; budget is 5"
+    );
+    assert_eq!(pushes(&fcm), 0);
+
+    // Afterwards the budget still caps sequential random guesses at 5 total.
+    let mut more = 0;
+    for i in 0..10 {
+        if matches!(
+            attempt(&ctx, &throttle, client, SUB, &format!("later{i}")).await,
+            Err(PassthroughError::InvalidSecret)
+        ) {
+            more += 1;
+        }
+    }
+    assert!(
+        random_evaluated + more <= 5,
+        "{random_evaluated} + {more} > 5"
+    );
+    assert!(throttle.is_blocked(client, SUB));
+}
