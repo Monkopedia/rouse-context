@@ -17,7 +17,7 @@ use rouse_relay::firestore::DeviceRecord;
 use rouse_relay::mux::frame::Frame;
 use rouse_relay::mux::lifecycle::MuxSession;
 use rouse_relay::passthrough::{
-    resolve_device_stream, OpenStreamRequest, PassthroughContext, SessionRegistry,
+    resolve_device_stream, OpenStreamRequest, PassthroughContext, PassthroughError, SessionRegistry,
 };
 use rouse_relay::rate_limit::FcmWakeThrottle;
 use rouse_relay::state::RelayState;
@@ -351,4 +351,114 @@ async fn passthrough_cache_miss_falls_back_to_firestore() {
     // Cache should have been populated from Firestore for future lookups.
     let cached = relay_state.get_valid_secrets_cache("cool-penguin");
     assert_eq!(cached, Some(vec!["brave-health".to_string()]));
+}
+
+fn make_app_state(
+    firestore: Arc<MockFirestore>,
+    relay_state: Arc<RelayState>,
+    session_registry: Arc<SessionRegistry>,
+) -> Arc<rouse_relay::api::AppState> {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ca = rouse_relay::device_ca::DeviceCa::load_or_create(
+        &tmp.path().join("ca_key.pem"),
+        &tmp.path().join("ca_cert.pem"),
+    )
+    .expect("ca");
+    std::mem::forget(tmp);
+    Arc::new(rouse_relay::api::AppState {
+        relay_state,
+        session_registry,
+        firestore,
+        fcm: Arc::new(MockFcm::new()),
+        acme: Arc::new(MockAcme::new("test-cert")),
+        dns: Arc::new(MockDns::new()),
+        firebase_auth: Arc::new(MockFirebaseAuth::new()),
+        subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
+        rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        register_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::register_per_ip(),
+        ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig {
+                max_tokens: 3,
+                refill_interval: Duration::from_secs(20),
+            },
+        ),
+        fcm_wake_throttle: Arc::new(FcmWakeThrottle::new(Duration::from_secs(10))),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
+        config: rouse_relay::config::RelayConfig::default(),
+        device_ca: Some(ca),
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
+    })
+}
+
+/// #810 end to end: disabling the last integration pushes a rotate to `[]`.
+/// After that, neither the previously live URL nor a made-up label may get
+/// past the relay or trigger a wake -- both while the cache is warm and
+/// after a restart (cold cache, Firestore fallback).
+#[tokio::test]
+async fn rotate_to_empty_then_resolve_rejects_without_wake() {
+    let mut device = make_device("unused");
+    device.secret_prefix = None;
+    device.valid_secrets = vec!["brave-health".to_string()];
+    device.integration_secrets =
+        std::collections::HashMap::from([("health".to_string(), "brave-health".to_string())]);
+    let firestore = Arc::new(MockFirestore::new().with_device("cool-penguin", device));
+
+    let relay_state = Arc::new(RelayState::new());
+    let session_registry = Arc::new(SessionRegistry::new());
+    relay_state.set_valid_secrets_cache("cool-penguin", vec!["brave-health".to_string()]);
+    let app_state = make_app_state(
+        firestore.clone(),
+        relay_state.clone(),
+        session_registry.clone(),
+    );
+
+    let app = build_router(app_state).layer(axum::Extension(DeviceIdentity {
+        subdomain: "cool-penguin".to_string(),
+    }));
+    let req = axum::http::Request::builder()
+        .method("POST")
+        .uri("/rotate-secret")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(
+            serde_json::json!({ "integrations": [] }).to_string(),
+        ))
+        .unwrap();
+    let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Warm cache (same relay process), then a cold cache (relay restart).
+    let cold_state = Arc::new(RelayState::new());
+    for (phase, state) in [("warm cache", relay_state), ("after restart", cold_state)] {
+        let fcm = Arc::new(MockFcm::new());
+        let mut ctx = make_ctx(
+            state,
+            Arc::new(SessionRegistry::new()),
+            firestore.clone(),
+            fcm.clone(),
+        );
+        ctx.fcm_wakeup_timeout = Duration::from_millis(200);
+        for label in ["brave-health", "made-up-label"] {
+            let result = resolve_device_stream(
+                &ctx,
+                "cool-penguin",
+                &format!("{label}.cool-penguin.rousecontext.com"),
+                label,
+            )
+            .await;
+            assert!(
+                matches!(result, Err(PassthroughError::InvalidSecret)),
+                "{phase}: label {label:?} must be rejected, got {:?}",
+                result.err()
+            );
+        }
+        assert!(
+            fcm.sent.lock().unwrap().is_empty(),
+            "{phase}: no wake may be sent after rotate-to-empty"
+        );
+    }
 }
