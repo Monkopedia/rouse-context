@@ -50,9 +50,9 @@ import org.junit.jupiter.api.Timeout
  * SNI format: the relay's SNI router (see `relay/src/sni.rs`) requires
  * hostnames of the form `{integration_secret}.{subdomain}.{base_domain}`.
  * Bare `{subdomain}.{base_domain}` SNI is rejected. We use [INTEGRATION_SECRET]
- * as the first label; because the relay auto-creates a Firestore record with
- * empty `valid_secrets` when the device WS upgrades, secret validation is
- * skipped and any non-empty secret prefix is accepted.
+ * as the first label. The relay auto-creates a Firestore record with empty
+ * `valid_secrets` when the device WS upgrades, and an empty set accepts no
+ * label (#810), so setUp seeds [INTEGRATION_SECRET] via the test-mode admin.
  *
  * These tests are skipped if the relay binary has not been built.
  * Build it with: cd relay && cargo build --features test-mode
@@ -127,6 +127,9 @@ class EndToEndSessionTest {
         relayManager = TestRelayManager(tempDir, RELAY_HOSTNAME, enableTestMode = true)
         relayPort = findFreePort()
         relayManager.start(relayPort)
+        // Auto-created test devices have an empty secret set, which accepts
+        // no SNI label (#810); give the device the label the AI client uses.
+        relayManager.seedValidSecrets(DEVICE_SUBDOMAIN, listOf(INTEGRATION_SECRET))
     }
 
     @AfterEach
