@@ -7,6 +7,10 @@
 
 mod test_helpers;
 
+use async_trait::async_trait;
+use rouse_relay::firestore::{
+    DeviceRecord, FirestoreClient, FirestoreError, PendingCert, SubdomainReservation,
+};
 use rouse_relay::passthrough::{
     resolve_device_stream_for_client, PassthroughContext, PassthroughError, SessionRegistry,
 };
@@ -270,5 +274,200 @@ fn expired_entries_are_swept_and_make_room() {
     assert!(
         t.is_blocked_at(fresh, SUB, later),
         "expired entries are reclaimed so a new offender is still tracked"
+    );
+}
+
+// --- Concurrency: the budget must hold across the awaited secret lookup ---
+
+/// Firestore whose `get_device` takes 30 ms, so concurrent attempts overlap
+/// the secret lookup (cold cache, or legacy `secret_prefix` devices, which are
+/// never cached).
+struct Slow(MockFirestore);
+#[async_trait]
+impl FirestoreClient for Slow {
+    async fn get_device(&self, s: &str) -> Result<DeviceRecord, FirestoreError> {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        self.0.get_device(s).await
+    }
+    async fn find_device_by_uid(
+        &self,
+        a: &str,
+    ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
+        self.0.find_device_by_uid(a).await
+    }
+    async fn find_device_by_thumbprint(
+        &self,
+        a: &str,
+    ) -> Result<Option<(String, DeviceRecord)>, FirestoreError> {
+        self.0.find_device_by_thumbprint(a).await
+    }
+    async fn create_device(&self, s: &str, r: &DeviceRecord) -> Result<(), FirestoreError> {
+        self.0.create_device(s, r).await
+    }
+    async fn put_device(&self, s: &str, r: &DeviceRecord) -> Result<(), FirestoreError> {
+        self.0.put_device(s, r).await
+    }
+    async fn set_device_last_seen(&self, s: &str, t: SystemTime) -> Result<(), FirestoreError> {
+        self.0.set_device_last_seen(s, t).await
+    }
+    async fn delete_device(&self, s: &str) -> Result<(), FirestoreError> {
+        self.0.delete_device(s).await
+    }
+    async fn put_pending_cert(&self, s: &str, p: &PendingCert) -> Result<(), FirestoreError> {
+        self.0.put_pending_cert(s, p).await
+    }
+    async fn get_pending_cert(&self, s: &str) -> Result<PendingCert, FirestoreError> {
+        self.0.get_pending_cert(s).await
+    }
+    async fn delete_pending_cert(&self, s: &str) -> Result<(), FirestoreError> {
+        self.0.delete_pending_cert(s).await
+    }
+    async fn list_devices(&self) -> Result<Vec<(String, DeviceRecord)>, FirestoreError> {
+        self.0.list_devices().await
+    }
+    async fn list_pending_certs(&self) -> Result<Vec<(String, PendingCert)>, FirestoreError> {
+        self.0.list_pending_certs().await
+    }
+    async fn put_reservation(
+        &self,
+        s: &str,
+        r: &SubdomainReservation,
+    ) -> Result<(), FirestoreError> {
+        self.0.put_reservation(s, r).await
+    }
+    async fn get_reservation(&self, s: &str) -> Result<SubdomainReservation, FirestoreError> {
+        self.0.get_reservation(s).await
+    }
+    async fn find_reservation_by_uid(
+        &self,
+        a: &str,
+    ) -> Result<Option<(String, SubdomainReservation)>, FirestoreError> {
+        self.0.find_reservation_by_uid(a).await
+    }
+    async fn delete_reservation(&self, s: &str) -> Result<(), FirestoreError> {
+        self.0.delete_reservation(s).await
+    }
+    async fn list_reservations(
+        &self,
+    ) -> Result<Vec<(String, SubdomainReservation)>, FirestoreError> {
+        self.0.list_reservations().await
+    }
+}
+
+fn slow_ctx(fcm: Arc<MockFcm>, record: DeviceRecord) -> PassthroughContext {
+    let mut ctx = offline_ctx(fcm, &[]);
+    ctx.firestore = Arc::new(Slow(MockFirestore::new().with_device(SUB, record)));
+    ctx
+}
+
+fn tally(rs: &[Result<(), PassthroughError>]) -> (usize, usize) {
+    let invalid = rs
+        .iter()
+        .filter(|r| matches!(r, Err(PassthroughError::InvalidSecret)))
+        .count();
+    let throttled = rs
+        .iter()
+        .filter(|r| matches!(r, Err(PassthroughError::SecretThrottled)))
+        .count();
+    (invalid, throttled)
+}
+
+#[tokio::test]
+async fn concurrent_burst_on_cold_cache_evaluates_at_most_max_guesses() {
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = slow_ctx(fcm.clone(), device_record());
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+
+    // 199 distinct wrong guesses plus the correct secret, all in flight at once.
+    let futs: Vec<_> = (0..200)
+        .map(|i| {
+            let secret = if i == 199 {
+                GOOD.to_string()
+            } else {
+                format!("wrong{i}")
+            };
+            let (ctx, throttle) = (&ctx, &throttle);
+            async move { attempt(ctx, throttle, client, SUB, &secret).await }
+        })
+        .collect();
+    let rs = futures_util::future::join_all(futs).await;
+    let (invalid, throttled) = tally(&rs);
+
+    assert!(invalid <= 5, "{invalid} guesses evaluated; budget is 5");
+    assert_eq!(invalid + throttled, 200, "every other attempt is refused");
+    assert_eq!(
+        pushes(&fcm),
+        0,
+        "the correct secret came after the budget; no wake"
+    );
+    assert!(throttle.is_blocked(client, SUB));
+}
+
+#[tokio::test]
+async fn concurrent_burst_on_legacy_secret_prefix_evaluates_at_most_max_guesses() {
+    let fcm = Arc::new(MockFcm::new());
+    let mut record = device_record();
+    record.valid_secrets.clear();
+    record.secret_prefix = Some(GOOD.to_string());
+    let ctx = slow_ctx(fcm.clone(), record);
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+
+    // One sequential failure first, then a concurrent burst.
+    let first = attempt(&ctx, &throttle, client, SUB, "warm").await;
+    assert!(matches!(first, Err(PassthroughError::InvalidSecret)));
+
+    let futs: Vec<_> = (0..100)
+        .map(|i| {
+            let (ctx, throttle) = (&ctx, &throttle);
+            async move { attempt(ctx, throttle, client, SUB, &format!("w{i}")).await }
+        })
+        .collect();
+    let rs = futures_util::future::join_all(futs).await;
+    let (invalid, throttled) = tally(&rs);
+
+    assert!(
+        invalid <= 4,
+        "{invalid} more guesses evaluated; only 4 remained"
+    );
+    assert_eq!(invalid + throttled, 100);
+    assert!(throttle.is_blocked(client, SUB));
+}
+
+#[tokio::test]
+async fn concurrent_connections_with_the_correct_secret_are_not_refused() {
+    // A real client opens many connections at once with the same URL. On a
+    // cold cache they all overlap the lookup; they must share one slot, not
+    // exhaust the budget.
+    let fcm = Arc::new(MockFcm::new());
+    let ctx = slow_ctx(fcm.clone(), device_record());
+    let throttle = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let client = ip("203.0.113.7");
+
+    // Four earlier failures leave a single slot.
+    for i in 0..4 {
+        let _ = attempt(&ctx, &throttle, client, SUB, &format!("wrong{i}")).await;
+    }
+    // Fresh relay state: the secrets cache is cold again (as after a deploy),
+    // while the throttle keeps its four failures.
+    let ctx = slow_ctx(fcm.clone(), device_record());
+
+    let futs: Vec<_> = (0..20)
+        .map(|_| {
+            let (ctx, throttle) = (&ctx, &throttle);
+            async move { attempt(ctx, throttle, client, SUB, GOOD).await }
+        })
+        .collect();
+    let rs = futures_util::future::join_all(futs).await;
+    for r in &rs {
+        assert!(
+            matches!(r, Err(PassthroughError::WakeupTimeout)),
+            "correct-secret connection should reach the wake path, got {r:?}"
+        );
+    }
+    assert!(
+        !throttle.is_blocked(client, SUB),
+        "correct secrets never count"
     );
 }
