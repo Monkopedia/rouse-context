@@ -183,3 +183,33 @@ relay_hostname = "custom.example.com"
     assert_eq!(cfg.limits.max_streams_per_device, 32);
     assert_eq!(cfg.limits.wake_rate_limit, 6);
 }
+
+#[test]
+fn wrong_secret_throttle_defaults() {
+    // #811: 5 invalid-secret attempts per (IP, subdomain) per hour.
+    let cfg = RelayConfig::default();
+    assert_eq!(cfg.limits.wrong_secret_max_failures, 5);
+    assert_eq!(cfg.limits.wrong_secret_window_secs, 3600);
+    assert!(cfg.limits.wrong_secret_max_entries > 0);
+
+    let f = write_toml(VALID_TOML);
+    let cfg = RelayConfig::from_file(f.path()).unwrap();
+    assert_eq!(cfg.limits.wrong_secret_max_failures, 5);
+    assert_eq!(cfg.limits.wrong_secret_window_secs, 3600);
+}
+
+#[test]
+fn wrong_secret_throttle_overridable_via_toml() {
+    let toml = r#"
+[limits]
+wrong_secret_max_failures = 3
+wrong_secret_window_secs = 120
+wrong_secret_max_entries = 77
+"#;
+    let f = write_toml(toml);
+    let cfg = RelayConfig::from_file(f.path()).unwrap();
+    assert_eq!(cfg.limits.wrong_secret_max_failures, 3);
+    assert_eq!(cfg.limits.wrong_secret_window_secs, 120);
+    assert_eq!(cfg.limits.wrong_secret_max_entries, 77);
+    assert_eq!(cfg.limits.conn_rate_limit_max, 200);
+}
