@@ -163,9 +163,9 @@ pub async fn handle_rotate_secret(
 
     // Update the in-memory valid_secrets cache so the next SNI connection for
     // this device does not have to wait for Firestore eventual consistency.
-    // `set_valid_secrets_cache` evicts the entry entirely when the vec is
-    // empty, which is the correct behavior for a wholesale-to-empty rotate
-    // (every previously live URL becomes invalid immediately).
+    // A wholesale-to-empty rotate caches the empty set, which the passthrough
+    // path treats as "nothing is valid": every previously live URL (and any
+    // guessed label) is rejected immediately, without a wake (#810).
     state
         .relay_state
         .set_valid_secrets_cache(&subdomain, valid_secrets);
