@@ -186,9 +186,60 @@ pub struct DeviceRecord {
     /// existed.
     #[serde(default)]
     pub retired_secrets: HashMap<String, String>,
+    /// Former secrets of this device, oldest first, used ONLY so the
+    /// wrong-secret throttle does not count a stale client config (#811).
+    /// Every secret that stops being valid -- disabled, or replaced on
+    /// re-enable / rotation / re-registration -- is appended; at most
+    /// [`STALE_SECRETS_MAX`] are kept, oldest dropped. A label matching one is
+    /// still rejected like any invalid secret. Independent of
+    /// [`Self::retired_secrets`] and its #519 role. Defaults to empty for
+    /// documents written before this field existed.
+    #[serde(default)]
+    pub stale_secrets: Vec<String>,
+}
+
+/// Cap on [`DeviceRecord::stale_secrets`] per device. Secrets are short
+/// (adjective + integration id, well under 64 bytes), so a full list is about
+/// 1-2 KiB per device including `String` overhead; across the 10,000-entry
+/// secrets cache that bounds the worst case at roughly 10-20 MiB, and real
+/// devices hold a handful.
+pub const STALE_SECRETS_MAX: usize = 16;
+
+/// Append secrets that stopped being valid to `stale`, keeping it ordered
+/// oldest first, without duplicates, without anything in `still_valid`, and
+/// at most [`STALE_SECRETS_MAX`] long.
+pub fn push_stale_secrets<'a>(
+    stale: &mut Vec<String>,
+    no_longer_valid: impl IntoIterator<Item = &'a String>,
+    still_valid: &[String],
+) {
+    for s in no_longer_valid {
+        stale.retain(|x| x != s);
+        stale.push(s.clone());
+    }
+    stale.retain(|x| !still_valid.contains(x));
+    if stale.len() > STALE_SECRETS_MAX {
+        let excess = stale.len() - STALE_SECRETS_MAX;
+        stale.drain(..excess);
+    }
 }
 
 impl DeviceRecord {
+    /// Former secrets exempt from the wrong-secret throttle (#811):
+    /// `stale_secrets` plus the values of `retired_secrets`. Reading
+    /// `retired_secrets` here keeps integrations disabled before
+    /// `stale_secrets` existed exempt with no migration; its #519 role is
+    /// unchanged. Callers check valid secrets first.
+    pub fn throttle_exempt_secrets(&self) -> Vec<String> {
+        let mut out = self.stale_secrets.clone();
+        for s in self.retired_secrets.values() {
+            if !out.contains(s) {
+                out.push(s.clone());
+            }
+        }
+        out
+    }
+
     /// True only for a record that has never had a key bound. Both the
     /// explicit state and the absence of a stored key must agree, so neither
     /// a stray `AwaitingFirstKey` nor a blanked `public_key` alone is enough

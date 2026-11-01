@@ -60,6 +60,7 @@ fn record(
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 
@@ -277,4 +278,28 @@ async fn ws_placeholder_is_created_bound() {
     let stored = firestore.get_device("new-sub").await.unwrap();
     assert_eq!(stored.key_binding, KeyBinding::Bound);
     assert!(!stored.awaits_first_key());
+}
+
+#[tokio::test]
+async fn re_registration_marks_replaced_secrets_stale() {
+    // Re-registering on the same subdomain re-mints every secret; the old
+    // ones join the stale list so a client still using them is not counted
+    // by the wrong-secret throttle (#811).
+    let key = SigningKey::random(&mut rand::thread_rng());
+    let mut rec = record(
+        spki_b64(&key),
+        SystemTime::now() + Duration::from_secs(86400),
+        None,
+    );
+    rec.valid_secrets = vec!["old-health".to_string()];
+    rec.stale_secrets = vec!["older-health".to_string()];
+    let firestore = Arc::new(MockFirestore::new().with_device("bound-sub", rec));
+
+    re_register(app(firestore.clone()), &key, false).await;
+
+    let stored = firestore.get_device("bound-sub").await.unwrap();
+    assert_eq!(
+        stored.stale_secrets,
+        vec!["older-health".to_string(), "old-health".to_string()]
+    );
 }

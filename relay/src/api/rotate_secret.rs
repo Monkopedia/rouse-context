@@ -109,6 +109,13 @@ pub async fn handle_rotate_secret(
     // `.await`; ThreadRng is `!Send`, so the future would otherwise not be
     // `Send` and couldn't be used with axum's Handler trait.
     let previous = record.integration_secrets.clone();
+    // Everything that routes before this rotate, for the stale list (#811).
+    let previous_valid: Vec<String> = record
+        .valid_secrets
+        .iter()
+        .chain(record.secret_prefix.iter())
+        .cloned()
+        .collect();
     // Last-known secret per dropped integration. On re-enable (#519) the newly
     // minted secret must differ from this value so a leaked-then-disabled URL
     // stays dead — without it, ~1/N re-enables redraw the identical secret.
@@ -155,6 +162,21 @@ pub async fn handle_rotate_secret(
     record.integration_secrets = replaced.clone();
     record.valid_secrets = valid_secrets.clone();
     record.retired_secrets = retired;
+    // Every secret that stops being valid (disabled, or replaced on
+    // re-enable) is remembered as stale so a client still using it is not
+    // counted by the wrong-secret throttle (#811). Separate from
+    // retired_secrets, whose #519 role is unchanged.
+    let no_longer_valid: Vec<String> = previous
+        .values()
+        .chain(previous_valid.iter())
+        .filter(|s| !valid_secrets.contains(s))
+        .cloned()
+        .collect();
+    crate::firestore::push_stale_secrets(
+        &mut record.stale_secrets,
+        &no_longer_valid,
+        &valid_secrets,
+    );
 
     // Update Firestore
     if let Err(e) = state.firestore.put_device(&subdomain, &record).await {
@@ -166,9 +188,13 @@ pub async fn handle_rotate_secret(
     // A wholesale-to-empty rotate caches the empty set, which the passthrough
     // path treats as "nothing is valid": every previously live URL (and any
     // guessed label) is rejected immediately, without a wake (#810).
-    state
-        .relay_state
-        .set_valid_secrets_cache(&subdomain, valid_secrets);
+    // Former secrets travel with it so a stale client retrying a replaced URL
+    // is not counted by the wrong-secret throttle (#811).
+    state.relay_state.set_secrets_cache(
+        &subdomain,
+        valid_secrets,
+        record.throttle_exempt_secrets(),
+    );
 
     info!(
         subdomain = %subdomain,

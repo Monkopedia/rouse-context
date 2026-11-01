@@ -436,7 +436,7 @@ https://crisp-notifications.abc123.rousecontext.com  → Notifications (future)
 https://swift-contacts.abc123.rousecontext.com       → Contacts (future)
 ```
 
-The `{adjective}` portion of the first label is rotated independently of the `{integrationId}` so the routing key is unguessable to bots scanning the subdomain (#92). See `docs/design/relay-api.md` for the per-integration secret API surface.
+The `{adjective}` portion of the first label is rotated independently of the `{integrationId}` so a bot scanning the subdomain cannot reach the device by trying bare integration names (#92). The adjective space is small, so this is a filter against casual scanning, not a credential: the user's OAuth approval on the phone is the real gate. The relay throttles guessing per (client IP, subdomain): after 5 invalid secrets in an hour that IP is silently closed on that subdomain for the rest of the hour, correct secret or not, and never causes a wake (#811). See `docs/design/relay-api.md` for the per-integration secret API surface.
 
 ### How It Works
 

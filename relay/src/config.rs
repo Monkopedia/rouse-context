@@ -239,6 +239,17 @@ pub struct LimitsConfig {
     /// Window size (seconds) for the per-(source IP, subdomain) connection
     /// limiter. Default: 60.
     pub conn_rate_limit_window_secs: u64,
+    /// Invalid integration secrets allowed per (source IP, subdomain) within
+    /// `wrong_secret_window_secs` before that IP is refused on that subdomain
+    /// -- even with a correct secret -- for the rest of the window (#811).
+    /// Independent of the `conn_rate_limit_*` volume cap. Default: 5.
+    pub wrong_secret_max_failures: u32,
+    /// Window (seconds) for the wrong-secret throttle, starting at the first
+    /// failure. Default: 3600.
+    pub wrong_secret_window_secs: u64,
+    /// Cap on (source IP, subdomain) entries held by the wrong-secret
+    /// throttle, bounding its memory. Default: 50000.
+    pub wrong_secret_max_entries: usize,
     /// If true, `handle_ws` will auto-create a minimal Firestore device record
     /// when a mTLS-authenticated device connects with no existing record.
     ///
@@ -419,6 +430,9 @@ impl Default for LimitsConfig {
             request_subdomain_rate_refill_secs: 20,
             conn_rate_limit_max: 200,
             conn_rate_limit_window_secs: 60,
+            wrong_secret_max_failures: 5,
+            wrong_secret_window_secs: 3600,
+            wrong_secret_max_entries: 50_000,
             allow_ws_auto_create_device: false,
         }
     }

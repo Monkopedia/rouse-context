@@ -9,7 +9,7 @@ use rouse_relay::api::{self, AppState};
 use rouse_relay::config::RelayConfig;
 use rouse_relay::maintenance::{self, MaintenanceConfig};
 use rouse_relay::passthrough::{self, PassthroughContext, SessionRegistry};
-use rouse_relay::rate_limit::{ConnectionRateLimiter, FcmWakeThrottle};
+use rouse_relay::rate_limit::{ConnectionRateLimiter, FcmWakeThrottle, WrongSecretThrottle};
 use rouse_relay::router::route_connection;
 use rouse_relay::shutdown::ShutdownController;
 use rouse_relay::sni::RouteDecision;
@@ -264,6 +264,14 @@ async fn main() {
         config.limits.conn_rate_limit_max,
         Duration::from_secs(config.limits.conn_rate_limit_window_secs),
     ));
+    // Separate concern from the volume cap above: block an IP on a subdomain
+    // after repeated invalid integration secrets (#811). Tunable via
+    // `[limits] wrong_secret_*`.
+    let wrong_secret_throttle = Arc::new(WrongSecretThrottle::new(
+        config.limits.wrong_secret_max_failures,
+        Duration::from_secs(config.limits.wrong_secret_window_secs),
+        config.limits.wrong_secret_max_entries,
+    ));
 
     // Spawn rate-limiter sweep loop.
     //
@@ -278,12 +286,14 @@ async fn main() {
     let sweep_app_state = app_state.clone();
     let sweep_fcm_throttle = fcm_wake_throttle.clone();
     let sweep_conn_limiter = conn_rate_limiter.clone();
+    let sweep_wrong_secret = wrong_secret_throttle.clone();
     tokio::spawn(async move {
         rouse_relay::rate_limit::run_rate_limit_sweep_loop(
             Duration::from_secs(300),
             sweep_app_state,
             sweep_fcm_throttle,
             sweep_conn_limiter,
+            sweep_wrong_secret,
             sweep_shutdown,
         )
         .await;
@@ -325,6 +335,7 @@ async fn main() {
                     fcm_timeout,
                     fcm_wake_throttle: fcm_wake_throttle.clone(),
                     conn_rate_limiter: conn_rate_limiter.clone(),
+                    wrong_secret_throttle: wrong_secret_throttle.clone(),
                 };
 
                 tokio::spawn(async move {
@@ -374,6 +385,7 @@ struct ConnectionContext {
     fcm_timeout: Duration,
     fcm_wake_throttle: Arc<FcmWakeThrottle>,
     conn_rate_limiter: Arc<ConnectionRateLimiter>,
+    wrong_secret_throttle: Arc<WrongSecretThrottle>,
 }
 
 /// Render a [`RouteDecision`] for logging without leaking the integration secret.
@@ -474,8 +486,10 @@ async fn handle_connection(
                 fcm_wake_throttle: ctx.fcm_wake_throttle,
             };
 
-            let resolved = passthrough::resolve_device_stream(
+            let resolved = passthrough::resolve_device_stream_for_client(
                 &pt_ctx,
+                &ctx.wrong_secret_throttle,
+                peer_addr.ip(),
                 &subdomain,
                 &sni_hostname,
                 &integration_secret,

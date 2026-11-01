@@ -33,6 +33,7 @@ fn record(registered_ago: Duration, last_seen_ago: Option<Duration>) -> DeviceRe
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 

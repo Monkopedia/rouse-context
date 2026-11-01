@@ -15,6 +15,16 @@ use tokio::sync::broadcast;
 /// `ServerConfig::cache_capacity` for rationale.
 pub const DEFAULT_CACHE_CAPACITY: usize = 10_000;
 
+/// Cached secret sets for one device (see [`RelayState::set_secrets_cache`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CachedSecrets {
+    /// Secrets that route to the device.
+    pub valid: Vec<String>,
+    /// Former secrets (`DeviceRecord::throttle_exempt_secrets`: stale plus
+    /// retired); rejected, but not counted by the wrong-secret throttle.
+    pub stale: Vec<String>,
+}
+
 /// Shared relay state, wrapped in Arc at the call site.
 pub struct RelayState {
     /// When the relay started (for uptime calculation).
@@ -42,7 +52,7 @@ pub struct RelayState {
     /// requires `&mut self` even on reads (LRU bookkeeping). This is cold
     /// path code — one lookup per new TLS connection — so lock contention
     /// is negligible. Callers must never hold the lock across `.await`.
-    pub valid_secrets_cache: Mutex<LruCache<String, Vec<String>>>,
+    pub valid_secrets_cache: Mutex<LruCache<String, CachedSecrets>>,
 }
 
 /// Info about an active mux connection for a device.
@@ -84,12 +94,32 @@ impl RelayState {
     /// An empty `secrets` list is cached as-is and means "no secret is
     /// valid" (#810): the passthrough path rejects every label without
     /// waking the device. It is NOT treated as a cache miss.
+    ///
+    /// Caches an empty stale set; use [`set_secrets_cache`](Self::set_secrets_cache)
+    /// when the device has former secrets.
     pub fn set_valid_secrets_cache(&self, subdomain: &str, secrets: Vec<String>) {
+        self.set_secrets_cache(subdomain, secrets, Vec::new());
+    }
+
+    /// Cache a device's `valid_secrets` together with its `stale_secrets`.
+    /// Stale secrets are still rejected; the passthrough path only uses them
+    /// to avoid counting a stale client toward the wrong-secret throttle
+    /// (#811). Valid is checked first, so an overlap is treated as valid.
+    pub fn set_secrets_cache(&self, subdomain: &str, valid: Vec<String>, stale: Vec<String>) {
         let mut cache = self
             .valid_secrets_cache
             .lock()
             .expect("valid_secrets_cache mutex poisoned");
-        cache.put(subdomain.to_string(), secrets);
+        cache.put(subdomain.to_string(), CachedSecrets { valid, stale });
+    }
+
+    /// Look up the cached secret sets for a device. `None` on a cache miss.
+    pub fn get_secrets_cache(&self, subdomain: &str) -> Option<CachedSecrets> {
+        let mut cache = self
+            .valid_secrets_cache
+            .lock()
+            .expect("valid_secrets_cache mutex poisoned");
+        cache.get(subdomain).cloned()
     }
 
     /// Look up cached `valid_secrets` for a device. Returns `None` if the
@@ -101,7 +131,7 @@ impl RelayState {
             .valid_secrets_cache
             .lock()
             .expect("valid_secrets_cache mutex poisoned");
-        cache.get(subdomain).cloned()
+        cache.get(subdomain).map(|c| c.valid.clone())
     }
 
     /// Number of entries currently held in the `valid_secrets_cache`.

@@ -16,10 +16,11 @@ use crate::firestore::FirestoreClient;
 use crate::mux::frame::{Frame, FrameType};
 use crate::mux::lifecycle::{MuxHandle, StreamHandle};
 use crate::push;
-use crate::rate_limit::FcmWakeThrottle;
+use crate::rate_limit::{FcmWakeThrottle, WrongSecretThrottle};
 use crate::state::RelayState;
 use crate::unifiedpush::UnifiedPushClient;
 use dashmap::DashMap;
+use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,6 +46,9 @@ pub enum PassthroughError {
     ChannelClosed,
     /// Secret prefix does not match the device record.
     InvalidSecret,
+    /// Client IP is blocked on this subdomain after repeated invalid secrets
+    /// (#811). Closed exactly like `InvalidSecret`; the secret is not checked.
+    SecretThrottled,
     /// I/O error on the client socket.
     Io(std::io::Error),
 }
@@ -55,6 +59,9 @@ impl std::fmt::Display for PassthroughError {
             PassthroughError::WakeupTimeout => write!(f, "device wakeup timed out"),
             PassthroughError::DeviceNotFound => write!(f, "device not found"),
             PassthroughError::InvalidSecret => write!(f, "invalid secret prefix"),
+            PassthroughError::SecretThrottled => {
+                write!(f, "client throttled after invalid secrets")
+            }
             PassthroughError::StreamRefused => write!(f, "max streams exceeded"),
             PassthroughError::FcmFailed(e) => write!(f, "FCM send failed: {e}"),
             PassthroughError::FirestoreFailed(e) => write!(f, "Firestore failed: {e}"),
@@ -275,6 +282,50 @@ pub struct ResolvedStream {
     pub stream_rx: mpsc::Receiver<Frame>,
 }
 
+/// [`resolve_device_stream`] behind the per-(client IP, subdomain)
+/// wrong-secret throttle (#811).
+///
+/// A guess slot is reserved synchronously before the secret lookup and
+/// settled right after it, before any stream open or wake, so concurrent
+/// connections cannot exceed the budget during a slow lookup and a client
+/// with the correct secret does not hold a slot through the wake wait. A
+/// refused client gets no secret check, Firestore lookup or wake -- whatever
+/// secret it presents -- and is closed the same way as an invalid secret.
+///
+/// An exact match for one of the device's former secrets (`stale_secrets`,
+/// covering disable and re-enable/rotation) is closed like any
+/// invalid secret but does not count toward the block, so a stale client
+/// config retrying from a shared egress IP cannot lock out the working URL.
+/// It still holds a slot while being checked, so it cannot widen a burst.
+pub async fn resolve_device_stream_for_client(
+    ctx: &PassthroughContext,
+    throttle: &WrongSecretThrottle,
+    client_ip: IpAddr,
+    subdomain: &str,
+    sni_hostname: &str,
+    integration_secret: &str,
+) -> Result<ResolvedStream, PassthroughError> {
+    let Some(slot) = throttle.try_admit(client_ip, subdomain, integration_secret) else {
+        debug!(
+            subdomain,
+            "Client throttled after invalid secrets (silent reject)"
+        );
+        return Err(PassthroughError::SecretThrottled);
+    };
+    // The slot is reserved above and settled here, before any wake. A lookup
+    // error or unknown device drops it unsettled: released, nothing counted.
+    let check = check_secret(ctx, subdomain, integration_secret).await?;
+    match check {
+        SecretCheck::Valid => slot.succeeded(),
+        // A stale client retrying a replaced URL must not lock out the
+        // working URL from the same IP: release the slot, count nothing.
+        SecretCheck::Stale => slot.succeeded(),
+        SecretCheck::Invalid => slot.failed(),
+    }
+    check.into_result()?;
+    open_or_wake(ctx, subdomain, sni_hostname).await
+}
+
 /// Attempt to get a mux handle for the device, waking it via FCM if needed.
 ///
 /// `integration_secret` is the secret extracted from the SNI hostname (first label).
@@ -292,59 +343,120 @@ pub async fn resolve_device_stream(
     sni_hostname: &str,
     integration_secret: &str,
 ) -> Result<ResolvedStream, PassthroughError> {
-    if !integration_secret.is_empty() {
-        // Check the in-memory cache first. Write endpoints populate this on
-        // every /register and /rotate-secret, so freshly-pushed secrets are
-        // usable on the next connection without waiting for Firestore
-        // eventual consistency to catch up.
-        if let Some(cached) = ctx.relay_state.get_valid_secrets_cache(subdomain) {
-            if cached.iter().any(|s| s == integration_secret) {
-                debug!(subdomain, "Secret matched from cache");
-            } else {
-                info!(subdomain, "Secret mismatch vs cache (silent reject)");
-                return Err(PassthroughError::InvalidSecret);
-            }
-        } else {
-            // Cache miss: fall back to Firestore. Populate the cache from the
-            // result so subsequent lookups are fast and survive restarts that
-            // lost in-memory state.
-            let device = ctx
-                .firestore
-                .get_device(subdomain)
-                .await
-                .map_err(|e| match e {
-                    crate::firestore::FirestoreError::NotFound(_) => {
-                        PassthroughError::DeviceNotFound
-                    }
-                    other => PassthroughError::FirestoreFailed(other.to_string()),
-                })?;
+    check_secret(ctx, subdomain, integration_secret)
+        .await?
+        .into_result()?;
+    open_or_wake(ctx, subdomain, sni_hostname).await
+}
 
-            match (&device.secret_prefix, device.valid_secrets.is_empty()) {
-                (Some(stored_secret), true) => {
-                    // Legacy secret_prefix for devices that never had a
-                    // valid_secrets list. Not cached: the cache only models
-                    // valid_secrets membership.
-                    if stored_secret != integration_secret {
-                        info!(subdomain, "Secret prefix mismatch (silent reject)");
-                        return Err(PassthroughError::InvalidSecret);
-                    }
-                }
-                _ => {
-                    // valid_secrets is authoritative. An empty list (e.g. after
-                    // the last integration was disabled, #810) means NOTHING is
-                    // valid -- never "skip validation". Cache it either way so
-                    // repeat probes do not hit Firestore.
-                    ctx.relay_state
-                        .set_valid_secrets_cache(subdomain, device.valid_secrets.clone());
-                    if !device.valid_secrets.iter().any(|s| s == integration_secret) {
-                        info!(subdomain, "Secret mismatch (silent reject)");
-                        return Err(PassthroughError::InvalidSecret);
-                    }
-                }
-            }
+/// Outcome of checking an SNI secret label against a device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SecretCheck {
+    Valid,
+    /// Not valid. Closed like any invalid secret.
+    Invalid,
+    /// Not valid, but an exact match for one of the device's former secrets
+    /// (`stale_secrets` or `retired_secrets`: a stale client config). Closed exactly like
+    /// `Invalid`; the only difference is that the throttle does not count it.
+    Stale,
+}
+
+impl SecretCheck {
+    fn into_result(self) -> Result<(), PassthroughError> {
+        match self {
+            SecretCheck::Valid => Ok(()),
+            SecretCheck::Invalid | SecretCheck::Stale => Err(PassthroughError::InvalidSecret),
         }
     }
+}
 
+fn classify(secret: &str, valid: &[String], stale: &[String]) -> SecretCheck {
+    if valid.iter().any(|s| s == secret) {
+        SecretCheck::Valid
+    } else if stale.iter().any(|s| s == secret) {
+        SecretCheck::Stale
+    } else {
+        SecretCheck::Invalid
+    }
+}
+
+/// Check `integration_secret` against the device's valid secrets (cache
+/// first, then Firestore). See [`resolve_device_stream`] for the rules.
+/// `Err` only for lookup failures; a mismatch is `Ok(Invalid | Stale)`.
+async fn check_secret(
+    ctx: &PassthroughContext,
+    subdomain: &str,
+    integration_secret: &str,
+) -> Result<SecretCheck, PassthroughError> {
+    if integration_secret.is_empty() {
+        return Ok(SecretCheck::Valid);
+    }
+    // Check the in-memory cache first. Write endpoints populate this on
+    // every /register and /rotate-secret, so freshly-pushed secrets are
+    // usable on the next connection without waiting for Firestore
+    // eventual consistency to catch up.
+    if let Some(cached) = ctx.relay_state.get_secrets_cache(subdomain) {
+        let check = classify(integration_secret, &cached.valid, &cached.stale);
+        match check {
+            SecretCheck::Valid => debug!(subdomain, "Secret matched from cache"),
+            SecretCheck::Stale => info!(subdomain, "Former secret vs cache (silent reject)"),
+            SecretCheck::Invalid => info!(subdomain, "Secret mismatch vs cache (silent reject)"),
+        }
+        return Ok(check);
+    }
+
+    // Cache miss: fall back to Firestore. Populate the cache from the
+    // result so subsequent lookups are fast and survive restarts that
+    // lost in-memory state.
+    let device = ctx
+        .firestore
+        .get_device(subdomain)
+        .await
+        .map_err(|e| match e {
+            crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
+            other => PassthroughError::FirestoreFailed(other.to_string()),
+        })?;
+    let stale: Vec<String> = device.throttle_exempt_secrets();
+
+    let check = match (&device.secret_prefix, device.valid_secrets.is_empty()) {
+        (Some(stored_secret), true) => {
+            // Legacy secret_prefix for devices that never had a
+            // valid_secrets list. Not cached: the cache only models
+            // valid_secrets membership.
+            classify(
+                integration_secret,
+                std::slice::from_ref(stored_secret),
+                &stale,
+            )
+        }
+        _ => {
+            // valid_secrets is authoritative. An empty list (e.g. after
+            // the last integration was disabled, #810) means NOTHING is
+            // valid -- never "skip validation". Cache it either way so
+            // repeat probes do not hit Firestore.
+            ctx.relay_state.set_secrets_cache(
+                subdomain,
+                device.valid_secrets.clone(),
+                stale.clone(),
+            );
+            classify(integration_secret, &device.valid_secrets, &stale)
+        }
+    };
+    match check {
+        SecretCheck::Valid => {}
+        SecretCheck::Stale => info!(subdomain, "Former secret (silent reject)"),
+        SecretCheck::Invalid => info!(subdomain, "Secret mismatch (silent reject)"),
+    }
+    Ok(check)
+}
+
+/// Open a stream on the device's mux connection, waking it first if it is
+/// offline. Callers must have validated the secret.
+async fn open_or_wake(
+    ctx: &PassthroughContext,
+    subdomain: &str,
+    sni_hostname: &str,
+) -> Result<ResolvedStream, PassthroughError> {
     // Try to open a stream on an existing mux connection
     if let Some((handle, stream)) = ctx.session_registry.try_open_stream(subdomain).await {
         send_open_frame(&handle, stream.stream_id, sni_hostname).await?;

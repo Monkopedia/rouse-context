@@ -154,6 +154,7 @@ pub async fn create_placeholder_record(
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     match firestore.create_device(subdomain, &placeholder).await {
         Ok(()) => info!(subdomain = %subdomain, "Auto-created Firestore record from mTLS cert"),
@@ -676,6 +677,7 @@ mod tests {
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
             retired_secrets: std::collections::HashMap::new(),
+            stale_secrets: Vec::new(),
         };
         apply_push_update(
             &mut record,
@@ -721,6 +723,7 @@ mod tests {
                     valid_secrets: Vec::new(),
                     integration_secrets: std::collections::HashMap::new(),
                     retired_secrets: std::collections::HashMap::new(),
+                    stale_secrets: Vec::new(),
                 })
             } else {
                 Err(crate::firestore::FirestoreError::NotFound(
