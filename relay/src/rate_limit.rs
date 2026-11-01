@@ -337,8 +337,9 @@ pub struct WrongSecretThrottle {
 struct ThrottleEntry {
     failures: u32,
     window_start: Instant,
-    /// Hashes of secrets currently being evaluated, with connection counts.
-    in_flight: Vec<(u64, u32)>,
+    /// Secrets currently being evaluated: (hash, connections sharing the
+    /// slot, whether any of them already settled as failed).
+    in_flight: Vec<(u64, u32, bool)>,
 }
 
 impl ThrottleEntry {
@@ -483,7 +484,7 @@ impl WrongSecretThrottle {
             e.window_start = now;
         }
 
-        if let Some(slot) = e.in_flight.iter_mut().find(|(h, _)| *h == secret_hash) {
+        if let Some(slot) = e.in_flight.iter_mut().find(|(h, _, _)| *h == secret_hash) {
             // Same secret already being evaluated: share its slot. It was
             // admitted under the budget, and gets the same verdict.
             if e.failures >= self.max_failures {
@@ -494,7 +495,7 @@ impl WrongSecretThrottle {
             if e.budget_used() >= self.max_failures {
                 return None;
             }
-            e.in_flight.push((secret_hash, 1));
+            e.in_flight.push((secret_hash, 1, false));
         }
         Some(SecretAttempt {
             throttle: self,
@@ -509,13 +510,17 @@ impl WrongSecretThrottle {
             return;
         };
         let e = entry.value_mut();
-        if let Some(pos) = e.in_flight.iter().position(|(h, _)| *h == secret_hash) {
+        if let Some(pos) = e.in_flight.iter().position(|(h, _, _)| *h == secret_hash) {
             let slot = &mut e.in_flight[pos];
             slot.1 -= 1;
+            // Sticky: once any sharer has seen the secret fail, the guess was
+            // evaluated and counts, however the other sharers end.
+            slot.2 |= failed;
             if slot.1 == 0 {
+                let slot_failed = slot.2;
                 e.in_flight.swap_remove(pos);
                 // Count one failure per distinct secret, not per connection.
-                if failed {
+                if slot_failed {
                     if e.failures == 0 || now.duration_since(e.window_start) >= self.window {
                         // The window is anchored at the first failure.
                         e.failures = 0;
@@ -542,7 +547,7 @@ impl WrongSecretThrottle {
                 }
             }
             // Otherwise another connection with the same secret is still in
-            // flight; its failure is counted when the last one settles.
+            // flight; the slot is settled when the last one finishes.
         }
         let idle = e.failures == 0 && e.in_flight.is_empty();
         drop(entry);

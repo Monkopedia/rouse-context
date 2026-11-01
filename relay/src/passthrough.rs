@@ -292,7 +292,8 @@ pub struct ResolvedStream {
 /// refused client gets no secret check, Firestore lookup or wake -- whatever
 /// secret it presents -- and is closed the same way as an invalid secret.
 ///
-/// An exact match for one of the device's retired secrets is closed like any
+/// An exact match for one of the device's former secrets (`stale_secrets`,
+/// covering disable and re-enable/rotation) is closed like any
 /// invalid secret but does not count toward the block, so a stale client
 /// config retrying from a shared egress IP cannot lock out the working URL.
 /// It still holds a slot while being checked, so it cannot widen a burst.
@@ -316,9 +317,9 @@ pub async fn resolve_device_stream_for_client(
     let check = check_secret(ctx, subdomain, integration_secret).await?;
     match check {
         SecretCheck::Valid => slot.succeeded(),
-        // A stale client retrying a rotated-away URL must not lock out the
+        // A stale client retrying a replaced URL must not lock out the
         // working URL from the same IP: release the slot, count nothing.
-        SecretCheck::Retired => slot.succeeded(),
+        SecretCheck::Stale => slot.succeeded(),
         SecretCheck::Invalid => slot.failed(),
     }
     check.into_result()?;
@@ -354,26 +355,26 @@ enum SecretCheck {
     Valid,
     /// Not valid. Closed like any invalid secret.
     Invalid,
-    /// Not valid, but an exact match for one of the device's retired secrets
-    /// (a stale client config). Closed exactly like `Invalid`; the only
-    /// difference is that the wrong-secret throttle does not count it.
-    Retired,
+    /// Not valid, but an exact match for one of the device's former secrets
+    /// (`stale_secrets`: a stale client config). Closed exactly like
+    /// `Invalid`; the only difference is that the throttle does not count it.
+    Stale,
 }
 
 impl SecretCheck {
     fn into_result(self) -> Result<(), PassthroughError> {
         match self {
             SecretCheck::Valid => Ok(()),
-            SecretCheck::Invalid | SecretCheck::Retired => Err(PassthroughError::InvalidSecret),
+            SecretCheck::Invalid | SecretCheck::Stale => Err(PassthroughError::InvalidSecret),
         }
     }
 }
 
-fn classify(secret: &str, valid: &[String], retired: &[String]) -> SecretCheck {
+fn classify(secret: &str, valid: &[String], stale: &[String]) -> SecretCheck {
     if valid.iter().any(|s| s == secret) {
         SecretCheck::Valid
-    } else if retired.iter().any(|s| s == secret) {
-        SecretCheck::Retired
+    } else if stale.iter().any(|s| s == secret) {
+        SecretCheck::Stale
     } else {
         SecretCheck::Invalid
     }
@@ -381,7 +382,7 @@ fn classify(secret: &str, valid: &[String], retired: &[String]) -> SecretCheck {
 
 /// Check `integration_secret` against the device's valid secrets (cache
 /// first, then Firestore). See [`resolve_device_stream`] for the rules.
-/// `Err` only for lookup failures; a mismatch is `Ok(Invalid | Retired)`.
+/// `Err` only for lookup failures; a mismatch is `Ok(Invalid | Stale)`.
 async fn check_secret(
     ctx: &PassthroughContext,
     subdomain: &str,
@@ -395,10 +396,10 @@ async fn check_secret(
     // usable on the next connection without waiting for Firestore
     // eventual consistency to catch up.
     if let Some(cached) = ctx.relay_state.get_secrets_cache(subdomain) {
-        let check = classify(integration_secret, &cached.valid, &cached.retired);
+        let check = classify(integration_secret, &cached.valid, &cached.stale);
         match check {
             SecretCheck::Valid => debug!(subdomain, "Secret matched from cache"),
-            SecretCheck::Retired => info!(subdomain, "Retired secret vs cache (silent reject)"),
+            SecretCheck::Stale => info!(subdomain, "Former secret vs cache (silent reject)"),
             SecretCheck::Invalid => info!(subdomain, "Secret mismatch vs cache (silent reject)"),
         }
         return Ok(check);
@@ -415,7 +416,7 @@ async fn check_secret(
             crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
             other => PassthroughError::FirestoreFailed(other.to_string()),
         })?;
-    let retired: Vec<String> = device.retired_secrets.values().cloned().collect();
+    let stale: Vec<String> = device.stale_secrets.clone();
 
     let check = match (&device.secret_prefix, device.valid_secrets.is_empty()) {
         (Some(stored_secret), true) => {
@@ -425,7 +426,7 @@ async fn check_secret(
             classify(
                 integration_secret,
                 std::slice::from_ref(stored_secret),
-                &retired,
+                &stale,
             )
         }
         _ => {
@@ -436,14 +437,14 @@ async fn check_secret(
             ctx.relay_state.set_secrets_cache(
                 subdomain,
                 device.valid_secrets.clone(),
-                retired.clone(),
+                stale.clone(),
             );
-            classify(integration_secret, &device.valid_secrets, &retired)
+            classify(integration_secret, &device.valid_secrets, &stale)
         }
     };
     match check {
         SecretCheck::Valid => {}
-        SecretCheck::Retired => info!(subdomain, "Retired secret (silent reject)"),
+        SecretCheck::Stale => info!(subdomain, "Former secret (silent reject)"),
         SecretCheck::Invalid => info!(subdomain, "Secret mismatch (silent reject)"),
     }
     Ok(check)

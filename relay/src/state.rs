@@ -20,9 +20,9 @@ pub const DEFAULT_CACHE_CAPACITY: usize = 10_000;
 pub struct CachedSecrets {
     /// Secrets that route to the device.
     pub valid: Vec<String>,
-    /// Secrets rotated away from the device; rejected, but not counted by
-    /// the wrong-secret throttle.
-    pub retired: Vec<String>,
+    /// Former secrets (`DeviceRecord::stale_secrets`); rejected, but not
+    /// counted by the wrong-secret throttle.
+    pub stale: Vec<String>,
 }
 
 /// Shared relay state, wrapped in Arc at the call site.
@@ -95,22 +95,22 @@ impl RelayState {
     /// valid" (#810): the passthrough path rejects every label without
     /// waking the device. It is NOT treated as a cache miss.
     ///
-    /// Caches an empty retired set; use [`set_secrets_cache`](Self::set_secrets_cache)
-    /// when the device has retired secrets.
+    /// Caches an empty stale set; use [`set_secrets_cache`](Self::set_secrets_cache)
+    /// when the device has former secrets.
     pub fn set_valid_secrets_cache(&self, subdomain: &str, secrets: Vec<String>) {
         self.set_secrets_cache(subdomain, secrets, Vec::new());
     }
 
-    /// Cache a device's `valid_secrets` together with its retired secrets
-    /// (the values of `retired_secrets`). Retired secrets are still rejected;
-    /// the passthrough path only uses them to avoid counting a stale client
-    /// toward the wrong-secret throttle (#811).
-    pub fn set_secrets_cache(&self, subdomain: &str, valid: Vec<String>, retired: Vec<String>) {
+    /// Cache a device's `valid_secrets` together with its `stale_secrets`.
+    /// Stale secrets are still rejected; the passthrough path only uses them
+    /// to avoid counting a stale client toward the wrong-secret throttle
+    /// (#811). Valid is checked first, so an overlap is treated as valid.
+    pub fn set_secrets_cache(&self, subdomain: &str, valid: Vec<String>, stale: Vec<String>) {
         let mut cache = self
             .valid_secrets_cache
             .lock()
             .expect("valid_secrets_cache mutex poisoned");
-        cache.put(subdomain.to_string(), CachedSecrets { valid, retired });
+        cache.put(subdomain.to_string(), CachedSecrets { valid, stale });
     }
 
     /// Look up the cached secret sets for a device. `None` on a cache miss.

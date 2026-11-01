@@ -487,19 +487,19 @@ async fn concurrent_connections_with_the_correct_secret_are_not_refused() {
     );
 }
 
-// --- Retired secrets do not count toward the throttle ---
+// --- Former (stale) secrets do not count toward the throttle ---
 //
-// A stale client still using a URL whose secret was rotated away (e.g. an
-// old connector after disable/re-enable) must not lock out the working URL
-// from the same egress IP. Retired attempts are still closed like any other
-// invalid secret.
+// A stale client still using a URL whose secret was replaced (e.g. an old
+// connector after disable/re-enable) must not lock out the working URL from
+// the same egress IP. Such attempts are still closed like any other invalid
+// secret. End-to-end coverage through /rotate-secret is in
+// stale_secret_throttle_test.rs.
 
 const RETIRED: &str = "stale-health";
 
 fn record_with_retired() -> DeviceRecord {
     let mut r = device_record();
-    r.retired_secrets =
-        std::collections::HashMap::from([("health".to_string(), RETIRED.to_string())]);
+    r.stale_secrets = vec![RETIRED.to_string()];
     r
 }
 

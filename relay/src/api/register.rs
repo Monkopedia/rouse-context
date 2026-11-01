@@ -392,6 +392,9 @@ pub async fn handle_register(
     // written below on both reuse and `force_new` rotation, so re-registration
     // never resets a bound key to the awaiting-first-key state.
     let mut carried_key: Option<(String, KeyBinding, SystemTime)> = None;
+    // Former secrets of a device re-registering on the same subdomain: its
+    // old stale list plus everything that routed before (#811).
+    let mut carried_stale: Vec<String> = Vec::new();
 
     let assignment = if let Some((existing_subdomain, existing_record)) = existing {
         // Re-registration or rotation. For Firebase, a signature over the token
@@ -461,7 +464,16 @@ pub async fn handle_register(
             // Move to a new subdomain
             SubdomainAssignment::New { preferred: None }
         } else {
-            // Re-registration: reuse existing subdomain
+            // Re-registration: reuse existing subdomain. Every secret is
+            // re-minted, so the old ones become stale (#811).
+            carried_stale = existing_record.stale_secrets.clone();
+            let old: Vec<String> = existing_record
+                .valid_secrets
+                .iter()
+                .chain(existing_record.secret_prefix.iter())
+                .cloned()
+                .collect();
+            crate::firestore::push_stale_secrets(&mut carried_stale, &old, &[]);
             SubdomainAssignment::Existing(existing_subdomain)
         }
     } else {
@@ -530,6 +542,8 @@ pub async fn handle_register(
     //    rotation) and the flat list used by the SNI fast path.
     let secrets_map = generate_integration_secrets(&req.integrations);
     let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
+    // A fresh draw could repeat an old value; valid wins, so drop overlaps.
+    crate::firestore::push_stale_secrets(&mut carried_stale, &[], &valid_secrets);
 
     // 5. Store device record. A brand-new identity awaits its first key, which
     //    round 2 binds (for the keypair path the round-2 CSR's public key is
@@ -567,7 +581,7 @@ pub async fn handle_register(
         valid_secrets: valid_secrets.clone(),
         integration_secrets: secrets_map.clone(),
         retired_secrets: HashMap::new(),
-        stale_secrets: Vec::new(),
+        stale_secrets: carried_stale,
     };
 
     let subdomain = match assignment {
@@ -590,7 +604,7 @@ pub async fn handle_register(
     // registered secrets without waiting for Firestore eventual consistency.
     state
         .relay_state
-        .set_valid_secrets_cache(&subdomain, valid_secrets);
+        .set_secrets_cache(&subdomain, valid_secrets, record.stale_secrets.clone());
 
     // 6. Return subdomain, relay host, and the generated secrets map
     (
