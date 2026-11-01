@@ -344,6 +344,7 @@ mod tests {
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
             retired_secrets: std::collections::HashMap::new(),
+            stale_secrets: Vec::new(),
         }
     }
 
@@ -640,6 +641,7 @@ mod tests {
             valid_secrets: Vec::new(),
             integration_secrets: std::collections::HashMap::new(),
             retired_secrets: std::collections::HashMap::new(),
+            stale_secrets: Vec::new(),
         };
         let threshold = Duration::from_secs(180 * 86400);
         assert!(!is_stale_device(&record, now, threshold));

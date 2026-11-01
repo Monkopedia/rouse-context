@@ -44,6 +44,7 @@ fn make_device(secret: &str) -> DeviceRecord {
         valid_secrets: vec!["old-health".to_string()],
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 
@@ -321,6 +322,7 @@ async fn passthrough_cache_miss_falls_back_to_firestore() {
             valid_secrets: vec!["brave-health".to_string()],
             integration_secrets: std::collections::HashMap::new(),
             retired_secrets: std::collections::HashMap::new(),
+            stale_secrets: Vec::new(),
         },
     ));
 

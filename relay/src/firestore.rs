@@ -186,6 +186,42 @@ pub struct DeviceRecord {
     /// existed.
     #[serde(default)]
     pub retired_secrets: HashMap<String, String>,
+    /// Former secrets of this device, oldest first, used ONLY so the
+    /// wrong-secret throttle does not count a stale client config (#811).
+    /// Every secret that stops being valid -- disabled, or replaced on
+    /// re-enable / rotation / re-registration -- is appended; at most
+    /// [`STALE_SECRETS_MAX`] are kept, oldest dropped. A label matching one is
+    /// still rejected like any invalid secret. Independent of
+    /// [`Self::retired_secrets`] and its #519 role. Defaults to empty for
+    /// documents written before this field existed.
+    #[serde(default)]
+    pub stale_secrets: Vec<String>,
+}
+
+/// Cap on [`DeviceRecord::stale_secrets`] per device. Secrets are short
+/// (adjective + integration id, well under 64 bytes), so a full list is about
+/// 1-2 KiB per device including `String` overhead; across the 10,000-entry
+/// secrets cache that bounds the worst case at roughly 10-20 MiB, and real
+/// devices hold a handful.
+pub const STALE_SECRETS_MAX: usize = 16;
+
+/// Append secrets that stopped being valid to `stale`, keeping it ordered
+/// oldest first, without duplicates, without anything in `still_valid`, and
+/// at most [`STALE_SECRETS_MAX`] long.
+pub fn push_stale_secrets<'a>(
+    stale: &mut Vec<String>,
+    no_longer_valid: impl IntoIterator<Item = &'a String>,
+    still_valid: &[String],
+) {
+    for s in no_longer_valid {
+        stale.retain(|x| x != s);
+        stale.push(s.clone());
+    }
+    stale.retain(|x| !still_valid.contains(x));
+    if stale.len() > STALE_SECRETS_MAX {
+        let excess = stale.len() - STALE_SECRETS_MAX;
+        stale.drain(..excess);
+    }
 }
 
 impl DeviceRecord {

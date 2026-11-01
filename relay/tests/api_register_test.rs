@@ -296,6 +296,7 @@ async fn re_register_without_signature_returns_403() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -360,6 +361,7 @@ async fn force_new_within_cooldown_returns_429() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = MockFirestore::new().with_device("old-sub", existing_record);
     let acme = MockAcme::new("test-cert");
@@ -426,6 +428,7 @@ async fn re_register_with_valid_signature_reuses_subdomain() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = MockFirestore::new().with_device("brave-falcon", existing_record);
     let acme = MockAcme::new("new-cert-chain");
@@ -492,6 +495,7 @@ async fn force_new_assigns_new_subdomain_when_cooldown_expired() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let acme = MockAcme::new("rotated-cert");
@@ -574,6 +578,7 @@ async fn force_new_deletes_old_dns_records() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     let dns = Arc::new(MockDns::new());
@@ -646,6 +651,7 @@ async fn force_new_succeeds_even_if_dns_cleanup_fails() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("old-sub", existing_record));
     // DNS client that always fails
@@ -718,6 +724,7 @@ async fn re_register_same_subdomain_does_not_delete_dns() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", existing_record));
     let dns = Arc::new(MockDns::new());
@@ -843,6 +850,7 @@ fn existing_record_with_pub_key(uid: &str, pub_key_b64: String) -> DeviceRecord 
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 
@@ -867,6 +875,7 @@ async fn register_certs_fresh_registration_without_signature_succeeds() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("fresh-device", existing));
     let acme = MockAcme::new("test-cert");
@@ -1046,6 +1055,7 @@ async fn register_certs_rejects_csr_with_tampered_self_signature() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("tamper-device", existing));
 

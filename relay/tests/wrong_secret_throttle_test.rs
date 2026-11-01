@@ -46,6 +46,7 @@ fn device_record() -> rouse_relay::firestore::DeviceRecord {
         valid_secrets: vec![GOOD.to_string()],
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 
@@ -637,4 +638,31 @@ async fn concurrent_burst_with_retired_labels_evaluates_at_most_max_random_guess
         "{random_evaluated} + {more} > 5"
     );
     assert!(throttle.is_blocked(client, SUB));
+}
+
+#[test]
+fn shared_slot_failure_is_counted_even_if_the_last_sharer_is_dropped() {
+    // Two connections share a slot for the same wrong secret. One settles as
+    // failed; the other is dropped unsettled (cancelled / lookup error). The
+    // evaluated wrong guess must still count.
+    let t = WrongSecretThrottle::new(5, Duration::from_secs(3600), 1000);
+    let a = ip("203.0.113.7");
+    let t0 = Instant::now();
+    let mut blocked_after = None;
+    for i in 0..20 {
+        let secret = format!("guess{i}");
+        let (Some(first), Some(second)) = (
+            t.try_admit_at(a, SUB, &secret, t0),
+            t.try_admit_at(a, SUB, &secret, t0),
+        ) else {
+            break;
+        };
+        first.failed();
+        drop(second);
+        if t.is_blocked_at(a, SUB, t0) {
+            blocked_after = Some(i + 1);
+            break;
+        }
+    }
+    assert_eq!(blocked_after, Some(5), "each shared failure counts once");
 }

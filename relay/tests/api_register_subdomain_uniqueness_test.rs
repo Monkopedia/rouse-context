@@ -121,6 +121,7 @@ fn established_device(key: &p256::ecdsa::SigningKey) -> DeviceRecord {
         valid_secrets: vec!["brave-health".to_string()],
         integration_secrets: HashMap::from([("health".to_string(), "brave-health".to_string())]),
         retired_secrets: HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 

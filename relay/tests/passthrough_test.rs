@@ -251,6 +251,7 @@ async fn fcm_sent_when_device_offline() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
 
     let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", device_record));
@@ -304,6 +305,7 @@ async fn fcm_timeout_returns_error() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("test-sub", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -364,6 +366,7 @@ async fn cold_client_fcm_then_device_connects() {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     };
     let firestore = Arc::new(MockFirestore::new().with_device("cold-dev", device_record));
     let fcm = Arc::new(MockFcm::new());
@@ -696,6 +699,7 @@ fn make_device_record(fcm_token: &str) -> rouse_relay::firestore::DeviceRecord {
         valid_secrets: Vec::new(),
         integration_secrets: std::collections::HashMap::new(),
         retired_secrets: std::collections::HashMap::new(),
+        stale_secrets: Vec::new(),
     }
 }
 

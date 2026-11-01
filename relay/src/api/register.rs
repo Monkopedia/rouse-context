@@ -567,6 +567,7 @@ pub async fn handle_register(
         valid_secrets: valid_secrets.clone(),
         integration_secrets: secrets_map.clone(),
         retired_secrets: HashMap::new(),
+        stale_secrets: Vec::new(),
     };
 
     let subdomain = match assignment {
