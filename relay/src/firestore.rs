@@ -225,6 +225,21 @@ pub fn push_stale_secrets<'a>(
 }
 
 impl DeviceRecord {
+    /// Former secrets exempt from the wrong-secret throttle (#811):
+    /// `stale_secrets` plus the values of `retired_secrets`. Reading
+    /// `retired_secrets` here keeps integrations disabled before
+    /// `stale_secrets` existed exempt with no migration; its #519 role is
+    /// unchanged. Callers check valid secrets first.
+    pub fn throttle_exempt_secrets(&self) -> Vec<String> {
+        let mut out = self.stale_secrets.clone();
+        for s in self.retired_secrets.values() {
+            if !out.contains(s) {
+                out.push(s.clone());
+            }
+        }
+        out
+    }
+
     /// True only for a record that has never had a key bound. Both the
     /// explicit state and the absence of a stored key must agree, so neither
     /// a stray `AwaitingFirstKey` nor a blanked `public_key` alone is enough

@@ -20,8 +20,8 @@ pub const DEFAULT_CACHE_CAPACITY: usize = 10_000;
 pub struct CachedSecrets {
     /// Secrets that route to the device.
     pub valid: Vec<String>,
-    /// Former secrets (`DeviceRecord::stale_secrets`); rejected, but not
-    /// counted by the wrong-secret throttle.
+    /// Former secrets (`DeviceRecord::throttle_exempt_secrets`: stale plus
+    /// retired); rejected, but not counted by the wrong-secret throttle.
     pub stale: Vec<String>,
 }
 

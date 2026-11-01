@@ -190,9 +190,11 @@ pub async fn handle_rotate_secret(
     // guessed label) is rejected immediately, without a wake (#810).
     // Former secrets travel with it so a stale client retrying a replaced URL
     // is not counted by the wrong-secret throttle (#811).
-    state
-        .relay_state
-        .set_secrets_cache(&subdomain, valid_secrets, record.stale_secrets.clone());
+    state.relay_state.set_secrets_cache(
+        &subdomain,
+        valid_secrets,
+        record.throttle_exempt_secrets(),
+    );
 
     info!(
         subdomain = %subdomain,

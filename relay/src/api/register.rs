@@ -602,9 +602,11 @@ pub async fn handle_register(
 
     // Seed the in-memory valid_secrets cache so SNI routing picks up freshly
     // registered secrets without waiting for Firestore eventual consistency.
-    state
-        .relay_state
-        .set_secrets_cache(&subdomain, valid_secrets, record.stale_secrets.clone());
+    state.relay_state.set_secrets_cache(
+        &subdomain,
+        valid_secrets,
+        record.throttle_exempt_secrets(),
+    );
 
     // 6. Return subdomain, relay host, and the generated secrets map
     (

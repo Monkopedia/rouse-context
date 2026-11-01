@@ -356,7 +356,7 @@ enum SecretCheck {
     /// Not valid. Closed like any invalid secret.
     Invalid,
     /// Not valid, but an exact match for one of the device's former secrets
-    /// (`stale_secrets`: a stale client config). Closed exactly like
+    /// (`stale_secrets` or `retired_secrets`: a stale client config). Closed exactly like
     /// `Invalid`; the only difference is that the throttle does not count it.
     Stale,
 }
@@ -416,7 +416,7 @@ async fn check_secret(
             crate::firestore::FirestoreError::NotFound(_) => PassthroughError::DeviceNotFound,
             other => PassthroughError::FirestoreFailed(other.to_string()),
         })?;
-    let stale: Vec<String> = device.stale_secrets.clone();
+    let stale: Vec<String> = device.throttle_exempt_secrets();
 
     let check = match (&device.secret_prefix, device.valid_secrets.is_empty()) {
         (Some(stored_secret), true) => {
