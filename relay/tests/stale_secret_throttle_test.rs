@@ -287,3 +287,63 @@ async fn random_guesses_still_count_after_rotation() {
         Err(PassthroughError::SecretThrottled)
     ));
 }
+
+/// A record written before `stale_secrets` existed: beta was disabled, so its
+/// former secret is only in `retired_secrets`.
+fn pre_deploy_record() -> DeviceRecord {
+    let mut rec = device();
+    rec.valid_secrets = vec![A.to_string()];
+    rec.integration_secrets = HashMap::from([("alpha".to_string(), A.to_string())]);
+    rec.retired_secrets = HashMap::from([("beta".to_string(), B.to_string())]);
+    rec.stale_secrets = Vec::new();
+    rec
+}
+
+async fn pre_deploy_old_url_does_not_count(h: &Harness, ctx: &PassthroughContext) {
+    for i in 0..20 {
+        let r = h.attempt(ctx, B).await;
+        assert!(
+            matches!(r, Err(PassthroughError::InvalidSecret)),
+            "retired URL attempt {i} is rejected like any invalid secret, got {r:?}"
+        );
+    }
+    assert_eq!(h.pushes(), 0);
+    assert!(!h.throttle.is_blocked(h.client, SUB));
+    let r = h.attempt(ctx, A).await;
+    assert!(
+        matches!(r, Err(PassthroughError::WakeupTimeout)),
+        "working URL is admitted, got {r:?}"
+    );
+}
+
+#[tokio::test]
+async fn pre_deploy_retired_secret_is_exempt_on_cold_cache() {
+    let h = Harness::new();
+    h.firestore
+        .devices
+        .lock()
+        .unwrap()
+        .insert(SUB.to_string(), pre_deploy_record());
+    // Fresh relay state per attempt would be the strictest cold path; one
+    // cold context covers the first (Firestore) lookup, then its cache fill.
+    pre_deploy_old_url_does_not_count(&h, &h.cold_ctx()).await;
+}
+
+#[tokio::test]
+async fn pre_deploy_retired_secret_is_exempt_on_warm_cache() {
+    let h = Harness::new();
+    h.firestore
+        .devices
+        .lock()
+        .unwrap()
+        .insert(SUB.to_string(), pre_deploy_record());
+    // Warm the cache through the real /rotate-secret handler (same set).
+    h.rotate(&["alpha"]).await;
+    let rec = h.stored();
+    assert_eq!(rec.retired_secrets.get("beta").map(String::as_str), Some(B));
+    assert!(
+        rec.stale_secrets.is_empty(),
+        "no migration of retired into stale"
+    );
+    pre_deploy_old_url_does_not_count(&h, &h.ctx()).await;
+}
