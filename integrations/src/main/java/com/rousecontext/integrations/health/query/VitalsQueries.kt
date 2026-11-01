@@ -12,8 +12,6 @@ import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SkinTemperatureRecord
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.transform
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -202,30 +200,34 @@ class VitalsQueries(private val reader: RecordReader) : CategoryQueries {
         else -> throw IllegalArgumentException("Unsupported record type: $recordType")
     }
 
-    override fun bucketValues(recordType: String, from: Instant, to: Instant): Flow<TimedValue>? =
-        when (recordType) {
-            "HeartRate" -> reader.stream(HeartRateRecord::class, from, to).transform { record ->
-                record.samples.forEach { emit(TimedValue(it.time, it.beatsPerMinute.toDouble())) }
+    override fun bucketValues(
+        recordType: String,
+        from: Instant,
+        to: Instant
+    ): Flow<Streamed<TimedValue>>? = when (recordType) {
+        "HeartRate" -> reader.stream(HeartRateRecord::class, from, to)
+            .flatMapValues { record ->
+                record.samples.map { TimedValue(it.time, it.beatsPerMinute.toDouble()) }
             }
-            "RestingHeartRate" -> reader.stream(RestingHeartRateRecord::class, from, to)
-                .map { TimedValue(it.time, it.beatsPerMinute.toDouble()) }
-            "HeartRateVariabilityRmssd" ->
-                reader.stream(HeartRateVariabilityRmssdRecord::class, from, to)
-                    .map { TimedValue(it.time, it.heartRateVariabilityMillis) }
-            "BloodGlucose" -> reader.stream(BloodGlucoseRecord::class, from, to)
-                .map { TimedValue(it.time, it.level.inMillimolesPerLiter) }
-            "OxygenSaturation" -> reader.stream(OxygenSaturationRecord::class, from, to)
-                .map { TimedValue(it.time, it.percentage.value) }
-            "RespiratoryRate" -> reader.stream(RespiratoryRateRecord::class, from, to)
-                .map { TimedValue(it.time, it.rate) }
-            "BodyTemperature" -> reader.stream(BodyTemperatureRecord::class, from, to)
-                .map { TimedValue(it.time, it.temperature.inCelsius) }
-            "BasalBodyTemperature" -> reader.stream(BasalBodyTemperatureRecord::class, from, to)
-                .map { TimedValue(it.time, it.temperature.inCelsius) }
-            // BloodPressure (two-valued) and SkinTemperature (session/multi-delta) are
-            // intentionally not bucketable.
-            else -> null
-        }
+        "RestingHeartRate" -> reader.stream(RestingHeartRateRecord::class, from, to)
+            .mapValues { TimedValue(it.time, it.beatsPerMinute.toDouble()) }
+        "HeartRateVariabilityRmssd" ->
+            reader.stream(HeartRateVariabilityRmssdRecord::class, from, to)
+                .mapValues { TimedValue(it.time, it.heartRateVariabilityMillis) }
+        "BloodGlucose" -> reader.stream(BloodGlucoseRecord::class, from, to)
+            .mapValues { TimedValue(it.time, it.level.inMillimolesPerLiter) }
+        "OxygenSaturation" -> reader.stream(OxygenSaturationRecord::class, from, to)
+            .mapValues { TimedValue(it.time, it.percentage.value) }
+        "RespiratoryRate" -> reader.stream(RespiratoryRateRecord::class, from, to)
+            .mapValues { TimedValue(it.time, it.rate) }
+        "BodyTemperature" -> reader.stream(BodyTemperatureRecord::class, from, to)
+            .mapValues { TimedValue(it.time, it.temperature.inCelsius) }
+        "BasalBodyTemperature" -> reader.stream(BasalBodyTemperatureRecord::class, from, to)
+            .mapValues { TimedValue(it.time, it.temperature.inCelsius) }
+        // BloodPressure (two-valued) and SkinTemperature (session/multi-delta) are
+        // intentionally not bucketable.
+        else -> null
+    }
 
     override suspend fun summary(from: Instant, to: Instant, granted: Set<String>): JsonObject =
         buildJsonObject {
