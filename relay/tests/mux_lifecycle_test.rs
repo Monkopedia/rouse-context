@@ -382,3 +382,129 @@ async fn full_lifecycle_open_data_close() {
     drop(ws_tx);
     loop_handle.await.unwrap();
 }
+
+// --- #795: a stream frees its slot whichever side ends it -------------------
+
+fn close_frame(stream_id: u32) -> Frame {
+    Frame {
+        frame_type: FrameType::Close,
+        stream_id,
+        payload: Vec::new(),
+    }
+}
+
+fn reported_streams(relay_state: &Arc<RelayState>, subdomain: &str) -> u32 {
+    relay_state
+        .mux_connections
+        .get(subdomain)
+        .unwrap()
+        .active_streams
+}
+
+/// The client side ending a stream (the splice task dropping its receiver)
+/// frees the slot, so more than `max_streams` streams can be opened and
+/// client-closed one after another on one session.
+#[tokio::test]
+async fn client_side_end_frees_slot_repeatedly() {
+    let relay_state = Arc::new(RelayState::new());
+    relay_state.register_mux_connection("test-device");
+    let mut session = MuxSession::new("test-device".to_string(), 2);
+
+    for round in 0..10 {
+        let stream = session
+            .open_stream()
+            .unwrap_or_else(|| panic!("round {round}: open refused, slot leaked"));
+        drop(stream);
+    }
+    session.reap_released_streams(&relay_state);
+    assert_eq!(session.active_stream_count(), 0);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 0);
+}
+
+/// Device CLOSE first, then the client side drops: one slot freed, not two.
+#[tokio::test]
+async fn device_close_then_client_end_frees_exactly_one_slot() {
+    let relay_state = Arc::new(RelayState::new());
+    relay_state.register_mux_connection("test-device");
+    let mut session = MuxSession::new("test-device".to_string(), 2);
+
+    let s1 = session.open_stream().unwrap();
+    let _s2 = session.open_stream().unwrap();
+
+    session
+        .dispatch_incoming(close_frame(s1.stream_id), &relay_state)
+        .await;
+    assert_eq!(session.active_stream_count(), 1);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 1);
+
+    // The splice side now ends too.
+    drop(s1);
+    session.reap_released_streams(&relay_state);
+    assert_eq!(session.active_stream_count(), 1);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 1);
+
+    // Exactly one slot is free: one open succeeds, the next is refused.
+    let _s3 = session.open_stream().unwrap();
+    assert!(session.open_stream().is_none());
+    assert_eq!(session.active_stream_count(), 2);
+}
+
+/// Client side ends first, then a late device CLOSE (and stray DATA) arrives
+/// for the same stream: the count does not drop a second time.
+#[tokio::test]
+async fn client_end_then_device_close_frees_exactly_one_slot() {
+    let relay_state = Arc::new(RelayState::new());
+    relay_state.register_mux_connection("test-device");
+    let mut session = MuxSession::new("test-device".to_string(), 2);
+
+    let s1 = session.open_stream().unwrap();
+    let mut s2 = session.open_stream().unwrap();
+    let s1_id = s1.stream_id;
+
+    drop(s1);
+    session.reap_released_streams(&relay_state);
+    assert_eq!(session.active_stream_count(), 1);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 1);
+
+    session
+        .dispatch_incoming(close_frame(s1_id), &relay_state)
+        .await;
+    session
+        .dispatch_incoming(
+            Frame {
+                frame_type: FrameType::Data,
+                stream_id: s1_id,
+                payload: b"late".to_vec(),
+            },
+            &relay_state,
+        )
+        .await;
+    assert_eq!(session.active_stream_count(), 1);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 1);
+
+    // s2 is untouched and still receives its frames.
+    session
+        .dispatch_incoming(close_frame(s2.stream_id), &relay_state)
+        .await;
+    assert_eq!(s2.rx.recv().await.unwrap().frame_type, FrameType::Close);
+    assert_eq!(session.active_stream_count(), 0);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 0);
+}
+
+/// Opening a stream is reflected in the reported count, and an end on either
+/// side brings it back down.
+#[tokio::test]
+async fn reported_stream_count_tracks_opens_and_client_ends() {
+    let relay_state = Arc::new(RelayState::new());
+    relay_state.register_mux_connection("test-device");
+    let mut session = MuxSession::new("test-device".to_string(), 4);
+
+    let s1 = session.open_stream_and_report(&relay_state).unwrap();
+    assert_eq!(reported_streams(&relay_state, "test-device"), 1);
+    let _s2 = session.open_stream_and_report(&relay_state).unwrap();
+    assert_eq!(reported_streams(&relay_state, "test-device"), 2);
+
+    drop(s1);
+    session.reap_released_streams(&relay_state);
+    assert_eq!(reported_streams(&relay_state, "test-device"), 1);
+}

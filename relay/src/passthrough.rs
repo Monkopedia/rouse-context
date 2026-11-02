@@ -14,7 +14,7 @@
 use crate::fcm::{self, FcmClient};
 use crate::firestore::FirestoreClient;
 use crate::mux::frame::{Frame, FrameType};
-use crate::mux::lifecycle::{MuxHandle, StreamHandle};
+use crate::mux::lifecycle::{MuxHandle, StreamHandle, StreamReceiver};
 use crate::push;
 use crate::rate_limit::{FcmWakeThrottle, WrongSecretThrottle};
 use crate::state::RelayState;
@@ -279,7 +279,8 @@ pub struct PassthroughContext {
 pub struct ResolvedStream {
     pub handle: MuxHandle,
     pub stream_id: u32,
-    pub stream_rx: mpsc::Receiver<Frame>,
+    /// Dropping this frees the stream's slot on the device's session (#795).
+    pub stream_rx: StreamReceiver,
 }
 
 /// [`resolve_device_stream`] behind the per-(client IP, subdomain)
@@ -551,15 +552,17 @@ async fn send_open_frame(
 /// forwarded as the first DATA frame.
 ///
 /// This function runs until either the client disconnects, the device sends
-/// CLOSE, or the mux channel closes. It handles cleanup (sending CLOSE) in
-/// all cases.
+/// CLOSE, or the mux channel closes. When the client side ends it sends the
+/// device one CLOSE. `stream_rx` is dropped on every return, which frees the
+/// stream's slot on the device's mux session (#795).
 pub async fn splice_stream(
     mut client: TcpStream,
     client_hello: &[u8],
     stream_id: u32,
     mux_handle: &MuxHandle,
-    mut stream_rx: mpsc::Receiver<Frame>,
+    stream_rx: impl Into<StreamReceiver>,
 ) -> Result<(), PassthroughError> {
+    let mut stream_rx = stream_rx.into();
     // 1. Forward buffered ClientHello as DATA
     let data_frame = Frame {
         frame_type: FrameType::Data,

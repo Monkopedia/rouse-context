@@ -393,3 +393,146 @@ fn test_cert_generation_and_subdomain_extraction() {
         rouse_relay::tls::extract_subdomain_from_peer_cert(&client_cert_der, "rousecontext.com");
     assert_eq!(subdomain, Some("brave-falcon".to_string()));
 }
+
+/// Build an `AppState` for a single mock device, with `max_streams_per_device`
+/// overridden. Shared by the #795 stream-slot tests below.
+fn slot_test_app_state(
+    relay_state: Arc<RelayState>,
+    session_registry: Arc<SessionRegistry>,
+    subdomain: &str,
+    max_streams: u32,
+) -> Arc<AppState> {
+    let firestore = MockFirestore::new().with_device(subdomain, dummy_device_record());
+    let mut config = rouse_relay::config::RelayConfig::default();
+    config.limits.max_streams_per_device = max_streams;
+    Arc::new(AppState {
+        relay_state,
+        session_registry,
+        firestore: Arc::new(firestore),
+        fcm: Arc::new(MockFcm::new()),
+        acme: Arc::new(MockAcme::new("cert")),
+        dns: Arc::new(MockDns::new()),
+        firebase_auth: Arc::new(MockFirebaseAuth::new()),
+        subdomain_generator: rouse_relay::subdomain::SubdomainGenerator::new(),
+        rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        register_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::register_per_ip(),
+        ),
+        request_subdomain_rate_limiter: rouse_relay::rate_limit::RateLimiter::new(
+            rouse_relay::rate_limit::RateLimitConfig::default(),
+        ),
+        fcm_wake_throttle: Arc::new(rouse_relay::rate_limit::FcmWakeThrottle::new(
+            std::time::Duration::from_secs(10),
+        )),
+        crash: Arc::new(rouse_relay::crash::CrashService::disabled()),
+        config,
+        device_ca: None,
+        #[cfg(feature = "test-mode")]
+        test_metrics: None,
+    })
+}
+
+/// Read the next mux frame the relay wrote to the device's WebSocket.
+async fn next_device_frame<S>(ws: &mut S) -> Frame
+where
+    S: futures_util::Stream<Item = Result<tungstenite::Message, tungstenite::Error>> + Unpin,
+{
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+        .await
+        .expect("timed out waiting for a frame on the device WebSocket")
+        .unwrap()
+        .unwrap();
+    Frame::decode(&match msg {
+        tungstenite::Message::Binary(b) => b.to_vec(),
+        other => panic!("Expected binary, got {other:?}"),
+    })
+    .unwrap()
+}
+
+/// Issue #795: a stream the CLIENT closes must free its slot on the device's
+/// mux session. Before the fix only a device CLOSE/ERROR freed it, so after
+/// `max_streams_per_device` client-initiated closes on one WebSocket every
+/// further open was refused ("max streams exceeded").
+///
+/// Drives the real `/ws` session loop and the real `splice_stream`: opens and
+/// client-closes more than `max_streams` streams one after another, and checks
+/// the device sees exactly one CLOSE per stream (#780) and never echoes one.
+#[tokio::test]
+async fn client_closed_streams_free_their_slots() {
+    use tokio::io::AsyncWriteExt;
+
+    const MAX_STREAMS: u32 = 2;
+    let subdomain = "slot-dev";
+    let relay_state = Arc::new(RelayState::new());
+    let session_registry = Arc::new(SessionRegistry::new());
+    let app_state = slot_test_app_state(
+        relay_state.clone(),
+        session_registry.clone(),
+        subdomain,
+        MAX_STREAMS,
+    );
+    let router = api::build_router(app_state).layer(axum::Extension(DeviceIdentity {
+        subdomain: subdomain.to_string(),
+    }));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+
+    let url = format!("ws://127.0.0.1:{}/ws", addr.port());
+    let (mut ws_stream, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    assert!(
+        session_registry
+            .wait_until_registered(subdomain, std::time::Duration::from_secs(5))
+            .await
+    );
+
+    // A local TCP pair stands in for the AI client connection.
+    let client_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let client_addr = client_listener.local_addr().unwrap();
+
+    for round in 0..(MAX_STREAMS * 3) {
+        let (handle, stream) = session_registry
+            .try_open_stream(subdomain)
+            .await
+            .unwrap_or_else(|| {
+                panic!("round {round}: open refused -- client-closed streams leaked their slots")
+            });
+        let stream_id = stream.stream_id;
+
+        let mut client = tokio::net::TcpStream::connect(client_addr).await.unwrap();
+        let (server_side, _) = client_listener.accept().await.unwrap();
+        let splice = tokio::spawn(async move {
+            rouse_relay::passthrough::splice_stream(
+                server_side,
+                b"client-hello",
+                stream_id,
+                &handle,
+                stream.rx,
+            )
+            .await
+        });
+
+        let hello = next_device_frame(&mut ws_stream).await;
+        assert_eq!(hello.frame_type, FrameType::Data);
+        assert_eq!(hello.stream_id, stream_id);
+
+        // The client hangs up.
+        client.shutdown().await.unwrap();
+        drop(client);
+        assert!(splice.await.unwrap().is_ok());
+
+        // The device gets exactly one CLOSE and, per #780, never sends one back.
+        let close = next_device_frame(&mut ws_stream).await;
+        assert_eq!(close.frame_type, FrameType::Close);
+        assert_eq!(close.stream_id, stream_id);
+    }
+
+    ws_stream
+        .send(tungstenite::Message::Close(None))
+        .await
+        .unwrap();
+}
