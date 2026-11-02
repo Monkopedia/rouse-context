@@ -41,9 +41,16 @@ impl MuxConnection {
         true
     }
 
-    /// Close a stream.
-    pub fn close_stream(&mut self, stream_id: u32) {
-        self.streams.insert(stream_id, StreamState::Closed);
+    /// Close a stream, freeing its slot.
+    ///
+    /// Returns `true` only if this call freed an open stream. Closing a stream
+    /// that is already closed or was never opened is a no-op returning `false`,
+    /// so a stream ended from both sides (device CLOSE and client hang-up, in
+    /// either order) frees exactly one slot (#795). Closed streams are dropped
+    /// from the map rather than kept as tombstones, so the map stays bounded by
+    /// `max_streams` over a long-lived connection.
+    pub fn close_stream(&mut self, stream_id: u32) -> bool {
+        self.streams.remove(&stream_id) == Some(StreamState::Open)
     }
 
     /// Number of currently open streams.
@@ -72,7 +79,7 @@ mod tests {
         assert!(!conn.open_stream(3)); // limit reached
         assert_eq!(conn.active_stream_count(), 2);
 
-        conn.close_stream(1);
+        assert!(conn.close_stream(1));
         assert_eq!(conn.active_stream_count(), 1);
         assert!(conn.open_stream(3)); // now there's room
     }
@@ -85,5 +92,17 @@ mod tests {
         assert!(conn.is_stream_open(1));
         conn.close_stream(1);
         assert!(!conn.is_stream_open(1));
+    }
+
+    #[test]
+    fn close_stream_frees_at_most_once() {
+        let mut conn = MuxConnection::new(2);
+        assert!(conn.open_stream(1));
+        assert!(conn.open_stream(2));
+        assert!(conn.close_stream(1));
+        assert!(!conn.close_stream(1)); // second close of the same stream
+        assert!(!conn.close_stream(99)); // never opened
+        assert_eq!(conn.active_stream_count(), 1);
+        assert!(conn.is_stream_open(2));
     }
 }

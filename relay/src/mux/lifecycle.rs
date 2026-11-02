@@ -27,7 +27,49 @@ pub struct MuxHandle {
 /// and CLOSE frames destined for its stream.
 pub struct StreamHandle {
     pub stream_id: u32,
-    pub rx: mpsc::Receiver<Frame>,
+    pub rx: StreamReceiver,
+}
+
+/// Receiving end of a mux stream, held by the client splice task.
+///
+/// Dropping it tells the owning [`MuxSession`] that the client side is done
+/// with the stream, which frees the stream's slot. This is what makes a
+/// client-initiated close (EOF, read or write error, or any early return
+/// after the stream was opened) free the slot without the device having to
+/// send a CLOSE back (#795; #780 keeps it to exactly one CLOSE per stream).
+/// The release travels with the receiver, so no exit path can skip it.
+pub struct StreamReceiver {
+    rx: mpsc::Receiver<Frame>,
+    _release: Option<StreamRelease>,
+}
+
+impl StreamReceiver {
+    /// Receive the next frame for this stream; `None` once the session has
+    /// dropped the sending side.
+    pub async fn recv(&mut self) -> Option<Frame> {
+        self.rx.recv().await
+    }
+}
+
+/// A receiver not tied to any session slot (tests, synthetic streams).
+impl From<mpsc::Receiver<Frame>> for StreamReceiver {
+    fn from(rx: mpsc::Receiver<Frame>) -> Self {
+        Self { rx, _release: None }
+    }
+}
+
+/// Reports a stream's id to its session when dropped. Exactly one exists per
+/// opened stream, so each stream is released at most once from this side.
+struct StreamRelease {
+    stream_id: u32,
+    released_tx: mpsc::UnboundedSender<u32>,
+}
+
+impl Drop for StreamRelease {
+    fn drop(&mut self) {
+        // The session may already be gone (WebSocket closed); nothing to free.
+        let _ = self.released_tx.send(self.stream_id);
+    }
 }
 
 /// Manages the lifecycle of a single device's mux WebSocket connection.
@@ -48,12 +90,18 @@ pub struct MuxSession {
     /// Channel for the write loop (frames going out to the WebSocket).
     frame_tx: mpsc::Sender<Frame>,
     frame_rx: Option<mpsc::Receiver<Frame>>,
+    /// Ids of streams whose client side has ended (their `StreamReceiver`
+    /// was dropped). Unbounded, but holds at most one entry per opened
+    /// stream, and opens are capped at `max_streams`.
+    released_tx: mpsc::UnboundedSender<u32>,
+    released_rx: mpsc::UnboundedReceiver<u32>,
 }
 
 impl MuxSession {
     /// Create a new mux session for a device.
     pub fn new(subdomain: String, max_streams: u32) -> Self {
         let (frame_tx, frame_rx) = mpsc::channel(256);
+        let (released_tx, released_rx) = mpsc::unbounded_channel();
         Self {
             subdomain,
             max_streams,
@@ -62,6 +110,8 @@ impl MuxSession {
             stream_senders: HashMap::new(),
             frame_tx,
             frame_rx: Some(frame_rx),
+            released_tx,
+            released_rx,
         }
     }
 
@@ -76,8 +126,14 @@ impl MuxSession {
     /// Open a new stream. Returns a `StreamHandle` for the client passthrough
     /// task to receive frames, and the assigned stream ID.
     ///
-    /// Returns `None` if the max stream limit has been reached.
+    /// Returns `None` if the max stream limit has been reached. Streams whose
+    /// client side has already ended are freed first, so the limit counts
+    /// only streams still in use.
+    ///
+    /// Does not touch `RelayState`; the session loop uses
+    /// [`open_stream_and_report`](Self::open_stream_and_report).
     pub fn open_stream(&mut self) -> Option<StreamHandle> {
+        self.reap_released(None);
         let stream_id = self.next_stream_id;
         if !self.connection.open_stream(stream_id) {
             return None;
@@ -85,13 +141,77 @@ impl MuxSession {
         self.next_stream_id += 1;
         let (tx, rx) = mpsc::channel(64);
         self.stream_senders.insert(stream_id, tx);
-        Some(StreamHandle { stream_id, rx })
+        let release = StreamRelease {
+            stream_id,
+            released_tx: self.released_tx.clone(),
+        };
+        Some(StreamHandle {
+            stream_id,
+            rx: StreamReceiver {
+                rx,
+                _release: Some(release),
+            },
+        })
     }
 
-    /// Close a stream from the relay side.
+    /// [`open_stream`](Self::open_stream), then publish the stream count to
+    /// `RelayState`.
+    pub fn open_stream_and_report(
+        &mut self,
+        relay_state: &Arc<RelayState>,
+    ) -> Option<StreamHandle> {
+        let reaped = self.reap_released(None);
+        let stream = self.open_stream();
+        if reaped || stream.is_some() {
+            self.update_stream_count(relay_state);
+        }
+        stream
+    }
+
+    /// Close a stream from the relay side. Idempotent.
     pub fn close_stream(&mut self, stream_id: u32) {
-        self.connection.close_stream(stream_id);
+        self.end_stream(stream_id, None);
+    }
+
+    /// End a stream from whichever side: free its slot and drop its sender.
+    /// Only the call that actually frees the slot updates `RelayState`, so a
+    /// stream ended from both sides is counted down exactly once. Returns
+    /// whether this call freed the slot.
+    fn end_stream(&mut self, stream_id: u32, relay_state: Option<&Arc<RelayState>>) -> bool {
         self.stream_senders.remove(&stream_id);
+        let freed = self.connection.close_stream(stream_id);
+        if freed {
+            if let Some(relay_state) = relay_state {
+                self.update_stream_count(relay_state);
+            }
+        }
+        freed
+    }
+
+    /// Free the slots of every stream whose client side has ended, updating
+    /// `RelayState` for each one freed. Returns whether any slot was freed.
+    fn reap_released(&mut self, relay_state: Option<&Arc<RelayState>>) -> bool {
+        let mut freed = false;
+        while let Ok(stream_id) = self.released_rx.try_recv() {
+            freed |= self.end_stream(stream_id, relay_state);
+        }
+        freed
+    }
+
+    /// Free the slots of every stream whose client side has ended and publish
+    /// the new count to `RelayState`.
+    pub fn reap_released_streams(&mut self, relay_state: &Arc<RelayState>) {
+        self.reap_released(Some(relay_state));
+    }
+
+    /// Wait until some stream's client side ends, then free its slot. Used by
+    /// the session loop so the count drops promptly, not only at the next
+    /// open. Never resolves while the session is idle (the session holds a
+    /// sender itself).
+    pub async fn release_next_ended_stream(&mut self, relay_state: &Arc<RelayState>) {
+        if let Some(stream_id) = self.released_rx.recv().await {
+            self.end_stream(stream_id, Some(relay_state));
+        }
     }
 
     /// Take the frame receiver (for the write loop). Can only be called once.
@@ -112,7 +232,7 @@ impl MuxSession {
                             stream_id,
                             "Stream receiver dropped, closing stream"
                         );
-                        self.close_stream(stream_id);
+                        self.end_stream(stream_id, Some(relay_state));
                     }
                 } else {
                     debug!(
@@ -126,15 +246,13 @@ impl MuxSession {
                 if let Some(tx) = self.stream_senders.get(&stream_id) {
                     let _ = tx.send(frame).await;
                 }
-                self.close_stream(stream_id);
-                self.update_stream_count(relay_state);
+                self.end_stream(stream_id, Some(relay_state));
             }
             FrameType::Error => {
                 if let Some(tx) = self.stream_senders.get(&stream_id) {
                     let _ = tx.send(frame).await;
                 }
-                self.close_stream(stream_id);
-                self.update_stream_count(relay_state);
+                self.end_stream(stream_id, Some(relay_state));
             }
             FrameType::Open => {
                 // Device should not send OPEN to relay; ignore.
