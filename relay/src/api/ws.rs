@@ -548,12 +548,17 @@ async fn run_session_loop(
                     }
                 }
             }
+            // A client splice ended (its StreamReceiver dropped): free the
+            // slot and update the count now, not only at the next open (#795).
+            _ = session.release_next_ended_stream(relay_state) => {}
             req = open_stream_rx.recv() => {
                 match req {
                     Some(open_req) => {
-                        let result = session.open_stream().map(|stream| {
-                            (session.handle(), stream)
-                        });
+                        let result = session
+                            .open_stream_and_report(relay_state)
+                            .map(|stream| (session.handle(), stream));
+                        // If the requester is gone the stream is dropped
+                        // here, which releases its slot again.
                         let _ = open_req.reply.send(result);
                     }
                     None => {
