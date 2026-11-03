@@ -347,3 +347,39 @@ async fn pre_deploy_retired_secret_is_exempt_on_warm_cache() {
     );
     pre_deploy_old_url_does_not_count(&h, &h.ctx()).await;
 }
+
+/// #822: a re-enable must never re-mint any former secret the device holds
+/// for that integration (every `stale_secrets` entry and the `retired_secrets`
+/// value), not just the immediately previous one. Before the fix only the
+/// retired value was excluded, so each re-enable here had about a 17/217
+/// chance of reviving an older disabled URL; across the iterations below that
+/// fails essentially every run.
+#[tokio::test]
+async fn reenable_never_remints_any_former_secret() {
+    use rouse_relay::words::adjectives::ADJECTIVES;
+    let former: Vec<String> = ADJECTIVES
+        .iter()
+        .take(STALE_SECRETS_MAX + 1)
+        .map(|a| format!("{a}-beta"))
+        .collect();
+    let (retired, stale) = former.split_last().unwrap();
+    let h = Harness::new();
+    for _ in 0..300 {
+        let mut rec = device();
+        rec.valid_secrets = vec![A.to_string()];
+        rec.integration_secrets = HashMap::from([("alpha".to_string(), A.to_string())]);
+        rec.retired_secrets = HashMap::from([("beta".to_string(), retired.clone())]);
+        rec.stale_secrets = stale.to_vec();
+        h.firestore
+            .devices
+            .lock()
+            .unwrap()
+            .insert(SUB.to_string(), rec);
+        let minted = h.rotate(&["alpha", "beta"]).await;
+        let beta = &minted["beta"];
+        assert!(
+            !former.contains(beta),
+            "re-enable re-minted former secret {beta:?}"
+        );
+    }
+}
