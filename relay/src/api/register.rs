@@ -492,20 +492,30 @@ pub async fn handle_register(
         } else {
             // Re-registration: reuse existing subdomain. Every secret is
             // re-minted, so the old ones become stale (#811).
-            carried_stale = existing_record.stale_secrets.clone();
+            // Exclude every secret the record held when the request arrived,
+            // read before any mutation: the push below trims the stale list
+            // to the cap and would drop its oldest entries (#822).
             let old: Vec<String> = existing_record
                 .valid_secrets
                 .iter()
                 .chain(existing_record.secret_prefix.iter())
                 .cloned()
                 .collect();
-            crate::firestore::push_stale_secrets(&mut carried_stale, &old, &[]);
-            carried_former = carried_stale
+            carried_former = existing_record
+                .stale_secrets
                 .iter()
-                .chain(&old)
                 .chain(existing_record.retired_secrets.values())
+                .chain(&old)
                 .cloned()
                 .collect();
+            // The record is rewritten with no retired_secrets, so carry those
+            // values (older than the current secrets) into the stale list.
+            carried_stale = existing_record.stale_secrets.clone();
+            crate::firestore::push_stale_secrets(
+                &mut carried_stale,
+                existing_record.retired_secrets.values().chain(&old),
+                &[],
+            );
             SubdomainAssignment::Existing(existing_subdomain)
         }
     } else {

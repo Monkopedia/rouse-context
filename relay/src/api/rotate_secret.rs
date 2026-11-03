@@ -157,8 +157,9 @@ pub async fn handle_rotate_secret(
         .cloned()
         .collect();
 
-    // Park the just-dropped integrations' secrets so a future re-enable can
-    // exclude them (#519). Overwrites any stale prior value for the same id.
+    // Park the just-dropped integrations' secrets as memory (#519): they join
+    // the `former` exclusion set on a later re-enable and stay throttle-exempt.
+    // Overwrites any stale prior value for the same id.
     for id in &removed {
         if let Some(secret) = previous.get(id) {
             retired.insert(id.clone(), secret.clone());

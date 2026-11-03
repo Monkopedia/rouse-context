@@ -1495,3 +1495,117 @@ async fn register_then_certs_keypair_end_to_end_binds_key() {
         "round 2 should bind the public key"
     );
 }
+
+/// #822 (review on #823): re-registration must never re-mint a secret the
+/// device held when the request arrived. The stale list starts full, so the
+/// push of the old valid secrets evicts its oldest entries; those, the
+/// retired values and the current secrets must all stay excluded. 3000
+/// re-registers make the pre-fix bug (excluding the post-trim list) show up
+/// about 24 times, so a miss is essentially impossible.
+#[tokio::test]
+async fn re_register_never_remints_any_former_secret() {
+    use p256::ecdsa::{signature::Signer, Signature, SigningKey};
+    use p256::pkcs8::EncodePublicKey;
+    use rouse_relay::firestore::STALE_SECRETS_MAX;
+    use rouse_relay::words::adjectives::ADJECTIVES;
+
+    let signing_key = SigningKey::random(&mut rand::thread_rng());
+    let pub_key_der = signing_key.verifying_key().to_public_key_der().unwrap();
+    let pub_key_b64 = BASE64.encode(pub_key_der.as_bytes());
+    let firebase_token = "valid-token";
+    let signature: Signature = signing_key.sign(firebase_token.as_bytes());
+    let sig_b64 = BASE64.encode(signature.to_der().as_bytes());
+
+    // Full stale list of beta values, plus a legacy retired beta value that is
+    // NOT in the stale list (pre-#811 shape), plus current alpha secrets.
+    let stale: Vec<String> = ADJECTIVES[..STALE_SECRETS_MAX]
+        .iter()
+        .map(|a| format!("{a}-beta"))
+        .collect();
+    let retired_beta = format!("{}-beta", ADJECTIVES[STALE_SECRETS_MAX]);
+    let mut former: Vec<String> = stale.clone();
+    former.push(retired_beta.clone());
+    former.push("wise-alpha".to_string());
+    former.push("zesty-alpha".to_string());
+
+    let record = DeviceRecord {
+        fcm_token: "old-token".to_string(),
+        firebase_uid: "uid-123".to_string(),
+        key_thumbprint: None,
+        public_key: pub_key_b64,
+        key_binding: rouse_relay::firestore::KeyBinding::Bound,
+        cert_expires: SystemTime::now() + Duration::from_secs(86400),
+        registered_at: SystemTime::now(),
+        last_seen: None,
+        last_rotation: None,
+        renewal_nudge_sent: None,
+        secret_prefix: Some("zesty-alpha".to_string()),
+        push_kind: Default::default(),
+        push_endpoint: String::new(),
+        valid_secrets: vec!["wise-alpha".to_string()],
+        integration_secrets: [("alpha".to_string(), "wise-alpha".to_string())].into(),
+        retired_secrets: [("beta".to_string(), retired_beta.clone())].into(),
+        stale_secrets: stale,
+    };
+
+    let mut remints: Vec<String> = Vec::new();
+    for i in 0..3000 {
+        let firestore = Arc::new(MockFirestore::new().with_device("brave-falcon", record.clone()));
+        let state = build_test_state(
+            firestore.clone(),
+            Arc::new(MockFcm::new()),
+            Arc::new(MockAcme::new("cert")),
+            Arc::new(MockFirebaseAuth::new().with_token(firebase_token, "uid-123")),
+        );
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri("/register")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::json!({
+                    "firebase_token": firebase_token,
+                    "fcm_token": "new-fcm-token",
+                    "signature": sig_b64,
+                    "force_new": false,
+                    "integrations": ["alpha", "beta"]
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(build_router(state), req)
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["subdomain"], "brave-falcon");
+        for id in ["alpha", "beta"] {
+            let minted = json["secrets"][id].as_str().unwrap().to_string();
+            if former.contains(&minted) {
+                remints.push(minted);
+            }
+        }
+
+        if i == 0 {
+            // Retired values are cleared on re-register, so they must be
+            // carried into the stale list (still capped) to stay remembered.
+            let devices = firestore.devices.lock().unwrap();
+            let stored = devices.get("brave-falcon").unwrap();
+            assert!(stored.retired_secrets.is_empty());
+            assert!(stored.stale_secrets.len() <= STALE_SECRETS_MAX);
+            for s in [&retired_beta, "wise-alpha", "zesty-alpha"].map(String::from) {
+                assert!(
+                    stored.stale_secrets.contains(&s),
+                    "stale {:?} should carry {s}",
+                    stored.stale_secrets
+                );
+            }
+        }
+    }
+    assert!(
+        remints.is_empty(),
+        "re-register re-minted former secrets: {remints:?}"
+    );
+}
