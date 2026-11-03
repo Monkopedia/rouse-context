@@ -4,6 +4,7 @@ import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -21,7 +22,8 @@ class BucketAggregationTest {
             // second hour
             TimedValue(from.plusSeconds(3600 + 30), 10.0)
         )
-        val aggregated = bucketize(values.asFlow(), from, Duration.ofHours(1), maxValues = 100)
+        val aggregated =
+            bucketize(values.asFlow().streamed(), from, Duration.ofHours(1), maxValues = 100)
         assertEquals(3, aggregated.totalCount)
         val buckets = aggregated.buckets
         assertEquals(2, buckets.size)
@@ -44,7 +46,12 @@ class BucketAggregationTest {
             // gap: nothing in hours 1 and 2
             TimedValue(from.plusSeconds(3 * 3600 + 30), 2.0)
         )
-        val buckets = bucketize(values.asFlow(), from, Duration.ofHours(1), maxValues = 100).buckets
+        val buckets = bucketize(
+            values.asFlow().streamed(),
+            from,
+            Duration.ofHours(1),
+            maxValues = 100
+        ).buckets
         assertEquals(2, buckets.size)
         assertEquals(from, buckets[0].start)
         assertEquals(from.plusSeconds(3 * 3600), buckets[1].start)
@@ -52,7 +59,13 @@ class BucketAggregationTest {
 
     @Test
     fun `bucketize returns empty for no values`() = runBlocking {
-        val aggregated = bucketize(emptyFlow(), from, Duration.ofHours(1), maxValues = 100)
+        val aggregated =
+            bucketize(
+                emptyFlow<TimedValue>().streamed(),
+                from,
+                Duration.ofHours(1),
+                maxValues = 100
+            )
         assertTrue(aggregated.buckets.isEmpty())
         assertEquals(0, aggregated.totalCount)
     }
@@ -60,7 +73,8 @@ class BucketAggregationTest {
     @Test
     fun `bucketize stops at maxValues and reports truncation`() = runBlocking {
         val values = (0 until 100).map { TimedValue(from.plusSeconds(it * 3600L), it.toDouble()) }
-        val aggregated = bucketize(values.asFlow(), from, Duration.ofHours(1), maxValues = 10)
+        val aggregated =
+            bucketize(values.asFlow().streamed(), from, Duration.ofHours(1), maxValues = 10)
         assertTrue("must not claim whole-range coverage", aggregated.truncated)
         assertEquals(10, aggregated.totalCount)
         assertEquals(10, aggregated.buckets.size)
@@ -71,7 +85,8 @@ class BucketAggregationTest {
     @Test
     fun `bucketize is not truncated when the values fit`() = runBlocking {
         val values = (0 until 10).map { TimedValue(from.plusSeconds(it * 3600L), it.toDouble()) }
-        val aggregated = bucketize(values.asFlow(), from, Duration.ofHours(1), maxValues = 10)
+        val aggregated =
+            bucketize(values.asFlow().streamed(), from, Duration.ofHours(1), maxValues = 10)
         assertTrue("exactly at the ceiling is still complete", !aggregated.truncated)
         assertEquals(10, aggregated.totalCount)
     }
@@ -110,5 +125,23 @@ class BucketAggregationTest {
     @Test
     fun `downsampleEvenly with cap 1 keeps first`() {
         assertEquals(listOf(0), downsampleEvenly((0..9).toList(), 1))
+    }
+
+    @Test
+    fun `bucketize reports truncation when upstream stopped at its own ceiling`() = runBlocking {
+        // The fold's own cap is nowhere near tripping, so without the terminal
+        // note this reads as a complete answer over one sample.
+        val aggregated = bucketize(
+            flowOf(
+                Streamed.Value(TimedValue(from.plusSeconds(60), 5.0)),
+                Streamed.CeilingReached
+            ),
+            from,
+            Duration.ofHours(1),
+            maxValues = 100
+        )
+        assertEquals(1, aggregated.totalCount)
+        assertEquals(1, aggregated.buckets.size)
+        assertTrue("upstream stopped short; the fold must pass that on", aggregated.truncated)
     }
 }

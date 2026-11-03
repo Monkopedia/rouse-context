@@ -48,6 +48,12 @@ interface CategoryQueries {
      * Streaming is what lets a window wider than any record cap be aggregated
      * without materialising it. The default returns `null`; categories that own
      * scalar types override this.
+     *
+     * The stream carries [RecordReader.stream]'s terminal
+     * [Streamed.CeilingReached] note through the mapping, so the fold can tell a
+     * range that ran out from one the reader stopped reading. Use [mapValues] /
+     * [flatMapValues] rather than the plain flow operators, which would drop it.
      */
-    fun bucketValues(recordType: String, from: Instant, to: Instant): Flow<TimedValue>? = null
+    fun bucketValues(recordType: String, from: Instant, to: Instant): Flow<Streamed<TimedValue>>? =
+        null
 }

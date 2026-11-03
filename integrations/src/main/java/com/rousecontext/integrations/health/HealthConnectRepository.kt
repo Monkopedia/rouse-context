@@ -24,8 +24,9 @@ interface HealthConnectRepository {
      * would return its *earliest slice*, which is not an answer about the range.
      * So the query is instead answered with [QueryResult.Buckets]: per-window
      * count/min/max/avg across the range, streamed and folded so the range is
-     * never materialised. A range holding more than [MAX_RECORDS] samples folds
-     * only the earliest [MAX_RECORDS] of them and says so via
+     * never materialised. A range that trips either aggregation ceiling — more
+     * than [MAX_RECORDS] samples to fold, or more than [STREAM_MAX_RECORDS]
+     * records to read through — folds only its earliest part and says so via
      * [QueryResult.Buckets.truncated]. Record types that cannot be bucketed
      * (sessions, multi-value, cumulative) fall back to [QueryResult.Records]
      * evenly spread across the range with `downsampled` set.
@@ -112,8 +113,11 @@ sealed class QueryResult {
      * @param buckets per-window count/min/max/avg, ordered by start time
      * @param width the window width the range was divided into
      * @param totalCount number of samples aggregated
-     * @param truncated true when aggregation stopped at [MAX_RECORDS] samples, so
-     *   [buckets] cover only the earliest part of the requested range
+     * @param truncated true when aggregation stopped at a ceiling — the range
+     *   held more than [MAX_RECORDS] samples to fold, or more than
+     *   [STREAM_MAX_RECORDS] records to read through — so [buckets] cover only
+     *   the earliest part of the requested range. A range that simply ended is
+     *   not truncated, however few samples it held.
      */
     data class Buckets(
         val buckets: List<Bucket>,
@@ -133,8 +137,11 @@ sealed class QueryResult {
 sealed class BucketResult {
 
     /**
-     * @param truncated true when aggregation stopped at [MAX_RECORDS] samples, so
-     *   [buckets] cover only the earliest part of the requested range
+     * @param truncated true when aggregation stopped at a ceiling — the range
+     *   held more than [MAX_RECORDS] samples to fold, or more than
+     *   [STREAM_MAX_RECORDS] records to read through — so [buckets] cover only
+     *   the earliest part of the requested range. A range that simply ended is
+     *   not truncated, however few samples it held.
      */
     data class Success(
         val buckets: List<Bucket>,
@@ -153,8 +160,9 @@ sealed class BucketResult {
  * It does not bound a streamed read directly: a stream carries records, and the
  * fold that consumes them counts samples. Records normally yield at least one
  * sample each, so the sample cap trips first and the stream ends within a page of
- * this many records — but a record that yields none would not trip it at all,
- * which is what [STREAM_MAX_RECORDS] exists to stop.
+ * this many records — but a record that yields fewer would not trip it at all,
+ * which is what [STREAM_MAX_RECORDS] exists to stop. Truncation is therefore
+ * reported when either ceiling binds, not only this one.
  */
 const val MAX_RECORDS: Int = 50_000
 
@@ -178,9 +186,14 @@ const val READ_PAGE_SIZE: Int = 1000
 /**
  * Hard ceiling on records a single streamed read will fetch.
  *
- * One page of slack over [MAX_RECORDS], so it never cuts short a fold that the
- * sample cap would have satisfied, and it still terminates a range of records
- * that yield no samples at all.
+ * One page of slack over [MAX_RECORDS], so it does not cut short a fold when
+ * records yield at least one sample each — the sample cap trips first, and at
+ * the exact one-sample boundary the slack page is precisely what carries the
+ * fold to its cap. Below that yield this ceiling *is* what stops the read, which
+ * is the point: it terminates a range of records that yield no samples at all.
+ * A read that stops here says so, ending its stream with
+ * [com.rousecontext.integrations.health.query.Streamed.CeilingReached], so the
+ * fold reports the shortfall rather than passing it off as whole-range coverage.
  */
 const val STREAM_MAX_RECORDS: Int = MAX_RECORDS + READ_PAGE_SIZE
 

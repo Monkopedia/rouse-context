@@ -14,6 +14,7 @@ import com.rousecontext.integrations.health.query.NutritionQueries
 import com.rousecontext.integrations.health.query.RecordReader
 import com.rousecontext.integrations.health.query.ReproductiveQueries
 import com.rousecontext.integrations.health.query.SleepQueries
+import com.rousecontext.integrations.health.query.Streamed
 import com.rousecontext.integrations.health.query.VitalsQueries
 import com.rousecontext.integrations.health.query.bucketize
 import com.rousecontext.integrations.health.query.downsampleEvenly
@@ -201,7 +202,9 @@ internal typealias PageFetcher =
  * cap costs a small read instead of materialising the whole range. A stream is
  * normally bounded by its collector, which ends collection once it has folded
  * enough; it also carries its own [STREAM_MAX_RECORDS] ceiling so that records
- * yielding nothing to fold cannot walk the whole range.
+ * yielding nothing to fold cannot walk the whole range. Stopping there ends the
+ * stream with [Streamed.CeilingReached], so the collector knows the range held
+ * more than it saw.
  *
  * [fetchPage] is a seam so pagination can be unit-tested without a real client.
  */
@@ -218,18 +221,34 @@ internal class HealthConnectClientRecordReader(private val fetchPage: PageFetche
         maxRecords: Int
     ): List<T> {
         val accumulated = mutableListOf<T>()
-        pages(type, from, to, maxRecords).collect { accumulated += it }
+        // The caller's own cap stopping the read is not news to the caller, so
+        // the terminal note is of no interest here.
+        pages(type, from, to, maxRecords).collect { item ->
+            if (item is Streamed.Value) accumulated += item.value
+        }
         return accumulated.take(maxRecords)
     }
 
-    override fun <T : Record> stream(type: KClass<T>, from: Instant, to: Instant): Flow<T> =
-        pages(type, from, to, STREAM_MAX_RECORDS).transform { page -> page.forEach { emit(it) } }
+    override fun <T : Record> stream(
+        type: KClass<T>,
+        from: Instant,
+        to: Instant
+    ): Flow<Streamed<T>> = pages(type, from, to, STREAM_MAX_RECORDS).transform { item ->
+        when (item) {
+            is Streamed.Value -> item.value.forEach { emit(Streamed.Value(it)) }
+            Streamed.CeilingReached -> emit(Streamed.CeilingReached)
+        }
+    }
 
     /**
      * Pages of records, requesting no more per page than [maxRecords] still needs
      * and stopping once that many have been fetched. Cancelling collection stops
      * the read, so a collector that needs only the first few records pays for one
      * page.
+     *
+     * Ends with [Streamed.CeilingReached] when [maxRecords] is what stopped it
+     * while the source still had more to give, and without it when the range ran
+     * out — the distinction a fold needs to report its coverage honestly.
      */
     @Suppress("UNCHECKED_CAST")
     private fun <T : Record> pages(
@@ -237,11 +256,11 @@ internal class HealthConnectClientRecordReader(private val fetchPage: PageFetche
         from: Instant,
         to: Instant,
         maxRecords: Int
-    ): Flow<List<T>> = flow {
+    ): Flow<Streamed<List<T>>> = flow {
         val filter = TimeRangeFilter.between(from, to)
         var fetched = 0
         var pageToken: String? = null
-        do {
+        while (fetched < maxRecords) {
             val response = fetchPage(
                 ReadRecordsRequest(
                     recordType = type,
@@ -250,11 +269,15 @@ internal class HealthConnectClientRecordReader(private val fetchPage: PageFetche
                     pageToken = pageToken
                 )
             ) as ReadRecordsResponse<T>
-            emit(response.records)
+            emit(Streamed.Value(response.records))
             fetched += response.records.size
             pageToken = response.pageToken
             // An empty page ends the read: without this a token that never
             // advances would loop forever.
-        } while (pageToken != null && response.records.isNotEmpty() && fetched < maxRecords)
+            if (pageToken == null || response.records.isEmpty()) return@flow
+        }
+        // Left the loop with the source still handing out pages: this read
+        // stopped at its own ceiling, not at the end of the range.
+        emit(Streamed.CeilingReached)
     }
 }

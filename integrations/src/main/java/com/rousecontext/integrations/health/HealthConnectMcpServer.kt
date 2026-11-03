@@ -101,8 +101,8 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
             "only the range's earliest slice, so the answer is instead per-period " +
             "stats {start,count,min,max,avg} across the range, with the chosen " +
             "'bucket' width and a 'note' saying so; narrow the range or raise " +
-            "'limit' for raw records. A very dense range can exceed the sample " +
-            "ceiling aggregation folds, in which case 'truncated' is true and the " +
+            "'limit' for raw records. A range can exceed the ceilings aggregation " +
+            "works under, in which case 'truncated' is true and the " +
             "buckets cover only the earliest part of it. Record types that cannot be aggregated " +
             "(sessions, multi-value, cumulative) return records evenly spread " +
             "across the range with downsampled=true. " +
@@ -218,9 +218,10 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
     }
 
     /**
-     * Says what the buckets actually cover. Aggregation stops at a sample
-     * ceiling, so on a very dense range the buckets end early — claiming
-     * whole-range coverage there would be false.
+     * Says what the buckets actually cover. Aggregation stops at a ceiling — its
+     * own sample cap, or the read's record ceiling — so on a range that trips
+     * either one the buckets end early, and claiming whole-range coverage there
+     * would be false.
      */
     private fun coverageNote(query: QueryResult.Buckets, to: Instant): String =
         if (query.truncated) {
@@ -231,7 +232,8 @@ internal class QueryHealthDataTool(private val repository: HealthConnectReposito
 
     private fun truncationNote(buckets: List<Bucket>): String {
         val covered = buckets.lastOrNull()?.start
-        return "Aggregation stopped at its ceiling of $MAX_RECORDS samples, so these " +
+        return "Aggregation stopped at a ceiling (at most $MAX_RECORDS samples, from at " +
+            "most $STREAM_MAX_RECORDS records), so these " +
             "buckets cover only the earliest part of the range" +
             (if (covered != null) ", up to $covered" else "") +
             " — narrow 'since'/'until' to see the rest."
