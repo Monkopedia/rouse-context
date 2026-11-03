@@ -83,44 +83,67 @@ pub struct RegisterResponse {
 /// Generate one `{adjective}-{integrationId}` secret per integration id.
 ///
 /// The map is keyed by integration id; the values become the device's
-/// `valid_secrets` entries in Firestore and the SNI cache.
-pub(crate) fn generate_integration_secrets(integrations: &[String]) -> HashMap<String, String> {
+/// `valid_secrets` entries in Firestore and the SNI cache. No minted value is
+/// in `exclude` (see [`generate_one_secret`]); a re-registering device passes
+/// its former secrets so re-registration cannot revive a disabled URL (#822).
+pub(crate) fn generate_integration_secrets(
+    integrations: &[String],
+    exclude: &[&str],
+) -> HashMap<String, String> {
     let mut rng = rand::thread_rng();
     integrations
         .iter()
-        .map(|id| (id.clone(), generate_one_secret(id, &mut rng, None)))
+        .map(|id| (id.clone(), generate_one_secret(id, &mut rng, exclude)))
         .collect()
 }
 
-/// Upper bound on adjective redraws when honoring `exclude` in
-/// [`generate_one_secret`]. With ~200 adjectives excluding a single value the
-/// loop almost always terminates on the first or second draw; this cap is a
-/// safety valve so a degenerate RNG can never spin forever. Past the cap we
-/// accept whatever was last drawn (worst case: it equals `exclude`, i.e. the
-/// pre-fix behavior — a ~1/N collision, no worse than before).
+/// Upper bound on random adjective redraws when honoring `exclude` in
+/// [`generate_one_secret`]. A device excludes at most its stale list
+/// ([`crate::firestore::STALE_SECRETS_MAX`]) plus one retired and one current
+/// value per integration, against ~217 adjectives, so a draw almost always
+/// lands on the first or second try. Past the cap the adjective list is
+/// scanned in order instead, so the loop is bounded either way.
 const MAX_SECRET_REDRAWS: usize = 64;
 
-/// Generate a single `{adjective}-{integrationId}` secret.
+/// Generate a single `{adjective}-{integrationId}` secret that is not in
+/// `exclude`.
 ///
-/// When `exclude` is `Some(prior)`, the result is guaranteed not to equal
-/// `prior` (best-effort, bounded by [`MAX_SECRET_REDRAWS`]). This is how the
-/// re-enable path (#519) ensures a re-minted secret never collides with the
-/// value the integration had before it was disabled — a leaked-then-disabled
-/// URL must stay dead. `None` preserves the original draw-once behavior used by
-/// initial `/register`.
+/// Callers pass every former secret the device has (its `stale_secrets`, the
+/// values of `retired_secrets`, and the secrets it currently routes), so a
+/// re-minted secret never equals any earlier one: a leaked-then-disabled URL
+/// must stay dead (#519, #822). Values for other integrations never match and
+/// are harmless. Draws at random up to [`MAX_SECRET_REDRAWS`] extra times,
+/// then takes the first non-excluded adjective in list order. Only if every
+/// adjective is excluded for this integration, which the bounds above make
+/// unreachable, does it return an excluded value, and it logs a warning.
 pub(crate) fn generate_one_secret(
     integration_id: &str,
     rng: &mut impl rand::Rng,
-    exclude: Option<&str>,
+    exclude: &[&str],
 ) -> String {
-    let mut secret = format!("{}-{integration_id}", adjectives::pick_random(rng));
-    if let Some(prior) = exclude {
-        let mut attempts = 0;
-        while secret == prior && attempts < MAX_SECRET_REDRAWS {
-            secret = format!("{}-{integration_id}", adjectives::pick_random(rng));
-            attempts += 1;
-        }
+    let make = |adjective: &str| format!("{adjective}-{integration_id}");
+    let is_excluded = |secret: &str| exclude.contains(&secret);
+    let mut secret = make(adjectives::pick_random(rng));
+    let mut attempts = 0;
+    while is_excluded(&secret) && attempts < MAX_SECRET_REDRAWS {
+        secret = make(adjectives::pick_random(rng));
+        attempts += 1;
     }
+    if !is_excluded(&secret) {
+        return secret;
+    }
+    if let Some(free) = adjectives::ADJECTIVES
+        .iter()
+        .map(|a| make(a))
+        .find(|s| !is_excluded(s))
+    {
+        return free;
+    }
+    tracing::warn!(
+        integration_id,
+        excluded = exclude.len(),
+        "every adjective is a former secret for this integration; reusing one"
+    );
     secret
 }
 
@@ -395,6 +418,9 @@ pub async fn handle_register(
     // Former secrets of a device re-registering on the same subdomain: its
     // old stale list plus everything that routed before (#811).
     let mut carried_stale: Vec<String> = Vec::new();
+    // Every former secret of that device (stale, retired, and what routed
+    // before), excluded from the re-mint so none can come back (#822).
+    let mut carried_former: Vec<String> = Vec::new();
 
     let assignment = if let Some((existing_subdomain, existing_record)) = existing {
         // Re-registration or rotation. For Firebase, a signature over the token
@@ -474,6 +500,12 @@ pub async fn handle_register(
                 .cloned()
                 .collect();
             crate::firestore::push_stale_secrets(&mut carried_stale, &old, &[]);
+            carried_former = carried_stale
+                .iter()
+                .chain(&old)
+                .chain(existing_record.retired_secrets.values())
+                .cloned()
+                .collect();
             SubdomainAssignment::Existing(existing_subdomain)
         }
     } else {
@@ -540,7 +572,8 @@ pub async fn handle_register(
     //    sole source of truth for the adjective list and generated values.
     //    Persist both the integration-keyed map (authoritative for merge-missing
     //    rotation) and the flat list used by the SNI fast path.
-    let secrets_map = generate_integration_secrets(&req.integrations);
+    let former: Vec<&str> = carried_former.iter().map(String::as_str).collect();
+    let secrets_map = generate_integration_secrets(&req.integrations, &former);
     let valid_secrets: Vec<String> = secrets_map.values().cloned().collect();
     // A fresh draw could repeat an old value; valid wins, so drop overlaps.
     crate::firestore::push_stale_secrets(&mut carried_stale, &[], &valid_secrets);
@@ -831,7 +864,7 @@ mod tests {
     fn generate_one_secret_has_expected_shape_without_exclusion() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let secret = generate_one_secret("outreach", &mut rng, None);
+            let secret = generate_one_secret("outreach", &mut rng, &[]);
             assert!(
                 secret.ends_with("-outreach"),
                 "secret {secret:?} should end with -outreach"
@@ -852,7 +885,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let prior = "brave-outreach";
         for _ in 0..10_000 {
-            let secret = generate_one_secret("outreach", &mut rng, Some(prior));
+            let secret = generate_one_secret("outreach", &mut rng, &[prior]);
             assert_ne!(
                 secret, prior,
                 "re-minted secret must differ from the excluded prior value"
@@ -866,7 +899,60 @@ mod tests {
         // Excluding a value that this integration could never produce (wrong
         // suffix) leaves the normal draw untouched.
         let mut rng = rand::thread_rng();
-        let secret = generate_one_secret("outreach", &mut rng, Some("brave-health"));
+        let secret = generate_one_secret("outreach", &mut rng, &["brave-health"]);
+        assert!(secret.ends_with("-outreach"));
+    }
+
+    /// Every adjective's `-outreach` secret except those in `keep`.
+    fn all_outreach_secrets_except(keep: &[&str]) -> Vec<String> {
+        adjectives::ADJECTIVES
+            .iter()
+            .filter(|a| !keep.contains(a))
+            .map(|a| format!("{a}-outreach"))
+            .collect()
+    }
+
+    #[test]
+    fn generate_one_secret_never_returns_any_former_value() {
+        // #822: every former value is excluded, not just the previous one.
+        // With all but three adjectives excluded, a seeded RNG collides on
+        // nearly every draw, so this exercises both the redraw loop and the
+        // in-order scan fallback, deterministically.
+        use rand::SeedableRng;
+        let keep = ["brave", "calm", "zesty"];
+        let former = all_outreach_secrets_except(&keep);
+        let exclude: Vec<&str> = former.iter().map(String::as_str).collect();
+        for seed in 0..500 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            let secret = generate_one_secret("outreach", &mut rng, &exclude);
+            let adjective = secret.strip_suffix("-outreach").unwrap();
+            assert!(
+                keep.contains(&adjective),
+                "seed {seed}: minted former secret {secret:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn generate_one_secret_falls_back_to_the_only_free_adjective() {
+        // A degenerate RNG that always draws the first adjective: the bounded
+        // redraws all collide and the scan must find the single free value.
+        let former = all_outreach_secrets_except(&["zesty"]);
+        let exclude: Vec<&str> = former.iter().map(String::as_str).collect();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 0);
+        assert_eq!(
+            generate_one_secret("outreach", &mut rng, &exclude),
+            "zesty-outreach"
+        );
+    }
+
+    #[test]
+    fn generate_one_secret_terminates_when_everything_is_excluded() {
+        // Unreachable in practice; must still return rather than spin.
+        let former = all_outreach_secrets_except(&[]);
+        let exclude: Vec<&str> = former.iter().map(String::as_str).collect();
+        let mut rng = rand::rngs::mock::StepRng::new(0, 0);
+        let secret = generate_one_secret("outreach", &mut rng, &exclude);
         assert!(secret.ends_with("-outreach"));
     }
 

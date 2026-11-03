@@ -248,23 +248,38 @@ async fn stale_and_valid_overlap_is_valid() {
 
 #[tokio::test]
 async fn stale_list_is_bounded_keeping_the_most_recent() {
+    // Deterministic despite random secrets (#821): a re-enable never re-mints
+    // a value still in the stale list (#822), so every disable appends a new
+    // entry and the list fills to exactly the cap. Before #822 a re-mint of an
+    // older stale value (about 7% of runs) was dropped as live again, leaving
+    // the list one short.
     let h = Harness::new();
     let mut former = vec![B.to_string()];
     for _ in 0..(STALE_SECRETS_MAX + 6) {
         h.rotate(&["alpha"]).await;
+        let before = h.stored();
         let s = h.rotate(&["alpha", "beta"]).await;
-        former.push(s["beta"].clone());
+        let minted = s["beta"].clone();
+        assert!(
+            !before.stale_secrets.contains(&minted)
+                && !before.retired_secrets.values().any(|r| r == &minted),
+            "re-enable re-minted former secret {minted:?}"
+        );
+        former.push(minted);
     }
     // The last minted beta secret is live; all earlier ones are former.
     let live = former.pop().unwrap();
     let rec = h.stored();
     assert_eq!(rec.stale_secrets.len(), STALE_SECRETS_MAX);
     assert!(!rec.stale_secrets.contains(&live));
+    // Model `push_stale_secrets`: dedup keeping the latest position, and
+    // never hold a currently valid secret.
     let mut expected: Vec<String> = Vec::new();
     for s in &former {
         expected.retain(|x| x != s);
         expected.push(s.clone());
     }
+    expected.retain(|x| x != &live);
     let tail = expected[expected.len() - STALE_SECRETS_MAX..].to_vec();
     assert_eq!(rec.stale_secrets, tail, "oldest dropped, most recent kept");
 }
