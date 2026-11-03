@@ -120,6 +120,18 @@ pub async fn handle_rotate_secret(
     // minted secret must differ from this value so a leaked-then-disabled URL
     // stays dead — without it, ~1/N re-enables redraw the identical secret.
     let mut retired = record.retired_secrets.clone();
+    // Every former secret the device has: a fresh mint must differ from all of
+    // them, not just the last retired value, so no earlier leaked-then-disabled
+    // URL comes back (#519, #822). Current secrets are included too.
+    let former: Vec<String> = record
+        .stale_secrets
+        .iter()
+        .chain(record.retired_secrets.values())
+        .chain(previous.values())
+        .chain(previous_valid.iter())
+        .cloned()
+        .collect();
+    let exclude: Vec<&str> = former.iter().map(String::as_str).collect();
     let mut replaced: HashMap<String, String> = HashMap::with_capacity(req.integrations.len());
     let mut newly_generated: Vec<String> = Vec::new();
     {
@@ -128,11 +140,9 @@ pub async fn handle_rotate_secret(
             if let Some(existing) = previous.get(integration_id) {
                 replaced.insert(integration_id.clone(), existing.clone());
             } else {
-                // Fresh mint. If this integration was previously disabled, its
-                // last secret is parked in `retired`; exclude it so the re-mint
-                // can never resurrect the old (possibly leaked) URL (#519).
-                let exclude = retired.get(integration_id).map(String::as_str);
-                let secret = generate_one_secret(integration_id, &mut rng, exclude);
+                // Fresh mint. Exclude every former secret so the re-mint can
+                // never resurrect an old (possibly leaked) URL (#519, #822).
+                let secret = generate_one_secret(integration_id, &mut rng, &exclude);
                 replaced.insert(integration_id.clone(), secret);
                 newly_generated.push(integration_id.clone());
             }
@@ -147,8 +157,9 @@ pub async fn handle_rotate_secret(
         .cloned()
         .collect();
 
-    // Park the just-dropped integrations' secrets so a future re-enable can
-    // exclude them (#519). Overwrites any stale prior value for the same id.
+    // Park the just-dropped integrations' secrets as memory (#519): they join
+    // the `former` exclusion set on a later re-enable and stay throttle-exempt.
+    // Overwrites any stale prior value for the same id.
     for id in &removed {
         if let Some(secret) = previous.get(id) {
             retired.insert(id.clone(), secret.clone());
