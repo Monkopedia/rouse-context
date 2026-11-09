@@ -241,8 +241,8 @@ class ListingScreenshotTest {
             )
         ),
         authorizedClients = listOf(
-            AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
-            AuthorizedClient("Cursor", "Apr 3", "just now")
+            AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago", clientId = "Claude Desktop"),
+            AuthorizedClient("Cursor", "Apr 3", "just now", clientId = "Cursor")
         )
     )
 

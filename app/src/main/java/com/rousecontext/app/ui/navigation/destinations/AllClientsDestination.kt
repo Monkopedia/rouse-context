@@ -34,8 +34,8 @@ fun NavGraphBuilder.allClientsDestination(navController: NavController) {
         AllClientsContent(
             integrationName = state.integrationName,
             clients = state.authorizedClients,
-            onRevokeClient = { clientName ->
-                viewModel.revokeClient(clientName)
+            onRevokeClient = { clientId ->
+                viewModel.revokeClient(clientId)
             },
             onBack = { navController.popBackStack() }
         )

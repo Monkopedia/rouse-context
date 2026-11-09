@@ -447,9 +447,14 @@ class ScreenScreenshotTest {
             AllClientsContent(
                 integrationName = "Health Connect",
                 clients = listOf(
-                    AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
-                    AuthorizedClient("Cursor", "Apr 3", "just now"),
-                    AuthorizedClient("Windsurf", "Apr 5", "yesterday")
+                    AuthorizedClient(
+                        "Claude Desktop",
+                        "Apr 2",
+                        "2 hours ago",
+                        clientId = "Claude Desktop"
+                    ),
+                    AuthorizedClient("Cursor", "Apr 3", "just now", clientId = "Cursor"),
+                    AuthorizedClient("Windsurf", "Apr 5", "yesterday", clientId = "Windsurf")
                 )
             )
         }
@@ -463,9 +468,14 @@ class ScreenScreenshotTest {
             AllClientsContent(
                 integrationName = "Health Connect",
                 clients = listOf(
-                    AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
-                    AuthorizedClient("Cursor", "Apr 3", "just now"),
-                    AuthorizedClient("Windsurf", "Apr 5", "yesterday")
+                    AuthorizedClient(
+                        "Claude Desktop",
+                        "Apr 2",
+                        "2 hours ago",
+                        clientId = "Claude Desktop"
+                    ),
+                    AuthorizedClient("Cursor", "Apr 3", "just now", clientId = "Cursor"),
+                    AuthorizedClient("Windsurf", "Apr 5", "yesterday", clientId = "Windsurf")
                 )
             )
         }
@@ -1226,8 +1236,8 @@ class ScreenScreenshotTest {
             )
         ),
         authorizedClients = listOf(
-            AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
-            AuthorizedClient("Cursor", "Apr 3", "just now")
+            AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago", clientId = "Claude Desktop"),
+            AuthorizedClient("Cursor", "Apr 3", "just now", clientId = "Cursor")
         )
     )
 
@@ -1256,12 +1266,12 @@ class ScreenScreenshotTest {
             )
         ),
         authorizedClients = listOf(
-            AuthorizedClient("Claude", "Apr 2", "2 hours ago"),
-            AuthorizedClient("Cursor", "Apr 3", "just now"),
-            AuthorizedClient("Windsurf", "Apr 4", "yesterday"),
-            AuthorizedClient("Cline", "Apr 5", "3 days ago"),
-            AuthorizedClient("Continue", "Apr 6", "5 days ago"),
-            AuthorizedClient("Aider", "Apr 7", "1 week ago")
+            AuthorizedClient("Claude", "Apr 2", "2 hours ago", clientId = "Claude"),
+            AuthorizedClient("Cursor", "Apr 3", "just now", clientId = "Cursor"),
+            AuthorizedClient("Windsurf", "Apr 4", "yesterday", clientId = "Windsurf"),
+            AuthorizedClient("Cline", "Apr 5", "3 days ago", clientId = "Cline"),
+            AuthorizedClient("Continue", "Apr 6", "5 days ago", clientId = "Continue"),
+            AuthorizedClient("Aider", "Apr 7", "1 week ago", clientId = "Aider")
         )
     )
 

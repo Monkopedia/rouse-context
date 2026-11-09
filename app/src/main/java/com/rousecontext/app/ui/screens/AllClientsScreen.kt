@@ -108,7 +108,7 @@ fun AllClientsContent(
                                 )
                             }
                             TextButton(
-                                onClick = { onRevokeClient(client.name) }
+                                onClick = { onRevokeClient(client.clientId) }
                             ) {
                                 Text(
                                     stringResource(R.string.screen_all_clients_revoke),
@@ -135,11 +135,16 @@ private fun AllClientsPreview() {
         AllClientsContent(
             integrationName = "Health Connect",
             clients = listOf(
-                AuthorizedClient("Claude Desktop", "Apr 2, 2025", "2 hours ago"),
-                AuthorizedClient("Cursor", "Apr 3, 2025", "just now"),
-                AuthorizedClient("VS Code", "Apr 5, 2025", "yesterday"),
-                AuthorizedClient("Windsurf", "Apr 7, 2025", "3 days ago"),
-                AuthorizedClient("Zed", "Apr 8, 2025", "1 week ago")
+                AuthorizedClient(
+                    "Claude Desktop",
+                    "Apr 2, 2025",
+                    "2 hours ago",
+                    clientId = "Claude Desktop"
+                ),
+                AuthorizedClient("Cursor", "Apr 3, 2025", "just now", clientId = "Cursor"),
+                AuthorizedClient("VS Code", "Apr 5, 2025", "yesterday", clientId = "VS Code"),
+                AuthorizedClient("Windsurf", "Apr 7, 2025", "3 days ago", clientId = "Windsurf"),
+                AuthorizedClient("Zed", "Apr 8, 2025", "1 week ago", clientId = "Zed")
             )
         )
     }
