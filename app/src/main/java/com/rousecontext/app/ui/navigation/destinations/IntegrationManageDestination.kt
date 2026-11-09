@@ -94,8 +94,8 @@ fun NavGraphBuilder.integrationManageDestination(navController: NavController) {
                 viewModel.disable()
                 navController.popBackStack()
             },
-            onRevokeClient = { clientName ->
-                viewModel.revokeClient(clientName)
+            onRevokeClient = { clientId ->
+                viewModel.revokeClient(clientId)
             },
             onBack = { navController.popBackStack() }
         )

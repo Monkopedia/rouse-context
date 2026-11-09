@@ -198,7 +198,7 @@ class BottomInsetScreenshotTest {
             )
         ),
         authorizedClients = listOf(
-            AuthorizedClient("Claude", "Apr 2", "2 hours ago")
+            AuthorizedClient("Claude", "Apr 2", "2 hours ago", clientId = "Claude")
         )
     )
 
