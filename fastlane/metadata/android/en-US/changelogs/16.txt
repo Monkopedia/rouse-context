@@ -8,4 +8,3 @@ Also fixed:
   crashing.
 - Revoke removes the AI client you tapped, even if two share a name.
 - Certificate renewal no longer retries every 15 minutes when rate-limited.
-- More reliable connections when clients open many requests.
