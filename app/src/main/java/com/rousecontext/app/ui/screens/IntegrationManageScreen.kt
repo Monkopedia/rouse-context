@@ -44,8 +44,20 @@ import com.rousecontext.app.ui.components.appBarColors
 import com.rousecontext.app.ui.navigation.ConfigureNavBar
 import com.rousecontext.app.ui.theme.RouseContextTheme
 
+/** One row in the authorized-clients list. */
 @Immutable
-data class AuthorizedClient(val name: String, val authorizedDate: String, val lastUsed: String)
+data class AuthorizedClient(
+    val name: String,
+    val authorizedDate: String,
+    val lastUsed: String,
+    /**
+     * Stable OAuth client id the row's tokens were issued to. Revoke acts on
+     * this, never on [name]: display labels are not unique (two clients can
+     * both register as "Claude"), so matching by label can revoke a different
+     * client than the one the user tapped (#784).
+     */
+    val clientId: String
+)
 
 @Immutable
 data class IntegrationManageState(
@@ -240,7 +252,7 @@ private fun IntegrationManageBody(
                                 )
                             }
                             TextButton(
-                                onClick = { onRevokeClient(client.name) }
+                                onClick = { onRevokeClient(client.clientId) }
                             ) {
                                 Text(
                                     stringResource(R.string.screen_integration_manage_revoke),
@@ -394,8 +406,13 @@ private fun IntegrationManageActivePreview() {
                     )
                 ),
                 authorizedClients = listOf(
-                    AuthorizedClient("Claude Desktop", "Apr 2", "2 hours ago"),
-                    AuthorizedClient("Cursor", "Apr 3", "just now")
+                    AuthorizedClient(
+                        "Claude Desktop",
+                        "Apr 2",
+                        "2 hours ago",
+                        clientId = "Claude Desktop"
+                    ),
+                    AuthorizedClient("Cursor", "Apr 3", "just now", clientId = "Cursor")
                 )
             )
         )

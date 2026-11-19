@@ -108,7 +108,8 @@ class IntegrationManageViewModel(
             AuthorizedClient(
                 name = token.label,
                 authorizedDate = DisplayDateFormat.shortDateWithYear(token.createdAt),
-                lastUsed = DisplayDateFormat.shortDateWithYear(token.lastUsedAt)
+                lastUsed = DisplayDateFormat.shortDateWithYear(token.lastUsedAt),
+                clientId = token.clientId
             )
         }
 
@@ -138,13 +139,16 @@ class IntegrationManageViewModel(
         }
     }
 
-    fun revokeClient(clientName: String) {
+    /**
+     * Revokes every token issued to [clientId] on the loaded integration.
+     *
+     * Takes the row's stable client id rather than its display label, which is
+     * not unique (#784). An unknown id is a no-op.
+     */
+    fun revokeClient(clientId: String) {
         val id = integrationId.value
         if (id.isNotEmpty()) {
-            val match = tokenStore.listTokens(id).find { it.label == clientName }
-            if (match != null) {
-                tokenStore.revokeByClientId(id, match.clientId)
-            }
+            tokenStore.revokeByClientId(id, clientId)
         }
     }
 
