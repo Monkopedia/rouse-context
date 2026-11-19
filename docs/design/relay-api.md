@@ -479,23 +479,32 @@ hardening), and #285 (replace-wholesale semantics).
 
 ```json
 {
-  "integrations": ["health", "outreach"]
+  "integrations": ["health", "outreach"],
+  "rotate_all": false
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `integrations` | array of string | always | Authoritative list of integration ids the device wants live. May legitimately be empty. |
+| `rotate_all` | bool | optional (default `false`) | When `true`, every id in `integrations` gets a fresh secret, even ones that already have one. Backs the app's "Generate new address". Clients that omit it get the preserve behaviour below. |
 
 The list is the **authoritative set**:
 
 - For each id in the request that is already in
   `record.integration_secrets`, the existing secret is **preserved**
-  (idempotent re-rotates do not invalidate live URLs).
+  (idempotent re-rotates do not invalidate live URLs) — unless
+  `rotate_all` is `true`, in which case it is **replaced** by a fresh
+  secret and the old one stops routing immediately.
 - For each id in the request that is not yet in the stored map, a fresh
   `{adjective}-{integration_id}` secret is minted.
 - For each id in the stored map but **not** in the request, the entry is
   **dropped** (the per-integration URL becomes invalid immediately).
+- Every secret that stops being valid (dropped or replaced) is appended to
+  `stale_secrets`: a client still using it is rejected with no wake and is
+  not counted by the wrong-secret throttle. A fresh mint never reuses any
+  former secret of the device (`stale_secrets`, `retired_secrets`, or a
+  current secret).
 - An empty list legitimately wipes every secret. The device stays onboarded
   (subdomain, account, certs untouched); only the SNI fast path is emptied.
 
@@ -539,7 +548,7 @@ The list is the **authoritative set**:
    in-memory SNI cache (an empty result evicts the cache entry entirely).
 5. Return the full mapping.
 
-The relay logs the diff (`requested`, `newly_generated`, `removed`) at
+The relay logs the diff (`requested`, `rotate_all`, `newly_generated`, `removed`) at
 `info` level.
 
 ---

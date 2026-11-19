@@ -55,7 +55,7 @@ The app ships no advertising or analytics SDKs. Its network calls are to the rel
 
 Uninstalling the app clears all on-device state: audit log, tokens, integration config, certificate. There is nothing to delete remotely because nothing is stored remotely.
 
-Rotating your subdomain from Settings generates a new address and invalidates all existing AI client approvals.
+"Generate new address" in Settings gives every enabled integration a new URL. The old URLs stop working immediately; add the new ones to your AI clients again.
 
 ## See also
 

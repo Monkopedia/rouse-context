@@ -2,6 +2,7 @@ package com.rousecontext.app.ui.viewmodels
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.rousecontext.api.IntegrationStateStore
 import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
@@ -103,7 +104,13 @@ class SettingsViewModel(
      * `Context`; bound in `AppModule`. No-op default for tests that don't
      * exercise scheduling.
      */
-    private val applySecurityCheckSchedule: (SecurityCheckIntervalOption) -> Unit = {}
+    private val applySecurityCheckSchedule: (SecurityCheckIntervalOption) -> Unit = {},
+    /**
+     * Source of each integration's enabled flag. "Generate new address" sends
+     * only enabled integrations: sending a disabled one would make the relay
+     * mint a secret for it and undo the disable relay-side.
+     */
+    private val integrationStateStore: IntegrationStateStore
 ) : ViewModel() {
 
     private val refreshTrigger = MutableStateFlow(0)
@@ -376,9 +383,19 @@ class SettingsViewModel(
                 rotateInProgress.value = false
                 return@launch
             }
+            // Only enabled integrations: a disabled one must stay without a
+            // secret on the relay. rotateAll makes the relay replace every
+            // secret, so every previous URL stops working.
             val integrationIds = integrations.map { it.id }
+                .filter { integrationStateStore.isUserEnabled(it) }
 
-            when (val result = relayApiClient.updateSecrets(subdomain, integrationIds)) {
+            when (
+                val result = relayApiClient.updateSecrets(
+                    subdomain,
+                    integrationIds,
+                    rotateAll = true
+                )
+            ) {
                 is RelayApiResult.Success -> {
                     certStore.storeIntegrationSecrets(result.data.secrets)
                 }

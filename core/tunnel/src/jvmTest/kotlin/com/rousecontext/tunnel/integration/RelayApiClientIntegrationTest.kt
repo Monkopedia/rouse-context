@@ -430,6 +430,40 @@ class RelayApiClientIntegrationTest {
         }
     }
 
+    @Test
+    fun `updateSecrets with rotateAll replaces every existing secret`(): Unit = runBlocking {
+        val reg = assertSuccess(
+            api.register(
+                firebaseToken = DUMMY_FIREBASE_TOKEN + "-rotate-all",
+                fcmToken = DUMMY_FCM_TOKEN,
+                integrationIds = listOf("health", "notifications")
+            )
+        )
+        val subdomain = reg.subdomain
+        val scopedApi = buildMtlsApiClientFor(ca.createDeviceKeyStore(subdomain))
+
+        try {
+            val body = assertSuccess(
+                scopedApi.second.updateSecrets(
+                    subdomain = subdomain,
+                    integrationIds = listOf("health", "notifications"),
+                    rotateAll = true
+                )
+            )
+            assertEquals(setOf("health", "notifications"), body.secrets.keys)
+            for (id in listOf("health", "notifications")) {
+                val fresh = body.secrets.getValue(id)
+                assertTrue(fresh.endsWith("-$id"), "new secret '$fresh' must end with -$id")
+                assertTrue(
+                    fresh != reg.secrets.getValue(id),
+                    "rotateAll must replace the existing '$id' secret"
+                )
+            }
+        } finally {
+            scopedApi.first.close()
+        }
+    }
+
     /**
      * Regression test for issue #237. The app wires [RelayApiClient] through
      * [createMtlsRelayHttpClient] with a lazy [MtlsCertSource] so a single

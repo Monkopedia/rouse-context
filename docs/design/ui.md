@@ -515,7 +515,7 @@ Deep-link: `audit?provider={provider}&scrollToCallId={callId}` pre-filters to a 
 │  Security                            │
 │  ┌─────────────────────────────────┐ │
 │  │ Generate new address            │ │
-│  │ (once per 30 days)         [→]  │ │
+│  │ (old URLs stop working)  Rotate │ │
 │  └─────────────────────────────────┘ │
 │                                      │
 │  ┌─────────────────────────────────┐ │

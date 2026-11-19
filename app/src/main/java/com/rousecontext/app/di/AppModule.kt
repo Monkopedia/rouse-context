@@ -708,6 +708,7 @@ val appModule = module {
             backgroundDelivery = get(),
             canIgnoreDailyLimit = get(named("canIgnoreDailyLimit")),
             crashReportingPreference = get(),
+            integrationStateStore = get(),
             applySecurityCheckSchedule = { interval ->
                 val hours = interval.hours
                 if (hours == null) {

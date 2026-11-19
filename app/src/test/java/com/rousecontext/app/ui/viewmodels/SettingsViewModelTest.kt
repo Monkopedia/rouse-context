@@ -4,6 +4,8 @@ import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import com.rousecontext.api.CrashReporter
+import com.rousecontext.api.IntegrationStateStore
+import com.rousecontext.api.McpIntegration
 import com.rousecontext.api.NotificationSettings
 import com.rousecontext.api.NotificationSettingsProvider
 import com.rousecontext.api.PostSessionMode
@@ -18,11 +20,17 @@ import com.rousecontext.app.ui.screens.PostSessionModeOption
 import com.rousecontext.app.ui.screens.SecurityCheckIntervalOption
 import com.rousecontext.app.ui.screens.SettingsState
 import com.rousecontext.app.ui.screens.TrustOverallStatus
+import com.rousecontext.tunnel.CertificateStore
+import com.rousecontext.tunnel.RelayApiClient
+import com.rousecontext.tunnel.RelayApiResult
+import com.rousecontext.tunnel.UpdateSecretsResponse
 import com.rousecontext.work.SecurityCheckPreferences
 import com.rousecontext.work.SecurityCheckWorker
+import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -781,6 +790,52 @@ class SettingsViewModelTest {
             flowOf(AppStatePreferences.DEFAULT_INTERVAL_HOURS)
     }
 
+    @Test
+    fun `rotateSecret forces rotation of enabled integrations only and stores new secrets`() =
+        runTest(testDispatcher) {
+            val integrations = listOf("health", "notifications", "usage").map { integrationId ->
+                mockk<McpIntegration> { every { id } returns integrationId }
+            }
+            val stateStore = mockk<IntegrationStateStore> {
+                coEvery { isUserEnabled("health") } returns true
+                coEvery { isUserEnabled("notifications") } returns false
+                coEvery { isUserEnabled("usage") } returns true
+            }
+            val newSecrets = mapOf("health" to "fresh-health", "usage" to "fresh-usage")
+            val relayApiClient = mockk<RelayApiClient> {
+                coEvery { updateSecrets(any(), any(), any()) } returns
+                    RelayApiResult.Success(
+                        UpdateSecretsResponse(success = true, secrets = newSecrets)
+                    )
+            }
+            val certStore = mockk<CertificateStore> {
+                coEvery { getSubdomain() } returns "cool-penguin"
+                coEvery { storeIntegrationSecrets(any()) } just Runs
+            }
+            val vm = SettingsViewModel(
+                notificationSettingsProvider = mockk(relaxed = true),
+                themePreference = mockk {
+                    every { themeMode } returns MutableStateFlow(ThemeMode.AUTO)
+                },
+                relayApiClient = relayApiClient,
+                certStore = certStore,
+                integrations = integrations,
+                integrationStateStore = stateStore
+            )
+
+            vm.rotateSecret()
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) {
+                relayApiClient.updateSecrets(
+                    "cool-penguin",
+                    listOf("health", "usage"),
+                    rotateAll = true
+                )
+            }
+            coVerify(exactly = 1) { certStore.storeIntegrationSecrets(newSecrets) }
+        }
+
     private fun createViewModel(
         mode: PostSessionMode,
         securityPrefs: SecurityCheckPreferences? = null,
@@ -837,7 +892,8 @@ class SettingsViewModelTest {
             spuriousWakesFlow = spuriousWakesFlow,
             canIgnoreDailyLimit = canIgnoreDailyLimit,
             crashReportingPreference = crashReportingPreference,
-            applySecurityCheckSchedule = applySchedule
+            applySecurityCheckSchedule = applySchedule,
+            integrationStateStore = mockk(relaxed = true)
         )
     }
 }

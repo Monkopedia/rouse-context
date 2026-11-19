@@ -194,7 +194,7 @@
     <string name="screen_settings_section_security">Security</string>
     <string name="screen_settings_label_check_interval">Check interval</string>
     <string name="screen_settings_generate_new_address">Generate new address</string>
-    <string name="screen_settings_rotate_changes_immediately">Changes take effect immediately</string>
+    <string name="screen_settings_rotate_subtitle">Gives every integration a new URL. Old URLs stop working; add the new ones to your AI clients again.</string>
     <string name="screen_settings_rotate_button">Rotate</string>
     <string name="screen_settings_battery_optimization_title">Battery optimization</string>
     <string name="screen_settings_battery_optimization_subtitle">Disable to ensure reliable wake-ups.</string>
