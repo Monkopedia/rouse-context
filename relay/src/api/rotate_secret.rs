@@ -23,6 +23,14 @@
 //!   treats its local store as a server-delivered mirror and replaces it
 //!   wholesale.
 //!
+//! * `rotate_all: true` (optional, default false) forces a FRESH secret for
+//!   every requested integration instead of preserving existing ones. This
+//!   backs the app's "Generate new address" action: every previous URL
+//!   stops working. Replaced secrets go to `stale_secrets` (rejected
+//!   silently, no wake, throttle-exempt) and the fresh mints exclude every
+//!   former secret (#822). Absent (older clients) keeps the preserve
+//!   behaviour above.
+//!
 //! Transitional behavior: a legacy device registered before the
 //! `integration_secrets` field existed will hit this handler with an empty
 //! map. Every integration in the request will look "missing" and get a new
@@ -56,6 +64,11 @@ pub struct RotateSecretRequest {
     /// An empty list is valid and invalidates every active per-integration
     /// URL for this device.
     pub integrations: Vec<String>,
+    /// Forced rotation: mint a fresh secret for EVERY requested integration,
+    /// even ones that already have a secret. Defaults to false so clients
+    /// that do not send it keep the preserve behaviour.
+    #[serde(default)]
+    pub rotate_all: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,7 +150,8 @@ pub async fn handle_rotate_secret(
     {
         let mut rng = rand::thread_rng();
         for integration_id in &req.integrations {
-            if let Some(existing) = previous.get(integration_id) {
+            let existing = previous.get(integration_id).filter(|_| !req.rotate_all);
+            if let Some(existing) = existing {
                 replaced.insert(integration_id.clone(), existing.clone());
             } else {
                 // Fresh mint. Exclude every former secret so the re-mint can
@@ -210,6 +224,7 @@ pub async fn handle_rotate_secret(
     info!(
         subdomain = %subdomain,
         requested = ?req.integrations,
+        rotate_all = req.rotate_all,
         newly_generated = ?newly_generated,
         removed = ?removed,
         "Secrets replaced (replace-wholesale, #285)"

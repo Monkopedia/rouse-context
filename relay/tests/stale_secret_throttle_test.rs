@@ -81,6 +81,20 @@ impl Harness {
 
     /// Call the real `/rotate-secret` handler; returns the new secrets map.
     async fn rotate(&self, integrations: &[&str]) -> HashMap<String, String> {
+        self.rotate_body(serde_json::json!({ "integrations": integrations }))
+            .await
+    }
+
+    /// Forced rotation: `rotate_all: true` replaces every requested secret.
+    async fn rotate_all(&self, integrations: &[&str]) -> HashMap<String, String> {
+        self.rotate_body(serde_json::json!({
+            "integrations": integrations,
+            "rotate_all": true,
+        }))
+        .await
+    }
+
+    async fn rotate_body(&self, body: serde_json::Value) -> HashMap<String, String> {
         let app = build_router(self.state.clone()).layer(axum::Extension(DeviceIdentity {
             subdomain: SUB.to_string(),
         }));
@@ -88,9 +102,7 @@ impl Harness {
             .method("POST")
             .uri("/rotate-secret")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(
-                serde_json::json!({ "integrations": integrations }).to_string(),
-            ))
+            .body(axum::body::Body::from(body.to_string()))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app, req).await.unwrap();
         assert_eq!(resp.status(), 200);
@@ -396,5 +408,150 @@ async fn reenable_never_remints_any_former_secret() {
             !former.contains(beta),
             "re-enable re-minted former secret {beta:?}"
         );
+    }
+}
+
+/// "Generate new address": `rotate_all: true` gives every requested
+/// integration a fresh secret, and each replaced secret becomes stale.
+#[tokio::test]
+async fn rotate_all_replaces_every_secret_and_marks_old_ones_stale() {
+    let h = Harness::new();
+    let s = h.rotate_all(&["alpha", "beta"]).await;
+    assert_eq!(s.len(), 2);
+    assert_ne!(s["alpha"], A, "alpha must get a new secret");
+    assert_ne!(s["beta"], B, "beta must get a new secret");
+    assert!(s["alpha"].ends_with("-alpha"));
+    assert!(s["beta"].ends_with("-beta"));
+
+    let rec = h.stored();
+    assert_eq!(rec.integration_secrets, s);
+    assert!(!rec.valid_secrets.contains(&A.to_string()));
+    assert!(!rec.valid_secrets.contains(&B.to_string()));
+    assert!(rec.stale_secrets.contains(&A.to_string()));
+    assert!(rec.stale_secrets.contains(&B.to_string()));
+    assert!(rec.retired_secrets.is_empty());
+}
+
+async fn old_urls_dead_after_rotate_all(
+    h: &Harness,
+    ctx: &PassthroughContext,
+    new: &HashMap<String, String>,
+) {
+    for i in 0..20 {
+        for old in [A, B] {
+            let r = h.attempt(ctx, old).await;
+            assert!(
+                matches!(r, Err(PassthroughError::InvalidSecret)),
+                "old URL {old} attempt {i} must be rejected, got {r:?}"
+            );
+        }
+    }
+    assert_eq!(h.pushes(), 0, "an old URL never wakes the device");
+    assert!(
+        !h.throttle.is_blocked(h.client, SUB),
+        "old URLs are throttle-exempt"
+    );
+    for id in ["alpha", "beta"] {
+        let r = h.attempt(ctx, &new[id]).await;
+        assert!(
+            matches!(r, Err(PassthroughError::WakeupTimeout)),
+            "new {id} URL is admitted, got {r:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn rotate_all_old_urls_rejected_without_wake_or_throttle() {
+    let h = Harness::new();
+    let new = h.rotate_all(&["alpha", "beta"]).await;
+    old_urls_dead_after_rotate_all(&h, &h.ctx(), &new).await;
+}
+
+#[tokio::test]
+async fn rotate_all_old_urls_rejected_without_wake_or_throttle_after_restart() {
+    let h = Harness::new();
+    let new = h.rotate_all(&["alpha", "beta"]).await;
+    old_urls_dead_after_rotate_all(&h, &h.cold_ctx(), &new).await;
+}
+
+/// `rotate_all: false` is today's preserve behaviour (absent is covered by
+/// the existing api_rotate_secret tests).
+#[tokio::test]
+async fn rotate_all_false_preserves_existing_secrets() {
+    let h = Harness::new();
+    let s = h
+        .rotate_body(serde_json::json!({
+            "integrations": ["alpha", "beta"],
+            "rotate_all": false,
+        }))
+        .await;
+    assert_eq!(s["alpha"], A);
+    assert_eq!(s["beta"], B);
+    assert!(h.stored().stale_secrets.is_empty());
+}
+
+/// Rotate-all only covers the requested set: an integration left out is
+/// dropped (disabled) exactly as without the flag.
+#[tokio::test]
+async fn rotate_all_drops_unrequested_integrations() {
+    let h = Harness::new();
+    let s = h.rotate_all(&["alpha"]).await;
+    assert_eq!(s.len(), 1);
+    assert_ne!(s["alpha"], A);
+    let rec = h.stored();
+    assert!(!rec.integration_secrets.contains_key("beta"));
+    assert_eq!(rec.retired_secrets.get("beta").map(String::as_str), Some(B));
+    assert!(rec.stale_secrets.contains(&A.to_string()));
+    assert!(rec.stale_secrets.contains(&B.to_string()));
+}
+
+/// A forced rotation never re-mints any former secret: not the current one,
+/// not a stale one, not the retired one (#822 exclusion applies).
+#[tokio::test]
+async fn rotate_all_never_remints_any_former_secret() {
+    use rouse_relay::words::adjectives::ADJECTIVES;
+    let former: Vec<String> = ADJECTIVES
+        .iter()
+        .take(STALE_SECRETS_MAX + 2)
+        .map(|a| format!("{a}-beta"))
+        .collect();
+    let (current, rest) = former.split_last().unwrap();
+    let (retired, stale) = rest.split_last().unwrap();
+    let h = Harness::new();
+    for _ in 0..300 {
+        let mut rec = device();
+        rec.valid_secrets = vec![A.to_string(), current.clone()];
+        rec.integration_secrets = HashMap::from([
+            ("alpha".to_string(), A.to_string()),
+            ("beta".to_string(), current.clone()),
+        ]);
+        rec.retired_secrets = HashMap::from([("gamma".to_string(), retired.clone())]);
+        rec.stale_secrets = stale.to_vec();
+        h.firestore
+            .devices
+            .lock()
+            .unwrap()
+            .insert(SUB.to_string(), rec);
+        let minted = h.rotate_all(&["alpha", "beta"]).await;
+        assert_ne!(minted["alpha"], A);
+        let beta = &minted["beta"];
+        assert!(
+            !former.contains(beta),
+            "rotate_all re-minted former secret {beta:?}"
+        );
+    }
+}
+
+/// Rotating everything repeatedly keeps the stale list within its cap.
+#[tokio::test]
+async fn rotate_all_stale_list_stays_bounded() {
+    let h = Harness::new();
+    for _ in 0..(STALE_SECRETS_MAX + 4) {
+        h.rotate_all(&["alpha", "beta"]).await;
+    }
+    let rec = h.stored();
+    assert_eq!(rec.stale_secrets.len(), STALE_SECRETS_MAX);
+    for live in rec.valid_secrets.iter() {
+        assert!(!rec.stale_secrets.contains(live));
     }
 }
