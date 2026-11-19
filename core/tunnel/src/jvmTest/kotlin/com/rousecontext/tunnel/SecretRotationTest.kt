@@ -52,6 +52,23 @@ class SecretRotationTest {
     }
 
     @Test
+    fun `update secrets sends rotate_all only when asked`(): Unit = runBlocking {
+        val captured = mutableListOf<UpdateSecretsRequest>()
+        mockServer.updateSecretsHandler = { request ->
+            captured += request
+            MockUpdateSecretsResponse(
+                status = 200,
+                body = UpdateSecretsResponse(success = true, secrets = emptyMap())
+            )
+        }
+
+        client.updateSecrets("test-sub", listOf("health"))
+        client.updateSecrets("test-sub", listOf("health"), rotateAll = true)
+
+        assertEquals(listOf(false, true), captured.map { it.rotateAll })
+    }
+
+    @Test
     fun `update secrets stores relay-returned secrets locally on success`(): Unit = runBlocking {
         store.storeIntegrationSecrets(mapOf("health" to "old-health"))
         assertEquals("old-health", store.getSecretForIntegration("health"))

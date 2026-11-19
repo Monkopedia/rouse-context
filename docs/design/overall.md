@@ -20,7 +20,7 @@ Each device is a unique anonymous identity. No user accounts, no sign-in, no cro
 - **Subdomain** — assigned once at onboarding, tied to Firebase UID + public key.
 - **Uninstall+reinstall = new device.** Old subdomain expires after TTL.
 - **Re-registration** (same Firebase UID, e.g. app data cleared): requires both Firebase token AND signature with original private key. If either is lost, device gets new subdomain. UI should explain this clearly.
-- **Subdomain rotation**: user can request a new subdomain in Settings (once per 30 days). Old subdomain invalidated immediately, all client tokens revoked.
+- **Address rotation**: "Generate new address" in Settings gives every enabled integration a new per-integration secret, so every integration URL changes. The subdomain stays the same. Old URLs stop working immediately; the user re-adds the new URLs to their AI clients. See [Address rotation](#address-rotation).
 
 ### Cryptography
 
@@ -156,14 +156,14 @@ This defeats targeted interception attacks where an adversary filters the self-c
 **CAA records**
 The production `rousecontext.com` DNS zone should have a CAA record restricting issuance to a single CA. The upstream `rousecontext.com` zone uses Google Trust Services, so it publishes `0 issue "pki.goog"`; self-hosters using Let's Encrypt would use `0 issue "letsencrypt.org"` instead. This prevents other CAs from issuing for the domain even if credentials are compromised. Document in deployment runbook.
 
-### Subdomain rotation
+### Address rotation
 
-1. User taps "Generate new address" in Settings
-2. App shows confirmation: "All connected clients will lose access. You'll need to re-add the new URL. You can only do this once every 30 days."
-3. App calls `POST /register` with `"force_new": true` + Firebase token + signature
-4. Relay verifies identity, assigns new subdomain, performs ACME, invalidates old subdomain
-5. All client tokens revoked
-6. App shows new subdomain + URLs
+1. User taps "Rotate" on "Generate new address" in Settings. The row's subtitle says every integration gets a new URL, old URLs stop working, and the new ones must be re-added to AI clients. There is no confirmation dialog.
+2. App calls `POST /rotate-secret` (mTLS) with the currently enabled integration ids and `"rotate_all": true`. Disabled integrations are not sent, so they stay without a secret.
+3. Relay mints a fresh `{adjective}-{integration_id}` secret for each id, never reusing a former secret, and moves each replaced secret to `stale_secrets` (rejected with no wake, exempt from the wrong-secret throttle).
+4. App stores the returned secrets; the integration URLs shown in the app change.
+
+The subdomain, device cert and OAuth tokens are untouched. A full subdomain change (`POST /register` with `force_new`) still exists on the relay, but the app does not use it for this action.
 
 ### FCM payload format
 
@@ -229,7 +229,7 @@ Polling responses: `authorization_pending` (keep polling), `slow_down` (increase
 - Tokens scoped to integration — a token issued on the Health host can't access the Notifications host
 - User can view and revoke tokens per-integration in app UI
 - Token verification: device checks Bearer header on every request, scoped to the integration id derived from the request's `Host` header
-- All tokens revoked on subdomain rotation
+- Tokens are not revoked by address rotation; the old URLs simply stop routing
 
 ### Where This Lives
 
@@ -537,7 +537,7 @@ Abandoned subdomains reclaimed **180 days** after cert expiry with no renewal at
 
 ### Rotation
 
-User can request new subdomain once per 30 days. Old subdomain invalidated immediately. All client tokens revoked.
+The relay supports a new subdomain via `POST /register` with `force_new` (cooldown applies), but the app's "Generate new address" does not use it: it rotates the per-integration secrets instead. See [Address rotation](#address-rotation).
 
 ## Test coverage
 

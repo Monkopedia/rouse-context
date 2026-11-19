@@ -195,7 +195,8 @@ class RelayApiClient(
      */
     suspend fun updateSecrets(
         subdomain: String,
-        integrationIds: List<String>
+        integrationIds: List<String>,
+        rotateAll: Boolean = false
     ): RelayApiResult<UpdateSecretsResponse> = executeRequest {
         // subdomain is intentionally ignored for transport — the relay uses
         // the mTLS client cert CN. Passed in for caller logging only.
@@ -203,7 +204,7 @@ class RelayApiClient(
         val localSubdomain = subdomain
         httpClient.post("$baseUrl/rotate-secret") {
             contentType(ContentType.Application.Json)
-            setBody(UpdateSecretsRequest(integrations = integrationIds))
+            setBody(UpdateSecretsRequest(integrations = integrationIds, rotateAll = rotateAll))
         }
     }
 
@@ -373,7 +374,16 @@ data class RegisterResponse(
 )
 
 @Serializable
-data class UpdateSecretsRequest(@SerialName("integrations") val integrations: List<String>)
+data class UpdateSecretsRequest(
+    @SerialName("integrations") val integrations: List<String>,
+    /**
+     * Forced rotation: the relay mints a fresh secret for every id in
+     * [integrations] instead of preserving existing ones, so every previous
+     * URL stops working. Requires a relay that understands the field; an
+     * older relay ignores it and preserves.
+     */
+    @SerialName("rotate_all") val rotateAll: Boolean = false
+)
 
 @Serializable
 data class UpdateSecretsResponse(

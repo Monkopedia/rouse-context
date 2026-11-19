@@ -14,6 +14,42 @@ Newest entries on top.
 
 ---
 
+## 2026-11-19 — "Generate new address" rotates every integration secret
+
+**Decision:** Settings → "Generate new address" now gives every enabled
+integration a fresh per-integration secret, so every integration URL changes
+and the old URLs stop working immediately. The subdomain stays the same. The
+row's subtitle changes from "Changes take effect immediately" to "Gives every
+integration a new URL. Old URLs stop working; add the new ones to your AI
+clients again." Same screen, same position, no confirmation dialog added.
+Disabled integrations are no longer sent on this call or on the setup-time
+push, so they stay without a secret on the relay.
+
+**Approved by:** Jason (owner), in session 2026-11-19 — option 1:
+per-integration secret rotation, not subdomain rotation.
+
+**Context:** "Generate new address" did not rotate secrets. It called
+`/rotate-secret`, which preserves every existing secret, so no URL changed
+while the UI said changes take effect immediately. It also sent disabled
+integrations, which re-minted secrets for them on the relay.
+
+**Alternatives considered:**
+- **Subdomain rotation (`/register` with `force_new`)** — what the design
+  docs described. Needs a new cert per device (ACME issuance), carries a
+  30-day cooldown, and is a much larger change. Not chosen.
+- **Keep the preserve behaviour and fix only the copy** — leaves a user with
+  no way to replace an integration URL short of disabling the integration.
+
+**Trade-off accepted:** every AI client must be re-added after a rotate,
+including clients whose URL was never exposed. The subdomain itself is not
+changed, so it remains a stable per-device identifier.
+
+**Relevant:** relay `/rotate-secret` `rotate_all` field; the relay must deploy
+before an app release that sends it (an older relay ignores the field and
+preserves secrets).
+
+---
+
 ## 2026-09-09 — `Never` added to the security check interval
 
 **Decision:** `SecurityCheckIntervalOption` gains a fourth value, `Never`,

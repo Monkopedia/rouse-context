@@ -436,7 +436,7 @@ fun SettingsContent(
                         Text(
                             text = state.rotationCooldownMessage
                                 ?: stringResource(
-                                    R.string.screen_settings_rotate_changes_immediately
+                                    R.string.screen_settings_rotate_subtitle
                                 ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

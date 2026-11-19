@@ -265,9 +265,10 @@ class IntegrationSetupViewModel(
     /**
      * Pushes the current integration list to the relay so it can provision
      * `{adjective}-{integrationId}` secrets for SNI routing. The relay is the
-     * sole source of truth for secret values: it regenerates the full secret
-     * set for [integrationIds] on every call, returns the mapping, and the
-     * device persists what the relay sent back.
+     * sole source of truth for secret values: it keeps existing secrets,
+     * mints secrets for newly enabled ids, drops ids not sent, returns the
+     * mapping, and the device persists what the relay sent back. Only the
+     * enabled subset of [integrationIds] is sent.
      *
      * Retries transient failures with exponential backoff.
      */
@@ -284,9 +285,16 @@ class IntegrationSetupViewModel(
             return
         }
 
+        // Only enabled integrations (plus the one being set up). Sending a
+        // disabled id would make the relay mint a secret for it and undo the
+        // disable relay-side. Matches IntegrationSecretsSynchronizer.
+        val enabledIds = integrationIds.filter {
+            it == integrationId || stateStore.isUserEnabled(it)
+        }
+
         var backoffMs = INITIAL_BACKOFF_MS
         repeat(SECRETS_PUSH_ATTEMPTS) { attempt ->
-            when (val result = relayApiClient.updateSecrets(subdomain, integrationIds)) {
+            when (val result = relayApiClient.updateSecrets(subdomain, enabledIds)) {
                 is RelayApiResult.Success -> {
                     val newSecrets = result.data.secrets
                     // Deliberately NOT preceded by a `catch (e: CancellationException)`

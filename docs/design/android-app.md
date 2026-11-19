@@ -125,7 +125,7 @@ Single Activity, Compose Navigation. All routes are defined as constants in `Rou
 | `HOME` | `home` | Main dashboard. |
 | `AUDIT` | `audit?provider={provider}&scrollToCallId={scrollToCallId}` | Audit list, optionally filtered + scrolled. |
 | `AUDIT_DETAIL` | `audit_detail/{entryId}` | Single audit row detail. |
-| `SETTINGS` | `settings` | App settings, trust status, subdomain rotation. |
+| `SETTINGS` | `settings` | App settings, trust status, address rotation. |
 | `ADD_INTEGRATION` | `add_integration` | Picker for integrations not yet enabled. |
 | `INTEGRATION_MANAGE` | `integration/{integrationId}` | Per-integration manage screen: URL, recent activity, authorized clients, disable. |
 | `INTEGRATION_SETUP` | `integration_setup/{integrationId}` | Cert/wiring spinner shown after a fresh enable, before the integration-specific setup. |
@@ -391,9 +391,9 @@ Keys as they appear in the `*PreferencesKey` declarations, grouped by owning sto
 
 Also `ThemePreference` (`theme_mode`), `CertRenewalPreferences` (`last_attempt_time`, `last_outcome`), `SpuriousWakePreferences` (`total_wake_count`, `spurious_wake_count_total`, `spurious_wake_timestamps`), and per-integration keys under `IntegrationSettingsStore` / `DataStoreIntegrationStateStore`.
 
-### Subdomain rotation
+### Address rotation
 
-In Settings: "Generate new address" button. Confirmation warns "All connected clients will lose access. Once per 30 days." On confirm, `POST /register` with `force_new: true`; old subdomain invalidated, all tokens revoked, certs re-provisioned, UI updates.
+In Settings: "Generate new address" with a "Rotate" button and no confirmation dialog. The subtitle says every integration gets a new URL, old URLs stop working, and the new ones must be re-added to AI clients. `SettingsViewModel.rotateSecret()` calls `RelayApiClient.updateSecrets(subdomain, enabledIds, rotateAll = true)` → `POST /rotate-secret` with only the enabled integration ids; the relay replaces every one of their secrets and the app stores the returned map. The subdomain, certs and tokens are unchanged. Every other `/rotate-secret` push (`IntegrationSetupViewModel`, `IntegrationSecretsSynchronizer`) sends only enabled ids without `rotate_all`, so existing URLs are preserved.
 
 ### ACME rate-limit UX
 

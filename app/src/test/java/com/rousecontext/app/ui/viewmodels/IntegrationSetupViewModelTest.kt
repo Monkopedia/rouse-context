@@ -718,4 +718,52 @@ class IntegrationSetupViewModelTest {
         assertEquals(IntegrationSetupState.Complete, vm.state.value)
         assertEquals(2, attempt)
     }
+
+    @Test
+    fun `updateSecrets sends only enabled integrations, never disabled ones`() =
+        runTest(testDispatcher) {
+            // "notifications" is configured but disabled. Sending it would make
+            // the relay mint a secret for it and undo the disable relay-side.
+            val stateStore = mockk<IntegrationStateStore>(relaxed = true) {
+                coEvery { isUserEnabled(any()) } returns false
+                coEvery { isUserEnabled("health") } returns true
+                coEvery { isUserEnabled("usage") } returns true
+            }
+            val certProvisioningFlow = mockk<CertProvisioningFlow> {
+                coEvery { execute(any<DeviceCredential>()) } returns
+                    CertProvisioningResult.AlreadyProvisioned
+            }
+            val capturedIds = slot<List<String>>()
+            val relayApiClient = mockk<RelayApiClient> {
+                coEvery { updateSecrets(any(), capture(capturedIds)) } returns
+                    RelayApiResult.Success(
+                        UpdateSecretsResponse(
+                            success = true,
+                            secrets = mapOf("health" to "a-health", "usage" to "b-usage")
+                        )
+                    )
+            }
+            val certStore = mockk<CertificateStore> {
+                coEvery { getSubdomain() } returns "cool-penguin"
+                coEvery { getIntegrationSecrets() } returns null
+                coEvery { storeIntegrationSecrets(any()) } just Runs
+            }
+
+            val vm = IntegrationSetupViewModel(
+                stateStore = stateStore,
+                certProvisioningFlow = certProvisioningFlow,
+                lazyWebSocketFactory = mockk(relaxed = true),
+                registrationStatus = DeviceRegistrationStatus(initiallyRegistered = true),
+                relayApiClient = relayApiClient,
+                certStore = certStore,
+                integrationIds = listOf("health", "notifications", "usage"),
+                credentialProvider = { DeviceCredential.Firebase("test-firebase-token") }
+            )
+
+            vm.startSetup("usage")
+            advanceUntilIdle()
+
+            assertEquals(IntegrationSetupState.Complete, vm.state.value)
+            assertEquals(listOf("health", "usage"), capturedIds.captured)
+        }
 }
