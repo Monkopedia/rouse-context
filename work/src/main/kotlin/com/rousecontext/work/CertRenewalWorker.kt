@@ -111,9 +111,10 @@ class CertRenewalFlowRenewer(private val flow: CertRenewalFlow) : CertRenewer {
  * - Cert already expired: Firebase-signature renew, if [authProvider] can supply credentials.
  *
  * On [RenewalResult.RateLimited], the worker invokes [rescheduleWithDelay] with the relay's
- * `retry_after` and returns [Result.retry]; callers inject a callback that enqueues a delayed
- * one-time work copy. Other recoverable errors (network / retry-after-absent rate-limit) also
- * return [Result.retry]; terminal errors (mismatched CN, key generation failure) are recorded
+ * `retry_after` (or [DEFAULT_RATE_LIMIT_BACKOFF_SECONDS]) and returns [Result.success], so the
+ * delayed one-time work is the only retry and WorkManager's backoff never re-hits the relay
+ * inside the window (issue #831). Other recoverable errors (network, relay error) return
+ * [Result.retry]; terminal errors (mismatched CN, key generation failure) are recorded
  * and return [Result.success] since the next periodic tick will pick them up.
  *
  * All collaborators can be injected via setters for tests. In production they are resolved
@@ -151,7 +152,11 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
     var clock: () -> Long = { System.currentTimeMillis() }
     var renewalWindowDays: Long = DEFAULT_RENEWAL_WINDOW_DAYS
     var rescheduleWithDelay: (Long) -> Unit = { delaySeconds ->
-        CertRenewalScheduler.enqueueDelayed(applicationContext, delaySeconds)
+        CertRenewalScheduler.enqueueDelayed(
+            applicationContext,
+            delaySeconds,
+            replacePending = tags.contains(CertRenewalScheduler.TAG_DELAYED)
+        )
     }
 
     override suspend fun doWork(): Result {
@@ -217,7 +222,9 @@ class CertRenewalWorker(context: Context, params: WorkerParameters) :
             Log.w(TAG, "Cert renewal rate-limited, retry after ${retryAfter}s")
             recordLastAttempt(Outcome.RATE_LIMITED)
             rescheduleWithDelay(retryAfter)
-            Result.retry()
+            // The delayed request is the only retry (issue #831): returning retry() would
+            // fire WorkManager's 15-minute backoff inside the server's retry_after window.
+            Result.success()
         }
         is RenewalResult.RelayError -> {
             Log.w(TAG, "Cert renewal relay error: ${result.statusCode} ${result.message}")

@@ -2,8 +2,13 @@ package com.rousecontext.work
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.Configuration
 import androidx.work.ListenableWorker.Result
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.testing.SynchronousExecutor
 import androidx.work.testing.TestListenableWorkerBuilder
+import androidx.work.testing.WorkManagerTestInitHelper
 import com.rousecontext.tunnel.CertificateStore
 import com.rousecontext.tunnel.RenewalResult
 import kotlinx.coroutines.runBlocking
@@ -95,27 +100,100 @@ class CertRenewalWorkerTest {
         }
 
     @Test
-    fun `rate-limited result reschedules with retryAfterSeconds and returns retry`() = runBlocking {
-        val now = 1_000_000L
-        val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
-        val renewer = FakeRenewer(
-            mtlsResult = RenewalResult.RateLimited(retryAfterSeconds = 90L)
+    fun `rate-limited result reschedules with retryAfterSeconds and returns success`() =
+        runBlocking {
+            val now = 1_000_000L
+            val store = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+            val renewer = FakeRenewer(
+                mtlsResult = RenewalResult.RateLimited(retryAfterSeconds = 90L)
+            )
+            val auth = RecordingAuthProvider(null)
+            var rescheduleDelay: Long? = null
+            val worker = buildWorker(
+                renewer = renewer,
+                store = store,
+                auth = auth,
+                clock = { now },
+                onReschedule = { rescheduleDelay = it }
+            )
+
+            val result = worker.doWork()
+
+            // Issue #831: the delayed one-time work is the only retry. Returning
+            // retry() here would fire WorkManager's 15-minute backoff inside the
+            // server's retry_after window.
+            assertEquals(Result.success(), result)
+            assertTrue(renewer.mtlsAttempted)
+            assertEquals(90L, rescheduleDelay)
+        }
+
+    @Test
+    fun `rate-limited run enqueues exactly one delayed renewal at retry_after`() = runBlocking {
+        val workManager = initTestWorkManager()
+        val before = System.currentTimeMillis()
+
+        val result = runRateLimited(retryAfterSeconds = 90L)
+
+        assertEquals(
+            "Rate-limited run must not ask WorkManager for a backoff retry",
+            Result.success(),
+            result
         )
-        val auth = RecordingAuthProvider(null)
-        var rescheduleDelay: Long? = null
-        val worker = buildWorker(
-            renewer = renewer,
-            store = store,
-            auth = auth,
-            clock = { now },
-            onReschedule = { rescheduleDelay = it }
+        val pending = pendingDelayed(workManager)
+        assertEquals("Exactly one delayed renewal must be pending", 1, pending.size)
+        val scheduledAt = pending.single().nextScheduleTimeMillis
+        assertTrue(
+            "Delayed renewal must fire at ~retry_after (was ${scheduledAt - before}ms)",
+            scheduledAt in (before + 90_000L)..(System.currentTimeMillis() + 90_000L)
+        )
+    }
+
+    @Test
+    fun `second rate-limited run does not stack or postpone the pending delayed renewal`() =
+        runBlocking {
+            val workManager = initTestWorkManager()
+            val before = System.currentTimeMillis()
+
+            runRateLimited(retryAfterSeconds = 90L)
+            val first = pendingDelayed(workManager).single()
+            val second = runRateLimited(retryAfterSeconds = 3_600L)
+
+            assertEquals(Result.success(), second)
+            val pending = pendingDelayed(workManager)
+            assertEquals("Delayed renewals must not stack", 1, pending.size)
+            assertEquals(
+                "The earlier, correctly timed delayed renewal must be kept",
+                first.id,
+                pending.single().id
+            )
+            assertTrue(
+                "Delayed renewal must not be pushed past the first retry_after",
+                pending.single().nextScheduleTimeMillis <=
+                    System.currentTimeMillis() + 90_000L &&
+                    pending.single().nextScheduleTimeMillis >= before + 90_000L
+            )
+        }
+
+    @Test
+    fun `rate-limited delayed run reschedules itself at the new retry_after`() = runBlocking {
+        val workManager = initTestWorkManager()
+        CertRenewalScheduler.enqueueDelayed(context, delaySeconds = 10L)
+        val stale = pendingDelayed(workManager).single()
+        val before = System.currentTimeMillis()
+
+        val result = runRateLimited(
+            retryAfterSeconds = 600L,
+            tags = setOf(CertRenewalScheduler.TAG_DELAYED)
         )
 
-        val result = worker.doWork()
-
-        assertEquals(Result.retry(), result)
-        assertTrue(renewer.mtlsAttempted)
-        assertEquals(90L, rescheduleDelay)
+        assertEquals(Result.success(), result)
+        val pending = pendingDelayed(workManager)
+        assertEquals("Delayed renewals must not stack", 1, pending.size)
+        assertTrue("Delayed run must replace its own slot", pending.single().id != stale.id)
+        assertTrue(
+            "Replacement must honour the new retry_after",
+            pending.single().nextScheduleTimeMillis >= before + 600_000L
+        )
     }
 
     @Test
@@ -272,6 +350,40 @@ class CertRenewalWorkerTest {
 
     private fun readLastOutcome(): String? = kotlinx.coroutines.runBlocking {
         renewalPrefs.lastOutcome()
+    }
+
+    private fun initTestWorkManager(): WorkManager {
+        val config = Configuration.Builder()
+            .setExecutor(SynchronousExecutor())
+            .setTaskExecutor(SynchronousExecutor())
+            .build()
+        WorkManagerTestInitHelper.initializeTestWorkManager(context, config)
+        return WorkManager.getInstance(context)
+    }
+
+    private fun pendingDelayed(workManager: WorkManager): List<WorkInfo> = workManager
+        .getWorkInfosForUniqueWork(CertRenewalWorker.WORK_NAME_DELAYED)
+        .get()
+        .filter { it.state == WorkInfo.State.ENQUEUED }
+
+    /** Runs a worker wired to the real [CertRenewalScheduler] against a rate-limited renewer. */
+    private suspend fun runRateLimited(
+        retryAfterSeconds: Long,
+        tags: Set<String> = emptySet()
+    ): Result {
+        val now = System.currentTimeMillis()
+        val worker = TestListenableWorkerBuilder<CertRenewalWorker>(context)
+            .setTags(tags.toList())
+            .build()
+        worker.renewer = FakeRenewer(
+            mtlsResult = RenewalResult.RateLimited(retryAfterSeconds = retryAfterSeconds)
+        )
+        worker.certificateStore = FakeCertificateStore(expiry = now + 5 * MS_PER_DAY)
+        worker.authProvider = RecordingAuthProvider(null)
+        worker.baseDomain = TEST_BASE_DOMAIN
+        worker.clock = { now }
+        worker.preferences = renewalPrefs
+        return worker.doWork()
     }
 
     private fun buildWorker(

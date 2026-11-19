@@ -57,16 +57,23 @@ object CertRenewalScheduler {
 
     /**
      * Enqueue a delayed one-time renewal attempt, used when the relay rate-limits us and
-     * provides a specific `retry_after`.
+     * provides a specific `retry_after`. This delayed request is the only retry for a
+     * rate-limited run (issue #831); the worker does not also return `Result.retry()`.
+     *
+     * @param replacePending `true` only when the caller is the delayed retry itself (tagged
+     *   [TAG_DELAYED]): its slot must be replaced with the new `retry_after`. Any other
+     *   rate-limited run uses [ExistingWorkPolicy.KEEP] so it cannot postpone an earlier,
+     *   correctly timed delayed retry that is already pending.
      */
-    fun enqueueDelayed(context: Context, delaySeconds: Long) {
+    fun enqueueDelayed(context: Context, delaySeconds: Long, replacePending: Boolean = true) {
         val request = OneTimeWorkRequestBuilder<CertRenewalWorker>()
             .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
             .setConstraints(renewalConstraints())
+            .addTag(TAG_DELAYED)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             CertRenewalWorker.WORK_NAME_DELAYED,
-            ExistingWorkPolicy.REPLACE,
+            if (replacePending) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
             request
         )
     }
@@ -158,6 +165,9 @@ object CertRenewalScheduler {
      * the manual request has its own lifecycle and REPLACE semantics.
      */
     const val WORK_NAME_ONE_SHOT = "cert_renewal_one_shot"
+
+    /** Tag carried by [enqueueDelayed] requests so the worker knows it is the delayed retry. */
+    const val TAG_DELAYED = "cert_renewal_delayed_retry"
 
     /** Mirrors [CertRenewalWorker.DEFAULT_RENEWAL_WINDOW_DAYS] in millis. */
     const val DEFAULT_IMMEDIATE_THRESHOLD_MS =
