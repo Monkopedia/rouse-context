@@ -1,0 +1,10 @@
+Generate new address now really changes your URLs.
+
+Every enabled integration gets a new URL and the old ones stop working.
+Afterwards, re-add the new URLs to your AI clients.
+
+Also fixed:
+- If Health Connect is missing, the app asks you to install it instead of
+  crashing.
+- Revoke removes the AI client you tapped, even if two share a name.
+- Certificate renewal no longer retries every 15 minutes when rate-limited.
